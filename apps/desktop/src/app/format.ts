@@ -60,6 +60,7 @@ export const streamOptions = (settings: Settings): StreamOptions => ({
   bitrate: settings.bitrate,
   audio: settings.audio,
   autoDowngrade: settings.autoDowngrade,
+  hdr: settings.hevc && settings.hdr,
 })
 
 /** The settings as the picture uses them: in the Original view, every processing step is off. */
@@ -144,6 +145,7 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number): rea
     status.gpuMs > 0 ? row("GPU", gpu, `GPU ${gpu}`, status.gpuMs >= 8) : undefined,
     row("Upscaler", upscaler, upscaler),
     status.smoothActive ? row("Smooth motion", "On", "smooth motion") : undefined,
+    status.hdrActive ? row("HDR", "On", "HDR") : undefined,
     row("Lost frames", String(lost), `${String(lost)} lost frames`, lost > 0),
     errors > 0 ? row("Decode errors", String(errors), `${String(errors)} decode errors`, true) : undefined,
   ]
@@ -266,7 +268,7 @@ export const streamSummary = (settings: Settings): string =>
   [
     `${String(settings.height)}p`,
     `${String(settings.fps)} fps`,
-    settings.hevc ? "HEVC" : "H.264",
+    settings.hevc ? (settings.hdr ? "HEVC HDR" : "HEVC") : "H.264",
     settings.bitrate === 0 ? "auto bitrate" : bitrateLabel(settings.bitrate),
   ].join(" · ")
 

@@ -117,7 +117,7 @@ fn renderer_status_reports_core_state() {
         renderer_status(mock(core).handle().clone()),
         Ok(json!({
             "metalfxSupported": true, "activeMode": "bilinear", "gpuMs": 2.5, "mlSupported": true, "mlActive": true,
-            "smoothSupported": true, "smoothActive": false, "stream": {"active": true}
+            "smoothSupported": true, "smoothActive": false, "hdrActive": false, "stream": {"active": true}
         }))
     );
 }
@@ -269,7 +269,7 @@ fn ipc_contract_matches_the_ui() {
         invoke(&app, "renderer_status", json!({})),
         Ok(json!({
             "metalfxSupported": false, "activeMode": "none", "gpuMs": 0.0, "mlSupported": false, "mlActive": false,
-            "smoothSupported": false, "smoothActive": false, "stream": {"active": false}
+            "smoothSupported": false, "smoothActive": false, "hdrActive": false, "stream": {"active": false}
         }))
     );
 }

@@ -184,6 +184,7 @@ describe("streaming", () => {
         bitrate: 0,
         audio: true,
         autoDowngrade: true,
+        hdr: false,
       }, undefined)
       yield* actions.stop
       expect(core.counts.stopStream).toBe(1)

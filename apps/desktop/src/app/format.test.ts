@@ -59,7 +59,12 @@ describe("streamOptions", () => {
       bitrate: 40000,
       audio: false,
       autoDowngrade: false,
+      hdr: false,
     })
+    // HDR needs HEVC: asking for it with H.264 doesn't send it.
+    expect(streamOptions({ ...settings, hdr: true }).hdr).toBe(false)
+    expect(streamOptions({ ...defaultSettings, hdr: true }).hdr).toBe(true)
+    expect(streamSummary({ ...defaultSettings, hdr: true })).toContain("HEVC HDR")
   })
 })
 
@@ -362,8 +367,9 @@ describe("statRows", () => {
       ["Lost frames", "3", true],
       ["Decode errors", "1", true],
     ])
-    const smooth = statRows({ ...status({ width: 1280, height: 720 }), smoothActive: true }, 60, 5)
+    const smooth = statRows({ ...status({ width: 1280, height: 720 }), smoothActive: true, hdrActive: true }, 60, 5)
     expect(smooth.find((row) => row.label === "Smooth motion")?.inline).toBe("smooth motion")
+    expect(smooth.find((row) => row.label === "HDR")?.inline).toBe("HDR")
     const slow = statRows({ ...status({ width: 1280, height: 720, rttMs: 85 }), gpuMs: 9 }, 30, 5)
     expect(slow.find((row) => row.label === "Ping")).toEqual({ label: "Ping", value: "85 ms", inline: "ping 85 ms", warn: true })
     expect(slow.find((row) => row.label === "GPU")?.warn).toBe(true)

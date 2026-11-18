@@ -131,6 +131,12 @@ public func sc_ml_active() -> Bool {
     renderer?.mlActive ?? false
 }
 
+/// Whether HDR10 frames are on screen (EDR output).
+@_cdecl("sc_hdr_active")
+public func sc_hdr_active() -> Bool {
+    renderer?.hdrActive ?? false
+}
+
 /// Whether frame interpolation ("Smooth motion") can run here (macOS 26+, supported Mac).
 @_cdecl("sc_smooth_supported")
 public func sc_smooth_supported() -> Bool {

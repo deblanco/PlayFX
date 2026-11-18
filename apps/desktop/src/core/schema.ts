@@ -115,6 +115,7 @@ export const Settings = Schema.Struct({
   connection: since(ConnectionRoute, "auto"),
   /** Keeps the stream's numbers (frame rate, bitrate, ping, GPU time…) on screen while playing. */
   showStats: since(Schema.Boolean, false),
+  hdr: since(Schema.Boolean, false),
 })
 export type Settings = typeof Settings.Type
 
@@ -139,6 +140,7 @@ export const defaultSettings: Settings = {
   detailedLogs: false,
   connection: "auto",
   showStats: false,
+  hdr: false,
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).
@@ -190,6 +192,8 @@ export const StreamOptions = Schema.Struct({
   bitrate: Schema.Number,
   audio: Schema.Boolean,
   autoDowngrade: Schema.Boolean,
+  /** HDR10 (HEVC only): needs an HDR game and HDR on in the PS5's settings. */
+  hdr: Schema.Boolean,
 })
 export type StreamOptions = typeof StreamOptions.Type
 export const sameStreamOptions = Schema.toEquivalence(StreamOptions)
@@ -251,6 +255,8 @@ export const RendererStatus = Schema.Struct({
   smoothSupported: Schema.Boolean,
   /** The last stream frame was preceded by an interpolated one. */
   smoothActive: Schema.Boolean,
+  /** HDR10 frames are on screen (EDR). */
+  hdrActive: Schema.Boolean,
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

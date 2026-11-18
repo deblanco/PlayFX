@@ -82,6 +82,13 @@ static float4 catmullRom(float t) {
 
 // Decoded video (NV12) → RGBA, the input to the upscaler. Matrix, range and chroma siting come
 // from the frame (or the user's overrides); chroma is upsampled bilinearly or with Catmull-Rom.
+// SMPTE ST 2084 (PQ) EOTF: signal 0–1 → linear light 0–1 (= 0–10000 nits).
+static float3 pqToLinear(float3 e) {
+    const float m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
+    float3 p = pow(e, 1.0 / m2);
+    return pow(max(p - c1, 0.0) / (c2 - c3 * p), 1.0 / m1);
+}
+
 kernel void nv12ToRGB(texture2d<float, access::read> lumaTex [[texture(0)]],
                       texture2d<float, access::sample> chromaTex [[texture(1)]],
                       texture2d<float, access::write> out [[texture(2)]],
@@ -115,6 +122,12 @@ kernel void nv12ToRGB(texture2d<float, access::read> lumaTex [[texture(0)]],
     float3 rgb = float3(y + p.coef.x * cc.y,
                         y - p.coef.y * cc.x - p.coef.z * cc.y,
                         y + p.coef.w * cc.x);
+    if (p.chroma.w > 0.5) {
+        // HDR10: PQ → linear light, scaled so 203 nits (the HDR reference white) is 1.0 — the EDR
+        // layer shows values above 1 as brighter-than-white, up to the display's headroom.
+        out.write(float4(pqToLinear(saturate(rgb)) * (10000.0 / 203.0), 1.0), gid);
+        return;
+    }
     out.write(float4(saturate(rgb), 1.0), gid);
 }
 

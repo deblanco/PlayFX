@@ -14,6 +14,8 @@ public final class StreamSession {
         public var audio: Bool = true
         /// Let the console lower the resolution when the network can't keep up.
         public var autoDowngrade: Bool = true
+        /// HDR10 (HEVC Main10, PQ, BT.2020) when the game and the console's HDR setting allow it. PS5 + HEVC only.
+        public var hdr: Bool = false
         public init() {}
 
         /// Missing keys keep their defaults, so older hosts' JSON still decodes.
@@ -26,6 +28,7 @@ public final class StreamSession {
             bitrate = try c.decodeIfPresent(Int.self, forKey: .bitrate) ?? d.bitrate
             audio = try c.decodeIfPresent(Bool.self, forKey: .audio) ?? d.audio
             autoDowngrade = try c.decodeIfPresent(Bool.self, forKey: .autoDowngrade) ?? d.autoDowngrade
+            hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
         }
     }
 
@@ -139,7 +142,8 @@ public final class StreamSession {
         else { throw ConsoleError.message("Invalid console credentials") }
 
         let hevc = credentials.ps5 && options.hevc
-        decoder = VideoDecoder(codec: hevc ? .hevc : .h264)
+        let hdr = hevc && options.hdr
+        decoder = VideoDecoder(codec: hevc ? .hevc : .h264, tenBit: hdr)
         audio = options.audio ? AudioPlayer() : nil
 
         decoder.onFrame = { [unowned self] frame in
@@ -159,7 +163,7 @@ public final class StreamSession {
         _ = withUnsafeMutableBytes(of: &config.account_id) { account.copyBytes(to: $0) }
         config.height = Int32(options.height)
         config.fps = Int32(options.fps)
-        config.codec = Int32(hevc ? PSRP_CODEC_H265.rawValue : PSRP_CODEC_H264.rawValue)
+        config.codec = Int32(hdr ? PSRP_CODEC_H265_HDR.rawValue : hevc ? PSRP_CODEC_H265.rawValue : PSRP_CODEC_H264.rawValue)
         config.bitrate = Int32(options.bitrate)
         config.auto_downgrade = options.autoDowngrade
 

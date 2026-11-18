@@ -239,7 +239,15 @@ Work items:
   the stream down right after "Enabling Keyboard" — A/B tested back to back: flag off streams, flag on is
   closed with "Server shutting down". chiaki-ng ships it off too. Left off; revisit if libchiaki learns
   the right handshake.
-- ❌ **HDR.** `CHIAKI_CODEC_H265_HDR` isn't selectable; add HDR decode + display tone-mapping.
+- 🔶 **HDR** (built and unit-tested; live check pending — PSN wouldn't connect for a while): an **HDR**
+  switch in Settings → Stream (HEVC only) asks the PS5 for HEVC HDR10 (`CHIAKI_CODEC_H265_HDR`). VideoToolbox
+  then decodes to 10-bit (`x420`); frames tagged with the PQ curve switch the renderer to HDR: float
+  (rgba16F) textures through clean-up / MetalFX (HDR processing mode) / sharpen, the PQ curve turned into
+  light (203 nits = SDR white = 1.0) in BT.2020, and an EDR layer (`extendedLinearITUR_2020`) so highlights
+  go brighter than white on XDR / HDR displays (macOS clips beyond the display's headroom). It switches
+  back to SDR for SDR frames or the backdrop. ML upscaling and Smooth motion only take 8-bit frames, so they
+  sit out in HDR. The stats line says "HDR" while it's on. Unit test: a 1000-nit HDR10 frame renders at
+  ~4.9× SDR white. `psrp stream --hdr` for CLI checks (`/frameinfo` shows the curve).
 - 🔶 **Login PIN (console passcode) flow.** Plumbed end to end but not verified on a console that
   requires it; confirm and polish the dialog.
 

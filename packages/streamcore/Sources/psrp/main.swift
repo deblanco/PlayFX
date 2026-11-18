@@ -14,7 +14,7 @@ import StreamCore
 //   psrp consoles                           list saved consoles
 //   psrp psn-consoles                       list the PS5s on the PSN account (after account-id)
 //   psrp wake [--host IP]
-//   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--psn] [--port 7777]
+//   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--hdr] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--psn] [--port 7777]
 //        --psn connects over the internet through PSN (PS5; run `psrp account-id` first)
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
@@ -206,6 +206,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
     options.bitrate = Int(args["bitrate"] ?? "") ?? 0
     options.audio = !args.has("no-audio")
     options.autoDowngrade = !args.has("no-downgrade")
+    options.hdr = args.has("hdr")
 
     log("Connecting to \(console.nickname) at \(console.address) (\(options.height)p\(options.fps), \(options.hevc ? "HEVC" : "H.264"))…")
     // --psn: reach the console over the internet through PSN (needs `psrp account-id` first).

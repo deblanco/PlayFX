@@ -18,6 +18,7 @@ pub struct FakeCore {
     pub gpu_ms: f64,
     pub ml: (bool, bool),
     pub smooth: (bool, bool),
+    pub hdr: bool,
     pub stats: String,
     pub calls: Mutex<Vec<String>>,
 }
@@ -111,6 +112,9 @@ impl NativeCore for FakeCore {
     }
     fn ml_status(&self) -> (bool, bool) {
         self.ml
+    }
+    fn hdr_active(&self) -> bool {
+        self.hdr
     }
     fn smooth_status(&self) -> (bool, bool) {
         self.smooth

@@ -531,6 +531,17 @@ describe("settings", () => {
     await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ })) // back off
   })
 
+  it("asks for HDR only with HEVC", async () => {
+    renderApp(fakeCore())
+    const sheet = await openSettings("Stream")
+    const hdr = sheet.getByRole("switch", { name: /HDR/ })
+    await userEvent.click(hdr)
+    expect(hdr).toBeChecked()
+    await userEvent.click(sheet.getByRole("radio", { name: "H.264" }))
+    expect(sheet.getByRole("switch", { name: /HDR/ })).toBeDisabled()
+    expect(sheet.getByText("Needs the HEVC codec.")).toBeInTheDocument()
+  })
+
   it("toasts startup failures", async () => {
     renderApp(fakeCore({ rendererStatus: Effect.fail(coreError("renderer_status", "no renderer")) }))
     expect(await screen.findByText("no renderer")).toBeInTheDocument()
@@ -549,6 +560,7 @@ describe("streaming", () => {
       bitrate: 0,
       audio: true,
       autoDowngrade: true,
+      hdr: false,
     }, undefined)
     expect(screen.queryByText("Consoles")).not.toBeInTheDocument()
     expect(screen.getByText("Living Room")).toBeInTheDocument()

@@ -16,8 +16,12 @@ public final class VideoDecoder {
     private var format: CMVideoFormatDescription?
     private var parameterSets: [Data] = []
 
-    public init(codec: Codec) {
+    /// 10-bit output (HDR streams); otherwise 8-bit NV12.
+    private let tenBit: Bool
+
+    public init(codec: Codec, tenBit: Bool = false) {
         self.codec = codec
+        self.tenBit = tenBit
     }
 
     deinit {
@@ -96,7 +100,8 @@ public final class VideoDecoder {
         session = nil
 
         let attrs: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            kCVPixelBufferPixelFormatTypeKey: tenBit ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+                : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferMetalCompatibilityKey: true,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
         ]

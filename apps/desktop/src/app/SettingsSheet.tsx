@@ -71,7 +71,7 @@ const pictureKeys = [
   "chroma",
   "accurateColor",
 ] as const satisfies readonly SettingKey[]
-const streamKeys = ["height", "fps", "hevc", "bitrate", "autoDowngrade", "audio"] as const satisfies readonly SettingKey[]
+const streamKeys = ["height", "fps", "hevc", "hdr", "bitrate", "autoDowngrade", "audio"] as const satisfies readonly SettingKey[]
 
 /** `settings` with the given keys back at their defaults. */
 const reset = (settings: Settings, keys: readonly SettingKey[]): Settings =>
@@ -345,6 +345,17 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
           { value: "hevc", label: "HEVC" },
           { value: "h264", label: "H.264" },
         ]}
+      />
+      <SwitchRow
+        label="HDR"
+        description={
+          settings.hevc
+            ? "Brighter highlights and richer color in HDR games, on a Mac screen that shows HDR. Turn on HDR in the PS5's screen settings too."
+            : "Needs the HEVC codec."
+        }
+        checked={settings.hevc && settings.hdr}
+        disabled={!settings.hevc}
+        onCheckedChange={(on) => { set("hdr", on) }}
       />
       <LabeledSlider
         label="Bitrate"

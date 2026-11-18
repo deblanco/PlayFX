@@ -119,9 +119,16 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private let nv12Pipeline: MTLComputePipelineState
     private let textureCache: CVMetalTextureCache
     private let frameLock = OSAllocatedUnfairLock<CVPixelBuffer?>(initialState: nil)
-    private let presentPipeline: MTLRenderPipelineState
-    private let dividerPipeline: MTLRenderPipelineState
-    private let sharpenPipeline: MTLRenderPipelineState
+    /// The present-pass pipelines, one set per output format (8-bit SDR, 16-bit float for HDR/EDR).
+    private struct Pipelines {
+        let present: MTLRenderPipelineState
+        let divider: MTLRenderPipelineState
+        let sharpen: MTLRenderPipelineState
+    }
+    private let sdrPipelines: Pipelines
+    private let hdrPipelines: Pipelines
+    /// HDR10 frames are on screen: float textures, an EDR layer in linear BT.2020.
+    public private(set) var hdrActive = false
     private let sampler: MTLSamplerState
     private let startTime = CACurrentMediaTime()
 
@@ -151,15 +158,19 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         view.colorPixelFormat = .bgra8Unorm
         view.preferredFramesPerSecond = 120
 
-        let pd = MTLRenderPipelineDescriptor()
-        pd.vertexFunction = library.makeFunction(name: "fullscreenVertex")
-        pd.fragmentFunction = library.makeFunction(name: "presentFragment")
-        pd.colorAttachments[0].pixelFormat = view.colorPixelFormat
-        guard let presentPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
-        pd.fragmentFunction = library.makeFunction(name: "dividerFragment")
-        guard let dividerPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
-        pd.fragmentFunction = library.makeFunction(name: "sharpenFragment")
-        guard let sharpenPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
+        func pipelines(_ format: MTLPixelFormat) -> Pipelines? {
+            let pd = MTLRenderPipelineDescriptor()
+            pd.vertexFunction = library.makeFunction(name: "fullscreenVertex")
+            pd.colorAttachments[0].pixelFormat = format
+            func make(_ fragment: String) -> MTLRenderPipelineState? {
+                pd.fragmentFunction = library.makeFunction(name: fragment)
+                return try? device.makeRenderPipelineState(descriptor: pd)
+            }
+            guard let present = make("presentFragment"), let divider = make("dividerFragment"),
+                  let sharpen = make("sharpenFragment") else { return nil }
+            return Pipelines(present: present, divider: divider, sharpen: sharpen)
+        }
+        guard let sdrPipelines = pipelines(.bgra8Unorm), let hdrPipelines = pipelines(.rgba16Float) else { return nil }
 
         let sd = MTLSamplerDescriptor()
         sd.minFilter = .linear
@@ -174,9 +185,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.nv12Pipeline = nv12Pipeline
         self.cleanupPipeline = cleanupPipeline
         self.textureCache = textureCache
-        self.presentPipeline = presentPipeline
-        self.dividerPipeline = dividerPipeline
-        self.sharpenPipeline = sharpenPipeline
+        self.sdrPipelines = sdrPipelines
+        self.hdrPipelines = hdrPipelines
         self.sampler = sampler
         self.inputTexture = input
         self.view = view
@@ -188,15 +198,34 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         applyColorSpace()
     }
 
-    /// sRGB (BT.709 primaries) when color-managed; nil leaves the output in the display's space.
+    /// sRGB (BT.709 primaries) when color-managed; nil leaves the output in the display's space. HDR is
+    /// always linear BT.2020 with extended range (1.0 = SDR white), which macOS maps to the display's EDR.
     private func applyColorSpace() {
-        view.colorspace = params.accurateColor ? CGColorSpace(name: CGColorSpace.sRGB) : nil
+        view.colorspace = hdrActive ? CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)
+            : params.accurateColor ? CGColorSpace(name: CGColorSpace.sRGB) : nil
+    }
+
+    /// Switches between SDR (8-bit) and HDR (16-bit float, EDR) output. Only between draws: the drawable's
+    /// format changes with it.
+    func setHDR(_ on: Bool) {
+        guard on != hdrActive,
+              let tex = Self.makeInputTexture(device, inputTexture.width, inputTexture.height, on ? .rgba16Float : .rgba8Unorm)
+        else { return }
+        hdrActive = on
+        inputTexture = tex
+        cleanTexture = nil
+        scaler = nil
+        baselineTexture = nil
+        view.colorPixelFormat = on ? .rgba16Float : .bgra8Unorm
+        (view.layer as? CAMetalLayer)?.wantsExtendedDynamicRangeContent = on
+        applyColorSpace()
+        Log.info(.renderer, on ? "HDR stream: showing it in HDR (EDR)" : "Back to SDR output")
     }
 
     public func setInputSize(width: Int, height: Int) {
         guard width > 0, height > 0,
               width != inputTexture.width || height != inputTexture.height,
-              let tex = Self.makeInputTexture(device, width, height) else { return }
+              let tex = Self.makeInputTexture(device, width, height, inputTexture.pixelFormat) else { return }
         inputTexture = tex
         cleanTexture = nil
         scaler = nil
@@ -214,6 +243,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     public func draw(in view: MTKView) {
+        // Switch SDR ↔ HDR before taking the drawable, whose format follows the mode.
+        let pending = frameLock.withLock { $0 }
+        if let pending { setHDR(FrameColor.isHDR(pending)) } else if showsTestPattern { setHDR(false) }
         guard let drawable = view.currentDrawable,
               let pass = view.currentRenderPassDescriptor,
               let cb = queue.makeCommandBuffer() else { return }
@@ -239,7 +271,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             if enhanced != nil, params.compare {
                 let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
                 if baselineTexture?.width != w || baselineTexture?.height != h {
-                    baselineTexture = Self.makeInputTexture(device, w, h)
+                    baselineTexture = Self.makeInputTexture(device, w, h, inputTexture.pixelFormat)
                 }
                 if let baseline = baselineTexture { convert(frame, into: baseline, cb) }
             } else {
@@ -265,6 +297,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         guard let enc = cb.makeRenderCommandEncoder(descriptor: pass) else { return }
+        let pipes = pass.colorAttachments[0].texture?.pixelFormat == .rgba16Float ? hdrPipelines : sdrPipelines
         enc.setViewport(MTLViewport(originX: target.minX, originY: target.minY,
                                     width: target.width, height: target.height, znear: 0, zfar: 1))
         enc.setFragmentSamplerState(sampler, index: 0)
@@ -274,11 +307,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             if params.sharpness > 0 {
                 var step = SIMD2<Float>(1 / Float(target.width), 1 / Float(target.height))
                 var peak = Self.casPeak(sharpness: params.sharpness)
-                enc.setRenderPipelineState(sharpenPipeline)
+                enc.setRenderPipelineState(pipes.sharpen)
                 enc.setFragmentBytes(&step, length: MemoryLayout<SIMD2<Float>>.size, index: 0)
                 enc.setFragmentBytes(&peak, length: MemoryLayout<Float>.size, index: 1)
             } else {
-                enc.setRenderPipelineState(presentPipeline)
+                enc.setRenderPipelineState(pipes.present)
             }
             enc.setFragmentTexture(upscaled ?? source, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
@@ -288,13 +321,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         if params.compare && !showsTestPattern {
             let split = Self.compareRects(target)
             enc.setScissorRect(Self.scissor(split.left))
-            enc.setRenderPipelineState(presentPipeline)
+            enc.setRenderPipelineState(pipes.present)
             enc.setFragmentTexture(baselineTexture ?? inputTexture, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
             enc.setScissorRect(Self.scissor(split.right))
             drawProcessed()
             enc.setScissorRect(Self.scissor(split.divider))
-            enc.setRenderPipelineState(dividerPipeline)
+            enc.setRenderPipelineState(pipes.divider)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         } else {
             drawProcessed()
@@ -305,7 +338,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Deblock/deband `inputTexture` into `cleanTexture`; nil (nothing encoded) when both are off.
     private func encodeCleanup(_ cb: MTLCommandBuffer, _ params: RenderParams) -> MTLTexture? {
         guard params.deblock > 0 || params.deband > 0 else { return nil }
-        if cleanTexture == nil { cleanTexture = Self.makeInputTexture(device, inputTexture.width, inputTexture.height) }
+        if cleanTexture == nil {
+            cleanTexture = Self.makeInputTexture(device, inputTexture.width, inputTexture.height, inputTexture.pixelFormat)
+        }
         guard let clean = cleanTexture, let enc = cb.makeComputeCommandEncoder() else { return nil }
         var strengths = SIMD4<Float>(params.deblock, params.deband, Self.blockGrid(texture: inputTexture.width, decoded: decodedWidth), 0)
         enc.setComputePipelineState(cleanupPipeline)
@@ -389,8 +424,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
     /// NV12 `frame` → RGBA `target` (same size), zero-copy via CVMetalTextureCache.
     private func convert(_ frame: CVPixelBuffer, into target: MTLTexture, _ cb: MTLCommandBuffer) {
-        guard let luma = planeTexture(frame, plane: 0, format: .r8Unorm),
-              let chroma = planeTexture(frame, plane: 1, format: .rg8Unorm),
+        let tenBit = CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            || CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+        guard let luma = planeTexture(frame, plane: 0, format: tenBit ? .r16Unorm : .r8Unorm),
+              let chroma = planeTexture(frame, plane: 1, format: tenBit ? .rg16Unorm : .rg8Unorm),
               let lumaTex = CVMetalTextureGetTexture(luma), let chromaTex = CVMetalTextureGetTexture(chroma),
               let enc = cb.makeComputeCommandEncoder() else { return }
         enc.setComputePipelineState(nv12Pipeline)
@@ -501,7 +538,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         desc.outputHeight = outputHeight
         desc.colorTextureFormat = inputTexture.pixelFormat
         desc.outputTextureFormat = inputTexture.pixelFormat
-        desc.colorProcessingMode = .perceptual
+        desc.colorProcessingMode = inputTexture.pixelFormat == .rgba16Float ? .hdr : .perceptual
         guard let newScaler = desc.makeSpatialScaler(device: device) else { return nil }
 
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: inputTexture.pixelFormat,
@@ -517,8 +554,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         return (newScaler, output)
     }
 
-    private static func makeInputTexture(_ device: MTLDevice, _ width: Int, _ height: Int) -> MTLTexture? {
-        let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm,
+    private static func makeInputTexture(_ device: MTLDevice, _ width: Int, _ height: Int,
+                                         _ format: MTLPixelFormat = .rgba8Unorm) -> MTLTexture? {
+        let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format,
                                                           width: width, height: height, mipmapped: false)
         td.usage = [.shaderRead, .shaderWrite, .renderTarget]
         td.storageMode = .private

@@ -49,6 +49,8 @@ struct FrameColor: Equatable {
     var matrix: ColorMatrix
     var fullRange: Bool
     var siting: ChromaSiting
+    /// HDR10: the samples carry the PQ (SMPTE ST 2084) transfer curve, so they decode to light levels.
+    var pq = false
 
     /// Reads the frame's attachments; missing ones fall back to what H.264/HEVC imply
     /// (BT.709 for HD, BT.601 for SD, limited range, left-sited chroma).
@@ -60,7 +62,10 @@ struct FrameColor: Equatable {
             Self.matrices[name]
         }
         matrix = signaled ?? (CVPixelBufferGetHeight(frame) >= 720 ? .bt709 : .bt601)
-        fullRange = CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        let format = CVPixelBufferGetPixelFormatType(frame)
+        fullRange = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+        pq = attachment(kCVImageBufferTransferFunctionKey) == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String
         siting = attachment(kCVImageBufferChromaLocationTopFieldKey).flatMap { name in
             Self.sitings[name]
         } ?? .left
@@ -81,10 +86,20 @@ struct FrameColor: Equatable {
         kCVImageBufferChromaLocation_Bottom as String: .bottom,
     ]
 
-    init(matrix: ColorMatrix, fullRange: Bool, siting: ChromaSiting) {
+    init(matrix: ColorMatrix, fullRange: Bool, siting: ChromaSiting, pq: Bool = false) {
         self.matrix = matrix
         self.fullRange = fullRange
         self.siting = siting
+        self.pq = pq
+    }
+
+    /// An HDR frame: 10-bit samples with the PQ curve. Rendering switches to float textures and EDR for it.
+    static func isHDR(_ frame: CVPixelBuffer) -> Bool {
+        let format = CVPixelBufferGetPixelFormatType(frame)
+        guard format == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange else { return false }
+        return CVBufferCopyAttachment(frame, kCVImageBufferTransferFunctionKey, nil).map { "\($0)" }
+            == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String
     }
 }
 
@@ -94,7 +109,7 @@ struct YCbCrConversion: Equatable {
     var range: SIMD4<Float>
     /// R←Cr, G←Cb, G←Cr, B←Cb.
     var coefficients: SIMD4<Float>
-    /// Chroma siting shift (x, y) and 1 for bicubic chroma.
+    /// Chroma siting shift (x, y), 1 for bicubic chroma, and 1 when the samples are PQ (HDR10).
     var chroma: SIMD4<Float>
 
     /// Applies the user's overrides to what the frame says.
@@ -108,7 +123,7 @@ struct YCbCrConversion: Equatable {
         let kg = 1 - kr - kb
         coefficients = [2 * (1 - kr), 2 * kb * (1 - kb) / kg, 2 * kr * (1 - kr) / kg, 2 * (1 - kb)]
         let shift = frame.siting.shift
-        chroma = [shift.x, shift.y, filter == .bicubic ? 1 : 0, 0]
+        chroma = [shift.x, shift.y, filter == .bicubic ? 1 : 0, frame.pq ? 1 : 0]
     }
 
     /// RGB for one (Y, Cb, Cr) triple of 8-bit codes — the shader's math, for tests and reference.
