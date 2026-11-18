@@ -239,6 +239,8 @@ export const StreamStats = Schema.Struct({
   bytesReceived: Schema.optionalKey(Schema.Number),
   /** Round trip to the console, measured while connecting (0 until then). */
   rttMs: Schema.optionalKey(Schema.Number),
+  /** VideoToolbox decode time per frame, smoothed (ms). */
+  decodeMs: Schema.optionalKey(Schema.Number),
 })
 export type StreamStats = typeof StreamStats.Type
 
@@ -257,6 +259,8 @@ export const RendererStatus = Schema.Struct({
   smoothActive: Schema.Boolean,
   /** HDR10 frames are on screen (EDR). */
   hdrActive: Schema.Boolean,
+  /** From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured). */
+  displayMs: Schema.Number,
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

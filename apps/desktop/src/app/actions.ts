@@ -491,7 +491,7 @@ export interface LiveStats {
   readonly rows: readonly StatRow[]
 }
 
-export const pollStats = (report: (stats: LiveStats) => void): Effect.Effect<number, never, Core> =>
+export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: number): Effect.Effect<number, never, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
     const last = yield* Ref.make<FrameSample>({ frames: 0, bytes: 0, time: yield* Clock.currentTimeMillis })
@@ -505,7 +505,7 @@ export const pollStats = (report: (stats: LiveStats) => void): Effect.Effect<num
       const previous = yield* Ref.getAndSet(last, sample)
       const fps = framesPerSecond(previous, sample)
       const mbps = megabitsPerSecond(previous, sample)
-      report({ line: hudStats(status, fps, mbps), rows: statRows(status, fps, mbps) })
+      report({ line: hudStats(status, fps, mbps), rows: statRows(status, fps, mbps, requestedHeight) })
     })
     return yield* Effect.ignore(tick).pipe(Effect.repeat(Schedule.spaced(statsInterval)))
   })

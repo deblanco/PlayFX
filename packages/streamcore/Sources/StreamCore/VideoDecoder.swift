@@ -1,6 +1,7 @@
 import CoreMedia
 import CoreVideo
 import Foundation
+import QuartzCore
 import VideoToolbox
 
 /// Hardware H.264 / HEVC decoder for the Annex-B access units libchiaki delivers.
@@ -10,6 +11,12 @@ public final class VideoDecoder {
 
     /// Called synchronously from `decode` with each decoded frame (NV12, Metal-compatible).
     public var onFrame: ((CVPixelBuffer) -> Void)?
+    /// Time from handing a frame to VideoToolbox to getting the picture back, smoothed (ms).
+    public private(set) var decodeMilliseconds = 0.0
+
+    static func smoothed(_ average: Double, _ sample: Double) -> Double {
+        average == 0 ? sample : average * 0.9 + sample * 0.1
+    }
 
     private let codec: Codec
     private var session: VTDecompressionSession?
@@ -50,9 +57,11 @@ public final class VideoDecoder {
         guard let sample = makeSampleBuffer(payload, format: format) else { return false }
 
         var ok = true
+        let started = CACurrentMediaTime()
         let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [._1xRealTimePlayback],
                                                        infoFlagsOut: nil) { [weak self] status, _, imageBuffer, _, _ in
             guard status == noErr, let imageBuffer else { ok = false; return }
+            if let self { self.decodeMilliseconds = Self.smoothed(self.decodeMilliseconds, (CACurrentMediaTime() - started) * 1000) }
             self?.onFrame?(imageBuffer)
         }
         if status == kVTInvalidSessionErr {

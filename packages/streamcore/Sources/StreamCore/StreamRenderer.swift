@@ -103,6 +103,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private var streamInterval = 0.0
     private var lastDraw = 0.0
     private var lastArrival = 0.0
+    /// When the newest decoded frame arrived, and when the frame drawn now arrived (for display latency).
+    private let arrival = OSAllocatedUnfairLock<Double>(initialState: 0)
+    private var heldArrival = 0.0
+    private var drawnArrival: Double?
+    /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
+    public var displayMilliseconds: Double { displayTime.withLock { $0 } }
+    private let displayTime = OSAllocatedUnfairLock<Double>(initialState: 0)
     /// The raw stream converted at its own size, for the compare view's baseline while ML is on.
     private var baselineTexture: MTLTexture?
     /// Width of the last decoded frame, before any ML upscale (the codec's block grid lives there).
@@ -156,6 +163,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
         let view = MTKView(frame: .zero, device: device)
         view.colorPixelFormat = .bgra8Unorm
+        // Two drawables instead of three: a frame waits at most one refresh for the screen (lower latency;
+        // the GPU work per frame is a few ms, so double buffering doesn't starve).
+        (view.layer as? CAMetalLayer)?.maximumDrawableCount = 2
         view.preferredFramesPerSecond = 120
 
         func pipelines(_ format: MTLPixelFormat) -> Pipelines? {
@@ -235,6 +245,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Shows a decoded frame; the first one replaces the idle backdrop.
     public func display(_ frame: CVPixelBuffer) {
         frameLock.withLock { $0 = frame }
+        arrival.withLock { $0 = CACurrentMediaTime() }
         showsTestPattern = false
     }
 
@@ -244,12 +255,20 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
     public func draw(in view: MTKView) {
         // Switch SDR ↔ HDR before taking the drawable, whose format follows the mode.
+        if let layer = view.layer as? CAMetalLayer, layer.maximumDrawableCount != 2 { layer.maximumDrawableCount = 2 }
         let pending = frameLock.withLock { $0 }
         if let pending { setHDR(FrameColor.isHDR(pending)) } else if showsTestPattern { setHDR(false) }
         guard let drawable = view.currentDrawable,
               let pass = view.currentRenderPassDescriptor,
               let cb = queue.makeCommandBuffer() else { return }
+        drawnArrival = nil
         encode(cb, pass: pass, drawableSize: view.drawableSize)
+        if let arrived = drawnArrival {
+            drawable.addPresentedHandler { [displayTime] shown in
+                guard shown.presentedTime > arrived else { return }
+                displayTime.withLock { $0 = Self.smoothed($0, (shown.presentedTime - arrived) * 1000) }
+            }
+        }
         cb.present(drawable)
         cb.commit()
     }
@@ -483,14 +502,18 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         lastDraw = now
         guard let incoming = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) else {
             defer { heldFrame = nil }
+            drawnArrival = heldFrame == nil ? nil : heldArrival
             return heldFrame
         }
+        let arrived = arrival.withLock { $0 }
+        drawnArrival = arrived
         if lastArrival > 0 { streamInterval = Self.smoothedInterval(streamInterval, now - lastArrival) }
         lastArrival = now
         defer { previousFrame = incoming }
         if params.smoothMotion, FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval),
            let previous = previousFrame, let middle = interpolator.encode(cb, previous: previous, current: incoming) {
             heldFrame = incoming
+            heldArrival = arrived
             smoothActive = true
             return middle
         }

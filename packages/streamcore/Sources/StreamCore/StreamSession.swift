@@ -92,6 +92,8 @@ public final class StreamSession {
         public var bytesReceived = 0
         /// Round trip to the console, measured while connecting (0 until then).
         public var rttMs = 0.0
+        /// VideoToolbox decode time per frame, smoothed.
+        public var decodeMs = 0.0
     }
 
     /// Called from libchiaki's threads.
@@ -124,6 +126,7 @@ public final class StreamSession {
     public var stats: Stats {
         var s = lock.withLock { _stats }
         if let handle { s.rttMs = Double(psrp_session_rtt_us(handle)) / 1000 }
+        s.decodeMs = decoder.decodeMilliseconds
         return s
     }
     public var latestFrame: CVPixelBuffer? { lock.withLock { _latestFrame } }

@@ -153,7 +153,7 @@ export const StreamView = ({
     return () => { window.removeEventListener("dblclick", listener) }
   }, [])
 
-  useFork(useMemo(() => actions.pollStats(setStats), []))
+  useFork(useMemo(() => actions.pollStats(setStats, settings.height), [settings.height]))
   // Off while the login-PIN dialog or the settings are open, so typing there isn't read as gameplay.
   useKeyboardController(Option.isNone(loginPin) && !settingsOpen && Option.isNone(keyboard))
 

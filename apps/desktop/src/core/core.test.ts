@@ -306,7 +306,7 @@ describe("CoreLive", () => {
     })
 
     it.effect("rendererStatus decodes the status", () => {
-      const status = { metalfxSupported: true, activeMode: "metalfx", gpuMs: 1.25, mlSupported: true, mlActive: false, smoothSupported: true, smoothActive: false, hdrActive: false, stream: { active: true, framesDecoded: 10 } }
+      const status = { metalfxSupported: true, activeMode: "metalfx", gpuMs: 1.25, mlSupported: true, mlActive: false, smoothSupported: true, smoothActive: false, hdrActive: false, displayMs: 0, stream: { active: true, framesDecoded: 10 } }
       const fake = fakeBridge({ renderer_status: Effect.succeed(status) })
       return Effect.gen(function* () {
         const core = yield* Core
@@ -316,7 +316,7 @@ describe("CoreLive", () => {
 
     it.effect("rendererStatus fails when the host couldn't read stats (stream: null)", () => {
       const fake = fakeBridge({
-        renderer_status: Effect.succeed({ metalfxSupported: true, activeMode: "none", gpuMs: 0, mlSupported: false, mlActive: false, smoothSupported: false, smoothActive: false, hdrActive: false, stream: null }),
+        renderer_status: Effect.succeed({ metalfxSupported: true, activeMode: "none", gpuMs: 0, mlSupported: false, mlActive: false, smoothSupported: false, smoothActive: false, hdrActive: false, displayMs: 0, stream: null }),
       })
       return Effect.gen(function* () {
         const core = yield* Core

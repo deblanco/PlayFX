@@ -292,6 +292,7 @@ fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
             ml: core.ml_status(),
             smooth: core.smooth_status(),
             hdr: core.hdr_active(),
+            display_ms: core.display_milliseconds(),
         };
         (state, core.session_stats())
     })?;

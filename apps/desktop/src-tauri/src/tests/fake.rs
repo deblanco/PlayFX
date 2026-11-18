@@ -19,6 +19,7 @@ pub struct FakeCore {
     pub ml: (bool, bool),
     pub smooth: (bool, bool),
     pub hdr: bool,
+    pub display_ms: f64,
     pub stats: String,
     pub calls: Mutex<Vec<String>>,
     pub secrets: Mutex<std::collections::HashMap<String, String>>,
@@ -124,6 +125,9 @@ impl NativeCore for FakeCore {
     }
     fn ml_status(&self) -> (bool, bool) {
         self.ml
+    }
+    fn display_milliseconds(&self) -> f64 {
+        self.display_ms
     }
     fn hdr_active(&self) -> bool {
         self.hdr

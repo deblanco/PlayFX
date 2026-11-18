@@ -82,6 +82,8 @@ pub trait NativeCore: Send + Sync {
     fn smooth_status(&self) -> (bool, bool);
     /// HDR10 frames are on screen (EDR output).
     fn hdr_active(&self) -> bool;
+    /// From a decoded frame arriving to it being on screen, smoothed (ms).
+    fn display_milliseconds(&self) -> f64;
     fn session_stats(&self) -> String;
 }
 
@@ -149,6 +151,7 @@ pub struct RendererState {
     /// Frame interpolation ("Smooth motion"): (can run here, active on the last frame).
     pub smooth: (bool, bool),
     pub hdr: bool,
+    pub display_ms: f64,
 }
 
 /// The `renderer_status` reply; unparseable stats become `null`.
@@ -162,6 +165,7 @@ pub fn renderer_status_json(state: &RendererState, stats: &str) -> Value {
         "smoothSupported": state.smooth.0,
         "smoothActive": state.smooth.1,
         "hdrActive": state.hdr,
+        "displayMs": (state.display_ms * 10.0).round() / 10.0,
         "stream": serde_json::from_str::<Value>(stats).unwrap_or(Value::Null),
     })
 }

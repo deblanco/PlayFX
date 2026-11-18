@@ -126,7 +126,7 @@ export interface StatRow {
 }
 
 /** What the stream is doing, for the stats panel (empty until video arrives). */
-export const statRows = (status: RendererStatus, fps: number, mbps: number): readonly StatRow[] => {
+export const statRows = (status: RendererStatus, fps: number, mbps: number, requestedHeight?: number): readonly StatRow[] => {
   const { stream } = status
   if (!stream.active || stream.width === undefined || stream.height === undefined) return []
   const lost = stream.framesLost ?? 0
@@ -134,15 +134,20 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number): rea
   const rtt = stream.rttMs ?? 0
   const row = (label: string, value: string, inline: string, warn = false): StatRow => ({ label, value, inline, warn })
   const size = `${String(stream.width)}×${String(stream.height)}`
+  // The console lowers the resolution when the network can't keep up (auto-downgrade).
+  const lower = requestedHeight !== undefined && stream.height < requestedHeight
+  // On the Mac: decoding, then waiting for the screen (the network's part is the ping).
+  const latency = (stream.decodeMs ?? 0) + status.displayMs
   const ping = `${rtt.toFixed(rtt < 10 ? 1 : 0)} ms`
   const gpu = `${status.gpuMs.toFixed(1)} ms`
   const upscaler = upscalerLabel(status.activeMode, status.mlActive)
   const rows: (StatRow | undefined)[] = [
-    row("Resolution", size, size),
+    row("Resolution", size, lower ? `${size} (asked ${String(requestedHeight)}p)` : size, lower),
     row("Frame rate", `${String(fps)} fps`, `${String(fps)} fps`),
     row("Bitrate", `${mbps.toFixed(1)} Mbps`, `${mbps.toFixed(1)} Mbps`),
     rtt > 0 ? row("Ping", ping, `ping ${ping}`, rtt >= 60) : undefined,
     status.gpuMs > 0 ? row("GPU", gpu, `GPU ${gpu}`, status.gpuMs >= 8) : undefined,
+    status.displayMs > 0 ? row("Latency", `${latency.toFixed(0)} ms`, `latency ${latency.toFixed(0)} ms`, latency >= 33) : undefined,
     row("Upscaler", upscaler, upscaler),
     status.smoothActive ? row("Smooth motion", "On", "smooth motion") : undefined,
     status.hdrActive ? row("HDR", "On", "HDR") : undefined,

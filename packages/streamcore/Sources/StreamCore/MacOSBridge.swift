@@ -131,6 +131,12 @@ public func sc_ml_active() -> Bool {
     renderer?.mlActive ?? false
 }
 
+/// Time from a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
+@_cdecl("sc_display_milliseconds")
+public func sc_display_milliseconds() -> Double {
+    renderer?.displayMilliseconds ?? 0
+}
+
 /// Whether HDR10 frames are on screen (EDR output).
 @_cdecl("sc_hdr_active")
 public func sc_hdr_active() -> Bool {
@@ -408,6 +414,6 @@ public func sc_session_stats() -> UnsafeMutablePointer<CChar> {
     let s = session.stats
     return json(["active": true, "framesDecoded": s.framesDecoded, "decodeErrors": s.decodeErrors,
                  "framesLost": s.framesLost, "width": s.width, "height": s.height,
-                 "bytesReceived": s.bytesReceived, "rttMs": s.rttMs])
+                 "bytesReceived": s.bytesReceived, "rttMs": s.rttMs, "decodeMs": s.decodeMs])
 }
 #endif

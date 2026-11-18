@@ -255,10 +255,17 @@ Work items:
 
 ### P2 — quality, settings, UX
 
-- ❌ **Bitrate / FPS / resolution validation** against what the console advertises; expose bitrate
-  in settings (schema has it; UI doesn't).
-- ❌ **Latency & frame pacing**: measure end-to-end latency, tune the audio/video jitter buffers,
-  consider a low-latency present path; expose a stats overlay.
+- ✅ **Bitrate / FPS / resolution validation**: bitrate is in Settings → Stream; the stats line shows what
+  the console actually sends, and flags a lower resolution than asked for in amber ("1280×720 (asked
+  1080p)" — auto-downgrade at work).
+- ✅ **Latency & frame pacing** (Mac side): the stats line shows **latency** = VideoToolbox decode time
+  (measured per frame) + display time (decoded frame → on screen, from Metal's presented-time handler),
+  amber at ≥ 33 ms; the network's part is the ping. Present path: two drawables instead of three, so a
+  frame waits at most one refresh; this also stopped draws from running ahead of the screen, which had
+  made Smooth motion think a 60 Hz screen was faster and turn itself on for 60 fps streams (holding real
+  frames back for nothing). Measured on the PS5: 44 ms (3 drawables, Smooth motion wrongly on) → 33 ms
+  (2 drawables; not a strict A/B). Not done: audio jitter-buffer tuning (no audio/video sync complaints
+  so far).
 - ❌ **Audio controls**: output-device selection and volume.
 - ✅ **Window UX.** *(done: the Mac and its display stay awake exactly while a session runs (a
   `ProcessInfo` user activity — `pmset -g assertions` shows "Streaming from a PlayStation"); a Fullscreen
