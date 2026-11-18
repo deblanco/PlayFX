@@ -178,6 +178,13 @@ fn keyboard_set_text<R: Runtime>(app: AppHandle<R>, text: String) -> Result<(), 
 }
 
 #[tauri::command(async)]
+fn set_microphone<R: Runtime>(app: AppHandle<R>, on: bool) -> Result<(), String> {
+    log::info!("Microphone {}", if on { "on requested" } else { "off" });
+    let core = core(&app);
+    on_main(&app, move || core.set_microphone(on))
+}
+
+#[tauri::command(async)]
 fn keyboard_done<R: Runtime>(app: AppHandle<R>, accept: bool) -> Result<(), String> {
     let core = core(&app);
     on_main(&app, move || core.keyboard_done(accept))
@@ -289,6 +296,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_pointer_touch,
         keyboard_set_text,
         keyboard_done,
+        set_microphone,
         set_render_params,
         toggle_fullscreen,
         psn_signed_in,

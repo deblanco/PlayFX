@@ -320,6 +320,18 @@ private func endSession(idle: Bool) {
     if idle { renderer?.showsTestPattern = true }
 }
 
+/// Voice chat: turns the Mac's microphone on or off. The outcome arrives as a "microphone" event with
+/// state on / off / denied (no permission) / unavailable (no input, or this build can't ask).
+@_cdecl("sc_session_set_mic")
+public func sc_session_set_mic(_ on: Bool) {
+    guard let session else { return emit(microphonePayload(.off)) }
+    session.setMicrophone(on) { state in emit(microphonePayload(state)) }
+}
+
+func microphonePayload(_ state: Microphone.State) -> [String: Any] {
+    ["type": "microphone", "state": state.rawValue]
+}
+
 @_cdecl("sc_session_keyboard_set_text")
 public func sc_session_keyboard_set_text(_ text: UnsafePointer<CChar>) {
     session?.setKeyboardText(String(cString: text))

@@ -207,6 +207,9 @@ export const StreamEvent = Schema.Union([
   /** The console's text keyboard: a field was focused (open, with its text), the console changed the
    * text, or it closed the keyboard itself. */
   Schema.Struct({ type: Schema.Literal("keyboard"), change: Schema.Literals(["open", "change", "close"]), text: Schema.String }),
+  /** Voice chat: the microphone's state after a request (denied = no permission; unavailable = no input,
+   * or this build can't ask). */
+  Schema.Struct({ type: Schema.Literal("microphone"), state: Schema.Literals(["on", "off", "denied", "unavailable"]) }),
   /** The Mac's network changed mid-stream: `online` = on a (different) network again, reconnect now. */
   Schema.Struct({ type: Schema.Literal("network"), online: Schema.Boolean }),
   /** Connecting over the internet: linking (PSN, up to ~30 s per step) → data → connected. */

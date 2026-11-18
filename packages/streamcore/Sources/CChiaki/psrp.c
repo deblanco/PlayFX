@@ -2,6 +2,7 @@
 
 #include <chiaki/discoveryservice.h>
 #include <chiaki/opusdecoder.h>
+#include <chiaki/opusencoder.h>
 #include <chiaki/regist.h>
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/orientation.h>
@@ -284,6 +285,9 @@ bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACC
 struct PsrpSession {
     ChiakiSession session;
     ChiakiOpusDecoder opus;
+    /// The Mac's microphone to the console: Opus-encoded 10 ms stereo frames (connected on first use).
+    ChiakiOpusEncoder mic;
+    bool mic_connected;
     PsrpCallbacks cb;
     char host[256];
     ChiakiConnectInfo info;
@@ -384,12 +388,17 @@ static ChiakiErrorCode start_chiaki(PsrpSession *s) {
     ChiakiAudioSink sink;
     chiaki_opus_decoder_get_sink(&s->opus, &sink);
     chiaki_session_set_audio_sink(&s->session, &sink);
+    chiaki_opus_encoder_init(&s->mic, &g_log);
+    ChiakiAudioHeader mic_header;
+    chiaki_audio_header_set(&mic_header, 2, 16, PSRP_MIC_SAMPLE_RATE, PSRP_MIC_FRAME_SAMPLES);
+    chiaki_opus_encoder_header(&mic_header, &s->mic, &s->session);
     chiaki_session_set_video_sample_cb(&s->session, session_video_cb, s);
     chiaki_session_set_event_cb(&s->session, session_event_cb, s);
     err = chiaki_session_start(&s->session);
     if (err != CHIAKI_ERR_SUCCESS) {
         chiaki_session_fini(&s->session);
         chiaki_opus_decoder_fini(&s->opus);
+        chiaki_opus_encoder_fini(&s->mic);
         return err;
     }
     __atomic_store_n(&s->started, true, __ATOMIC_RELEASE);
@@ -583,6 +592,20 @@ void psrp_session_request_idr(PsrpSession *s) {
     if (started(s)) chiaki_session_request_idr(&s->session);
 }
 
+void psrp_session_set_mic(PsrpSession *s, bool on) {
+    if (!started(s)) return;
+    if (on && !s->mic_connected) {
+        chiaki_session_connect_microphone(&s->session);
+        s->mic_connected = true;
+    }
+    if (s->mic_connected) chiaki_session_toggle_microphone(&s->session, !on);
+}
+
+void psrp_session_mic_frame(PsrpSession *s, const int16_t *pcm) {
+    if (!started(s) || !s->mic_connected || !pcm) return;
+    chiaki_opus_encoder_frame((int16_t *)pcm, &s->mic);
+}
+
 void psrp_session_goto_bed(PsrpSession *s) {
     if (started(s)) chiaki_session_goto_bed(&s->session);
 }
@@ -603,6 +626,7 @@ void psrp_session_stop(PsrpSession *s) {
         chiaki_session_join(&s->session);
         chiaki_session_fini(&s->session);
         chiaki_opus_decoder_fini(&s->opus);
+        chiaki_opus_encoder_fini(&s->mic);
     }
     pthread_mutex_destroy(&s->lock);
     free(s);

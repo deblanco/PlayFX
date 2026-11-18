@@ -51,6 +51,8 @@ export class Core extends Context.Service<
     /** Types into the console's open text field (replacing its text); `keyboardDone` sends or cancels. */
     readonly keyboardSetText: (text: string) => Effect.Effect<void, CoreError>
     readonly keyboardDone: (accept: boolean) => Effect.Effect<void, CoreError>
+    /** Voice chat on/off; the outcome arrives as a "microphone" stream event. */
+    readonly setMicrophone: (on: boolean) => Effect.Effect<void, CoreError>
     /** The Mac's pointer as a touchpad finger (merged natively with the pad's state). */
     readonly setPointerTouch: (touch: PointerTouch) => Effect.Effect<void, CoreError>
     readonly setRenderParams: (params: RenderParams) => Effect.Effect<void, CoreError>
@@ -126,6 +128,7 @@ export const CoreLive = Layer.effect(
       setPointerTouch: (touch) => Effect.asVoid(call(unit, "set_pointer_touch", { touch })),
       keyboardSetText: (text) => Effect.asVoid(call(unit, "keyboard_set_text", { text })),
       keyboardDone: (accept) => Effect.asVoid(call(unit, "keyboard_done", { accept })),
+      setMicrophone: (on) => Effect.asVoid(call(unit, "set_microphone", { on })),
       setRenderParams: (params) =>
         Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
       toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),

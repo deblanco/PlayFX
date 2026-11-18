@@ -95,6 +95,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     setPointerTouch: vi.fn<CoreService["setPointerTouch"]>(() => Effect.void),
     keyboardSetText: vi.fn<CoreService["keyboardSetText"]>(() => Effect.void),
     keyboardDone: vi.fn<CoreService["keyboardDone"]>(() => Effect.void),
+    setMicrophone: vi.fn<CoreService["setMicrophone"]>(() => Effect.void),
     setRenderParams: vi.fn<CoreService["setRenderParams"]>(() => Effect.void),
     setDetailedLogs: vi.fn<CoreService["setDetailedLogs"]>(() => Effect.void),
     openLogsFolder: Effect.sync(() => {

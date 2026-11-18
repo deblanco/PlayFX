@@ -16,6 +16,7 @@ import {
   hudStats,
   quitMessage,
   samePaired,
+  microphoneProblem,
   statRows,
   connectionHint,
   connectionSteps,
@@ -210,6 +211,8 @@ describe("describeEvent", () => {
     expect(describeEvent({ type: "nickname", name: "PS5-454" }).line).toBe("Console name: PS5-454")
     expect(describeEvent({ type: "network", online: true })).toEqual({ line: "The Mac's network changed", warn: false })
     expect(describeEvent({ type: "network", online: false })).toEqual({ line: "The Mac went offline", warn: true })
+    expect(describeEvent({ type: "microphone", state: "denied" })).toEqual({ line: "Microphone denied", warn: true })
+    expect(describeEvent({ type: "keyboard", change: "open", text: "" }).line).toBe("Console keyboard: open")
   })
 })
 
@@ -355,6 +358,13 @@ describe("statRows", () => {
     expect(slow.find((row) => row.label === "Ping")).toEqual({ label: "Ping", value: "85 ms", inline: "ping 85 ms", warn: true })
     expect(slow.find((row) => row.label === "GPU")?.warn).toBe(true)
     expect(slow.some((row) => row.label === "Decode errors")).toBe(false)
+  })
+})
+
+describe("microphoneProblem", () => {
+  it("says how to fix it", () => {
+    expect(microphoneProblem("denied")).toMatch(/Privacy & Security › Microphone/)
+    expect(microphoneProblem("unavailable")).toMatch(/^No microphone found/)
   })
 })
 

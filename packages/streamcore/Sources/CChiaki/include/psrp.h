@@ -191,6 +191,12 @@ void psrp_session_set_controller_state(PsrpSession *session, const PsrpControlle
 void psrp_session_set_login_pin(PsrpSession *session, const char *pin);
 /// Round trip to the console in microseconds, measured while connecting (0 until then).
 uint64_t psrp_session_rtt_us(PsrpSession *session);
+/// The Mac's microphone to the console (voice chat): turn it on/off (the first "on" connects it), and
+/// send each 10 ms of audio as PSRP_MIC_FRAME_SAMPLES interleaved stereo 16-bit samples at 48 kHz.
+#define PSRP_MIC_SAMPLE_RATE 48000
+#define PSRP_MIC_FRAME_SAMPLES 480
+void psrp_session_set_mic(PsrpSession *session, bool on);
+void psrp_session_mic_frame(PsrpSession *session, const int16_t *pcm);
 /// Typing into the console's focused text field: replace its text, then accept (Return) or reject (Esc).
 void psrp_session_keyboard_set_text(PsrpSession *session, const char *text);
 void psrp_session_keyboard_done(PsrpSession *session, bool accept);

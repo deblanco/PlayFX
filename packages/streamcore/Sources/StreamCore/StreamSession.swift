@@ -245,6 +245,26 @@ public final class StreamSession {
     }
 
     public func setLoginPin(_ pin: String) { psrp_session_set_login_pin(handle, pin) }
+
+    private var microphone: Microphone?
+
+    /// Turns the Mac's microphone on (asking for permission the first time) or off; `done` gets the
+    /// resulting state, possibly later and on another queue.
+    public func setMicrophone(_ on: Bool, done: @escaping @Sendable (Microphone.State) -> Void) {
+        guard let handle else { return done(.off) }
+        guard on else {
+            microphone?.stop()
+            microphone = nil
+            psrp_session_set_mic(handle, false)
+            return done(.off)
+        }
+        let mic = microphone ?? Microphone()
+        microphone = mic
+        mic.start(frames: { psrp_session_mic_frame(handle, $0) }) { state in
+            if state == .on { psrp_session_set_mic(handle, true) }
+            done(state)
+        }
+    }
     /// Replaces the text of the console's focused field, then `finishKeyboard` sends (true) or cancels it.
     public func setKeyboardText(_ text: String) { psrp_session_keyboard_set_text(handle, text) }
     public func finishKeyboard(accept: Bool) { psrp_session_keyboard_done(handle, accept) }
@@ -254,6 +274,8 @@ public final class StreamSession {
     /// Stops the stream and waits for libchiaki's threads to finish.
     public func stop() {
         guard let handle else { return }
+        microphone?.stop() // no more frames into the session we're about to free
+        microphone = nil
         self.handle = nil
         psrp_session_stop(handle)
         audio?.stop()

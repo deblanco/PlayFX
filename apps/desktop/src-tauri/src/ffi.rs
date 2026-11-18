@@ -24,6 +24,7 @@ unsafe extern "C" {
     pub fn sc_session_set_pointer_touch(down: bool, x: f32, y: f32, pressed: bool);
     pub fn sc_session_keyboard_set_text(text: *const c_char);
     pub fn sc_session_keyboard_done(accept: bool);
+    pub fn sc_session_set_mic(on: bool);
     pub fn sc_session_stats() -> *mut c_char;
     // any thread (blocking ones must stay off the main thread)
     pub fn sc_set_event_callback(cb: Option<extern "C" fn(*const c_char)>);
@@ -114,6 +115,9 @@ impl NativeCore for MacCore {
     fn keyboard_set_text(&self, text: &str) {
         let text = CString::new(text.replace('\0', "")).unwrap_or_default();
         unsafe { sc_session_keyboard_set_text(text.as_ptr()) }
+    }
+    fn set_microphone(&self, on: bool) {
+        unsafe { sc_session_set_mic(on) }
     }
     fn keyboard_done(&self, accept: bool) {
         unsafe { sc_session_keyboard_done(accept) }

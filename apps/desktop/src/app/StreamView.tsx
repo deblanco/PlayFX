@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import { Maximize, Minimize, SlidersHorizontal } from "lucide-react"
+import { Maximize, Mic, MicOff, Minimize, SlidersHorizontal } from "lucide-react"
 import { useEffect, useEffectEvent, useId, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,7 +11,7 @@ import * as actions from "./actions"
 import { ConnectingOverlay } from "./ConnectingOverlay"
 import { ConsoleKeyboard } from "./ConsoleKeyboard"
 import { TouchpadPointer } from "./TouchpadPointer"
-import type { Capabilities, Route, StatRow } from "./format"
+import type { Capabilities, MicState, Route, StatRow } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
 import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
@@ -94,6 +94,9 @@ interface StreamViewProps {
   /** Set while the console's text keyboard is open, with the field's text. */
   readonly keyboard?: Option.Option<string>
   readonly onKeyboardDone?: () => void
+  /** Voice chat from the HUD. */
+  readonly mic?: MicState
+  readonly onMicToggle?: () => void
   readonly settings: Settings
   readonly capabilities: Capabilities
   readonly onSettingsChange: (next: Settings) => void
@@ -114,6 +117,8 @@ export const StreamView = ({
   loginPin,
   keyboard = Option.none(),
   onKeyboardDone = () => undefined,
+  mic = "off",
+  onMicToggle = () => undefined,
   settings,
   capabilities,
   onSettingsChange,
@@ -213,6 +218,17 @@ export const StreamView = ({
             </dl>
           </div>
         </details>
+        <Button
+          variant="secondary"
+          size="sm"
+          aria-pressed={mic !== "off"}
+          className={cn(fade, mic === "on" && "bg-signal/90 text-black hover:bg-signal")}
+          disabled={mic === "pending"}
+          onClick={onMicToggle}
+        >
+          {mic === "off" ? <MicOff /> : <Mic />}
+          {mic === "on" ? "Mic on" : "Mic"}
+        </Button>
         <Button variant="secondary" size="sm" className={fade} onClick={toggleFullscreen}>
           {fullscreen ? <Minimize /> : <Maximize />}
           {fullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -234,6 +250,15 @@ export const StreamView = ({
         </Button>
       </header>
       {settings.compare && connected && <CompareLabels />}
+      {mic === "on" && hudHidden && (
+        // The HUD faded: the microphone being live must still be obvious.
+        <span
+          role="status"
+          className="pointer-events-none fixed top-3.5 right-4 flex items-center gap-1.5 rounded-full bg-signal/90 px-2.5 py-1 text-xs font-medium text-black shadow-lg"
+        >
+          <Mic className="size-3.5" /> Mic on
+        </span>
+      )}
       <TouchpadPointer enabled={connected && Option.isNone(loginPin) && !settingsOpen} />
       {(!connected || reconnect.reconnecting !== false) && Option.isNone(loginPin) && (
         <ConnectingOverlay

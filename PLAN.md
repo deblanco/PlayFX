@@ -212,8 +212,14 @@ Work items:
   (ripple on press). StreamCore merges this finger and press into whatever the pad or keyboard sends
   (`sc_session_set_pointer_touch`), one update per animation frame. The overlay was checked live; the
   console's reaction to the touches is still to be seen in a game that uses the touchpad.)*
-- ❌ **Microphone.** chiaki supports mic capture/echo-cancel (speex, currently disabled); wire an
-  opt-in mic path.
+- 🔶 **Microphone** (built; live check pending — the first use shows macOS's permission prompt, which
+  needs someone at the screen): a **Mic** button in the stream HUD (off by default) captures the default
+  input with AVAudioEngine, converts it to 48 kHz stereo 16-bit, cuts it into 10 ms frames and sends them
+  through libchiaki's Opus encoder (`psrp_session_set_mic` connects the console's mic channel on first
+  use, then toggles mute). While it's live the button turns amber ("Mic on") and an amber "Mic on" tag
+  stays in the corner after the HUD fades. Permission denied / no input explain what to do. The app's
+  `Info.plist` carries the usage description (macOS kills apps that touch the mic without one; StreamCore
+  refuses instead when it's missing). No echo cancellation yet (chiaki-ng's speex path) — use headphones.
 - ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch
   pad overlay, remappable keys.
 - 🔶 **Keyboard text passthrough** (built; live check pending): sessions enable the console keyboard

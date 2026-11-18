@@ -961,6 +961,27 @@ describe("streaming", () => {
     expect(screen.queryByRole("textbox", { name: "Text for Living Room" })).not.toBeInTheDocument()
   })
 
+  it("turns the microphone on for voice chat, and explains when it can't", async () => {
+    const { core } = await startStreaming()
+    await userEvent.click(screen.getByRole("button", { name: "Mic" }))
+    expect(core.service.setMicrophone).toHaveBeenLastCalledWith(true)
+    expect(screen.getByRole("button", { name: "Mic" })).toBeDisabled() // waiting for macOS
+    act(() => {
+      core.emitStream({ type: "microphone", state: "on" })
+    })
+    const live = screen.getByRole("button", { name: "Mic on" })
+    expect(live).toHaveAttribute("aria-pressed", "true")
+    await userEvent.click(live)
+    expect(core.service.setMicrophone).toHaveBeenLastCalledWith(false)
+
+    await userEvent.click(screen.getByRole("button", { name: "Mic" }))
+    act(() => {
+      core.emitStream({ type: "microphone", state: "denied" })
+    })
+    expect(await screen.findByText(/Allow it in System Settings › Privacy & Security › Microphone/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Mic" })).toBeEnabled()
+  })
+
   it("can cancel while connecting", async () => {
     const { core } = await startStreaming(fakeCore(), { connected: false })
     const connecting = screen.getByRole("region", { name: "Connecting to Living Room" })

@@ -444,6 +444,9 @@ export const setController = (state: ControllerState): Effect.Effect<void, CoreE
 export const setPointerTouch = (touch: PointerTouch): Effect.Effect<void, CoreError, Core> =>
   Effect.flatMap(Core, (core) => core.setPointerTouch(touch))
 
+export const setMicrophone = (on: boolean): Effect.Effect<void, CoreError, Core> =>
+  Effect.flatMap(Core, (core) => core.setMicrophone(on))
+
 export const keyboardSetText = (text: string): Effect.Effect<void, CoreError, Core> =>
   Effect.flatMap(Core, (core) => core.keyboardSetText(text))
 

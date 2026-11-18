@@ -90,6 +90,9 @@ impl NativeCore for FakeCore {
     fn keyboard_set_text(&self, text: &str) {
         self.log(format!("keyboard_set_text {text}"));
     }
+    fn set_microphone(&self, on: bool) {
+        self.log(format!("set_microphone {on}"));
+    }
     fn keyboard_done(&self, accept: bool) {
         self.log(format!("keyboard_done {accept}"));
     }

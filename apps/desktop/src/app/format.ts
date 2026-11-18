@@ -217,6 +217,8 @@ export const describeEvent = (event: StreamEvent): { readonly line: string; read
       return { line: `Over the internet: ${event.stage}`, warn: false }
     case "loginPin":
       return { line: event.incorrect ? "Console asks for its login PIN again (wrong PIN)" : "Console asks for its login PIN", warn: false }
+    case "microphone":
+      return { line: `Microphone ${event.state}`, warn: event.state === "denied" || event.state === "unavailable" }
     case "keyboard":
       return { line: `Console keyboard: ${event.change}`, warn: false }
     case "network":
@@ -348,4 +350,13 @@ export const connectionHint = (route: Route, seconds: number): string => {
   }
   return seconds < 15 ? "On your network this takes a few seconds." : "This is taking longer than usual. Check that the PS5 is on."
 }
+
+/** Voice chat from the HUD: off, waiting for macOS (permission, starting), or live. */
+export type MicState = "off" | "pending" | "on"
+
+/** What to tell the user when the microphone can't be used, and how to fix it. */
+export const microphoneProblem = (state: "denied" | "unavailable"): string =>
+  state === "denied"
+    ? "PlayFX can't use the microphone. Allow it in System Settings › Privacy & Security › Microphone, then turn it on again."
+    : "No microphone found. Connect one, or pick an input in System Settings › Sound."
 

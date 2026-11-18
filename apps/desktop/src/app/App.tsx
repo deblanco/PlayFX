@@ -11,7 +11,15 @@ import {
   type StreamOptions,
 } from "@/core/schema"
 import * as actions from "./actions"
-import { afterQuit, quitMessage, streamOptions, type Capabilities, type Reconnecting } from "./format"
+import {
+  afterQuit,
+  microphoneProblem,
+  quitMessage,
+  streamOptions,
+  type Capabilities,
+  type MicState,
+  type Reconnecting,
+} from "./format"
 import { Home } from "./Home"
 import { useRun, useRuntime } from "./runtime"
 import { StreamView } from "./StreamView"
@@ -22,6 +30,8 @@ interface Session {
   readonly started: boolean
   readonly title: string
   readonly loginPin: Option.Option<{ readonly incorrect: boolean }>
+  /** Voice chat (reset with every new session: the microphone belongs to it). */
+  readonly mic: MicState
   /** The console's text keyboard is open, with the field's text. */
   readonly keyboard: Option.Option<string>
   /** The stream options the running session was started with. */
@@ -102,6 +112,7 @@ export const App = () => {
       title: console.name,
       loginPin: Option.none(),
       keyboard: Option.none(),
+      mic: "off",
       startedWith: streamOptions(settings),
       connected: false,
       reconnecting: false,
@@ -134,6 +145,7 @@ export const App = () => {
     const { console } = session
     setSession({
       ...session,
+      mic: "off", // the new session starts without it
       reconnecting: why,
       autoReconnects: session.autoReconnects + (why === "dropped" ? 1 : 0),
     })
@@ -194,6 +206,10 @@ export const App = () => {
       case "nickname":
         setSession((s) => s && { ...s, title: event.name })
         break
+      case "microphone":
+        if (event.state === "denied" || event.state === "unavailable") toast.error(microphoneProblem(event.state))
+        setSession((s) => s && { ...s, mic: event.state === "on" ? "on" : "off" })
+        break
       case "keyboard":
         setSession((s) => s && { ...s, keyboard: event.change === "close" ? Option.none() : Option.some(event.text) })
         break
@@ -233,6 +249,12 @@ export const App = () => {
           title={session.title}
           loginPin={session.loginPin}
           keyboard={session.keyboard}
+          mic={session.mic}
+          onMicToggle={() => {
+            const on = session.mic === "off"
+            setSession((s) => s && { ...s, mic: on ? "pending" : "off" })
+            run(actions.setMicrophone(on))
+          }}
           onKeyboardDone={() => { setSession((s) => s && { ...s, keyboard: Option.none() }) }}
           settings={settings}
           capabilities={capabilities}
