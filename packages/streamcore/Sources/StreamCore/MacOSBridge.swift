@@ -24,6 +24,7 @@ private func keepAwake(_ on: Bool) {
 }
 private var input: ControllerInput?
 private var rumble: Rumble?
+private var triggers: AdaptiveTriggers?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
 
 private func cString(_ s: String) -> UnsafeMutablePointer<CChar> { strdup(s)! }
@@ -170,8 +171,10 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options())
         s.onFrame = { frame in renderer?.display(frame) }
         let haptics = Rumble()
+        let adaptive = AdaptiveTriggers()
         s.onEvent = { [weak s] event in
             if case .rumble(let left, let right) = event { haptics.apply(left: left, right: right) }
+            if case .triggerEffects(let left, let right) = event { adaptive.apply(left: left, right: right) }
             if let payload = eventPayload(event) { emit(payload) }
             // Clean up after a quit, unless the host has already moved on to another session. The last
             // frame stays up: the host may reconnect (busy console, dropped stream) or go home.
@@ -186,6 +189,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         session = s
         input = i
         rumble = haptics
+        triggers = adaptive
         renderer?.showsTestPattern = false
         keepAwake(true)
         return json(["ok": true])
@@ -199,7 +203,7 @@ func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
     case .quit(let reason, let isError, let kind): return ["type": "quit", "reason": reason, "error": isError, "kind": kind.rawValue]
     case .loginPinRequested(let incorrect): return ["type": "loginPin", "incorrect": incorrect]
     case .nickname(let name): return ["type": "nickname", "name": name]
-    case .rumble: return nil
+    case .rumble, .triggerEffects: return nil
     }
 }
 
@@ -221,6 +225,8 @@ private func endSession(idle: Bool) {
     session = nil
     rumble?.stop()
     rumble = nil
+    triggers?.reset()
+    triggers = nil
     keepAwake(false)
     if idle { renderer?.showsTestPattern = true }
 }

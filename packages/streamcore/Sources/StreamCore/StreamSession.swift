@@ -46,6 +46,8 @@ public final class StreamSession {
         case quit(reason: String, error: Bool, kind: QuitKind)
         case loginPinRequested(incorrect: Bool)
         case rumble(left: UInt8, right: UInt8)
+        /// DualSense adaptive-trigger effects for the left (L2) and right (R2) triggers.
+        case triggerEffects(left: TriggerEffect, right: TriggerEffect)
         case nickname(String)
     }
 
@@ -119,6 +121,11 @@ public final class StreamSession {
             let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
             if let pcm { s.audio?.push(pcm, frames: frames) }
         }
+        callbacks.trigger_effects = { user, typeLeft, left, typeRight, right in
+            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
+            s.handleTriggerEffects(typeLeft, left.map { Array(UnsafeBufferPointer(start: $0, count: 10)) } ?? [],
+                                   typeRight, right.map { Array(UnsafeBufferPointer(start: $0, count: 10)) } ?? [])
+        }
         callbacks.event = { user, type, a, b, message in
             let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
             if let event = Event(type: type, a: a, b: b, message: message.map { String(cString: $0) } ?? "") {
@@ -151,6 +158,11 @@ public final class StreamSession {
         self.handle = nil
         psrp_session_stop(handle)
         audio?.stop()
+    }
+
+    func handleTriggerEffects(_ typeLeft: UInt8, _ left: [UInt8], _ typeRight: UInt8, _ right: [UInt8]) {
+        onEvent?(.triggerEffects(left: TriggerEffect(mode: typeLeft, parameters: left),
+                                 right: TriggerEffect(mode: typeRight, parameters: right)))
     }
 
     func handleVideo(_ data: UnsafeRawBufferPointer, framesLost: Int) -> Bool {

@@ -282,6 +282,12 @@ PsrpQuitKind psrp_quit_kind(int reason) {
 
 static void session_event_cb(ChiakiEvent *event, void *user) {
     PsrpSession *s = user;
+    if (event->type == CHIAKI_EVENT_TRIGGER_EFFECTS) {
+        if (s->cb.trigger_effects)
+            s->cb.trigger_effects(s->cb.user, event->trigger_effects.type_left, event->trigger_effects.left,
+                                  event->trigger_effects.type_right, event->trigger_effects.right);
+        return;
+    }
     if (!s->cb.event) return;
     switch (event->type) {
     case CHIAKI_EVENT_CONNECTED:

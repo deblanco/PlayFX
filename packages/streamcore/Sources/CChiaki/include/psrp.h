@@ -95,6 +95,9 @@ typedef struct {
     /// Interleaved signed 16-bit PCM; `frames` samples per channel.
     void (*audio)(void *user, const int16_t *pcm, size_t frames);
     void (*event)(void *user, int type, int a, int b, const char *message);
+    /// DualSense adaptive trigger effects, in the controller's own format: a mode byte and 10 parameter
+    /// bytes per trigger.
+    void (*trigger_effects)(void *user, uint8_t type_left, const uint8_t *left, uint8_t type_right, const uint8_t *right);
 } PsrpCallbacks;
 
 typedef struct {

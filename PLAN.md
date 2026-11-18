@@ -158,8 +158,12 @@ Work items:
   right (or the stronger one on single-actuator pads), as looping continuous haptics whose intensity
   follows the console; stopped when the session ends. To verify: connect a DualSense, play a game that
   rumbles.)*
-- ❌ **Adaptive triggers** (DualSense). `trigger_effects` events aren't surfaced by the shim yet;
-  forward them and apply via `GCDualSenseAdaptiveTrigger`.
+- 🔶 **Adaptive triggers** (DualSense). *(built, **unverified on hardware**: the shim forwards
+  libchiaki's trigger-effect events (the DualSense's raw format: mode byte + 10 parameters per trigger);
+  `TriggerEffect` decodes feedback (per-zone resistance), weapon, vibration (per-zone amplitude +
+  frequency), bow/galloping/machine (as the nearest weapon/vibration) and the older simple modes; the
+  adapter applies them with `GCDualSenseAdaptiveTrigger`, and releases the triggers when the session
+  ends. To verify: a DualSense and a game that uses the triggers, e.g. Astro's Playroom.)*
 - ❌ **DualSense haptics audio channel.** chiaki exposes a separate haptics sink; route it to the
   controller's haptic engine.
 - ❌ **Touchpad + motion.** Map mouse/trackpad (and touch on mobile) to the PS touchpad; forward
