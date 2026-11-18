@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "@effect/vitest"
-import { Effect, Fiber, Layer, Option } from "effect"
+import { Effect, Fiber, Layer, Logger, Option } from "effect"
 import { TestClock } from "effect/testing"
 import { CoreError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
+import { makeLogger } from "@/core/logging"
 import * as actions from "./actions"
 import { accountId, credentials, fakeCore, pairedPs5, picture, prefsLayer, ps5, status, type StoredPrefs } from "./testing"
 
@@ -471,6 +472,24 @@ describe("internet play", () => {
       core.emitStream({ type: "connected" })
       expect((yield* Fiber.join(fiber))._tag).toBe("Success")
     }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("logging", () => {
+  it.effect("logs what the app does, including stream events from their callback", () => {
+    const lines: string[] = []
+    const { core, layer } = setup()
+    const logged = Logger.layer([makeLogger((level, line) => lines.push(`${level} ${line}`))])
+    return Effect.gen(function* () {
+      yield* actions.play(pairedPs5, defaultSettings, "aa")
+      const fiber = yield* Effect.forkChild(actions.onStreamEvent(() => undefined))
+      yield* Effect.yieldNow
+      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      yield* Effect.yieldNow
+      yield* Fiber.interrupt(fiber)
+      expect(lines).toContain("Info Play Living Room over the internet: 1080p60 HEVC, auto bitrate")
+      expect(lines).toContain("Warn Stream ended: Stream Connection Unknown (dropped)")
+    }).pipe(Effect.provide(Layer.merge(layer, logged)))
   })
 })
 

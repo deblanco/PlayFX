@@ -25,13 +25,13 @@ export interface RunCallbacks<A> {
   readonly onFailure?: (error: Failure) => void
 }
 
-/** Runs an effect on the app runtime; failures are shown as toasts. */
+/** Runs an effect on the app runtime; failures are shown as toasts and logged. */
 export const useRun = () => {
   const runtime = useRuntime()
   return useCallback(
     <A, E extends Failure>(effect: Effect.Effect<A, E, AppServices>, callbacks: RunCallbacks<A> = {}): void => {
       runtime.runFork(
-        Effect.match(effect, {
+        Effect.match(Effect.tapError(effect, (error) => Effect.logWarning(error.message)), {
           onSuccess: (value) => callbacks.onSuccess?.(value),
           onFailure: (error) => {
             toast.error(error.message)
@@ -51,7 +51,11 @@ export const useRun = () => {
 export const useFork = <A, E extends Failure>(effect: Effect.Effect<A, E, AppServices>): void => {
   const runtime = useRuntime()
   useEffect(() => {
-    const fiber = runtime.runFork(Effect.tapError(effect, (error) => Effect.sync(() => toast.error(error.message))))
+    const fiber = runtime.runFork(
+      Effect.tapError(effect, (error) =>
+        Effect.andThen(Effect.logWarning(error.message), Effect.sync(() => toast.error(error.message))),
+      ),
+    )
     return () => {
       Effect.runFork(Fiber.interrupt(fiber))
     }

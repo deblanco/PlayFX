@@ -3,6 +3,7 @@ import { Option } from "effect"
 import { defaultSettings } from "@/core/schema"
 import {
   consoleRows,
+  describeEvent,
   bitrateLabel,
   framesPerSecond,
   afterQuit,
@@ -175,6 +176,21 @@ describe("afterQuit", () => {
   it("leaves quits to a reconnect in progress", () => {
     expect(afterQuit({ ...live, reconnecting: "apply" }, dropped)).toBe("ignore")
     expect(afterQuit({ ...live, reconnecting: "dropped" }, { ...dropped, kind: "busy" })).toBe("ignore")
+  })
+})
+
+describe("describeEvent", () => {
+  it("turns stream events into log lines, warning on error quits", () => {
+    expect(describeEvent({ type: "connected" })).toEqual({ line: "Stream connected", warn: false })
+    expect(describeEvent({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })).toEqual({
+      line: "Stream ended: Stream Connection Unknown (dropped)",
+      warn: true,
+    })
+    expect(describeEvent({ type: "quit", reason: "Stopped", error: false })).toEqual({ line: "Stream ended: Stopped (final)", warn: false })
+    expect(describeEvent({ type: "remoteProgress", stage: "data" }).line).toBe("Over the internet: data")
+    expect(describeEvent({ type: "loginPin", incorrect: true }).line).toContain("wrong PIN")
+    expect(describeEvent({ type: "loginPin", incorrect: false }).line).toBe("Console asks for its login PIN")
+    expect(describeEvent({ type: "nickname", name: "PS5-454" }).line).toBe("Console name: PS5-454")
   })
 })
 

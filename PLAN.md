@@ -276,7 +276,14 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   sign-in window, every StreamCore error reply. Ours at every level, other crates from info up.
   libchiaki's expected discovery failures (unreachable broadcast addresses — VM/container bridges) are
   debug, not error: they were 106 of the first 114 lines.
-- ❌ L3. Web UI logging (Effect logger → the file): connect, reconnect, wake, settings, errors with causes.
+- ✅ L3. Web UI logging: the app runtime's Effect logger writes to the same file (tauri-plugin-log,
+  target `webview`): play (route, video settings), stop, pairing, wake / wake-until-ready, reconnect
+  attempts (busy retries, outcome), every stream event (quits with reason and kind, as warnings when
+  they're errors), settings changes (debug), and every failure shown as a toast. Unit-tested incl. the
+  plugin call; live check pending (the console wouldn't wake and the screen was locked).
+- 🐞 Found via the logs: waking a PS5 in deeper rest fails with "No route to host" — the unicast wake
+  packet to its address can't be sent (no ARP answer) while broadcast discovery still sees it in
+  standby. Candidate fix: also send the wake packet to the broadcast address.
 - ❌ L4. Settings → Diagnostics: "Detailed logs", "Open logs folder", "Copy diagnostics".
 - Development builds keep the PSN sign-in in a 0600 JSON file (`~/.config/psrp/psn-tokens.json`, or
   `$PSRP_TOKEN_FILE`) instead of the Keychain, which would prompt after every rebuild of an unsigned

@@ -156,6 +156,22 @@ export const afterQuit = (
   return "end"
 }
 
+/** One stream event as a log line, and whether it's worth a warning. */
+export const describeEvent = (event: StreamEvent): { readonly line: string; readonly warn: boolean } => {
+  switch (event.type) {
+    case "connected":
+      return { line: "Stream connected", warn: false }
+    case "quit":
+      return { line: `Stream ended: ${event.reason} (${event.kind ?? "final"})`, warn: event.error }
+    case "remoteProgress":
+      return { line: `Over the internet: ${event.stage}`, warn: false }
+    case "loginPin":
+      return { line: event.incorrect ? "Console asks for its login PIN again (wrong PIN)" : "Console asks for its login PIN", warn: false }
+    case "nickname":
+      return { line: `Console name: ${event.name}`, warn: false }
+  }
+}
+
 /** Toast text for a `quit` event, if the stream ended because of an error. */
 export const quitMessage = (event: Extract<StreamEvent, { type: "quit" }>): Option.Option<string> =>
   event.error ? Option.some(`Disconnected: ${event.reason}`) : Option.none()

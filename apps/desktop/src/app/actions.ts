@@ -13,6 +13,7 @@ import {
   type StreamEvent,
 } from "@/core/schema"
 import {
+  describeEvent,
   framesPerSecond,
   hudStats,
   megabitsPerSecond,
@@ -149,14 +150,17 @@ export const pair = (
     const core = yield* Core
     const prefs = yield* Preferences
     const accountId = Option.getOrElse(yield* prefs.accountId, () => "")
+    yield* Effect.logInfo(`Pairing with ${console.name} at ${console.address}`)
     const credentials = yield* core.pair({ console, accountId, pin })
     yield* prefs.savePaired({ hostId: console.hostId, name: credentials.nickname || console.name, credentials })
+    yield* Effect.logInfo(`Paired with ${credentials.nickname || console.name}`)
     return yield* prefs.paired
   })
 
 export const wake = (console: PairedConsole): Effect.Effect<void, CoreError | WakeFailed, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
+    yield* Effect.logInfo(`Waking ${console.name}`)
     const sent = yield* core.wakeup(console.credentials)
     if (!sent) return yield* new WakeFailed({ message: "Wake-up failed" })
   })
@@ -188,6 +192,8 @@ export const wakeUntilReady = (console: PairedConsole): Effect.Effect<void, Core
             }),
       )
     return yield* waitForReady(0).pipe(
+      Effect.tap(() => Effect.logInfo(`${console.name} is ready`)),
+      Effect.tapError((error) => Effect.logWarning(error.message)),
       Effect.timeoutOrElse({
         duration: wakeTimeout,
         orElse: () =>
@@ -231,6 +237,7 @@ export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreErro
     const core = yield* Core
     const prefs = yield* Preferences
     yield* prefs.saveSettings(next)
+    yield* Effect.logDebug(`Settings: ${JSON.stringify(next)}`)
     yield* core.setRenderParams(renderParams(next))
     return next
   })
@@ -241,7 +248,12 @@ export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreErro
 export const play = (console: PairedConsole, settings: Settings, psnDuid?: string): Effect.Effect<void, CoreError, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
-    yield* core.startStream(console.credentials, streamOptions(settings), psnDuid)
+    const o = streamOptions(settings)
+    yield* Effect.logInfo(
+      `Play ${console.name} ${psnDuid === undefined ? "on the local network" : "over the internet"}: ` +
+        `${String(o.height)}p${String(o.fps)} ${o.hevc ? "HEVC" : "H.264"}, ${o.bitrate === 0 ? "auto bitrate" : `${String(o.bitrate)} kbps`}`,
+    )
+    yield* core.startStream(console.credentials, o, psnDuid)
   })
 
 export const psnPollInterval = "1 minute"
@@ -317,16 +329,22 @@ export const reconnect = (
               if ((yield* Clock.currentTimeMillis) - started >= reconnectGiveUpMs) {
                 return yield* new ReconnectFailed({ message: "The console is still busy. Try again in a moment." })
               }
+              yield* Effect.logInfo(`The console is busy; retrying in ${reconnectRetryDelay}`)
               yield* Effect.sleep(reconnectRetryDelay)
               return yield* loop
             }),
       ),
     )
-    return yield* loop
+    yield* Effect.logInfo(`Restarting the stream ${psnDuid === undefined ? "on the local network" : "over the internet"}`)
+    return yield* loop.pipe(
+      Effect.tap(() => Effect.logInfo("Stream restarted")),
+      Effect.tapError((error) => Effect.logWarning(`Restart failed: ${error.message}`)),
+    )
   })
 
 export const stop: Effect.Effect<void, CoreError, Core> = Effect.gen(function* () {
   const core = yield* Core
+  yield* Effect.logInfo("Stopping the stream")
   yield* core.stopStream
 })
 
@@ -346,10 +364,19 @@ export const submitLoginPin = (raw: string): Effect.Effect<void, CoreError | Val
     yield* core.setLoginPin(pin)
   })
 
+/** Stream events, each also logged. They arrive in a plain callback, so logging runs with this fiber's
+ * services (which carry the app's logger). */
 export const onStreamEvent = (handler: (event: StreamEvent) => void): Effect.Effect<never, CoreError, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
-    return yield* listen(core.onStreamEvent(handler))
+    const run = Effect.runForkWith(yield* Effect.context())
+    return yield* listen(
+      core.onStreamEvent((event) => {
+        const { line, warn } = describeEvent(event)
+        run(warn ? Effect.logWarning(line) : Effect.logInfo(line))
+        handler(event)
+      }),
+    )
   })
 
 export const statsInterval = "1 second"
