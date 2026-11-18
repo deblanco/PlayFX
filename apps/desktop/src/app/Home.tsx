@@ -38,11 +38,10 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-7 p-6">
-      <header className="flex flex-col items-center gap-2 text-center">
-        <h1 className="pl-[0.24em] font-display text-4xl tracking-[0.24em] text-white [text-shadow:0_0_28px_var(--color-ribbon)]">
+      <header className="text-center">
+        <h1 className="font-display text-6xl font-semibold tracking-[-0.01em] text-white [text-shadow:0_0_28px_var(--color-ribbon)]">
           PlayFX
         </h1>
-        <p className="text-sm text-white/60">Stream your PlayStation at home or over the internet.</p>
       </header>
       <Card className="w-full max-w-xl bg-card/70 shadow-2xl backdrop-blur-xl">
         <CardContent className="flex flex-col gap-4">
