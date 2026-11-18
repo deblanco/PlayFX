@@ -54,6 +54,26 @@ extension Serial {
             }
         }
 
+        @Test func eventsBeforeAHandlerAreKeptUntilOneIsSet() throws {
+            let session = try StreamSession(credentials: fakeCredentials(address: "203.0.113.1"))
+            defer { session.stop() }
+            session.onEvent = nil
+            session.deliver(.remoteProgress(.linking)) // e.g. internet setup starting right away
+            session.deliver(.nickname("PS5"))
+            var seen: [String] = []
+            session.onEvent = { event in
+                switch event {
+                case .remoteProgress(let stage): seen.append("progress \(stage.rawValue)")
+                case .nickname(let n): seen.append("nickname \(n)")
+                default: break
+                }
+            }
+            #expect(seen == ["progress linking", "nickname PS5"])
+            session.deliver(.nickname("later"))
+            #expect(seen.last == "nickname later")
+            #expect(session.onEvent != nil)
+        }
+
         @Test func internetPlayNeedsAPS5AndADeviceID() {
             #expect(throws: ConsoleError.message("Internet play needs a PS5 and its PSN device ID")) {
                 try StreamSession(credentials: fakeCredentials(), remote: StreamSession.Remote(token: "t", duid: "not-hex"))

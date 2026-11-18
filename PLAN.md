@@ -73,8 +73,15 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   - 🔶 4. UI: paired PS5s PSN can reach but that aren't on this network show as "internet" (checked every
     minute when signed in for internet play); Play connects through PSN, the HUD shows "Reaching your PS5
     over the internet…" → "Opening the data connection…"; reconnects keep the internet route and allow
-    2 minutes for PSN's setup. Verification against the real account/console pending (needs a PSN
-    sign-in with tokens; ideally a second network, e.g. a phone hotspot).
+    2 minutes for PSN's setup.
+  - ✅ Verified on the real account and PS5 (via `psrp stream --psn`, routed through PSN from the home
+    network): PSN lists PS5-454; connected in 28 s (UPnP mapping, PSN-side registration, data hole);
+    1280×720 with 0 lost frames; controller input reaches the console; cancelling mid-setup exits in
+    0.5 s with a clean "Stopped". Still to do: the desktop UI flow and a run from another network (phone
+    hotspot) — the "internet" row only appears when the console isn't found locally.
+  - ⚠️ Dev builds are unsigned, so macOS ties the Keychain item to each build: after a rebuild, reading
+    the PSN tokens shows a Keychain prompt (and blocks while the screen is locked). Signed release builds
+    don't have this; for the CLI, consider a 0600 file store like the pairing keys.
 - ✅ **Auto-wake on Play.** *(done: Play is enabled for consoles in rest mode — it sends the wake-up,
   shows "Waking…" with Cancel, polls discovery every second (re-sending the wake-up every 5 checks), and
   plays once the console is ready; after 45 s it explains the "Stay connected to the internet" rest-mode

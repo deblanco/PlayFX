@@ -83,7 +83,29 @@ public final class StreamSession {
     }
 
     /// Called from libchiaki's threads.
-    public var onEvent: ((Event) -> Void)?
+    /// Events that arrive before it's set (a session can report progress, or fail, right as it starts)
+    /// are kept and delivered when it is.
+    public var onEvent: ((Event) -> Void)? {
+        get { events.withLock { $0.handler } }
+        set {
+            let pending = events.withLock { state -> [Event] in
+                state.handler = newValue
+                defer { state.pending = [] }
+                return newValue == nil ? [] : state.pending
+            }
+            pending.forEach { newValue?($0) }
+        }
+    }
+    private let events = OSAllocatedUnfairLock(initialState: (handler: ((Event) -> Void)?.none, pending: [Event]()))
+
+    /// Delivers `event` now, or keeps it until `onEvent` is set.
+    func deliver(_ event: Event) {
+        let handler = events.withLock { state -> ((Event) -> Void)? in
+            if state.handler == nil { state.pending.append(event) }
+            return state.handler
+        }
+        handler?(event)
+    }
     /// Called from the video thread with every decoded frame.
     public var onFrame: ((CVPixelBuffer) -> Void)?
 
@@ -150,7 +172,7 @@ public final class StreamSession {
         callbacks.event = { user, type, a, b, message in
             let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
             if let event = Event(type: type, a: a, b: b, message: message.map { String(cString: $0) } ?? "") {
-                s.onEvent?(event)
+                s.deliver(event)
             }
         }
 
@@ -191,7 +213,7 @@ public final class StreamSession {
     }
 
     func handleTriggerEffects(_ typeLeft: UInt8, _ left: [UInt8], _ typeRight: UInt8, _ right: [UInt8]) {
-        onEvent?(.triggerEffects(left: TriggerEffect(mode: typeLeft, parameters: left),
+        deliver(.triggerEffects(left: TriggerEffect(mode: typeLeft, parameters: left),
                                  right: TriggerEffect(mode: typeRight, parameters: right)))
     }
 
