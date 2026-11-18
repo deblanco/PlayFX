@@ -237,16 +237,31 @@ export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreErro
 
 // ---------- Streaming ----------
 
-export const play = (console: PairedConsole, settings: Settings): Effect.Effect<void, CoreError, Core> =>
+/** Starts streaming; with `psnDuid` (the console's PSN device ID) it connects over the internet. */
+export const play = (console: PairedConsole, settings: Settings, psnDuid?: string): Effect.Effect<void, CoreError, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
-    yield* core.startStream(console.credentials, streamOptions(settings))
+    yield* core.startStream(console.credentials, streamOptions(settings), psnDuid)
   })
+
+export const psnPollInterval = "1 minute"
+
+/** Which paired consoles PSN can reach, now and every minute, until interrupted. */
+export const pollPsnReachable = (
+  paired: PairedConsoles,
+  report: (reachable: Readonly<Record<string, string>>) => void,
+): Effect.Effect<number, never, Core> =>
+  psnReachable(paired).pipe(
+    Effect.flatMap((reachable) => Effect.sync(() => { report(reachable) })),
+    Effect.repeat(Schedule.spaced(psnPollInterval)),
+  )
 
 // The PS5 refuses a new session for ~9 s after one ends ("busy"), so a reconnect retries.
 export const reconnectRetryDelay = "1500 millis"
 export const reconnectGiveUpMs = 30_000
 export const reconnectAnswerTimeout = "15 seconds"
+/** Over the internet, PSN setup alone can take up to ~30 s per step. */
+export const remoteAnswerTimeout = "2 minutes"
 
 /** After this long without a drop, a stream's earlier automatic reconnects are forgiven. */
 export const stableAfter = "60 seconds"
@@ -260,6 +275,7 @@ type Answer = "connected" | "busy"
 const attemptStream = (
   console: PairedConsole,
   settings: Settings,
+  psnDuid: string | undefined,
 ): Effect.Effect<Answer, CoreError | ReconnectFailed, Core> =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -274,10 +290,10 @@ const attemptStream = (
         }),
         (unsubscribe) => Effect.sync(unsubscribe),
       )
-      yield* core.startStream(console.credentials, streamOptions(settings))
+      yield* core.startStream(console.credentials, streamOptions(settings), psnDuid)
       return yield* Deferred.await(answer).pipe(
         Effect.timeoutOrElse({
-          duration: reconnectAnswerTimeout,
+          duration: psnDuid === undefined ? reconnectAnswerTimeout : remoteAnswerTimeout,
           orElse: () => Effect.fail(new ReconnectFailed({ message: "The console didn't answer. Try again." })),
         }),
       )
@@ -289,11 +305,12 @@ const attemptStream = (
 export const reconnect = (
   console: PairedConsole,
   settings: Settings,
+  psnDuid?: string,
 ): Effect.Effect<void, CoreError | ReconnectFailed, Core> =>
   Effect.gen(function* () {
     const started = yield* Clock.currentTimeMillis
     const loop: Effect.Effect<void, CoreError | ReconnectFailed, Core> = Effect.suspend(() =>
-      Effect.flatMap(attemptStream(console, settings), (answer) =>
+      Effect.flatMap(attemptStream(console, settings, psnDuid), (answer) =>
         answer === "connected"
           ? Effect.void
           : Effect.gen(function* () {

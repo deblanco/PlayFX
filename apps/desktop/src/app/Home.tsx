@@ -16,7 +16,7 @@ interface HomeProps {
   readonly settings: Settings
   readonly capabilities: Capabilities
   readonly onSettingsChange: (next: Settings) => void
-  readonly onPlay: (console: PairedConsole) => void
+  readonly onPlay: (console: PairedConsole, psnDuid?: string) => void
 }
 
 export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeProps) => {

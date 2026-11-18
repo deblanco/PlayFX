@@ -28,6 +28,10 @@ interface Session {
   readonly connected: boolean
   /** Restarting the stream; quit events then belong to the reconnect. */
   readonly reconnecting: Reconnecting
+  /** Set when streaming over the internet: the console's PSN device ID (reused to reconnect). */
+  readonly psnDuid: string | undefined
+  /** While connecting over the internet, the setup step under way. */
+  readonly remoteStage: "linking" | "data" | undefined
   /** Automatic reconnects since the stream was last stable (capped, so a bad link doesn't loop forever). */
   readonly autoReconnects: number
 }
@@ -97,7 +101,7 @@ export const App = () => {
     })
     cancelBackground()
     reconnectFiber.current = runtime.runFork(
-      Effect.match(actions.reconnect(console, settings), {
+      Effect.match(actions.reconnect(console, settings, session.psnDuid), {
         onSuccess: () => {
           reconnectFiber.current = null
           setSession((s) => s && { ...s, connected: true, reconnecting: false, startedWith: streamOptions(settings) })
@@ -134,7 +138,10 @@ export const App = () => {
         setSession((s) => s && { ...s, title: event.name })
         break
       case "connected":
-        setSession((s) => s && { ...s, connected: true })
+        setSession((s) => s && { ...s, connected: true, remoteStage: undefined })
+        break
+      case "remoteProgress":
+        setSession((s) => s && { ...s, remoteStage: event.stage === "connected" ? undefined : event.stage })
         break
     }
   })
@@ -149,7 +156,7 @@ export const App = () => {
     }
   }, [runtime])
 
-  const play = (console: PairedConsole) => {
+  const play = (console: PairedConsole, psnDuid?: string) => {
     const starting: Session = {
       console,
       started: false,
@@ -159,9 +166,11 @@ export const App = () => {
       connected: false,
       reconnecting: false,
       autoReconnects: 0,
+      psnDuid,
+      remoteStage: psnDuid === undefined ? undefined : "linking",
     }
     setSession(starting)
-    run(actions.play(console, settings), {
+    run(actions.play(console, settings, psnDuid), {
       // A quit that arrived while starting already cleared (or replaced) the session.
       onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },
       onFailure: () => { setSession((s) => (s?.console === console ? null : s)); },
@@ -186,6 +195,7 @@ export const App = () => {
             reconnecting: session.reconnecting,
             onReconnect: () => { reconnect("apply") },
           }}
+          remoteStage={session.remoteStage}
           onLoginPinSubmitted={clearLoginPin}
           onEnd={leave}
         />

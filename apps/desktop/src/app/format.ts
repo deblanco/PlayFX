@@ -13,7 +13,8 @@ import {
 
 // Pure helpers: everything here is a function of its arguments, so the UI can stay dumb.
 
-export type ConsoleStatus = "ready" | "standby" | "offline"
+/** "internet": not on this network, but reachable through PSN. */
+export type ConsoleStatus = "ready" | "standby" | "offline" | "internet"
 
 /** One line of the consoles list: what discovery saw and/or what we paired with. */
 export interface ConsoleRow {
@@ -23,23 +24,32 @@ export interface ConsoleRow {
   readonly meta: string
   readonly discovered: DiscoveredConsole | undefined
   readonly paired: PairedConsole | undefined
+  /** The console's PSN device ID when it's only reachable over the internet. */
+  readonly psnDuid: string | undefined
 }
 
 const statusOf = (console: DiscoveredConsole | undefined): ConsoleStatus =>
   console === undefined || console.state === "unknown" ? "offline" : console.state
 
 /** Merges the consoles found on the network with the ones paired earlier (which may be offline). */
-export const consoleRows = (discovered: readonly DiscoveredConsole[], paired: PairedConsoles): readonly ConsoleRow[] => {
+export const consoleRows = (
+  discovered: readonly DiscoveredConsole[],
+  paired: PairedConsoles,
+  onPsn: Readonly<Record<string, string>> = {},
+): readonly ConsoleRow[] => {
   const ids = [...new Set([...discovered.map((d) => d.hostId), ...Object.keys(paired)])]
   return ids.map((hostId) => {
     const d = discovered.find((x) => x.hostId === hostId)
     const p = paired[hostId]
     const ps5 = d?.ps5 ?? p?.credentials.ps5 ?? true
     const address = d?.address ?? p?.credentials.address ?? ""
-    const meta = [ps5 ? "PS5" : "PS4", address, d?.runningApp, p ? "paired" : undefined]
+    // On this network, play locally; otherwise PSN may still reach it.
+    const psnDuid = d === undefined && p !== undefined ? onPsn[hostId] : undefined
+    const status = psnDuid === undefined ? statusOf(d) : "internet"
+    const meta = [ps5 ? "PS5" : "PS4", psnDuid === undefined ? address : "over the internet", d?.runningApp, p ? "paired" : undefined]
       .filter((part) => part !== undefined && part !== "")
       .join(" · ")
-    return { hostId, name: d?.name ?? p?.name ?? hostId, status: statusOf(d), meta, discovered: d, paired: p }
+    return { hostId, name: d?.name ?? p?.name ?? hostId, status, meta, discovered: d, paired: p, psnDuid }
   })
 }
 

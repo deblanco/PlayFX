@@ -195,11 +195,44 @@ describe("home: paired consoles", () => {
     core.state.discovered = [ps5]
     await waitFor(
       () => {
-        expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 1080 }))
+        expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 1080 }), undefined)
       },
       { timeout: 3000 },
     )
     expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument()
+  })
+
+  it("plays a console away from home over the internet, showing the setup steps", async () => {
+    const core = fakeCore()
+    core.state.discovered = [] // not on this network
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    expect(await item.findByText("internet")).toBeInTheDocument()
+    expect(item.getByText(/over the internet/)).toBeInTheDocument()
+    await userEvent.click(item.getByRole("button", { name: "Play" }))
+    expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
+    const hud = await screen.findByRole("banner")
+    expect(hud).toHaveTextContent("Reaching your PS5 over the internet…")
+    act(() => {
+      core.emitStream({ type: "remoteProgress", stage: "data" })
+    })
+    expect(hud).toHaveTextContent("Opening the data connection…")
+    act(() => {
+      core.emitStream({ type: "remoteProgress", stage: "connected" })
+      core.emitStream({ type: "connected" })
+    })
+    expect(hud).not.toHaveTextContent("over the internet")
+
+    // A drop reconnects over the internet too.
+    vi.mocked(core.service.startStream).mockClear()
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+    })
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
+    })
   })
 
   it("can cancel waking, and reports a wake-up that couldn't be sent", async () => {
@@ -398,7 +431,7 @@ describe("streaming", () => {
       bitrate: 0,
       audio: true,
       autoDowngrade: true,
-    })
+    }, undefined)
     expect(screen.queryByText("Consoles")).not.toBeInTheDocument()
     expect(screen.getByText("Living Room")).toBeInTheDocument()
     expect(await screen.findByText(/^1920×1080 · \d+ fps · [\d.]+ Mbps · MetalFX$/)).toBeInTheDocument()
@@ -558,7 +591,7 @@ describe("streaming", () => {
     expect(sheet.getByRole("status")).toHaveTextContent("Reconnecting…")
     expect(screen.getByRole("banner")).toHaveTextContent("Reconnecting…")
     await waitFor(() => {
-      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }))
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }), undefined)
     })
     expect(core.counts.stopStream).toBe(0) // the new session replaces the old one
     // The old session's quit and a busy console don't end the stream view.

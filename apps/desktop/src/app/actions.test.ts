@@ -183,7 +183,7 @@ describe("streaming", () => {
         bitrate: 0,
         audio: true,
         autoDowngrade: true,
-      })
+      }, undefined)
       yield* actions.stop
       expect(core.counts.stopStream).toBe(1)
     }).pipe(Effect.provide(layer))
@@ -270,7 +270,7 @@ describe("reconnect", () => {
     return Effect.gen(function* () {
       const fiber = yield* begin
       expect(core.counts.stopStream).toBe(0) // start replaces it, keeping the last frame up
-      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }))
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }), undefined)
       core.emitStream({ type: "quit", reason: "Stopped", error: false, kind: "stopped" }) // the replaced session: ignored
       core.emitStream({ type: "connected" })
       expect((yield* Fiber.join(fiber))._tag).toBe("Success")
@@ -435,3 +435,42 @@ describe("psnReachable", () => {
     }).pipe(Effect.provide(layer))
   })
 })
+
+describe("internet play", () => {
+  it.effect("plays over the internet with the console's PSN device ID", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      yield* actions.play(pairedPs5, defaultSettings, "aa")
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("polls which consoles PSN can reach every minute", () => {
+    const { core, layer } = setup()
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    return Effect.gen(function* () {
+      const reports: Readonly<Record<string, string>>[] = []
+      const fiber = yield* Effect.forkChild(actions.pollPsnReachable({ HOST1: pairedPs5 }, (r) => reports.push(r)))
+      yield* Effect.yieldNow
+      expect(reports).toEqual([{ HOST1: "aa" }])
+      yield* TestClock.adjust(actions.psnPollInterval)
+      expect(reports).toHaveLength(2)
+      yield* Fiber.interrupt(fiber)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("reconnects over the internet with a longer wait for the answer", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(Effect.exit(actions.reconnect(pairedPs5, defaultSettings, "aa")))
+      yield* Effect.yieldNow
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
+      yield* TestClock.adjust(actions.reconnectAnswerTimeout) // the LAN wait has passed: still waiting
+      expect(fiber.pollUnsafe()).toBeUndefined()
+      core.emitStream({ type: "connected" })
+      expect((yield* Fiber.join(fiber))._tag).toBe("Success")
+    }).pipe(Effect.provide(layer))
+  })
+})
+

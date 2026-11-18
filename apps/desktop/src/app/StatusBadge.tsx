@@ -7,6 +7,7 @@ const dot: Record<ConsoleStatus, string> = {
   ready: "bg-emerald-500",
   standby: "bg-amber-500",
   offline: "bg-muted-foreground",
+  internet: "bg-sky-400",
 }
 
 export const StatusBadge = ({ status }: { status: ConsoleStatus }) => (

@@ -70,7 +70,11 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
     controller/PIN/IDR calls are dropped until the session exists; clear errors for "PSN can't reach
     the PS5" and "this network blocks it". The token is fetched natively (Rust, off the main thread) and
     never passes through the web UI. `psrp stream --psn` for CLI testing.
-  - ❌ 4. UI + verification from another network (e.g. phone hotspot).
+  - 🔶 4. UI: paired PS5s PSN can reach but that aren't on this network show as "internet" (checked every
+    minute when signed in for internet play); Play connects through PSN, the HUD shows "Reaching your PS5
+    over the internet…" → "Opening the data connection…"; reconnects keep the internet route and allow
+    2 minutes for PSN's setup. Verification against the real account/console pending (needs a PSN
+    sign-in with tokens; ideally a second network, e.g. a phone hotspot).
 - ✅ **Auto-wake on Play.** *(done: Play is enabled for consoles in rest mode — it sends the wake-up,
   shows "Waking…" with Cancel, polls discovery every second (re-sending the wake-up every 5 checks), and
   plays once the console is ready; after 45 s it explains the "Stay connected to the internet" rest-mode

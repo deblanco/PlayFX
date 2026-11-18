@@ -13,7 +13,8 @@ import { StatusBadge } from "./StatusBadge"
 
 interface ConsoleListProps {
   readonly accountId: Option.Option<string>
-  readonly onPlay: (console: PairedConsole) => void
+  /** `psnDuid`: connect over the internet to the console with that PSN device ID. */
+  readonly onPlay: (console: PairedConsole, psnDuid?: string) => void
 }
 
 export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
@@ -36,6 +37,10 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
 
   /** Plays right away when the console is ready; wakes it and waits first when it's in rest mode. */
   const play = (row: ConsoleRow, console: PairedConsole) => {
+    if (row.status === "internet" && row.psnDuid !== undefined) {
+      onPlay(console, row.psnDuid)
+      return
+    }
     if (row.status !== "standby") {
       onPlay(console)
       return
@@ -77,7 +82,11 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
     ),
   )
 
-  const rows = consoleRows(discovered, paired)
+  // Paired consoles PSN can reach (when signed in for internet play), refreshed every minute.
+  const [onPsn, setOnPsn] = useState<Readonly<Record<string, string>>>({})
+  useFork(useMemo(() => actions.pollPsnReachable(paired, setOnPsn), [paired]))
+
+  const rows = consoleRows(discovered, paired, onPsn)
   const signedIn = Option.isSome(accountId)
   useDevAutoplay(rows, onPlay)
 

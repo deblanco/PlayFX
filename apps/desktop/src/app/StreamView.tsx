@@ -93,6 +93,8 @@ interface StreamViewProps {
   readonly onSettingsChange: (next: Settings) => void
   /** Whether stream settings changed since connecting, and how to reconnect with them. */
   readonly reconnect: ReconnectState
+  /** While connecting over the internet, the setup step under way. */
+  readonly remoteStage?: "linking" | "data" | undefined
   readonly onLoginPinSubmitted: () => void
   /** The stream ended; carries the error to show, if any. */
   readonly onEnd: (error: Option.Option<string>) => void
@@ -105,6 +107,7 @@ export const StreamView = ({
   capabilities,
   onSettingsChange,
   reconnect,
+  remoteStage,
   onLoginPinSubmitted,
   onEnd,
 }: StreamViewProps) => {
@@ -158,7 +161,11 @@ export const StreamView = ({
               ? "Reconnecting…"
               : reconnect.reconnecting === "starting"
                 ? "Waiting for the console…"
-                : stats}
+                : remoteStage === "linking"
+                  ? "Reaching your PS5 over the internet…"
+                  : remoteStage === "data"
+                    ? "Opening the data connection…"
+                    : stats}
         </span>
         <details className="group relative text-xs">
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">

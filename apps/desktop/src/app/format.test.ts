@@ -132,6 +132,16 @@ describe("upscalerLabel", () => {
   })
 })
 
+describe("consoleRows over the internet", () => {
+  it("shows a paired console PSN can reach, when it isn't on this network", () => {
+    const [away] = consoleRows([], { HOST1: pairedPs5 }, { HOST1: "aa" })
+    expect(away).toMatchObject({ status: "internet", psnDuid: "aa", meta: "PS5 · over the internet · paired" })
+    // On this network: play locally.
+    const [home] = consoleRows([ps5], { HOST1: pairedPs5 }, { HOST1: "aa" })
+    expect(home).toMatchObject({ status: "ready", psnDuid: undefined })
+  })
+})
+
 describe("psnDeviceIds", () => {
   it("matches paired consoles to PSN's by name, if Remote Play is on", () => {
     const bedroom = { ...pairedPs5, hostId: "HOST2", name: "Bedroom", credentials: { ...pairedPs5.credentials, nickname: "PS5-777" } }
