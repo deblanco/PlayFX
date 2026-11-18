@@ -124,11 +124,14 @@ extension Serial {
 
             // A quit's late cleanup must not end a session started after it.
             #expect(try call(sc_session_start, request)["ok"] as? Bool == true)
+            weak let started = session
             let stale = try StreamSession(credentials: fakeCredentials(), options: options)
             cleanUpAfterQuit(of: stale)
             #expect(try object(sc_session_stats())["active"] as? Bool == true)
             stale.stop()
             sc_session_stop()
+            // Nothing keeps a stopped session alive (its event handler must not retain it).
+            #expect(await waitUntil { started == nil })
             window.close()
         }
     }

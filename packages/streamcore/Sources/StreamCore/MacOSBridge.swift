@@ -8,7 +8,7 @@ import AppKit
 // iOS (Expo module) will use the Swift API (StreamRenderer, StreamSession, Console) directly.
 
 private(set) var renderer: StreamRenderer? // internal for tests
-private var session: StreamSession?
+private(set) var session: StreamSession? // internal for tests
 private var input: ControllerInput?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
 
@@ -37,7 +37,7 @@ private func emit(_ object: [String: Any]) {
 @_cdecl("sc_free")
 public func sc_free(_ p: UnsafeMutablePointer<CChar>?) { free(p) }
 
-/// Receives session events as JSON: {"type":"connected"} | {"type":"quit","reason":..,"error":bool,"kind":"final"|"busy"|"dropped"} |
+/// Receives session events as JSON: {"type":"connected"} | {"type":"quit","reason":..,"error":bool,"kind":"final"|"busy"|"dropped"|"stopped"} |
 /// {"type":"loginPin","incorrect":bool} | {"type":"nickname","name":..}. Called from any thread.
 @_cdecl("sc_set_event_callback")
 public func sc_set_event_callback(_ cb: (@convention(c) (UnsafePointer<CChar>) -> Void)?) {
@@ -155,12 +155,12 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         let r = try decode(Request.self, request)
         let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options())
         s.onFrame = { frame in renderer?.display(frame) }
-        s.onEvent = { event in
+        s.onEvent = { [weak s] event in
             if let payload = eventPayload(event) { emit(payload) }
             // Clean up after a quit, unless the host has already moved on to another session. The last
             // frame stays up: the host may reconnect (busy console, dropped stream) or go home.
             if case .quit = event {
-                DispatchQueue.main.async { [weak s] in
+                DispatchQueue.main.async {
                     if let s { cleanUpAfterQuit(of: s) }
                 }
             }

@@ -87,6 +87,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private let ml = MLSuperResolution()
     /// The raw stream converted at its own size, for the compare view's baseline while ML is on.
     private var baselineTexture: MTLTexture?
+    /// Width of the last decoded frame, before any ML upscale (the codec's block grid lives there).
+    private var decodedWidth = 0
     /// GPU time per frame (conversion, cleanup, upscale, present), smoothed; 0 until a frame finished.
     public var gpuMilliseconds: Double { gpuTime.withLock { $0 } }
     private let gpuTime = OSAllocatedUnfairLock<Double>(initialState: 0)
@@ -209,12 +211,16 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         if let frame = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) {
             let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: fittedRect(drawable: drawableSize).size) : nil
             mlActive = enhanced != nil
+            decodedWidth = CVPixelBufferGetWidth(frame)
             encodeVideoFrame(enhanced ?? frame, cb)
-            baselineTexture = nil
             if enhanced != nil, params.compare {
                 let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
-                baselineTexture = Self.makeInputTexture(device, w, h)
+                if baselineTexture?.width != w || baselineTexture?.height != h {
+                    baselineTexture = Self.makeInputTexture(device, w, h)
+                }
                 if let baseline = baselineTexture { convert(frame, into: baseline, cb) }
+            } else {
+                baselineTexture = nil
             }
         } else if showsTestPattern {
             encodeTestPattern(cb)
@@ -278,7 +284,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         guard params.deblock > 0 || params.deband > 0 else { return nil }
         if cleanTexture == nil { cleanTexture = Self.makeInputTexture(device, inputTexture.width, inputTexture.height) }
         guard let clean = cleanTexture, let enc = cb.makeComputeCommandEncoder() else { return nil }
-        var strengths = SIMD4<Float>(params.deblock, params.deband, 0, 0)
+        var strengths = SIMD4<Float>(params.deblock, params.deband, Self.blockGrid(texture: inputTexture.width, decoded: decodedWidth), 0)
         enc.setComputePipelineState(cleanupPipeline)
         enc.setTexture(inputTexture, index: 0)
         enc.setTexture(clean, index: 1)
@@ -286,6 +292,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         dispatch(enc, clean)
         enc.endEncoding()
         return clean
+    }
+
+    /// The codec's 8×8 block grid in input-texture pixels: wider after an ML upscale (e.g. 12 px at 1.5×).
+    static func blockGrid(texture: Int, decoded: Int) -> Float {
+        decoded > 0 ? (8 * Float(texture) / Float(decoded)).rounded() : 8
     }
 
     /// Exponential moving average for the GPU time readout (the first sample starts it).

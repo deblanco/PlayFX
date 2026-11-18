@@ -271,9 +271,10 @@ static void session_audio_frame_cb(int16_t *buf, size_t samples_count, void *use
 
 PsrpQuitKind psrp_quit_kind(int reason) {
     switch ((ChiakiQuitReason)reason) {
+    case CHIAKI_QUIT_REASON_STOPPED: return PSRP_QUIT_STOPPED;
     case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE: return PSRP_QUIT_BUSY;
+    // Unexplained losses only: REMOTE_DISCONNECTED means the console ended it on purpose (with a reason).
     case CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN:
-    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED:
     case CHIAKI_QUIT_REASON_CTRL_UNKNOWN: return PSRP_QUIT_DROPPED;
     default: return PSRP_QUIT_FINAL;
     }

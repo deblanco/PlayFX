@@ -89,10 +89,10 @@ static float hash(int2 p, float salt) {
 // H.264/HEVC-style deblocking of the 8×8 grid along one axis: when the step across a grid line
 // is small and both sides are flat (a coding artifact, not a real edge), pull the two pixels
 // next to the line toward each other.
-static float3 deblockAxis(texture2d<float, access::read> t, int2 pos, int2 size, int2 axis, float3 c, float s) {
-    int k = (axis.x != 0 ? pos.x : pos.y) % 8;
+static float3 deblockAxis(texture2d<float, access::read> t, int2 pos, int2 size, int2 axis, float3 c, float s, int grid) {
+    int k = (axis.x != 0 ? pos.x : pos.y) % grid;
     int along = axis.x != 0 ? pos.x : pos.y;
-    bool isP = k == 7, isQ = k == 0 && along > 0;
+    bool isP = k == grid - 1, isQ = k == 0 && along > 0;
     if (!isP && !isQ) return c;
     int2 p0 = isP ? pos : pos - axis;
     float3 vp1 = texel(t, p0 - axis, size), vp0 = texel(t, p0, size);
@@ -119,7 +119,7 @@ static float3 deband(texture2d<float, access::read> t, int2 pos, int2 size, floa
     return c + (hash(pos, 3.0) - 0.5) * (s / 255.0);
 }
 
-// strengths = (deblock, deband, -, -), each 0–1.
+// strengths = (deblock, deband, block grid in px — 8, or more after an ML upscale, -).
 kernel void cleanup(texture2d<float, access::read> src [[texture(0)]],
                     texture2d<float, access::write> dst [[texture(1)]],
                     constant float4 &strengths [[buffer(0)]],
@@ -129,8 +129,9 @@ kernel void cleanup(texture2d<float, access::read> src [[texture(0)]],
     int2 pos = int2(gid);
     float3 c = texel(src, pos, size);
     if (strengths.x > 0.0) {
-        c = deblockAxis(src, pos, size, int2(1, 0), c, strengths.x);
-        c = deblockAxis(src, pos, size, int2(0, 1), c, strengths.x);
+        int grid = max(int(strengths.z), 8);
+        c = deblockAxis(src, pos, size, int2(1, 0), c, strengths.x, grid);
+        c = deblockAxis(src, pos, size, int2(0, 1), c, strengths.x, grid);
     }
     if (strengths.y > 0.0) c = deband(src, pos, size, c, strengths.y);
     dst.write(float4(saturate(c), 1.0), gid);

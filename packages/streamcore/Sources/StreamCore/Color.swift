@@ -3,12 +3,15 @@ import CoreVideo
 /// YCbCr → RGB matrix. `auto` uses what the stream signals (the PS5 sends BT.709).
 public enum ColorMatrix: String, Codable, Sendable {
     case auto, bt601, bt709, bt2020
+    /// SMPTE 240M (old HD); only ever detected from a frame, not offered as a choice.
+    case smpte240m
 
     /// Luma weights (Kr, Kb) of a concrete matrix.
     var weights: (kr: Float, kb: Float) {
         switch self {
         case .bt601: (0.299, 0.114)
         case .bt2020: (0.2627, 0.0593)
+        case .smpte240m: (0.212, 0.087)
         case .auto, .bt709: (0.2126, 0.0722)
         }
     }
@@ -53,24 +56,30 @@ struct FrameColor: Equatable {
         func attachment(_ key: CFString) -> String? {
             CVBufferCopyAttachment(frame, key, nil).map { "\($0)" }
         }
-        let matrices: [CFString: ColorMatrix] = [
-            kCVImageBufferYCbCrMatrix_ITU_R_601_4: .bt601, kCVImageBufferYCbCrMatrix_SMPTE_240M_1995: .bt601,
-            kCVImageBufferYCbCrMatrix_ITU_R_709_2: .bt709, kCVImageBufferYCbCrMatrix_ITU_R_2020: .bt2020,
-        ]
         let signaled = attachment(kCVImageBufferYCbCrMatrixKey).flatMap { name in
-            matrices.first { $0.key as String == name }?.value
+            Self.matrices[name]
         }
         matrix = signaled ?? (CVPixelBufferGetHeight(frame) >= 720 ? .bt709 : .bt601)
         fullRange = CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        let sitings: [CFString: ChromaSiting] = [
-            kCVImageBufferChromaLocation_Center: .center, kCVImageBufferChromaLocation_TopLeft: .topLeft,
-            kCVImageBufferChromaLocation_Top: .top, kCVImageBufferChromaLocation_BottomLeft: .bottomLeft,
-            kCVImageBufferChromaLocation_Bottom: .bottom,
-        ]
         siting = attachment(kCVImageBufferChromaLocationTopFieldKey).flatMap { name in
-            sitings.first { $0.key as String == name }?.value
+            Self.sitings[name]
         } ?? .left
     }
+
+    // Attachment values → our types; built once, not per frame.
+    private static let matrices: [String: ColorMatrix] = [
+        kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String: .bt601,
+        kCVImageBufferYCbCrMatrix_SMPTE_240M_1995 as String: .smpte240m,
+        kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String: .bt709,
+        kCVImageBufferYCbCrMatrix_ITU_R_2020 as String: .bt2020,
+    ]
+    private static let sitings: [String: ChromaSiting] = [
+        kCVImageBufferChromaLocation_Center as String: .center,
+        kCVImageBufferChromaLocation_TopLeft as String: .topLeft,
+        kCVImageBufferChromaLocation_Top as String: .top,
+        kCVImageBufferChromaLocation_BottomLeft as String: .bottomLeft,
+        kCVImageBufferChromaLocation_Bottom as String: .bottom,
+    ]
 
     init(matrix: ColorMatrix, fullRange: Bool, siting: ChromaSiting) {
         self.matrix = matrix

@@ -14,6 +14,7 @@ import Testing
         #expect(close(c(.bt709), [1.5748, 0.1873, 0.4681, 1.8556]))
         #expect(close(c(.bt601), [1.402, 0.3441, 0.7141, 1.772]))
         #expect(close(c(.bt2020), [1.4746, 0.1646, 0.5714, 1.8814]))
+        #expect(close(c(.smpte240m), [1.576, 0.2266, 0.4766, 1.826]))
         #expect(c(.auto) == c(.bt709)) // the frame says BT.709
     }
 
@@ -52,6 +53,9 @@ import Testing
                                  siting: kCVImageBufferChromaLocation_Center,
                                  luma: { _, _ in 0 }, chroma: { _, _ in (128, 128) })
         #expect(FrameColor(sd601) == FrameColor(matrix: .bt601, fullRange: false, siting: .center))
+        let old = try makeNV12(width: 64, height: 32, matrix: kCVImageBufferYCbCrMatrix_SMPTE_240M_1995,
+                               luma: { _, _ in 0 }, chroma: { _, _ in (128, 128) })
+        #expect(FrameColor(old).matrix == .smpte240m)
         // Untagged: BT.601 below 720 lines, BT.709 from 720 up; chroma left-sited.
         let untaggedSD = try makeNV12(width: 64, height: 32, matrix: nil, siting: nil,
                                       luma: { _, _ in 0 }, chroma: { _, _ in (128, 128) })

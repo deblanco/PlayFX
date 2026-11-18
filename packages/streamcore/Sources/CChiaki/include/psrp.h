@@ -76,9 +76,10 @@ typedef enum {
 
 /// Why a session ended, as far as what to do next is concerned.
 typedef enum {
-    PSRP_QUIT_FINAL = 0,   // stopped, console asleep, incompatible…: don't retry
+    PSRP_QUIT_FINAL = 0,   // console asleep, disconnected on purpose, incompatible…: don't retry
     PSRP_QUIT_BUSY = 1,    // Remote Play still in use on the console (~9 s after a session ends): retry soon
-    PSRP_QUIT_DROPPED = 2, // the connection was lost mid-stream: worth reconnecting
+    PSRP_QUIT_DROPPED = 2, // the connection was lost mid-stream without a reason: worth reconnecting
+    PSRP_QUIT_STOPPED = 3, // stopped by this client (e.g. replaced by a new session)
 } PsrpQuitKind;
 
 /// Classifies a libchiaki `ChiakiQuitReason` value.

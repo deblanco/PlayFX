@@ -31,8 +31,10 @@ public final class StreamSession {
 
     /// What a quit means for reconnecting.
     public enum QuitKind: String, Sendable {
-        /// Stopped, console asleep, incompatible…: don't retry.
+        /// Console asleep, disconnected on purpose, incompatible…: don't retry.
         case final
+        /// Stopped by this client (e.g. replaced by a new session).
+        case stopped
         /// Remote Play is still in use on the console (it is for ~9 s after a session ends): retry soon.
         case busy
         /// The connection was lost mid-stream: worth reconnecting.
@@ -163,13 +165,24 @@ public final class StreamSession {
     }
 }
 
+extension StreamSession.QuitKind {
+    /// From a PsrpQuitKind code.
+    init(code: Int32) {
+        switch UInt32(code) {
+        case PSRP_QUIT_BUSY.rawValue: self = .busy
+        case PSRP_QUIT_DROPPED.rawValue: self = .dropped
+        case PSRP_QUIT_STOPPED.rawValue: self = .stopped
+        default: self = .final
+        }
+    }
+}
+
 extension StreamSession.Event {
     /// Maps a PsrpEventType callback to an Event (nil for unknown types).
     init?(type: Int32, a: Int32, b: Int32, message text: String) {
         switch UInt32(type) {
         case PSRP_EVENT_CONNECTED.rawValue: self = .connected
-        case PSRP_EVENT_QUIT.rawValue: self = .quit(reason: text, error: a != 0, kind: b == Int32(PSRP_QUIT_BUSY.rawValue) ? .busy
-                                                         : b == Int32(PSRP_QUIT_DROPPED.rawValue) ? .dropped : .final)
+        case PSRP_EVENT_QUIT.rawValue: self = .quit(reason: text, error: a != 0, kind: StreamSession.QuitKind(code: b))
         case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: self = .loginPinRequested(incorrect: a != 0)
         case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
         case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)

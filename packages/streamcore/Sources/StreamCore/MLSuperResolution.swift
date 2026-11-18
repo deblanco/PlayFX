@@ -38,10 +38,12 @@ final class MLSuperResolution {
         let sizeKey = "\(w)x\(h)"
         guard !unsupported.contains(sizeKey) else { return nil }
         let supported = Config.__supportedScaleFactors(forFrameWidth: w, frameHeight: h).map(\.floatValue)
-        guard let factor = Self.scaleFactor(supported: supported, width: w, height: h, target: target) else {
-            unsupported.insert(sizeKey)
+        guard !supported.isEmpty else {
+            unsupported.insert(sizeKey) // the model can't take this size at all
             return nil
         }
+        // No factor for the current window (e.g. too small to need upscaling): skip, but try again later.
+        guard let factor = Self.scaleFactor(supported: supported, width: w, height: h, target: target) else { return nil }
         if key?.width != w || key?.height != h || key?.factor != factor {
             end()
             let config = Config(frameWidth: w, frameHeight: h, scaleFactor: factor)

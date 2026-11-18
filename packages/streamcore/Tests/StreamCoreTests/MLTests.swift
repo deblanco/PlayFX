@@ -52,6 +52,26 @@ extension StreamRendererTests {
         #expect(abs(pixel(out, width: 2560, x: 2200, y: 700).g - 168) <= 6)
     }
 
+    @Test func blockGridFollowsTheMLScale() {
+        #expect(StreamRenderer.blockGrid(texture: 1280, decoded: 1280) == 8)
+        #expect(StreamRenderer.blockGrid(texture: 1920, decoded: 1280) == 12)
+        #expect(StreamRenderer.blockGrid(texture: 1920, decoded: 960) == 16)
+        #expect(StreamRenderer.blockGrid(texture: 64, decoded: 0) == 8) // nothing decoded yet
+    }
+
+    @Test func aSmallWindowDoesNotDisableMLForGood() throws {
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
+        guard r.mlSupported else { return }
+        r.showsTestPattern = false
+        r.params.mlUpscale = true
+        r.display(try mlFrame(width: 1280, height: 720))
+        _ = try render(r, size: (1280, 720)) // no upscale needed: ML skipped
+        #expect(!r.mlActive)
+        r.display(try mlFrame(width: 1280, height: 720))
+        _ = try render(r, size: (2560, 1440)) // bigger window: ML again
+        #expect(r.mlActive)
+    }
+
     @Test func mlPassesThroughWhatItCantTake() throws {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
         r.showsTestPattern = false

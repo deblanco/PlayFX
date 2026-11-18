@@ -19,6 +19,7 @@ import Testing
         guard case .quit(_, false, .final) = event(PSRP_EVENT_QUIT, 0) else { Issue.record("quit ok"); return }
         guard case .quit(_, true, .busy) = event(PSRP_EVENT_QUIT, 1, 1) else { Issue.record("quit busy"); return }
         guard case .quit(_, true, .dropped) = event(PSRP_EVENT_QUIT, 1, 2) else { Issue.record("quit dropped"); return }
+        guard case .quit(_, false, .stopped) = event(PSRP_EVENT_QUIT, 0, 3) else { Issue.record("quit stopped"); return }
         guard case .loginPinRequested(true) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 1) else { Issue.record("pin"); return }
         guard case .loginPinRequested(false) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 0) else { Issue.record("pin"); return }
         guard case .rumble(255, 0) = event(PSRP_EVENT_RUMBLE, 300, -5) else { Issue.record("rumble"); return }

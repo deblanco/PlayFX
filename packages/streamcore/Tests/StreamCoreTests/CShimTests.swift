@@ -41,10 +41,12 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
     @Test func classifiesQuitReasons() {
         let (stopped, inUse, ctrlUnknown, streamUnknown, remoteDisconnected, remoteShutdown) = (1, 4, 7, 10, 11, 12)
         #expect(psrp_quit_kind(Int32(inUse)) == PSRP_QUIT_BUSY)
-        for dropped in [ctrlUnknown, streamUnknown, remoteDisconnected] {
+        #expect(psrp_quit_kind(Int32(stopped)) == PSRP_QUIT_STOPPED)
+        for dropped in [ctrlUnknown, streamUnknown] {
             #expect(psrp_quit_kind(Int32(dropped)) == PSRP_QUIT_DROPPED)
         }
-        for final in [0, stopped, 2, 3, 5, 6, 8, 9, remoteShutdown, 13] {
+        // The console ending the session on purpose (with a reason) isn't a drop.
+        for final in [0, 2, 3, 5, 6, 8, 9, remoteDisconnected, remoteShutdown, 13] {
             #expect(psrp_quit_kind(Int32(final)) == PSRP_QUIT_FINAL)
         }
     }
