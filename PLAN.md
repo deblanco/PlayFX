@@ -239,7 +239,9 @@ Work items:
   the stream down right after "Enabling Keyboard" — A/B tested back to back: flag off streams, flag on is
   closed with "Server shutting down". chiaki-ng ships it off too. Left off; revisit if libchiaki learns
   the right handshake.
-- 🔶 **HDR** (built and unit-tested; live check pending — PSN wouldn't connect for a while): an **HDR**
+- ✅ **HDR** (verified on the PS5 with Silent Hill 2 on the MacBook Pro's XDR display: the console sends
+  10-bit `x420` frames tagged BT.2020 + PQ, the renderer switches to EDR, the stats line reads "HDR", 61 fps,
+  0 lost frames; earlier connection failures were PSN flakiness, an SDR control run in between): an **HDR**
   switch in Settings → Stream (HEVC only) asks the PS5 for HEVC HDR10 (`CHIAKI_CODEC_H265_HDR`). VideoToolbox
   then decodes to 10-bit (`x420`); frames tagged with the PQ curve switch the renderer to HDR: float
   (rgba16F) textures through clean-up / MetalFX (HDR processing mode) / sharpen, the PQ curve turned into

@@ -327,7 +327,7 @@ export const play = (console: PairedConsole, settings: Settings, psnDuid?: strin
     const o = streamOptions(settings)
     yield* Effect.logInfo(
       `Play ${console.name} ${psnDuid === undefined ? "on the local network" : "over the internet"}: ` +
-        `${String(o.height)}p${String(o.fps)} ${o.hevc ? "HEVC" : "H.264"}, ${o.bitrate === 0 ? "auto bitrate" : `${String(o.bitrate)} kbps`}`,
+        `${String(o.height)}p${String(o.fps)} ${o.hevc ? (o.hdr ? "HEVC HDR" : "HEVC") : "H.264"}, ${o.bitrate === 0 ? "auto bitrate" : `${String(o.bitrate)} kbps`}`,
     )
     yield* core.startStream(console.credentials, o, psnDuid)
   })
