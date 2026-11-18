@@ -63,6 +63,12 @@ extension Serial {
                 if case .quit(let reason, let error, _) = event { events.append("quit \(error) \(reason)") }
             }
             session.setController(ControllerState())
+            var moving = ControllerState()
+            moving.touches = [ControllerState.Touch(id: 1, x: 0.5, y: 0.5)]
+            for t in 0..<3 { // the shim's orientation tracker needs two readings to integrate
+                moving.motion = ControllerState.Motion(gyro: [0.1, 0, 0], accel: [0, -1, 0], timestampMicros: UInt32(t) * 4000)
+                session.setController(moving)
+            }
             session.setLoginPin("1234")
             #expect(session.stats.framesDecoded == 0)
             #expect(session.latestFrame == nil)

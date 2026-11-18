@@ -3,6 +3,7 @@
 #include <chiaki/discoveryservice.h>
 #include <chiaki/opusdecoder.h>
 #include <chiaki/regist.h>
+#include <chiaki/orientation.h>
 #include <chiaki/session.h>
 
 #include <arpa/inet.h>
@@ -252,6 +253,9 @@ struct PsrpSession {
     ChiakiOpusDecoder opus;
     PsrpCallbacks cb;
     char host[256];
+    /// Orientation from the controller's gyro + accelerometer (Madgwick), as chiaki-ng does it.
+    ChiakiOrientationTracker orientation;
+    ChiakiAccelNewZero accel_zero;
 };
 
 static bool session_video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user) {
@@ -320,6 +324,8 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
     ensure_init();
     PsrpSession *s = calloc(1, sizeof(PsrpSession));
     if (!s) return NULL;
+    chiaki_orientation_tracker_init(&s->orientation);
+    chiaki_accel_new_zero_set_inactive(&s->accel_zero, true);
     s->cb = *callbacks;
     copy_str(s->host, sizeof(s->host), config->host);
 
@@ -390,6 +396,11 @@ void psrp_session_set_controller_state(PsrpSession *s, const PsrpControllerState
         state.touches[i].id = c->touches[i].id;
         state.touches[i].x = c->touches[i].x;
         state.touches[i].y = c->touches[i].y;
+    }
+    if (c->motion) {
+        chiaki_orientation_tracker_update(&s->orientation, c->gyro_x, c->gyro_y, c->gyro_z, c->accel_x, c->accel_y,
+                                          c->accel_z, &s->accel_zero, true, c->motion_timestamp_us);
+        chiaki_orientation_tracker_apply_to_controller_state(&s->orientation, &state);
     }
     chiaki_session_set_controller_state(&s->session, &state);
 }

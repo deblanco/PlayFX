@@ -142,6 +142,12 @@ typedef struct {
     uint8_t l2, r2;
     int16_t left_x, left_y, right_x, right_y;
     PsrpTouch touches[PSRP_TOUCHES_MAX];
+    /// Motion sensors, when `motion` is set: gyro in rad/s, accelerometer in g (gravity included), and the
+    /// reading's time in µs (any monotonic clock, wrapping). The shim derives the orientation.
+    bool motion;
+    float gyro_x, gyro_y, gyro_z;
+    float accel_x, accel_y, accel_z;
+    uint32_t motion_timestamp_us;
 } PsrpControllerState;
 
 void psrp_session_set_controller_state(PsrpSession *session, const PsrpControllerState *state);

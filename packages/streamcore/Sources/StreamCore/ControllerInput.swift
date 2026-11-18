@@ -11,7 +11,22 @@ public struct ControllerState: Equatable, Sendable {
     public var rightX: Int16 = 0, rightY: Int16 = 0
     /// Fingers on the touchpad (at most 2).
     public var touches: [Touch] = []
+    /// The controller's motion sensors, when it has them.
+    public var motion: Motion?
     public init() {}
+
+    /// One motion-sensor reading: rotation rate in rad/s, acceleration in g (gravity included), and when
+    /// it was taken (µs, wrapping).
+    public struct Motion: Equatable, Sendable {
+        public var gyro: SIMD3<Float>
+        public var accel: SIMD3<Float>
+        public var timestampMicros: UInt32
+        public init(gyro: SIMD3<Float>, accel: SIMD3<Float>, timestampMicros: UInt32) {
+            self.gyro = gyro
+            self.accel = accel
+            self.timestampMicros = timestampMicros
+        }
+    }
 
     /// A finger on the touchpad: `id` stays the same while it's down (0–127); x/y from the top-left, 0–1.
     public struct Touch: Equatable, Sendable {
@@ -42,6 +57,12 @@ public struct ControllerState: Equatable, Sendable {
             return PsrpTouch(id: Int8(t.id & 0x7F), x: scale(t.x, PSRP_TOUCHPAD_WIDTH), y: scale(t.y, PSRP_TOUCHPAD_HEIGHT))
         }
         c.touches = (touch(0), touch(1))
+        if let motion {
+            c.motion = true
+            (c.gyro_x, c.gyro_y, c.gyro_z) = (motion.gyro.x, motion.gyro.y, motion.gyro.z)
+            (c.accel_x, c.accel_y, c.accel_z) = (motion.accel.x, motion.accel.y, motion.accel.z)
+            c.motion_timestamp_us = motion.timestampMicros
+        }
         return c
     }
 
@@ -64,6 +85,7 @@ public final class ControllerInput {
     public var onChange: ((ControllerState) -> Void)?
     private var padState = ControllerState()
     private var touchIDs = TouchIDs()
+    private var motionState: ControllerState.Motion?
     private var keyState = ControllerState()
     private var last = ControllerState()
     private var observers: [NSObjectProtocol] = []
@@ -93,6 +115,15 @@ public final class ControllerInput {
             padState = state
             emit()
         }
+        if let motion = controller.motion {
+            // The DualSense and DualShock only report motion once asked to.
+            if motion.sensorsRequireManualActivation { motion.sensorsActive = true }
+            motion.valueChangedHandler = { [weak self] m in
+                self?.motionState = Self.motion(rotation: m.rotationRate, gravity: m.gravity,
+                                                user: m.userAcceleration, at: ProcessInfo.processInfo.systemUptime)
+                self?.emit()
+            }
+        }
     }
 
     func attach(_ keyboard: GCKeyboard) {
@@ -103,7 +134,8 @@ public final class ControllerInput {
     }
 
     private func emit() {
-        let s = Self.merge(pad: padState, keys: keyState)
+        var s = Self.merge(pad: padState, keys: keyState)
+        s.motion = motionState
         guard s != last else { return }
         last = s
         onChange?(s)
@@ -191,6 +223,15 @@ public final class ControllerInput {
     /// One touchpad reading (-1…1, +y up) → top-left based 0–1, or nil when no finger.
     static func finger(_ x: Float, _ y: Float) -> SIMD2<Float>? {
         x == 0 && y == 0 ? nil : [(x + 1) / 2, (1 - y) / 2]
+    }
+
+    /// A GameController motion reading → what the console expects: rad/s, and total acceleration in g.
+    static func motion(rotation: GCRotationRate, gravity: GCAcceleration, user: GCAcceleration,
+                       at seconds: TimeInterval) -> ControllerState.Motion {
+        ControllerState.Motion(
+            gyro: [Float(rotation.x), Float(rotation.y), Float(rotation.z)],
+            accel: [Float(gravity.x + user.x), Float(gravity.y + user.y), Float(gravity.z + user.z)],
+            timestampMicros: UInt32(truncatingIfNeeded: Int64(seconds * 1_000_000)))
     }
 
     static func axis(_ v: Float) -> Int16 {

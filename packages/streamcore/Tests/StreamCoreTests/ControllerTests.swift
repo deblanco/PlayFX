@@ -180,3 +180,26 @@ import Testing
         #expect(ControllerInput.merge(pad: pad, keys: ControllerState()).touches == pad.touches)
     }
 }
+
+@Suite struct MotionTests {
+    @Test func readingsBecomeRadiansPerSecondAndTotalG() {
+        let m = ControllerInput.motion(rotation: GCRotationRate(x: 0.5, y: -1, z: 2),
+                                       gravity: GCAcceleration(x: 0, y: -1, z: 0),
+                                       user: GCAcceleration(x: 0.25, y: 0.5, z: -0.125), at: 12.5)
+        #expect(m.gyro == [0.5, -1, 2])
+        #expect(m.accel == [0.25, -0.5, -0.125]) // gravity + user acceleration
+        #expect(m.timestampMicros == 12_500_000)
+        // Long uptimes wrap like the console's 32-bit microsecond clock.
+        let late = ControllerInput.motion(rotation: GCRotationRate(), gravity: GCAcceleration(),
+                                          user: GCAcceleration(), at: 5000)
+        #expect(late.timestampMicros == UInt32(truncatingIfNeeded: Int64(5_000_000_000)))
+    }
+
+    @Test func motionReachesTheShimOnlyWhenPresent() {
+        var s = ControllerState()
+        #expect(!s.psrp.motion)
+        s.motion = ControllerState.Motion(gyro: [1, 2, 3], accel: [0, -1, 0], timestampMicros: 42)
+        let c = s.psrp
+        #expect(c.motion && c.gyro_x == 1 && c.gyro_z == 3 && c.accel_y == -1 && c.motion_timestamp_us == 42)
+    }
+}

@@ -170,7 +170,11 @@ Work items:
   controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
   DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new
   id per touch, 7 bits). Limitation: GameController reports a lifted finger as (0, 0), so a finger exactly
-  at the center reads as lifted. Not yet: mouse/trackpad → touchpad from the Mac; motion — next.)*
+  at the center reads as lifted. Motion built, **unverified on hardware**: the pad's gyro (rad/s) and
+  accelerometer (g, gravity included) go to the shim, which derives the orientation with libchiaki's
+  Madgwick tracker per session, as chiaki-ng does. To verify on a DualSense: the axis conventions between
+  GameController and the console (may need sign flips), and motion aiming in a game. Not yet: mouse/
+  trackpad → touchpad from the Mac.)*
 - ❌ **Microphone.** chiaki supports mic capture/echo-cancel (speex, currently disabled); wire an
   opt-in mic path.
 - ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch
