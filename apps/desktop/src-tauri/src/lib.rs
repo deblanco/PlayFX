@@ -5,7 +5,7 @@ mod native;
 mod tests;
 
 use native::{
-    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, with_psn_token, CoreHandle, RendererState,
+    controller_state, is_psn_redirect, psn_account, native_level, renderer_status_json, reply, with_psn_token, CoreHandle, RendererState,
     NativeCore,
 };
 use serde_json::Value;
@@ -21,6 +21,34 @@ extern "C" fn on_stream_event(json: *const std::ffi::c_char) {
     if let (Some(app), Some(value)) = (APP.get(), native::parse_event(&text)) {
         let _ = app.emit("stream-event", value);
     }
+}
+
+/// StreamCore's log entries (already scrubbed) into the app's log, under `streamcore::<area>`.
+extern "C" fn on_native_log(level: i32, area: *const std::ffi::c_char, message: *const std::ffi::c_char) {
+    let area = unsafe { std::ffi::CStr::from_ptr(area) }.to_string_lossy();
+    let message = unsafe { std::ffi::CStr::from_ptr(message) }.to_string_lossy();
+    log::log!(target: &format!("streamcore::{area}"), native_level(level), "{message}");
+}
+
+/// The app's log: native, Rust and web UI entries in one time-ordered file,
+/// ~/Library/Logs/<identifier>/ps-remote-play.log (5 MB, the last 3 kept), and the terminal. Our own
+/// entries at every level; other crates' from info up.
+fn log_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+    tauri_plugin_log::Builder::new()
+        .clear_targets()
+        .targets([
+            Target::new(TargetKind::LogDir { file_name: Some("ps-remote-play".into()) }),
+            Target::new(TargetKind::Stdout),
+        ])
+        .level(log::LevelFilter::Info)
+        .level_for("streamcore", log::LevelFilter::Trace)
+        .level_for("webview", log::LevelFilter::Trace)
+        .level_for(env!("CARGO_CRATE_NAME"), log::LevelFilter::Trace)
+        .max_file_size(5_000_000)
+        .rotation_strategy(RotationStrategy::KeepSome(3))
+        .timezone_strategy(TimezoneStrategy::UseLocal)
+        .build()
 }
 
 /// The StreamCore the commands use (managed in `run`, faked in tests).
@@ -72,6 +100,7 @@ fn psn_login<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         let _ = w.set_focus();
         return Ok(());
     }
+    log::info!("Opening the PSN sign-in window");
     let handle = app.clone();
     WebviewWindowBuilder::new(&app, PSN_WINDOW, WebviewUrl::External(login_url))
         .title("Sign in to PlayStation Network")
@@ -99,7 +128,12 @@ fn on_psn_navigation<R: Runtime>(app: &AppHandle<R>, redirect: &str, url: &str) 
 
 /// Exchanges the redirect for the account ID, emits "psn-account" and closes the sign-in window.
 fn finish_psn_login<R: Runtime>(app: &AppHandle<R>, url: &str) {
-    let _ = app.emit("psn-account", psn_account(core(app), url));
+    let result = psn_account(core(app), url);
+    match result.get("error") {
+        Some(error) => log::warn!("PSN sign-in failed: {error}"),
+        None => log::info!("PSN sign-in finished"),
+    }
+    let _ = app.emit("psn-account", result);
     if let Some(w) = app.get_webview_window(PSN_WINDOW) {
         let _ = w.close();
     }
@@ -108,6 +142,10 @@ fn finish_psn_login<R: Runtime>(app: &AppHandle<R>, url: &str) {
 #[tauri::command(async)]
 fn start_stream<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, String> {
     let core = core(&app);
+    log::info!(
+        "Starting a stream {}",
+        if request.get("remote").is_some() { "over the internet (PSN)" } else { "on the local network" }
+    );
     // Off the main thread: fetching the PSN token may refresh it over the network.
     let req = with_psn_token(core, request)?.to_string();
     let text = on_main(&app, move || core.session_start(&req))?;
@@ -206,18 +244,21 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    with_commands(tauri::Builder::default())
+    with_commands(tauri::Builder::default().plugin(log_plugin()))
         .setup(|app| {
+            log::info!("PS Remote Play {} starting", app.package_info().version);
             let _ = APP.set(app.handle().clone());
             #[cfg(target_os = "macos")]
             {
                 app.manage(CoreHandle(&ffi::MacCore));
                 unsafe { ffi::sc_set_event_callback(Some(on_stream_event)) };
+                // Detailed logs start off (the web UI switches them on from its saved preference).
+                unsafe { ffi::sc_set_log_callback(Some(on_native_log), std::env::var_os("PSRP_VERBOSE").is_some()) };
                 let window = app.get_webview_window("main").expect("main window");
                 // `setup` runs on the main thread, as AppKit requires.
                 let attached = unsafe { ffi::sc_attach_macos_window(window.ns_window()?) };
                 if !attached {
-                    eprintln!("StreamCore: failed to attach Metal view");
+                    log::error!("StreamCore: failed to attach the Metal view");
                 }
             }
             Ok(())

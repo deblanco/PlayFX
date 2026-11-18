@@ -47,12 +47,18 @@ extension Serial {
         }
 
         @Test func psnAccountId() throws {
+            // Never the real store: a successful sign-in here would replace the user's PSN tokens.
+            let real = PSNAccount.shared
+            let store = MemoryTokenStore()
+            PSNAccount.shared = PSNAccount(store: store)
+            defer { PSNAccount.shared = real }
             #expect(try call(sc_psn_account_id, "https://example.com/redirect?nothing=1")["error"] as? String == "No sign-in code in URL")
 
             StubURLProtocol.handler = psnStub(userId: "1")
             PSNAuth.urlSession = StubURLProtocol.session()
             defer { PSNAuth.urlSession = .shared; StubURLProtocol.handler = nil }
             #expect(try call(sc_psn_account_id, PSNAuth.redirectURL + "?code=abc")["accountId"] as? String == "AQAAAAAAAAA=")
+            #expect(store.tokens?.accessToken == "tok123") // kept in the test's store only
             StubURLProtocol.handler = psnStub(userId: nil)
             #expect(try call(sc_psn_account_id, "abc")["error"] as? String == "PSN sign-in failed: no user_id in token info")
         }

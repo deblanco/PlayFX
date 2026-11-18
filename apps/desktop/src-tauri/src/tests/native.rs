@@ -41,6 +41,15 @@ fn with_psn_token_adds_the_token_only_for_internet_play() {
 }
 
 #[test]
+fn native_levels_map_to_log_levels() {
+    assert_eq!(native_level(0), log::Level::Debug);
+    assert_eq!(native_level(1), log::Level::Info);
+    assert_eq!(native_level(2), log::Level::Warn);
+    assert_eq!(native_level(3), log::Level::Error);
+    assert_eq!(native_level(9), log::Level::Error);
+}
+
+#[test]
 fn mode_name_maps_numbers() {
     assert_eq!(mode_name(0), "bilinear");
     assert_eq!(mode_name(1), "metalfx");

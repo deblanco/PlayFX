@@ -109,7 +109,8 @@ final class MemoryTokenStore: PSNTokenStore {
 /// The signed-in PSN account: signs in, keeps the tokens fresh, signs out.
 public final class PSNAccount {
     /// Release builds keep the tokens in the Keychain; development builds in a 0600 file (see FileTokenStore).
-    public static let shared: PSNAccount = {
+    /// Replaceable so tests never touch the user's real sign-in.
+    nonisolated(unsafe) public static var shared: PSNAccount = {
         #if DEBUG
         let store = FileTokenStore()
         Log.info(.psn, "Development build: PSN sign-in kept in \(store.url.path)")

@@ -79,6 +79,11 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
     1280×720 with 0 lost frames; controller input reaches the console; cancelling mid-setup exits in
     0.5 s with a clean "Stopped". Still to do: the desktop UI flow and a run from another network (phone
     hotspot) — the "internet" row only appears when the console isn't found locally.
+  - ⚠️ Correction: the "PSN revoked the sign-in" seen after the first real run was our own bug — a
+    bridge test signed in (with a stubbed Sony reply) through `PSNAccount.shared` and overwrote the real
+    stored tokens on every test run; the first logs showed Sony's reply ("invalid_grant — 4159 — Invalid
+    refresh token" for our fake token). Fixed: tests swap in an in-memory store. The refresh-and-retry on
+    a rejected token stays as a safety net.
   - ⚠️ Dev builds are unsigned, so macOS ties the Keychain item to each build: after a rebuild, reading
     the PSN tokens shows a Keychain prompt (and blocks while the screen is locked). Signed release builds
     don't have this; for the CLI, consider a 0600 file store like the pairing keys.

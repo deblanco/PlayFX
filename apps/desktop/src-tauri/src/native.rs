@@ -71,11 +71,27 @@ pub fn with_psn_token(core: &dyn NativeCore, mut request: Value) -> Result<Value
     Ok(request)
 }
 
+/// StreamCore's log levels (0 debug … 3 error) → the `log` crate's.
+pub fn native_level(level: i32) -> log::Level {
+    match level {
+        0 => log::Level::Debug,
+        1 => log::Level::Info,
+        2 => log::Level::Warn,
+        _ => log::Level::Error,
+    }
+}
+
 /// Turns a StreamCore JSON reply into Ok(value) / Err(message).
 pub fn reply(text: &str) -> Result<Value, String> {
-    let value: Value = serde_json::from_str(text).map_err(|e| format!("bad reply from core: {e}"))?;
+    let value: Value = serde_json::from_str(text).map_err(|e| {
+        log::error!("bad reply from StreamCore: {e}");
+        format!("bad reply from core: {e}")
+    })?;
     match value.get("error").and_then(Value::as_str) {
-        Some(err) => Err(err.to_string()),
+        Some(err) => {
+            log::warn!("StreamCore: {err}");
+            Err(err.to_string())
+        }
         None => Ok(value),
     }
 }
