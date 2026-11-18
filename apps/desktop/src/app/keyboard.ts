@@ -96,4 +96,6 @@ export const keyboardLayout: readonly (readonly [string, string])[] = [
   ["Z / X", "L3 / R3"],
   ["Tab / Shift", "Options / Share"],
   ["P / T", "PS / Touchpad"],
+  ["⌥ + pointer", "Touchpad finger"],
+  ["⌥ + click", "Press touchpad"],
 ]

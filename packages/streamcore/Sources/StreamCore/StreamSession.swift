@@ -201,7 +201,38 @@ public final class StreamSession {
 
     deinit { stop() }
 
+    /// The Mac's pointer used as a touchpad finger: where it touches (nil = lifted) and whether the
+    /// touchpad is pressed. Merged into every controller state, so it works alongside a pad.
+    public struct PointerTouch: Equatable, Sendable {
+        public var touch: ControllerState.Touch?
+        public var pressed: Bool
+        public init(touch: ControllerState.Touch?, pressed: Bool) {
+            self.touch = touch
+            self.pressed = pressed
+        }
+        public static let none = PointerTouch(touch: nil, pressed: false)
+    }
+
+    private let input = OSAllocatedUnfairLock(initialState: (controller: ControllerState(), pointer: PointerTouch.none))
+
     public func setController(_ s: ControllerState) {
+        send(input.withLock { $0.controller = s; return Self.merged(s, $0.pointer) })
+    }
+
+    public func setPointerTouch(_ pointer: PointerTouch) {
+        send(input.withLock { $0.pointer = pointer; return Self.merged($0.controller, pointer) })
+    }
+
+    /// The controller state with the pointer's finger first (a pad's fingers after it, two at most) and
+    /// its press as the touchpad button.
+    static func merged(_ s: ControllerState, _ pointer: PointerTouch) -> ControllerState {
+        var out = s
+        if let touch = pointer.touch { out.touches = Array(([touch] + s.touches).prefix(2)) }
+        if pointer.pressed { out.buttons |= UInt32(PSRP_BTN_TOUCHPAD.rawValue) }
+        return out
+    }
+
+    private func send(_ s: ControllerState) {
         var state = s.psrp
         psrp_session_set_controller_state(handle, &state)
     }

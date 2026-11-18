@@ -10,6 +10,7 @@ import {
   StartReply,
   StreamEvent,
   type ControllerState,
+  type PointerTouch,
   type DiscoveredConsole,
   type StreamOptions,
   type RenderParams,
@@ -47,6 +48,8 @@ export class Core extends Context.Service<
     readonly stopStream: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
     readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
+    /** The Mac's pointer as a touchpad finger (merged natively with the pad's state). */
+    readonly setPointerTouch: (touch: PointerTouch) => Effect.Effect<void, CoreError>
     readonly setRenderParams: (params: RenderParams) => Effect.Effect<void, CoreError>
     readonly setDetailedLogs: (on: boolean) => Effect.Effect<void, CoreError>
     readonly openLogsFolder: Effect.Effect<void, CoreError>
@@ -117,6 +120,7 @@ export const CoreLive = Layer.effect(
       stopStream: Effect.asVoid(call(unit, "stop_stream")),
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
+      setPointerTouch: (touch) => Effect.asVoid(call(unit, "set_pointer_touch", { touch })),
       setRenderParams: (params) =>
         Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
       toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),

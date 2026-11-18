@@ -152,6 +152,15 @@ export const ControllerState = Schema.Struct({
 })
 export type ControllerState = typeof ControllerState.Type
 
+/** The Mac's pointer as a touchpad finger: `down` = touching at (x, y), 0–1 from the video's top-left;
+ * `pressed` = the touchpad is clicked. */
+export interface PointerTouch {
+  readonly down: boolean
+  readonly x: number
+  readonly y: number
+  readonly pressed: boolean
+}
+
 export const idleController: ControllerState = { buttons: 0, l2: 0, r2: 0, leftX: 0, leftY: 0, rightX: 0, rightY: 0 }
 
 /** For bug reports: versions and the end of the log file (already scrubbed). */

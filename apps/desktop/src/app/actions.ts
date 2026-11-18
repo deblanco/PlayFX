@@ -9,6 +9,7 @@ import {
   type RendererStatus,
   type DiscoveredConsole,
   type ControllerState,
+  type PointerTouch,
   type PairedConsole,
   type PairedConsoles,
   type PsnAccountEvent,
@@ -439,6 +440,9 @@ export const toggleFullscreen: Effect.Effect<boolean, CoreError, Core> = Effect.
 /** Sends a controller state to the console (keyboard-as-controller). */
 export const setController = (state: ControllerState): Effect.Effect<void, CoreError, Core> =>
   Effect.flatMap(Core, (core) => core.setController(state))
+
+export const setPointerTouch = (touch: PointerTouch): Effect.Effect<void, CoreError, Core> =>
+  Effect.flatMap(Core, (core) => core.setPointerTouch(touch))
 
 /** Sends the console's login PIN (asked for when the PS5 user has a passcode). */
 export const submitLoginPin = (raw: string): Effect.Effect<void, CoreError | ValidationError, Core> =>

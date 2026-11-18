@@ -92,6 +92,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     }),
     setLoginPin: vi.fn<CoreService["setLoginPin"]>(() => Effect.void),
     setController: vi.fn<CoreService["setController"]>(() => Effect.void),
+    setPointerTouch: vi.fn<CoreService["setPointerTouch"]>(() => Effect.void),
     setRenderParams: vi.fn<CoreService["setRenderParams"]>(() => Effect.void),
     setDetailedLogs: vi.fn<CoreService["setDetailedLogs"]>(() => Effect.void),
     openLogsFolder: Effect.sync(() => {

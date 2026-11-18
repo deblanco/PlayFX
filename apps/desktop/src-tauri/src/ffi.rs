@@ -2,7 +2,7 @@
 
 use std::ffi::{CStr, CString, c_char, c_void};
 
-use crate::native::{ControllerState, NativeCore};
+use crate::native::{ControllerState, NativeCore, PointerTouch};
 
 unsafe extern "C" {
     // main thread
@@ -21,6 +21,7 @@ unsafe extern "C" {
     pub fn sc_session_set_controller(
         buttons: u32, l2: u8, r2: u8, left_x: i16, left_y: i16, right_x: i16, right_y: i16,
     );
+    pub fn sc_session_set_pointer_touch(down: bool, x: f32, y: f32, pressed: bool);
     pub fn sc_session_stats() -> *mut c_char;
     // any thread (blocking ones must stay off the main thread)
     pub fn sc_set_event_callback(cb: Option<extern "C" fn(*const c_char)>);
@@ -107,6 +108,9 @@ impl NativeCore for MacCore {
     }
     fn set_controller(&self, s: ControllerState) {
         unsafe { sc_session_set_controller(s.buttons, s.l2, s.r2, s.left_x, s.left_y, s.right_x, s.right_y) }
+    }
+    fn set_pointer_touch(&self, t: PointerTouch) {
+        unsafe { sc_session_set_pointer_touch(t.down, t.x, t.y, t.pressed) }
     }
     fn set_render_params(&self, params: &str) -> bool {
         unsafe { sc_set_render_params(cstr(params).as_ptr()) }

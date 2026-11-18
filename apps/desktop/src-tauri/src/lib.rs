@@ -6,7 +6,7 @@ mod tests;
 
 use native::{
     controller_state, is_psn_redirect, psn_account, native_level, renderer_status_json, reply, tail_lines, with_psn_token, CoreHandle, RendererState,
-    NativeCore,
+    NativeCore, PointerTouch,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Builder, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
@@ -172,6 +172,13 @@ fn set_controller<R: Runtime>(app: AppHandle<R>, state: Value) -> Result<(), Str
 }
 
 #[tauri::command(async)]
+fn set_pointer_touch<R: Runtime>(app: AppHandle<R>, touch: Value) -> Result<(), String> {
+    let touch: PointerTouch = serde_json::from_value(touch).map_err(error_text)?;
+    let core = core(&app);
+    on_main(&app, move || core.set_pointer_touch(touch))
+}
+
+#[tauri::command(async)]
 fn set_render_params<R: Runtime>(app: AppHandle<R>, params: Value) -> Result<(), String> {
     let core = core(&app);
     let json = params.to_string();
@@ -267,6 +274,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         stop_stream,
         set_login_pin,
         set_controller,
+        set_pointer_touch,
         set_render_params,
         toggle_fullscreen,
         psn_signed_in,

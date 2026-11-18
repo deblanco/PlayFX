@@ -88,6 +88,11 @@ fn session_commands_reach_the_core() {
     assert_eq!(set_login_pin(app.handle().clone(), "1234".into()), Ok(()));
     assert_eq!(set_controller(app.handle().clone(), json!({"buttons": 1, "l2": 0, "r2": 0, "leftX": 0, "leftY": 0, "rightX": 0, "rightY": 0})), Ok(()));
     assert!(set_controller(app.handle().clone(), json!({"buttons": "x"})).is_err());
+    assert_eq!(
+        set_pointer_touch(app.handle().clone(), json!({"down": true, "x": 0.5, "y": 0.25, "pressed": false})),
+        Ok(())
+    );
+    assert!(set_pointer_touch(app.handle().clone(), json!({"down": "yes"})).is_err());
     assert_eq!(set_render_params(app.handle().clone(), json!({"upscaler": "metalfx"})), Ok(()));
     assert_eq!(
         set_render_params(app.handle().clone(), json!({"upscaler": "fsr"})),
@@ -95,7 +100,7 @@ fn session_commands_reach_the_core() {
     );
     assert_eq!(
         core.calls(),
-        ["session_stop", "set_login_pin 1234", "set_controller 1",
+        ["session_stop", "set_login_pin 1234", "set_controller 1", "set_pointer_touch true 0.5 0.25 false",
          r#"set_render_params {"upscaler":"metalfx"}"#, r#"set_render_params {"upscaler":"fsr"}"#]
     );
 }

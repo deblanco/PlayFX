@@ -87,6 +87,9 @@ impl NativeCore for FakeCore {
     fn set_controller(&self, state: crate::native::ControllerState) {
         self.log(format!("set_controller {}", state.buttons));
     }
+    fn set_pointer_touch(&self, t: crate::native::PointerTouch) {
+        self.log(format!("set_pointer_touch {} {} {} {}", t.down, t.x, t.y, t.pressed));
+    }
     fn set_render_params(&self, params: &str) -> bool {
         self.log(format!("set_render_params {params}"));
         !params.contains("fsr")

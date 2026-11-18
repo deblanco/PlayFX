@@ -9,6 +9,7 @@ import { idleController, type Settings } from "@/core/schema"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
 import { ConnectingOverlay } from "./ConnectingOverlay"
+import { TouchpadPointer } from "./TouchpadPointer"
 import type { Capabilities, Route, StatRow } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
@@ -132,6 +133,7 @@ export const StreamView = ({
   // Double-clicking the video (not the HUD or the settings) toggles fullscreen, as in video players.
   const onDoubleClick = useEffectEvent((event: MouseEvent) => {
     if (event.target instanceof Element && event.target.closest("header, [role=dialog]") !== null) return
+    if (event.altKey) return // ⌥-clicks press the touchpad
     toggleFullscreen()
   })
   useEffect(() => {
@@ -226,6 +228,7 @@ export const StreamView = ({
         </Button>
       </header>
       {settings.compare && connected && <CompareLabels />}
+      <TouchpadPointer enabled={connected && Option.isNone(loginPin) && !settingsOpen} />
       {(!connected || reconnect.reconnecting !== false) && Option.isNone(loginPin) && (
         <ConnectingOverlay
           consoleName={title}

@@ -690,6 +690,27 @@ describe("streaming", () => {
     expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ smoothMotion: true }))
   })
 
+  it("uses the pointer as the touchpad while ⌥ Option is held", async () => {
+    const { core } = await startStreaming()
+    const touch = vi.mocked(core.service.setPointerTouch)
+    // jsdom's window is 1024×768: the 16:9 video is 1024×576, 96 px down.
+    fireEvent.keyDown(window, { key: "Alt", altKey: true })
+    fireEvent.mouseMove(window, { clientX: 512, clientY: 384, altKey: true })
+    expect(await screen.findByRole("status", { name: /Touchpad/ })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(touch).toHaveBeenLastCalledWith({ down: true, x: 0.5, y: 0.5, pressed: false })
+    })
+    fireEvent.mouseDown(window, { button: 0, clientX: 512, clientY: 384, altKey: true })
+    await waitFor(() => {
+      expect(touch).toHaveBeenLastCalledWith({ down: true, x: 0.5, y: 0.5, pressed: true })
+    })
+    fireEvent.mouseUp(window, { button: 0, altKey: true })
+    fireEvent.keyUp(window, { key: "Alt" })
+    await waitFor(() => {
+      expect(touch).toHaveBeenLastCalledWith({ down: false, x: 0, y: 0, pressed: false })
+    })
+  })
+
   it("keeps the stream's numbers on screen when asked to", async () => {
     const core = fakeCore()
     core.state.status = status({ width: 1920, height: 1080, framesDecoded: 0, rttMs: 12 })

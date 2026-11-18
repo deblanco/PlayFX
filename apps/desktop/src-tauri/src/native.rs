@@ -7,6 +7,16 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 /// A controller state sent from the web UI (keyboard-as-controller, on-screen pad, etc.).
+/// The Mac's pointer as a touchpad finger: `down` = touching at (x, y), 0–1 from the video's
+/// top-left; `pressed` = the touchpad is clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct PointerTouch {
+    pub down: bool,
+    pub x: f32,
+    pub y: f32,
+    pub pressed: bool,
+}
+
 /// Field order and ranges match StreamCore's `sc_session_set_controller`.
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +58,8 @@ pub trait NativeCore: Send + Sync {
     fn session_stop(&self);
     fn set_login_pin(&self, pin: &str);
     fn set_controller(&self, state: ControllerState);
+    /// The Mac's pointer as a touchpad finger, merged with the pad's state.
+    fn set_pointer_touch(&self, touch: PointerTouch);
     /// Picture settings as JSON (see StreamCore's RenderParams); false if StreamCore rejects them.
     fn set_render_params(&self, params: &str) -> bool;
     fn metalfx_supported(&self) -> bool;

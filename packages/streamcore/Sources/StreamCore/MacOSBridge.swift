@@ -340,6 +340,18 @@ public func sc_session_set_controller(_ buttons: UInt32, _ l2: UInt8, _ r2: UInt
     session?.setController(state)
 }
 
+/// The Mac's pointer as a touchpad finger: `down` = a finger at (x, y), 0–1 from the top-left of the
+/// video; `pressed` = the touchpad is clicked. Merged with the pad's state.
+@_cdecl("sc_session_set_pointer_touch")
+public func sc_session_set_pointer_touch(_ down: Bool, _ x: Float, _ y: Float, _ pressed: Bool) {
+    pointerTouchID = down ? pointerTouchID : (pointerTouchID &+ 1) & 0x7F
+    let touch = down ? ControllerState.Touch(id: 100 + pointerTouchID % 27, x: min(1, max(0, x)), y: min(1, max(0, y))) : nil
+    session?.setPointerTouch(StreamSession.PointerTouch(touch: touch, pressed: pressed))
+}
+
+/// A new id for each pointer touch (a lifted finger that comes back is a new touch to the console).
+private var pointerTouchID: UInt8 = 0
+
 @_cdecl("sc_session_stats")
 public func sc_session_stats() -> UnsafeMutablePointer<CChar> {
     guard let session else { return json(["active": false]) }

@@ -206,8 +206,12 @@ Work items:
   at the center reads as lifted. Motion built, **unverified on hardware**: the pad's gyro (rad/s) and
   accelerometer (g, gravity included) go to the shim, which derives the orientation with libchiaki's
   Madgwick tracker per session, as chiaki-ng does. To verify on a DualSense: the axis conventions between
-  GameController and the console (may need sign flips), and motion aiming in a game. Not yet: mouse/
-  trackpad → touchpad from the Mac.)*
+  GameController and the console (may need sign flips), and motion aiming in a game. **Mac pointer as
+  the touchpad** (done): hold ⌥ Option over the video and the pointer is a finger (the video's area maps
+  to the pad), ⌥-click presses the touchpad; the video is outlined as a glowing pad with the finger dot
+  (ripple on press). StreamCore merges this finger and press into whatever the pad or keyboard sends
+  (`sc_session_set_pointer_touch`), one update per animation frame. The overlay was checked live; the
+  console's reaction to the touches is still to be seen in a game that uses the touchpad.)*
 - ❌ **Microphone.** chiaki supports mic capture/echo-cancel (speex, currently disabled); wire an
   opt-in mic path.
 - ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch
