@@ -1,5 +1,5 @@
 {
-  "name": "ps-remote-play",
+  "name": "playfx",
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {

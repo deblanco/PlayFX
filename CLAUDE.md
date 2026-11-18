@@ -1,6 +1,6 @@
-# ps-remote-play
+# PlayFX
 
-PS5/PS4 Remote Play client. Bun monorepo:
+PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). Bun monorepo:
 
 - `apps/desktop` — Tauri v2 app (macOS first). React UI in a transparent webview over a native Metal view.
 - `packages/streamcore` — shared Swift package (macOS + iOS): libchiaki session, VideoToolbox decode,

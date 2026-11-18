@@ -3,7 +3,7 @@ import Foundation
 import os
 
 /// StreamCore's log: levels and areas, secrets scrubbed before anything leaves this file. Every entry
-/// goes to the system log (Console.app, subsystem "ps-remote-play") and to the configured sink — the
+/// goes to the system log (Console.app, subsystem "playfx") and to the configured sink — the
 /// terminal for psrp, the host app (its log file) for the desktop. libchiaki's messages come through
 /// here too, under the `chiaki` area.
 public enum Log {
@@ -35,7 +35,7 @@ public enum Log {
     }
 
     private static let config = OSAllocatedUnfairLock(initialState: Config())
-    private static let system = os.Logger(subsystem: "ps-remote-play", category: "streamcore")
+    private static let system = os.Logger(subsystem: "playfx", category: "streamcore")
 
     /// `detailed` adds debug entries, including libchiaki's verbose ones. `sink` gets every kept entry.
     public static func configure(detailed: Bool, sink: Sink?) {

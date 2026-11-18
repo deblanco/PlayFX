@@ -31,14 +31,14 @@ extern "C" fn on_native_log(level: i32, area: *const std::ffi::c_char, message: 
 }
 
 /// The app's log: native, Rust and web UI entries in one time-ordered file,
-/// ~/Library/Logs/<identifier>/ps-remote-play.log (5 MB, the last 3 kept), and the terminal. Our own
+/// ~/Library/Logs/<identifier>/playfx.log (5 MB, the last 3 kept), and the terminal. Our own
 /// entries at every level; other crates' from info up.
 fn log_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
     tauri_plugin_log::Builder::new()
         .clear_targets()
         .targets([
-            Target::new(TargetKind::LogDir { file_name: Some("ps-remote-play".into()) }),
+            Target::new(TargetKind::LogDir { file_name: Some("playfx".into()) }),
             Target::new(TargetKind::Stdout),
         ])
         .level(log::LevelFilter::Info)
@@ -226,7 +226,7 @@ fn open_logs_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 #[tauri::command(async)]
 fn diagnostics<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     let dir = app.path().app_log_dir().map_err(error_text)?;
-    let log = std::fs::read_to_string(dir.join("ps-remote-play.log")).unwrap_or_default();
+    let log = std::fs::read_to_string(dir.join("playfx.log")).unwrap_or_default();
     let os = std::process::Command::new("sw_vers")
         .arg("-productVersion")
         .output()
@@ -282,7 +282,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 pub fn run() {
     with_commands(tauri::Builder::default().plugin(log_plugin()))
         .setup(|app| {
-            log::info!("PS Remote Play {} starting", app.package_info().version);
+            log::info!("PlayFX {} starting", app.package_info().version);
             let _ = APP.set(app.handle().clone());
             #[cfg(target_os = "macos")]
             {

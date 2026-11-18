@@ -1,6 +1,6 @@
 # PLAN
 
-Roadmap and gap list for **ps-remote-play** — a browser/desktop PS5 (and PS4) Remote Play client.
+Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
 Last updated by the build session that got end-to-end streaming working on real hardware.
@@ -254,13 +254,13 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
 
 For users and us to debug: one scrubbed log across native, Rust and the web UI, and a diagnostics export.
 - ✅ L1. Native logger (`Log`): levels (debug/info/warning/error) and areas (session, psn, console,
-  renderer, input, chiaki); every entry to the system log (Console.app, subsystem `ps-remote-play`) and
+  renderer, input, chiaki); every entry to the system log (Console.app, subsystem `playfx`) and
   a sink (psrp: stderr; desktop: the host via `sc_set_log_callback`, `sc_set_log_detailed`). libchiaki's
   messages routed through it. Secrets scrubbed before anything leaves (Bearer/Basic headers, token
   fields, sign-in codes, the token in Sony's account-lookup URL, pairing keys, account IDs). Log points
   for PSN (HTTP outcomes, Sony's error replies on sign-in/refresh failures, forced refreshes, console
   list), sessions, discovery/wake/pairing, renderer capabilities and ML fallbacks, controllers.
-- ✅ L2. One log file: `~/Library/Logs/dev.psremoteplay.desktop/ps-remote-play.log` (tauri-plugin-log;
+- ✅ L2. One log file: `~/Library/Logs/dev.psremoteplay.desktop/playfx.log` (tauri-plugin-log;
   5 MB, the last 3 kept, local time) and the terminal. Native entries arrive through
   `sc_set_log_callback` as `streamcore::<area>`; Rust logs stream starts (local/internet), the PSN
   sign-in window, every StreamCore error reply. Ours at every level, other crates from info up.

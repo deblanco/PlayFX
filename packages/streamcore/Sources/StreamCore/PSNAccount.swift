@@ -37,7 +37,7 @@ public final class KeychainTokenStore: PSNTokenStore {
     let service: String
     let account = "psn-tokens"
 
-    public init(service: String = "PS Remote Play — PSN") { self.service = service }
+    public init(service: String = "PlayFX — PSN") { self.service = service }
 
     private var query: [CFString: Any] {
         [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: account]

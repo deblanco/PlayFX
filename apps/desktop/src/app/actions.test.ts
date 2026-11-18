@@ -548,7 +548,7 @@ describe("diagnostics", () => {
       { ...status(), mlSupported: true },
       defaultSettings,
     )
-    expect(report).toContain("PS Remote Play 0.1.0 on macOS 27.2")
+    expect(report).toContain("PlayFX 0.1.0 on macOS 27.2")
     expect(report).toContain("Renderer: MetalFX yes, ML super-resolution yes")
     expect(report).toContain('"upscaler":"metalfx"')
     expect(report.endsWith("Recent log:\n[INFO] hello")).toBe(true)
@@ -560,7 +560,7 @@ describe("diagnostics", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
     return Effect.gen(function* () {
       yield* actions.copyDiagnostics(defaultSettings)
-      expect(writeText.mock.calls[0]?.[0]).toContain("PS Remote Play 0.1.0")
+      expect(writeText.mock.calls[0]?.[0]).toContain("PlayFX 0.1.0")
       writeText.mockImplementationOnce(() => Promise.reject(new Error("denied")))
       const error = yield* Effect.flip(actions.copyDiagnostics(defaultSettings))
       expect(error).toMatchObject({ _tag: "ClipboardFailed" })

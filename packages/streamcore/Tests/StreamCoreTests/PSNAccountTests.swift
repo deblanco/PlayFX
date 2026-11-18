@@ -157,7 +157,7 @@ extension Serial {
         }
 
         @Test func keychainRoundTrip() throws {
-            let store = KeychainTokenStore(service: "PS Remote Play tests \(UUID())")
+            let store = KeychainTokenStore(service: "PlayFX tests \(UUID())")
             defer { store.clear() }
             #expect(store.load() == nil)
             let tokens = PSNTokens(accessToken: "a", refreshToken: "r", expiresAt: Date(timeIntervalSince1970: 42))

@@ -40,7 +40,7 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
     <main className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-xl bg-card/70 shadow-2xl backdrop-blur-xl">
         <CardHeader>
-          <CardTitle className="text-lg">Remote Play</CardTitle>
+          <CardTitle className="text-lg">PlayFX</CardTitle>
           <CardDescription>Stream your PlayStation at home or over the internet.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

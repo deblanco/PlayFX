@@ -270,7 +270,7 @@ export class ClipboardFailed extends Schema.TaggedError<ClipboardFailed>()("Clip
  * the end of the log file (already scrubbed of credentials). */
 export const diagnosticsReport = (d: Diagnostics, status: RendererStatus, settings: Settings): string =>
   [
-    `PS Remote Play ${d.appVersion} on ${d.os}`,
+    `PlayFX ${d.appVersion} on ${d.os}`,
     `Renderer: MetalFX ${status.metalfxSupported ? "yes" : "no"}, ML super-resolution ${status.mlSupported ? "yes" : "no"}`,
     `Settings: ${JSON.stringify(settings)}`,
     `Log folder: ${d.logFolder}`,
