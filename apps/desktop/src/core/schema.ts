@@ -65,6 +65,8 @@ export const ColorRange = Schema.Literals(["auto", "limited", "full"])
 /** How half-resolution color is brought up to full resolution. */
 export const ChromaFilter = Schema.Literals(["bicubic", "bilinear"])
 /** How Play reaches a console: the home network first then the internet, or only one of them. */
+/** What the video shows: the stream as it arrives, both halves side by side, or the picture settings. */
+export const PictureView = Schema.Literals(["original", "split", "enhanced"])
 export const ConnectionRoute = Schema.Literals(["auto", "local", "internet"])
 
 /** Picture settings, applied to every frame without reconnecting (StreamCore's RenderParams). */
@@ -103,7 +105,7 @@ export const Settings = Schema.Struct({
   deband: since(Strength, 0),
   mlUpscale: since(Schema.Boolean, false),
   smoothMotion: since(Schema.Boolean, false),
-  compare: since(Schema.Boolean, false),
+  view: since(PictureView, "enhanced"),
   colorMatrix: since(ColorMatrix, "auto"),
   colorRange: since(ColorRange, "auto"),
   chroma: since(ChromaFilter, "bicubic"),
@@ -129,7 +131,7 @@ export const defaultSettings: Settings = {
   deband: 0,
   mlUpscale: false,
   smoothMotion: false,
-  compare: false,
+  view: "enhanced",
   colorMatrix: "auto",
   colorRange: "auto",
   chroma: "bicubic",

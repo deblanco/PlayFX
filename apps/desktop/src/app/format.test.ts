@@ -84,7 +84,7 @@ describe("renderParams", () => {
       deband: 0.3,
       mlUpscale: true,
       smoothMotion: true,
-      compare: true,
+      view: "split",
       colorMatrix: "bt2020",
       colorRange: "full",
       chroma: "bilinear",
@@ -103,6 +103,16 @@ describe("renderParams", () => {
       chroma: "bilinear",
       accurateColor: false,
     })
+  })
+
+  it("turns every processing step off in the Original view, keeping the colors", () => {
+    const tuned = { ...defaultSettings, sharpness: 0.8, deblock: 0.5, deband: 0.5, mlUpscale: true, smoothMotion: true }
+    expect(renderParams({ ...tuned, view: "original" })).toMatchObject({
+      upscaler: "bilinear", sharpness: 0, deblock: 0, deband: 0, mlUpscale: false, smoothMotion: false, compare: false,
+      accurateColor: true,
+    })
+    expect(renderParams({ ...tuned, view: "enhanced" })).toMatchObject({ sharpness: 0.8, compare: false })
+    expect(pipelineStages({ ...tuned, view: "original" }, { metalfx: true, ml: true, smooth: true }).some((s) => s.active && s.id !== "color")).toBe(false)
   })
 })
 

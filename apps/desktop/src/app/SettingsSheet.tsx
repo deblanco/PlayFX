@@ -23,6 +23,12 @@ import {
 } from "./format"
 import { useRun } from "./runtime"
 
+const viewHints: Readonly<Record<Settings["view"], string>> = {
+  original: "The stream as it arrives, without the steps below.",
+  split: "Left half as it arrives, right half with the steps below.",
+  enhanced: "The stream with the steps below.",
+}
+
 export type SettingsTab = "picture" | "stream" | "diagnostics"
 
 const tabHints: Readonly<Record<SettingsTab, string>> = {
@@ -59,7 +65,7 @@ const pictureKeys = [
   "deband",
   "mlUpscale",
   "smoothMotion",
-  "compare",
+  "view",
   "colorMatrix",
   "colorRange",
   "chroma",
@@ -100,7 +106,7 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
           </TabsList>
           <TabsContent value="picture" className="flex flex-col gap-5 px-5 pt-5 pb-6">
-            <PicturePanel settings={settings} capabilities={props.capabilities} set={set} live={props.reconnect !== undefined} />
+            <PicturePanel settings={settings} capabilities={props.capabilities} set={set} />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, pictureKeys)) }}>
               <RotateCcw /> Reset picture
             </Button>
@@ -125,24 +131,28 @@ type Set = <K extends SettingKey>(key: K, value: Settings[K]) => void
 
 // ---------- Picture ----------
 
-const PicturePanel = ({ settings, capabilities, set, live }: {
+const PicturePanel = ({ settings, capabilities, set }: {
   readonly settings: Settings
   readonly capabilities: Capabilities
   readonly set: Set
-  readonly live: boolean
 }) => {
   const stages = pipelineStages(settings, capabilities)
   return (
     <>
       <Pipeline stages={stages} />
-      {live && (
-        <SwitchRow
-          label="Split screen"
-          description="Left half: the stream as it arrives. Right half: your picture settings."
-          checked={settings.compare}
-          onCheckedChange={(on) => { set("compare", on) }}
+      <div className="flex flex-col gap-1.5">
+        <Segmented
+          label="View"
+          value={settings.view}
+          options={[
+            { value: "original", label: "Original" },
+            { value: "split", label: "Split" },
+            { value: "enhanced", label: "Enhanced" },
+          ]}
+          onChange={(view) => { set("view", view) }}
         />
-      )}
+        <p className="text-xs text-muted-foreground">{viewHints[settings.view]}</p>
+      </div>
       <SwitchRow
         label="Stats on screen"
         description="Keeps the stats line at the top (frame rate, bitrate, ping, GPU time, lost frames) visible while playing."

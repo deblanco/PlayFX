@@ -249,7 +249,7 @@ export const StreamView = ({
           Stop
         </Button>
       </header>
-      {settings.compare && connected && <CompareLabels />}
+      {settings.view === "split" && connected && <CompareLabels />}
       {mic === "on" && hudHidden && (
         // The HUD faded: the microphone being live must still be obvious.
         <span

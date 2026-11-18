@@ -428,7 +428,7 @@ describe("settings", () => {
     })
     const sheet = await openSettings("Picture")
     expect(sheet.getByText("Changes show on the video right away.")).toBeInTheDocument()
-    expect(sheet.queryByRole("switch", { name: "Split screen" })).not.toBeInTheDocument() // only while streaming
+    expect(sheet.getByText("The stream with the steps below.")).toBeInTheDocument() // the Enhanced view
     const pipeline = within(sheet.getByRole("navigation", { name: "Picture pipeline" }))
 
     await userEvent.click(sheet.getByRole("radio", { name: "Bilinear" }))
@@ -460,7 +460,7 @@ describe("settings", () => {
       "ColorVivid",
     ])
     await waitFor(async () => {
-      expect(await savedSettings(runtime)).toEqual({ ...defaultSettings, ...tuned })
+      expect(await savedSettings(runtime)).toEqual({ ...defaultSettings, ...tuned, compare: undefined }) // compare is derived from view
     })
 
     // A pipeline stage jumps to its controls.
@@ -726,7 +726,13 @@ describe("streaming", () => {
     const { core } = await startStreaming()
     expect(screen.queryByLabelText("Split-screen comparison")).not.toBeInTheDocument()
     const sheet = await openSettings("Picture")
-    await userEvent.click(sheet.getByRole("switch", { name: /Split screen/ }))
+    const view = within(sheet.getByRole("radiogroup", { name: "View" }))
+    await userEvent.click(view.getByRole("radio", { name: "Original" }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(
+      picture({ upscaler: "bilinear", sharpness: 0, compare: false }),
+    )
+    expect(screen.queryByLabelText("Split-screen comparison")).not.toBeInTheDocument()
+    await userEvent.click(view.getByRole("radio", { name: "Split" }))
     expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ compare: true }))
     const labels = screen.getByLabelText("Split-screen comparison")
     expect(labels).toHaveTextContent("Original")

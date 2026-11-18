@@ -164,6 +164,10 @@ Work items:
   - ✅ Follow-up done: the last frame stays on screen while reconnecting (start replaces the session; a
     quit's own cleanup no longer brings back the idle pattern, and is ignored if a newer session started).
   - ℹ️ The dev autoplay harness re-plays when Home remounts (dev-only, harmless).
+  - ✅ **View** (requested): the split-screen switch became a three-way choice in Settings → Picture —
+    **Original** (the stream as it arrives: no clean-up, upscaling, sharpening, ML or smooth motion; colors
+    kept), **Split** (both halves) and **Enhanced** (the picture settings, the default). Saved; the pipeline
+    strip shows every stage off in Original.
   - Note: the split screen now compares *baseline vs. all current picture settings* (upscaler included)
     rather than only bilinear vs MetalFX. A Settings sheet with *Stream* and *Picture* sections (shadcn studio
   components), sliders for the 0–1 params, live preview while streaming, "Reset to defaults",

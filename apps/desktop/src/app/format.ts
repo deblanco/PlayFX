@@ -62,19 +62,28 @@ export const streamOptions = (settings: Settings): StreamOptions => ({
   autoDowngrade: settings.autoDowngrade,
 })
 
-export const renderParams = (settings: Settings): RenderParams => ({
-  upscaler: settings.upscaler,
-  sharpness: settings.sharpness,
-  deblock: settings.deblock,
-  deband: settings.deband,
-  mlUpscale: settings.mlUpscale,
-  smoothMotion: settings.smoothMotion,
-  compare: settings.compare,
-  colorMatrix: settings.colorMatrix,
-  colorRange: settings.colorRange,
-  chroma: settings.chroma,
-  accurateColor: settings.accurateColor,
-})
+/** The settings as the picture uses them: in the Original view, every processing step is off. */
+export const effectivePicture = (settings: Settings): Settings =>
+  settings.view === "original"
+    ? { ...settings, upscaler: "bilinear", sharpness: 0, deblock: 0, deband: 0, mlUpscale: false, smoothMotion: false }
+    : settings
+
+export const renderParams = (settings: Settings): RenderParams => {
+  const picture = effectivePicture(settings)
+  return {
+    upscaler: picture.upscaler,
+    sharpness: picture.sharpness,
+    deblock: picture.deblock,
+    deband: picture.deband,
+    mlUpscale: picture.mlUpscale,
+    smoothMotion: picture.smoothMotion,
+    compare: settings.view === "split",
+    colorMatrix: picture.colorMatrix,
+    colorRange: picture.colorRange,
+    chroma: picture.chroma,
+    accurateColor: picture.accurateColor,
+  }
+}
 
 /** The decoder's counters at one moment, for computing rates between polls. */
 export interface FrameSample {
@@ -285,7 +294,8 @@ export interface Stage {
   readonly active: boolean
 }
 
-export const pipelineStages = (settings: Settings, capabilities: Capabilities): readonly Stage[] => {
+export const pipelineStages = (chosen: Settings, capabilities: Capabilities): readonly Stage[] => {
+  const settings = effectivePicture(chosen)
   const cleanup = Math.max(settings.deblock, settings.deband)
   const metalfx = settings.upscaler === "metalfx" && capabilities.metalfx
   const upscaler = metalfx ? "MetalFX" : "Bilinear"
