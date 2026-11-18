@@ -87,6 +87,9 @@ public final class PSNAccount {
     /// Whether there are tokens to reach consoles over the internet with.
     public var signedIn: Bool { store.load() != nil }
 
+    /// When the stored access token expires (diagnostics; never the token itself).
+    public var tokenExpiry: Date? { store.load()?.expiresAt }
+
     /// Exchanges the sign-in code: keeps the tokens and returns the account ID (for pairing).
     public func signIn(code: String) async throws -> String {
         let reply = try await PSNAuth.json(PSNAuth.tokenRequest(code: code))
@@ -98,9 +101,10 @@ public final class PSNAccount {
 
     /// An access token valid for at least a minute, refreshing (and saving) it when needed. Throws
     /// `.signInExpired` — and forgets the tokens — when Sony no longer accepts the refresh token.
-    public func validAccessToken() async throws -> String {
+    /// `forceRefresh`: get a new one even if this one hasn't expired (PSN can revoke tokens early).
+    public func validAccessToken(forceRefresh: Bool = false) async throws -> String {
         guard let tokens = store.load() else { throw PSNError.notSignedIn }
-        guard tokens.needsRefresh(at: now()) else { return tokens.accessToken }
+        guard forceRefresh || tokens.needsRefresh(at: now()) else { return tokens.accessToken }
         let reply = try await PSNAuth.json(PSNAuth.refreshRequest(refreshToken: tokens.refreshToken))
         guard let fresh = PSNTokens(reply: reply, now: now()) else {
             store.clear()
@@ -113,9 +117,17 @@ public final class PSNAccount {
     public func signOut() { store.clear() }
 
     /// The PS5s on this PSN account (blocking network call, up to ~5 s; run off the main thread).
+    /// PSN can revoke an access token before it expires; then this refreshes it once and retries.
     public func consoles() async throws -> [PSNConsole] {
-        let token = try await validAccessToken()
-        return try listConsoles(token)
+        do {
+            return try listConsoles(try await validAccessToken())
+        } catch let error as ConsoleError {
+            return try listConsoles(try await validAccessToken(forceRefresh: true), retryOf: error)
+        }
+    }
+
+    private func listConsoles(_ token: String, retryOf first: ConsoleError) throws -> [PSNConsole] {
+        do { return try listConsoles(token) } catch { throw first }
     }
 
     /// The shim's device list (tests replace it).

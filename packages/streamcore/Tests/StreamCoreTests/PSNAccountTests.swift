@@ -95,9 +95,35 @@ extension Serial {
             let consoles = try await account.consoles()
             #expect(usedToken == "a" && consoles.map(\.name) == ["PS5-454"])
             account.listConsoles = { _ in throw ConsoleError.message("Couldn't list your PSN consoles: Unknown") }
-            await #expect(throws: ConsoleError.message("Couldn't list your PSN consoles: Unknown")) { try await account.consoles() }
+            await #expect(throws: ConsoleError.message("Couldn't list your PSN consoles: Unknown")) {
+                try await withStub({ _ in // the retry's refresh never reaches Sony
+                    (200, Data(#"{"access_token":"b","refresh_token":"r2","expires_in":3600}"#.utf8))
+                }) { try await account.consoles() }
+            }
             let (signedOut, _) = self.account()
             await #expect(throws: PSNError.notSignedIn) { try await signedOut.consoles() }
+        }
+
+        @Test func aRevokedTokenIsRefreshedOnceAndRetried() async throws {
+            let (account, store) = account(PSNTokens(accessToken: "revoked", refreshToken: "r", expiresAt: start.addingTimeInterval(600)))
+            #expect(account.tokenExpiry == start.addingTimeInterval(600))
+            var tried: [String] = []
+            account.listConsoles = { token in
+                tried.append(token)
+                if token == "revoked" { throw ConsoleError.message("Couldn't list your PSN consoles: Unknown") }
+                return [PSNConsole(name: "PS5-454", duid: "ab", remotePlay: true)]
+            }
+            let consoles = try await withStub({ _ in
+                (200, Data(#"{"access_token":"fresh","refresh_token":"r2","expires_in":3600}"#.utf8))
+            }) { try await account.consoles() }
+            #expect(consoles.count == 1 && tried == ["revoked", "fresh"] && store.tokens?.accessToken == "fresh")
+            // Still failing after the refresh: the original error.
+            account.listConsoles = { _ in throw ConsoleError.message("Couldn't list your PSN consoles: Unknown") }
+            await #expect(throws: ConsoleError.message("Couldn't list your PSN consoles: Unknown")) {
+                try await withStub({ _ in
+                    (200, Data(#"{"access_token":"again","refresh_token":"r3","expires_in":3600}"#.utf8))
+                }) { try await account.consoles() }
+            }
         }
 
         @Test func readsTheShimsConsoleRecord() {

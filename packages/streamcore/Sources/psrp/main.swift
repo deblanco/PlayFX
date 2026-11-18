@@ -129,6 +129,10 @@ func run() throws {
         try config.save()
         log("Paired with \(creds.nickname) (\(host)); saved to \(Config.url.path)")
 
+    case "psn-status": // whether a PSN sign-in is kept and when its access token expires (no secrets)
+        let expiry = PSNAccount.shared.tokenExpiry
+        print(expiry.map { "signed in; access token expires \($0) (\(Int($0.timeIntervalSinceNow)) s from now)" } ?? "not signed in")
+
     case "psn-consoles": // the PS5s on the signed-in PSN account (internet play)
         printJSON(try blocking { try await PSNAccount.shared.consoles() })
 
