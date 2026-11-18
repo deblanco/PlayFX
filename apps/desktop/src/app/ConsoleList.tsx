@@ -3,10 +3,10 @@ import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import type { DiscoveredConsole, PairedConsole, PairedConsoles } from "@/core/schema"
+import type { DiscoveredConsole, PairedConsole, PairedConsoles, Settings } from "@/core/schema"
 import * as actions from "./actions"
 import { useDevAutoplay } from "./devSeed"
-import { consoleRows, type ConsoleRow } from "./format"
+import { consoleRows, samePaired, type ConsoleRow } from "./format"
 import { PinInput } from "./PinInput"
 import { useFork, useRun, useRuntime } from "./runtime"
 import { StatusBadge } from "./StatusBadge"
@@ -15,10 +15,12 @@ interface ConsoleListProps {
   readonly accountId: Option.Option<string>
   /** `psnDuid`: connect over the internet to the console with that PSN device ID. */
   /** `psnFallback`: playing locally, the console's PSN device ID, if PSN can reach it too. */
+  /** How Play reaches a console (Automatic, home network only, or internet only). */
+  readonly connection?: Settings["connection"]
   readonly onPlay: (console: PairedConsole, psnDuid?: string, psnFallback?: string) => void
 }
 
-export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
+export const ConsoleList = ({ accountId, connection = "auto", onPlay }: ConsoleListProps) => {
   const run = useRun()
   const [discovered, setDiscovered] = useState<readonly DiscoveredConsole[]>([])
   const [paired, setPaired] = useState<PairedConsoles>({})
@@ -38,22 +40,31 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
 
   /** Plays right away when the console is ready; wakes it and waits first when it's in rest mode. */
   const play = (row: ConsoleRow, console: PairedConsole) => {
-    if (row.status === "internet" && row.psnDuid !== undefined) {
-      onPlay(console, row.psnDuid)
+    const duid = onPsn[row.hostId]
+    if (connection === "internet" || (row.status === "internet" && connection === "auto")) {
+      // PSN wakes the console as part of connecting.
+      if (duid !== undefined) onPlay(console, duid)
+      else toast.error(`${row.name} isn't reachable over the internet. Sign in to PSN for internet play, or connect on your home network.`)
       return
     }
+    if (row.status === "internet" || row.status === "offline") {
+      toast.error(`${row.name} isn't on this network. Choose Automatic or Internet to play it over the internet.`)
+      return
+    }
+    // The internet as a fallback only in Automatic.
+    const fallback = connection === "auto" ? duid : undefined
     if (row.status !== "standby") {
-      onPlay(console, undefined, onPsn[row.hostId])
+      onPlay(console, undefined, fallback)
       return
     }
     setWaking(row.hostId)
     wakeFiber.current = runtime.runFork(
-      Effect.match(actions.wakeUntilReady(console, onPsn[row.hostId]), {
+      Effect.match(actions.wakeUntilReady(console, fallback), {
         onSuccess: (route) => {
           wakeFiber.current = null
           setWaking(null)
           if (route.via === "internet") onPlay(console, route.psnDuid)
-          else onPlay(console, undefined, onPsn[row.hostId])
+          else onPlay(console, undefined, fallback)
         },
         onFailure: (error) => {
           wakeFiber.current = null
@@ -74,7 +85,9 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
         actions.pollDiscovery((outcome) => {
           if (outcome.ok) {
             setDiscovered(outcome.discovered)
-            setPaired(outcome.paired)
+            // Discovery hands a fresh object every scan; keeping the old one when nothing changed stops
+            // the PSN poll below from restarting (and asking Sony) every few seconds.
+            setPaired((current) => (samePaired(current, outcome.paired) ? current : outcome.paired))
             setScanMessage(outcome.discovered.length > 0 ? "" : "No consoles found on this network")
           } else {
             setScanMessage(outcome.message)

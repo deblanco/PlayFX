@@ -393,7 +393,7 @@ interface Option<V extends string> {
 }
 
 /** A single choice among a few options. */
-const Segmented = <V extends string>({ label, value, options, onChange }: {
+export const Segmented = <V extends string>({ label, value, options, onChange }: {
   readonly label: string
   readonly value: V
   readonly options: readonly Option<V>[]

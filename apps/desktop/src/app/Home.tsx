@@ -10,7 +10,13 @@ import { AccountSection } from "./AccountSection"
 import { ConsoleList } from "./ConsoleList"
 import { useRun } from "./runtime"
 import { streamSummary, type Capabilities } from "./format"
-import { SettingsSheet, type SettingsTab } from "./SettingsSheet"
+import { Segmented, SettingsSheet, type SettingsTab } from "./SettingsSheet"
+
+const connectionDescription: Readonly<Record<Settings["connection"], string>> = {
+  auto: "Tries your home network first, and goes through PSN if the console can't be reached there.",
+  local: "Only on your home network. Fastest to connect.",
+  internet: "Always through PSN, even at home. Needs a PSN sign-in; takes 20 to 40 seconds to connect.",
+}
 
 interface HomeProps {
   readonly settings: Settings
@@ -35,12 +41,25 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
       <Card className="w-full max-w-xl bg-card/70 shadow-2xl backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="text-lg">Remote Play</CardTitle>
-          <CardDescription>Stream your PlayStation over the local network.</CardDescription>
+          <CardDescription>Stream your PlayStation at home or over the internet.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <AccountSection accountId={accountId} onChange={setAccountId} />
           <Separator />
-          <ConsoleList accountId={accountId} onPlay={onPlay} />
+          <ConsoleList accountId={accountId} connection={settings.connection} onPlay={onPlay} />
+          <div className="flex flex-col gap-1.5">
+            <Segmented
+              label="Connect"
+              value={settings.connection}
+              options={[
+                { value: "auto", label: "Automatic" },
+                { value: "local", label: "Home network" },
+                { value: "internet", label: "Internet" },
+              ]}
+              onChange={(connection) => { onSettingsChange({ ...settings, connection }) }}
+            />
+            <p className="text-xs text-muted-foreground">{connectionDescription[settings.connection]}</p>
+          </div>
           <Separator />
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground tabular-nums">{streamSummary(settings)}</p>

@@ -153,6 +153,7 @@ export const App = () => {
         const next = session ? afterQuit(session, event) : "end"
         if (next === "reconnect") reconnect("dropped")
         else if (next === "retry-start") reconnect("starting")
+        else if (next === "via-internet" && settings.connection !== "auto") end(quitMessage(event))
         else if (next === "via-internet" && session) {
           // Known from the console list, or asked now (Play may have come before that lookup finished).
           const { console, psnFallback } = session

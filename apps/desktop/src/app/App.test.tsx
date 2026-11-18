@@ -282,6 +282,55 @@ describe("home: paired consoles", () => {
     expect(await screen.findByRole("banner")).toHaveTextContent("Reaching your PS5 over the internet…")
   })
 
+  it("lets the home screen choose how Play connects", async () => {
+    const core = fakeCore()
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    const connect = screen.getByRole("radiogroup", { name: "Connect" })
+    expect(within(connect).getByRole("radio", { name: "Automatic" })).toHaveAttribute("aria-checked", "true")
+
+    // Internet: through PSN even though the console is on this network.
+    await userEvent.click(within(connect).getByRole("radio", { name: "Internet" }))
+    expect(screen.getByText(/Always through PSN, even at home/)).toBeInTheDocument()
+    await userEvent.click(await item.findByRole("button", { name: "Play" }))
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.anything(), "aa")
+    })
+  })
+
+  it("plays only on the home network when asked to, without falling back", async () => {
+    const core = fakeCore()
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    await userEvent.click(within(screen.getByRole("radiogroup", { name: "Connect" })).getByRole("radio", { name: "Home network" }))
+    await userEvent.click(await item.findByRole("button", { name: "Play" }))
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.anything(), undefined)
+    await waitFor(() => {
+      expect(core.streamListeners()).toBe(1)
+    })
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+    })
+    expect(await screen.findByText(/^Couldn't reach the console on this network/)).toBeInTheDocument()
+    expect(core.service.startStream).toHaveBeenCalledTimes(1)
+  })
+
+  it("says why a console can't be played over the internet", async () => {
+    const core = fakeCore() // on this network, but not signed in to PSN
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    await userEvent.click(within(screen.getByRole("radiogroup", { name: "Connect" })).getByRole("radio", { name: "Internet" }))
+    await userEvent.click(await item.findByRole("button", { name: "Play" }))
+    expect(
+      await screen.findByText("Living Room isn't reachable over the internet. Sign in to PSN for internet play, or connect on your home network."),
+    ).toBeInTheDocument()
+    expect(core.service.startStream).not.toHaveBeenCalled()
+  })
+
   it("can cancel waking, and reports a wake-up that couldn't be sent", async () => {
     const core = fakeCore()
     core.state.discovered = [{ ...ps5, state: "standby" }]

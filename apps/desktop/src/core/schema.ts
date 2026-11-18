@@ -64,6 +64,8 @@ export const ColorMatrix = Schema.Literals(["auto", "bt601", "bt709", "bt2020"])
 export const ColorRange = Schema.Literals(["auto", "limited", "full"])
 /** How half-resolution color is brought up to full resolution. */
 export const ChromaFilter = Schema.Literals(["bicubic", "bilinear"])
+/** How Play reaches a console: the home network first then the internet, or only one of them. */
+export const ConnectionRoute = Schema.Literals(["auto", "local", "internet"])
 
 /** Picture settings, applied to every frame without reconnecting (StreamCore's RenderParams). */
 export const RenderParams = Schema.Struct({
@@ -105,6 +107,7 @@ export const Settings = Schema.Struct({
   accurateColor: since(Schema.Boolean, true),
   /** Debug entries in the log file (native, libchiaki and web UI), for tracking down problems. */
   detailedLogs: since(Schema.Boolean, false),
+  connection: since(ConnectionRoute, "auto"),
 })
 export type Settings = typeof Settings.Type
 
@@ -126,6 +129,7 @@ export const defaultSettings: Settings = {
   chroma: "bicubic",
   accurateColor: true,
   detailedLogs: false,
+  connection: "auto",
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).

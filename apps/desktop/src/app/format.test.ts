@@ -15,6 +15,7 @@ import {
   renderParams,
   hudStats,
   quitMessage,
+  samePaired,
   connectionHint,
   connectionSteps,
   connectionTitle,
@@ -310,6 +311,14 @@ describe("connecting screen", () => {
     expect(connectionHint("internet", 60)).toMatch(/^This is taking longer than usual/)
     expect(connectionHint("local", 3)).toBe("On your network this takes a few seconds.")
     expect(connectionHint("local", 15)).toBe("This is taking longer than usual. Check that the PS5 is on.")
+  })
+})
+
+describe("samePaired", () => {
+  it("compares contents, not identity", () => {
+    expect(samePaired({ HOST1: pairedPs5 }, { HOST1: { ...pairedPs5 } })).toBe(true)
+    expect(samePaired({ HOST1: pairedPs5 }, { HOST1: { ...pairedPs5, name: "Den" } })).toBe(false)
+    expect(samePaired({ HOST1: pairedPs5 }, {})).toBe(false)
   })
 })
 

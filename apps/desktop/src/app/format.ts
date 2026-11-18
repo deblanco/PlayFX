@@ -127,6 +127,9 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
 
 /** The PSN device ID of each paired console PSN knows (with Remote Play on), matched by name as
  * chiaki-ng does: hostId → duid. */
+/** Whether two paired-console lists hold the same consoles with the same details. */
+export const samePaired = (a: PairedConsoles, b: PairedConsoles): boolean => JSON.stringify(a) === JSON.stringify(b)
+
 export const psnDeviceIds = (
   paired: PairedConsoles,
   onPsn: readonly PsnConsole[],
