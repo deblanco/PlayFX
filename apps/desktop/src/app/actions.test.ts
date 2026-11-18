@@ -341,3 +341,67 @@ describe("reconnect", () => {
     }).pipe(Effect.provide(layer))
   })
 })
+
+describe("wakeUntilReady", () => {
+  const asleep = [{ ...ps5, state: "standby" as const }]
+
+  it.effect("returns at once when the console is already up", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      yield* actions.wakeUntilReady(pairedPs5)
+      expect(core.service.wakeup).toHaveBeenCalledTimes(1)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("waits until discovery sees it ready, re-sending the wake-up every few checks", () => {
+    const { core, layer } = setup()
+    core.state.discovered = asleep
+    return Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(actions.wakeUntilReady(pairedPs5))
+      for (let i = 0; i < 6; i++) yield* TestClock.adjust(actions.wakePollInterval)
+      expect(fiber.pollUnsafe()).toBeUndefined()
+      expect(core.service.wakeup).toHaveBeenCalledTimes(2) // the first one, and again after 5 checks
+      core.state.discovered = [ps5]
+      yield* TestClock.adjust(actions.wakePollInterval)
+      yield* Fiber.join(fiber)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("treats failed scans as not ready yet", () => {
+    let calls = 0
+    const core = fakeCore({
+      discover: Effect.suspend(() =>
+        ++calls === 1 ? Effect.fail(new CoreError({ command: "discover", message: "socket busy" })) : Effect.succeed([ps5]),
+      ),
+    })
+    const { layer } = setup(core)
+    return Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(actions.wakeUntilReady(pairedPs5))
+      yield* TestClock.adjust(actions.wakePollInterval)
+      yield* Fiber.join(fiber)
+      expect(calls).toBe(2)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("gives up with advice when the console doesn't wake", () => {
+    const { core, layer } = setup()
+    core.state.discovered = asleep
+    return Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(Effect.flip(actions.wakeUntilReady(pairedPs5)))
+      yield* TestClock.adjust(actions.wakeTimeout)
+      const error = yield* Fiber.join(fiber)
+      expect(error.message).toBe(
+          'Living Room didn\'t wake up. Check that "Stay connected to the internet" is on in its rest mode settings.',
+      )
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("fails when the wake-up can't be sent", () => {
+    const { core, layer } = setup()
+    vi.mocked(core.service.wakeup).mockReturnValueOnce(Effect.succeed(false))
+    return Effect.gen(function* () {
+      expect((yield* Effect.flip(actions.wakeUntilReady(pairedPs5))).message).toBe("Wake-up failed")
+    }).pipe(Effect.provide(layer))
+  })
+})
+

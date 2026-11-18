@@ -179,6 +179,47 @@ describe("home: paired consoles", () => {
     expect(await screen.findByText("Wake-up failed")).toBeInTheDocument()
   })
 
+  it("Play wakes a console in rest mode, then streams once it's ready", async () => {
+    const core = fakeCore()
+    core.state.discovered = [{ ...ps5, state: "standby" }]
+    renderApp(core, { paired: [pairedPs5] })
+    const item = await consoleItem()
+    await userEvent.click(await item.findByRole("button", { name: "Play" }))
+    expect(core.service.wakeup).toHaveBeenCalledWith(credentials)
+    expect(item.getByRole("button", { name: "Waking…" })).toBeDisabled()
+    expect(core.service.startStream).not.toHaveBeenCalled()
+    core.state.discovered = [ps5]
+    await waitFor(
+      () => {
+        expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 1080 }))
+      },
+      { timeout: 3000 },
+    )
+    expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument()
+  })
+
+  it("can cancel waking, and reports a wake-up that couldn't be sent", async () => {
+    const core = fakeCore()
+    core.state.discovered = [{ ...ps5, state: "standby" }]
+    renderApp(core, { paired: [pairedPs5] })
+    const item = await consoleItem()
+    await userEvent.click(await item.findByRole("button", { name: "Play" }))
+    await userEvent.click(item.getByRole("button", { name: "Cancel" }))
+    expect(item.getByRole("button", { name: "Play" })).toBeEnabled()
+    core.state.discovered = [ps5]
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    expect(core.service.startStream).not.toHaveBeenCalled()
+
+    core.state.discovered = [{ ...ps5, state: "standby" }]
+    await waitFor(() => {
+      expect(item.getByRole("button", { name: "Wake" })).toBeInTheDocument()
+    }, { timeout: 7000 })
+    vi.mocked(core.service.wakeup).mockReturnValueOnce(Effect.succeed(false))
+    await userEvent.click(item.getByRole("button", { name: "Play" }))
+    expect(await screen.findByText("Wake-up failed")).toBeInTheDocument()
+    expect(item.getByRole("button", { name: "Play" })).toBeEnabled()
+  }, 15_000)
+
   it("forgets a console", async () => {
     renderApp(fakeCore(), { paired: [pairedPs5] })
     const item = await consoleItem()
@@ -612,6 +653,24 @@ describe("streaming", () => {
     await new Promise((resolve) => setTimeout(resolve, 1800)) // …past the retry delay: nothing restarts
     expect(core.service.startStream).toHaveBeenCalledTimes(1)
     expect(screen.queryByText(/Reconnect failed/)).not.toBeInTheDocument()
+  })
+
+  it("waits out a console that's still busy when the stream starts", async () => {
+    const { core } = await startStreaming()
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, kind: "busy" })
+    })
+    expect(screen.getByRole("banner")).toHaveTextContent("Waiting for the console…")
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(2)
+    })
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await waitFor(() => {
+      expect(screen.getByRole("banner")).not.toHaveTextContent("Waiting")
+    })
+    expect(screen.queryByText(/Disconnected/)).not.toBeInTheDocument()
   })
 
   it("doesn't retry a drop before the stream ever connected", async () => {

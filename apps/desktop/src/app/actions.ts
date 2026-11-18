@@ -137,6 +137,45 @@ export const wake = (console: PairedConsole): Effect.Effect<void, CoreError | Wa
     if (!sent) return yield* new WakeFailed({ message: "Wake-up failed" })
   })
 
+export const wakeTimeout = "45 seconds"
+export const wakePollInterval = "1 second"
+/** Wake packets are UDP and can get lost: send one again every this many status checks. */
+const wakeResendEvery = 5
+
+/** Whether discovery currently sees `console` ready for Remote Play (a failed scan counts as not yet). */
+const isReady = (console: PairedConsole): Effect.Effect<boolean, never, Core> =>
+  Effect.flatMap(Core, (core) => core.discover).pipe(
+    Effect.map((found) => found.some((d) => d.hostId === console.hostId && d.state === "ready")),
+    Effect.orElseSucceed(() => false),
+  )
+
+/** Wakes a console from rest mode and waits until it can stream. */
+export const wakeUntilReady = (console: PairedConsole): Effect.Effect<void, CoreError | WakeFailed, Core> =>
+  Effect.gen(function* () {
+    yield* wake(console)
+    const waitForReady = (checks: number): Effect.Effect<void, CoreError | WakeFailed, Core> =>
+      Effect.flatMap(isReady(console), (ready) =>
+        ready
+          ? Effect.void
+          : Effect.gen(function* () {
+              yield* Effect.sleep(wakePollInterval)
+              if ((checks + 1) % wakeResendEvery === 0) yield* wake(console)
+              return yield* waitForReady(checks + 1)
+            }),
+      )
+    return yield* waitForReady(0).pipe(
+      Effect.timeoutOrElse({
+        duration: wakeTimeout,
+        orElse: () =>
+          Effect.fail(
+            new WakeFailed({
+              message: `${console.name} didn't wake up. Check that "Stay connected to the internet" is on in its rest mode settings.`,
+            }),
+          ),
+      }),
+    )
+  })
+
 export const forget = (hostId: string): Effect.Effect<PairedConsoles, StorageError, Preferences> =>
   Effect.gen(function* () {
     const prefs = yield* Preferences

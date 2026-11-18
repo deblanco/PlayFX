@@ -144,6 +144,10 @@ describe("afterQuit", () => {
     expect(afterQuit(live, { type: "quit", reason: "Stopped", error: false })).toBe("end")
     expect(afterQuit({ ...live, connected: false }, dropped)).toBe("end")
   })
+  it("waits out a busy console when the stream first starts", () => {
+    expect(afterQuit({ ...live, connected: false }, { ...dropped, kind: "busy" })).toBe("retry-start")
+    expect(afterQuit(live, { ...dropped, kind: "busy" })).toBe("end") // busy mid-stream isn't expected: give up
+  })
   it("leaves quits to a reconnect in progress", () => {
     expect(afterQuit({ ...live, reconnecting: "apply" }, dropped)).toBe("ignore")
     expect(afterQuit({ ...live, reconnecting: "dropped" }, { ...dropped, kind: "busy" })).toBe("ignore")

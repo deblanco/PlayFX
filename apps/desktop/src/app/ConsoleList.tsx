@@ -1,5 +1,5 @@
-import { Option } from "effect"
-import { useEffect, useId, useMemo, useState } from "react"
+import { Effect, Fiber, Option } from "effect"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -8,7 +8,7 @@ import * as actions from "./actions"
 import { useDevAutoplay } from "./devSeed"
 import { consoleRows, type ConsoleRow } from "./format"
 import { PinInput } from "./PinInput"
-import { useFork, useRun } from "./runtime"
+import { useFork, useRun, useRuntime } from "./runtime"
 import { StatusBadge } from "./StatusBadge"
 
 interface ConsoleListProps {
@@ -22,6 +22,40 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
   const [paired, setPaired] = useState<PairedConsoles>({})
   const [scanMessage, setScanMessage] = useState("Searching…")
   const [pairing, setPairing] = useState<string | null>(null)
+  // Play on a console in rest mode wakes it first; this is the one being woken, cancellable.
+  const runtime = useRuntime()
+  const [waking, setWaking] = useState<string | null>(null)
+  const wakeFiber = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
+
+  const cancelWake = () => {
+    if (wakeFiber.current) runtime.runFork(Fiber.interrupt(wakeFiber.current))
+    wakeFiber.current = null
+    setWaking(null)
+  }
+  useEffect(() => () => { if (wakeFiber.current) runtime.runFork(Fiber.interrupt(wakeFiber.current)) }, [runtime])
+
+  /** Plays right away when the console is ready; wakes it and waits first when it's in rest mode. */
+  const play = (row: ConsoleRow, console: PairedConsole) => {
+    if (row.status !== "standby") {
+      onPlay(console)
+      return
+    }
+    setWaking(row.hostId)
+    wakeFiber.current = runtime.runFork(
+      Effect.match(actions.wakeUntilReady(console), {
+        onSuccess: () => {
+          wakeFiber.current = null
+          setWaking(null)
+          onPlay(console)
+        },
+        onFailure: (error) => {
+          wakeFiber.current = null
+          setWaking(null)
+          toast.error(error.message)
+        },
+      }),
+    )
+  }
 
   useEffect(() => {
     run(actions.loadPaired, { onSuccess: setPaired })
@@ -66,7 +100,9 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
                   onSuccess: () => toast.success("Wake-up sent; the console takes ~20 s to start."),
                 }); }
               }
-              onPlay={onPlay}
+              waking={waking === row.hostId}
+              onPlay={(console) => { play(row, console) }}
+              onCancelWake={cancelWake}
               onForget={() => { run(actions.forget(row.hostId), { onSuccess: setPaired }); }}
             />
             {pairing === row.hostId && row.discovered !== undefined && (
@@ -92,11 +128,14 @@ interface ConsoleItemProps {
   readonly signedIn: boolean
   readonly onPair: () => void
   readonly onWake: (console: PairedConsole) => void
+  /** Being woken up by Play. */
+  readonly waking: boolean
   readonly onPlay: (console: PairedConsole) => void
+  readonly onCancelWake: () => void
   readonly onForget: () => void
 }
 
-const ConsoleItem = ({ row, signedIn, onPair, onWake, onPlay, onForget }: ConsoleItemProps) => {
+const ConsoleItem = ({ row, signedIn, onPair, onWake, waking, onPlay, onCancelWake, onForget }: ConsoleItemProps) => {
   const { paired } = row
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -116,13 +155,24 @@ const ConsoleItem = ({ row, signedIn, onPair, onWake, onPlay, onForget }: Consol
           )
         ) : (
           <>
-            {row.status === "standby" && (
-              <Button size="sm" variant="outline" onClick={() => { onWake(paired); }}>
-                Wake
+            {waking ? (
+              <Button size="sm" variant="outline" onClick={onCancelWake}>
+                Cancel
               </Button>
+            ) : (
+              row.status === "standby" && (
+                <Button size="sm" variant="outline" onClick={() => { onWake(paired); }}>
+                  Wake
+                </Button>
+              )
             )}
-            <Button size="sm" disabled={row.status !== "ready"} onClick={() => { onPlay(paired); }}>
-              Play
+            <Button
+              size="sm"
+              disabled={waking || row.status === "offline"}
+              title={row.status === "standby" && !waking ? "Wakes the console, then plays" : undefined}
+              onClick={() => { onPlay(paired); }}
+            >
+              {waking ? "Waking…" : "Play"}
             </Button>
             <Button size="sm" variant="ghost" onClick={onForget}>
               Forget

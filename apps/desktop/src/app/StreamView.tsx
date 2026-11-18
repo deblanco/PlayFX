@@ -129,7 +129,9 @@ export const StreamView = ({
             ? "Connection lost. Reconnecting…"
             : reconnect.reconnecting === "apply"
               ? "Reconnecting…"
-              : stats}
+              : reconnect.reconnecting === "starting"
+                ? "Waiting for the console…"
+                : stats}
         </span>
         <details className="group relative text-xs">
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">

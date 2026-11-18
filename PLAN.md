@@ -60,8 +60,11 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   Work: extend `psrp.h`/`StreamSession` to accept a PSN token + DUID, implement the PSN session
   manager calls (device list, session create/message), surface a "connect from anywhere" path in
   the UI. This is the single highest-value feature (it's the reason LAN-only blocked real use).
-- ❌ **Auto-wake on Play.** If the console is in standby when the user hits Play, wake it and poll
-  until `ready` instead of failing. The console dropped to standby repeatedly in testing.
+- ✅ **Auto-wake on Play.** *(done: Play is enabled for consoles in rest mode — it sends the wake-up,
+  shows "Waking…" with Cancel, polls discovery every second (re-sending the wake-up every 5 checks), and
+  plays once the console is ready; after 45 s it explains the "Stay connected to the internet" rest-mode
+  setting. A stream that gets "busy" before it connected (just woken, or right after another session)
+  waits it out instead of failing. Verified on the PS5: rest mode → one click → streaming in 11 s.)*
 - 🔶 **Reconnect & resilience.** *(done: StreamCore classifies quits as final / busy / dropped; a connected
   stream that drops (stream/control connection lost) reconnects on its own — HUD "Connection lost.
   Reconnecting…", last frame held — up to 3 times per session, retrying while the console is busy; final
@@ -237,7 +240,7 @@ Work items:
 ## 4. Suggested order of work
 
 0. ~~Picture quality & full stream configuration, Q1 → Q7~~ (done). *(P1, requested)*
-1. Auto-wake on Play (small, removes a constant papercut). *(P0)*
+1. ~~Auto-wake on Play~~ (done). *(P0)*
 2. Reconnect/resilience + clear quit-reason UI. *(P0)*
 3. Remote Play over the internet (hole-punching) — the headline feature. *(P0)*
 4. Rumble + adaptive triggers + touchpad/motion. *(P1)*

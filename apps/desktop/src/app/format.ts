@@ -114,8 +114,9 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
     .join(" · ")
 }
 
-/** Why a stream is being restarted: new stream settings, or a lost connection. */
-export type Reconnecting = false | "apply" | "dropped"
+/** Why a stream is being (re)started: new stream settings, a lost connection, or a console that was
+ * still busy when the stream first started (e.g. just woken, or just after another session). */
+export type Reconnecting = false | "apply" | "dropped" | "starting"
 
 /** How many automatic reconnects in a row (without a stable minute in between) before giving up. */
 export const maxAutoReconnects = 3
@@ -124,8 +125,9 @@ export const maxAutoReconnects = 3
 export const afterQuit = (
   session: { readonly connected: boolean; readonly reconnecting: Reconnecting; readonly autoReconnects: number },
   event: Extract<StreamEvent, { type: "quit" }>,
-): "ignore" | "reconnect" | "end" => {
+): "ignore" | "reconnect" | "retry-start" | "end" => {
   if (session.reconnecting !== false) return "ignore" // the old session ending, or a busy console: the reconnect handles it
+  if (!session.connected && event.kind === "busy") return "retry-start" // still busy for a few seconds: wait it out
   if (session.connected && event.kind === "dropped" && session.autoReconnects < maxAutoReconnects) return "reconnect"
   return "end"
 }

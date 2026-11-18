@@ -87,7 +87,7 @@ export const App = () => {
   )
 
   /** Restarts the stream: to apply new stream settings, or after the connection dropped. */
-  const reconnect = (why: "apply" | "dropped") => {
+  const reconnect = (why: Exclude<Reconnecting, false>) => {
     if (!session) return
     const { console } = session
     setSession({
@@ -123,6 +123,7 @@ export const App = () => {
       case "quit": {
         const next = session ? afterQuit(session, event) : "end"
         if (next === "reconnect") reconnect("dropped")
+        else if (next === "retry-start") reconnect("starting")
         else if (next === "end") end(quitMessage(event))
         break
       }
