@@ -188,27 +188,44 @@ describe("home: paired consoles", () => {
   })
 })
 
+/** Opens the settings sheet from the home screen or the HUD, on the given tab. */
+const openSettings = async (tab: "Picture" | "Stream") => {
+  await userEvent.click(screen.getByRole("button", { name: /Settings/ }))
+  const sheet = await screen.findByRole("dialog", { name: "Settings" })
+  await userEvent.click(within(sheet).getByRole("tab", { name: tab }))
+  return within(sheet)
+}
+
+/** Moves the slider named `name` with the keyboard. */
+const nudge = (name: string, key: "ArrowRight" | "ArrowLeft", times = 1) => {
+  const slider = screen.getByRole("slider", { name })
+  for (let i = 0; i < times; i++) fireEvent.keyDown(slider, { key })
+}
+
+const savedSettings = (runtime: ReturnType<typeof renderApp>["runtime"]) =>
+  runtime.runPromise(Effect.gen(function* () {
+    const prefs = yield* Preferences
+    return yield* prefs.settings
+  }))
+
 describe("settings", () => {
-  it("applies the saved upscaler on load and persists changes", async () => {
+  it("summarizes the stream settings and edits them in the sheet", async () => {
     const core = fakeCore()
     const { runtime } = renderApp(core, { settings: { ...defaultSettings, height: 720 } })
-    const resolution = await screen.findByLabelText("Resolution")
-    await waitFor(() => {
-      expect(resolution).toHaveValue("720")
-    })
-    expect(core.service.setRenderParams).toHaveBeenCalledWith(picture({ upscaler: "metalfx", sharpness: 0.3, compare: false }))
-    await userEvent.selectOptions(resolution, "540")
-    await userEvent.selectOptions(screen.getByLabelText("FPS"), "30")
-    await userEvent.selectOptions(screen.getByLabelText("Codec"), "h264")
-    await userEvent.selectOptions(screen.getByLabelText("Bitrate"), "40000")
-    await userEvent.selectOptions(screen.getByLabelText("When the network is slow"), "off")
-    await userEvent.selectOptions(screen.getByLabelText("Audio"), "off")
-    await userEvent.selectOptions(screen.getByLabelText("Upscaler"), "bilinear")
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
-    await userEvent.selectOptions(screen.getByLabelText("Sharpness"), "0.6")
+    expect(await screen.findByText("720p · 60 fps · HEVC · auto bitrate")).toBeInTheDocument()
+    const sheet = await openSettings("Stream")
+    expect(sheet.getByText("Changes apply the next time you connect.")).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("radio", { name: "540p" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "540p" })) // re-clicking keeps it selected
+    await userEvent.click(sheet.getByRole("radio", { name: "30 fps" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "H.264" }))
+    nudge("Bitrate", "ArrowRight", 5)
+    expect(sheet.getByText("40 Mbps")).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("switch", { name: /Lower resolution/ }))
+    await userEvent.click(sheet.getByRole("switch", { name: "Sound" }))
+    expect(sheet.queryByRole("status")).not.toBeInTheDocument() // nothing to reconnect at home
     await waitFor(async () => {
-      const saved = await runtime.runPromise(Preferences.use((prefs) => prefs.settings))
-      expect(saved).toEqual({
+      expect(await savedSettings(runtime)).toEqual({
         ...defaultSettings,
         height: 540,
         fps: 30,
@@ -216,21 +233,90 @@ describe("settings", () => {
         bitrate: 40000,
         autoDowngrade: false,
         audio: false,
-        upscaler: "bilinear",
-        sharpness: 0.6,
-        compare: false,
       })
     })
+    expect(screen.getByText("540p · 30 fps · H.264 · 40 Mbps")).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("button", { name: "Reset stream" }))
+    await waitFor(async () => {
+      expect(await savedSettings(runtime)).toEqual(defaultSettings)
+    })
+    await userEvent.click(sheet.getByRole("radio", { name: "60 fps" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "1080p" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "HEVC" }))
+  })
+
+  it("applies picture settings live and shows them along the pipeline", async () => {
+    const core = fakeCore()
+    const { runtime } = renderApp(core)
+    await waitFor(() => {
+      expect(core.service.setRenderParams).toHaveBeenCalledWith(picture())
+    })
+    const sheet = await openSettings("Picture")
+    expect(sheet.getByText("Changes show on the video right away.")).toBeInTheDocument()
+    expect(sheet.queryByRole("switch", { name: "Split screen" })).not.toBeInTheDocument() // only while streaming
+    const pipeline = within(sheet.getByRole("navigation", { name: "Picture pipeline" }))
+
+    await userEvent.click(sheet.getByRole("radio", { name: "Bilinear" }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear" }))
+    nudge("Sharpness", "ArrowRight")
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear", sharpness: 0.35 }))
+    nudge("Blockiness", "ArrowRight", 2)
+    nudge("Banding", "ArrowRight")
+    await userEvent.click(sheet.getByRole("radio", { name: "Vivid" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "Smooth" }))
+    await userEvent.click(sheet.getByRole("button", { name: "For unusual streams" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "601" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "Full" }))
+    const tuned = picture({
+      upscaler: "bilinear",
+      sharpness: 0.35,
+      deblock: 0.1,
+      deband: 0.05,
+      accurateColor: false,
+      chroma: "bilinear",
+      colorMatrix: "bt601",
+      colorRange: "full",
+    })
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(tuned)
+    expect(pipeline.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Clean up10%",
+      "UpscaleBilinear",
+      "Sharpen35%",
+      "ColorVivid",
+    ])
+    await waitFor(async () => {
+      expect(await savedSettings(runtime)).toEqual({ ...defaultSettings, ...tuned })
+    })
+
+    // A pipeline stage jumps to its controls.
+    await userEvent.click(pipeline.getByRole("button", { name: /Sharpen/ }))
+    expect(sheet.getByRole("heading", { name: /Sharpen/ })).toHaveFocus()
+
+    await userEvent.click(sheet.getByRole("button", { name: "Reset picture" }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture())
+    await userEvent.click(sheet.getByRole("radio", { name: "Accurate" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "Sharp" }))
+    await userEvent.click(sheet.getByRole("radio", { name: "MetalFX" }))
+    await userEvent.click(within(sheet.getByRole("radiogroup", { name: "Color matrix" })).getByRole("radio", { name: "Auto" }))
+    await userEvent.click(within(sheet.getByRole("radiogroup", { name: "Color range" })).getByRole("radio", { name: "Auto" }))
+    nudge("Sharpness", "ArrowLeft", 10)
+    expect(pipeline.getByRole("button", { name: /Sharpen/ })).toHaveTextContent("Off")
+    await userEvent.click(sheet.getByRole("button", { name: "Close" }))
+    expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument()
   })
 
   it("disables MetalFX when the GPU doesn't support it", async () => {
     const core = fakeCore()
     core.state.status = status({}, false)
     renderApp(core)
-    const option = await screen.findByRole("option", { name: "MetalFX" })
     await waitFor(() => {
-      expect(option).toBeDisabled()
+      expect(core.service.setRenderParams).toHaveBeenCalled()
     })
+    const sheet = await openSettings("Picture")
+    await waitFor(() => {
+      expect(sheet.getByRole("radio", { name: "MetalFX" })).toBeDisabled()
+    })
+    expect(sheet.getByText("MetalFX isn't available on this Mac.")).toBeInTheDocument()
   })
 
   it("toasts startup failures", async () => {
@@ -379,20 +465,76 @@ describe("streaming", () => {
     expect(core.streamListeners()).toBe(1)
   })
 
-  it("changes the upscaler from the HUD", async () => {
+  it("tunes the picture from the HUD with a labelled split screen", async () => {
     const { core } = await startStreaming()
-    await userEvent.selectOptions(screen.getByLabelText("Upscaler"), "bilinear")
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
     expect(screen.queryByLabelText("Split-screen comparison")).not.toBeInTheDocument()
-  })
-
-  it("labels the halves of the split-screen comparison", async () => {
-    const { core } = await startStreaming()
-    await userEvent.selectOptions(screen.getByLabelText("Compare"), "on")
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "metalfx", sharpness: 0.3, compare: true }))
+    const sheet = await openSettings("Picture")
+    await userEvent.click(sheet.getByRole("switch", { name: /Split screen/ }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ compare: true }))
     const labels = screen.getByLabelText("Split-screen comparison")
     expect(labels).toHaveTextContent("Original")
     expect(labels).toHaveTextContent("Enhanced")
+    // The keyboard drives the settings, not the console, while they're open.
+    vi.mocked(core.service.setController).mockClear()
+    fireEvent.keyDown(window, { code: "ArrowUp" })
+    expect(core.service.setController).not.toHaveBeenCalled()
+  })
+
+  it("reconnects to apply new stream settings, waiting out a busy console", async () => {
+    const { core } = await startStreaming()
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Stream")
+    expect(sheet.queryByRole("status")).not.toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("radio", { name: "720p" }))
+    expect(sheet.getByRole("status")).toHaveTextContent("Reconnect to use the new stream settings.")
+    expect(screen.getByLabelText("Reconnect to apply")).toBeInTheDocument()
+
+    await userEvent.click(sheet.getByRole("button", { name: "Reconnect" }))
+    expect(sheet.getByRole("status")).toHaveTextContent("Reconnecting…")
+    expect(screen.getByRole("banner")).toHaveTextContent("Reconnecting…")
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }))
+    })
+    expect(core.counts.stopStream).toBe(1)
+    // The old session's quit and a busy console don't end the stream view.
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Stopped", error: false })
+    })
+    expect(screen.getByRole("banner")).toHaveTextContent("Reconnecting…")
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, busy: true })
+    })
+    expect(screen.getByRole("banner")).toHaveTextContent("Reconnecting…")
+    await waitFor(
+      () => {
+        expect(core.service.startStream).toHaveBeenCalledTimes(2) // retried after the busy answer
+      },
+      { timeout: 3000 },
+    )
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await waitFor(() => {
+      expect(sheet.queryByRole("status")).not.toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Disconnected/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Reconnect to apply")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument()
+  })
+
+  it("goes home with the error when a reconnect fails", async () => {
+    const { core } = await startStreaming()
+    const sheet = await openSettings("Stream")
+    await userEvent.click(sheet.getByRole("radio", { name: "30 fps" }))
+    await userEvent.click(sheet.getByRole("button", { name: "Reconnect" }))
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(2)
+    })
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Version mismatch", error: true })
+    })
+    expect(await screen.findByText("Reconnect failed: Version mismatch")).toBeInTheDocument()
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
   })
 
   it("fades the HUD after 2.5 s without mouse movement", async () => {

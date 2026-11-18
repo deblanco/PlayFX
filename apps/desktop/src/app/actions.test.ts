@@ -239,3 +239,83 @@ describe("streaming", () => {
     }).pipe(Effect.provide(layer))
   })
 })
+
+describe("reconnect", () => {
+  const settings = { ...defaultSettings, height: 720 as const }
+
+  /** Starts a reconnect in the background and lets it reach its first start_stream. */
+  const begin = Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(Effect.exit(actions.reconnect(pairedPs5, settings)))
+    yield* Effect.yieldNow
+    return fiber
+  })
+
+  it.effect("stops, starts with the new settings and finishes when connected", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      expect(core.counts.stopStream).toBe(1)
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }))
+      core.emitStream({ type: "quit", reason: "Stopped", error: false }) // the old session: ignored
+      core.emitStream({ type: "loginPin", incorrect: false }) // not an answer either
+      core.emitStream({ type: "connected" })
+      expect((yield* Fiber.join(fiber))._tag).toBe("Success")
+      expect(core.streamListeners()).toBe(0) // unsubscribed
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("retries while the console is busy", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, busy: true })
+      yield* Effect.yieldNow
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+      yield* TestClock.adjust(actions.reconnectRetryDelay)
+      expect(core.service.startStream).toHaveBeenCalledTimes(2)
+      core.emitStream({ type: "connected" })
+      expect((yield* Fiber.join(fiber))._tag).toBe("Success")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("gives up when the console stays busy", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      for (let i = 0; i < 30; i++) {
+        core.emitStream({ type: "quit", reason: "in use", error: true, busy: true })
+        yield* TestClock.adjust(actions.reconnectRetryDelay)
+      }
+      const exit = yield* Fiber.join(fiber)
+      expect(exit).toMatchObject({ _tag: "Failure" })
+      expect(String(exit)).toContain("The console is still busy")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("fails with the console's reason on an error quit", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      core.emitStream({ type: "quit", reason: "Version mismatch", error: true })
+      const exit = yield* Fiber.join(fiber)
+      expect(String(exit)).toContain("Reconnect failed: Version mismatch")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("fails when the console doesn't answer", () => {
+    const { layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      yield* TestClock.adjust(actions.reconnectAnswerTimeout)
+      expect(String(yield* Fiber.join(fiber))).toContain("The console didn't answer")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("fails when the stream can't be started", () => {
+    const { layer } = setup(fakeCore({ startStream: () => Effect.fail(new CoreError({ command: "start_stream", message: "busy" })) }))
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      expect(String(yield* Fiber.join(fiber))).toContain("busy")
+    }).pipe(Effect.provide(layer))
+  })
+})

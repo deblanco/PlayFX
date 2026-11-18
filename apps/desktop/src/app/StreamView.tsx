@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect"
+import { SlidersHorizontal } from "lucide-react"
 import { useEffect, useId, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,7 +10,7 @@ import { cn } from "@/lib/utils"
 import * as actions from "./actions"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
-import { PictureSelects, UpscalerSelect } from "./Settings"
+import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
 
 export const hudIdleMs = 2500
 
@@ -79,6 +80,8 @@ interface StreamViewProps {
   readonly settings: Settings
   readonly metalfxSupported: boolean
   readonly onSettingsChange: (next: Settings) => void
+  /** Whether stream settings changed since connecting, and how to reconnect with them. */
+  readonly reconnect: ReconnectState
   readonly onLoginPinSubmitted: () => void
   /** The stream ended; carries the error to show, if any. */
   readonly onEnd: (error: Option.Option<string>) => void
@@ -90,16 +93,19 @@ export const StreamView = ({
   settings,
   metalfxSupported,
   onSettingsChange,
+  reconnect,
   onLoginPinSubmitted,
   onEnd,
 }: StreamViewProps) => {
   const run = useRun()
   const idle = useIdle(hudIdleMs)
   const [stats, setStats] = useState("Connecting…")
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tab, setTab] = useState<SettingsTab>("picture")
 
   useFork(useMemo(() => actions.pollStats(setStats), []))
-  // Disabled while the login-PIN dialog is up, so typing the PIN isn't read as gameplay input.
-  useKeyboardController(Option.isNone(loginPin))
+  // Off while the login-PIN dialog or the settings are open, so typing there isn't read as gameplay.
+  useKeyboardController(Option.isNone(loginPin) && !settingsOpen)
 
   const stop = () => {
     const end = () => { onEnd(Option.none()); }
@@ -112,11 +118,14 @@ export const StreamView = ({
         data-idle={idle}
         className={cn(
           "fixed inset-x-0 top-0 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent px-4 pt-3 pb-6 transition-opacity duration-500",
-          idle && "pointer-events-none opacity-0",
+          idle && !settingsOpen && "pointer-events-none opacity-0",
+        settingsOpen && "pr-[24rem]", // keep the HUD's buttons clear of the settings sheet
         )}
       >
         <span className="font-medium">{title}</span>
-        <span className="flex-1 truncate text-xs text-muted-foreground tabular-nums">{stats}</span>
+        <span className="flex-1 truncate text-xs text-muted-foreground tabular-nums">
+          {reconnect.reconnecting ? "Reconnecting…" : stats}
+        </span>
         <details className="group relative text-xs">
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">
             Keys
@@ -133,13 +142,32 @@ export const StreamView = ({
             </dl>
           </div>
         </details>
-        <UpscalerSelect settings={settings} metalfxSupported={metalfxSupported} onChange={onSettingsChange} />
-        <PictureSelects settings={settings} onChange={onSettingsChange} />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            setTab(reconnect.pending ? "stream" : "picture")
+            setSettingsOpen(true)
+          }}
+        >
+          <SlidersHorizontal /> Settings
+          {reconnect.pending && <span aria-label="Reconnect to apply" className="size-1.5 rounded-full bg-signal" />}
+        </Button>
         <Button variant="destructive" size="sm" onClick={stop}>
           Stop
         </Button>
       </header>
       {settings.compare && <CompareLabels />}
+      <SettingsSheet
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        tab={tab}
+        onTabChange={setTab}
+        settings={settings}
+        metalfxSupported={metalfxSupported}
+        onChange={onSettingsChange}
+        reconnect={reconnect}
+      />
       {Option.isSome(loginPin) && (
         <LoginPinPrompt incorrect={loginPin.value.incorrect} onSubmitted={onLoginPinSubmitted} onCancel={stop} />
       )}
@@ -147,14 +175,16 @@ export const StreamView = ({
   )
 }
 
-/** Names the two halves of the split-screen comparison. */
+/** Names the two halves of the split-screen comparison, on either side of the divider (the
+ * video's center), so both stay visible with the settings sheet open. */
 const CompareLabels = () => (
-  <div aria-label="Split-screen comparison" className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-between p-4">
-    {["Original", "Enhanced"].map((name) => (
-      <span key={name} className="rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur">
-        {name}
-      </span>
-    ))}
+  <div
+    aria-label="Split-screen comparison"
+    className="pointer-events-none fixed bottom-4 left-1/2 grid -translate-x-1/2 grid-cols-[1fr_auto_1fr] items-center gap-3"
+  >
+    <span className="justify-self-end rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur">Original</span>
+    <span aria-hidden className="h-4 w-px" />
+    <span className="rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur">Enhanced</span>
   </div>
 )
 

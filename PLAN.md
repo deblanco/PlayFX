@@ -113,7 +113,17 @@ Work items:
   (BT.601/709/2020, limited/full) with a manual override; set the layer colorspace (Rec.709/sRGB)
   so macOS color-manages to the display; better chroma upsampling (bicubic or luma-guided).
   Groundwork for HDR (P1 below). Tests: known YCbCr triples per matrix/range.
-- ❌ **Q5. Settings UI.** A Settings sheet with *Stream* and *Picture* sections (shadcn studio
+- ✅ **Q5. Settings UI.** *(done: a non-modal glass sheet over the live video with Picture (live) and
+  Stream (next connection) tabs; a "picture pipeline" strip — Clean up → Upscale → Sharpen → Color, in
+  render order, lit amber where a stage changes the picture — jumps to each stage's controls; sliders,
+  segmented choices and switches replace the selects; Split screen labels sit at the divider. Changing
+  stream settings mid-stream offers **Reconnect**, which retries while the PS5 says it's busy (measured:
+  it refuses new sessions for ~9 s after one ends; StreamCore now flags that quit as `busy`). Verified
+  on the real console: reconnect 1080p→720p after 5 busy answers, no stray errors.)*
+  - Follow-ups: while reconnecting the idle test pattern shows for those ~9 s — keep the last frame
+    instead; the dev autoplay harness re-plays when Home remounts (dev-only, harmless).
+  - Note: the split screen now compares *baseline vs. all current picture settings* (upscaler included)
+    rather than only bilinear vs MetalFX. A Settings sheet with *Stream* and *Picture* sections (shadcn studio
   components), sliders for the 0–1 params, live preview while streaming, "Reset to defaults",
   and a compare mode that splits **current params vs. baseline** (not just bilinear vs MetalFX).
 - ❌ **Q6. Measure.** Per-pass GPU time (`MTLCommandBuffer` GPU start/end) in the stats overlay;

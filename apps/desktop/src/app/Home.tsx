@@ -1,5 +1,7 @@
 import { Option } from "effect"
+import { SlidersHorizontal } from "lucide-react"
 import { useEffect, useState } from "react"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import type { PairedConsole, Settings } from "@/core/schema"
@@ -7,7 +9,8 @@ import * as actions from "./actions"
 import { AccountSection } from "./AccountSection"
 import { ConsoleList } from "./ConsoleList"
 import { useRun } from "./runtime"
-import { SettingsRow } from "./Settings"
+import { streamSummary } from "./format"
+import { SettingsSheet, type SettingsTab } from "./SettingsSheet"
 
 interface HomeProps {
   readonly settings: Settings
@@ -19,6 +22,8 @@ interface HomeProps {
 export const Home = ({ settings, metalfxSupported, onSettingsChange, onPlay }: HomeProps) => {
   const run = useRun()
   const [accountId, setAccountId] = useState<Option.Option<string>>(Option.none())
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tab, setTab] = useState<SettingsTab>("stream")
 
   useEffect(() => {
     run(actions.loadAccount, { onSuccess: setAccountId })
@@ -36,9 +41,23 @@ export const Home = ({ settings, metalfxSupported, onSettingsChange, onPlay }: H
           <Separator />
           <ConsoleList accountId={accountId} onPlay={onPlay} />
           <Separator />
-          <SettingsRow settings={settings} metalfxSupported={metalfxSupported} onChange={onSettingsChange} />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground tabular-nums">{streamSummary(settings)}</p>
+            <Button variant="secondary" size="sm" onClick={() => { setSettingsOpen(true) }}>
+              <SlidersHorizontal /> Settings
+            </Button>
+          </div>
         </CardContent>
       </Card>
+      <SettingsSheet
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        tab={tab}
+        onTabChange={setTab}
+        settings={settings}
+        metalfxSupported={metalfxSupported}
+        onChange={onSettingsChange}
+      />
     </main>
   )
 }

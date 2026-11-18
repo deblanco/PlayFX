@@ -144,6 +144,11 @@ import Testing
         #expect(r.activeMode == .bilinear)
         #expect(pixel(same, width: 64, x: 32, y: 32) == (255, 255, 255, 255))
         #expect(pixel(same, width: 64, x: 10, y: 32).r < 10)
+        // Over the idle test pattern there is no split (no divider down the middle).
+        r.showsTestPattern = true
+        let idle = try render(r, size: (64, 64))
+        let whiteInMiddleColumn = (0..<64).filter { pixel(idle, width: 64, x: 32, y: $0) == (255, 255, 255, 255) }.count
+        #expect(whiteInMiddleColumn < 64, "a full-height divider was drawn")
     }
 
     /// A 64×64 frame: left half dark gray, right half light gray (a vertical edge at x = 32).

@@ -1,4 +1,4 @@
-import { Clock, Effect, Option, Ref, Schedule, Schema } from "effect"
+import { Clock, Deferred, Effect, Option, Ref, Schedule, Schema } from "effect"
 import { Core } from "@/core/core"
 import { ValidationError, type CoreError, type StorageError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
@@ -19,6 +19,11 @@ import { framesPerSecond, hudStats, megabitsPerSecond, renderParams, streamOptio
 
 /** Sony's sign-in window reported a failure. */
 export class SignInFailed extends Schema.TaggedError<SignInFailed>()("SignInFailed", { message: Schema.String }) {}
+
+/** A stream couldn't be restarted with new settings. */
+export class ReconnectFailed extends Schema.TaggedError<ReconnectFailed>()("ReconnectFailed", {
+  message: Schema.String,
+}) {}
 
 /** The console didn't acknowledge the wake-up packet. */
 export class WakeFailed extends Schema.TaggedError<WakeFailed>()("WakeFailed", { message: Schema.String }) {}
@@ -177,6 +182,67 @@ export const play = (console: PairedConsole, settings: Settings): Effect.Effect<
   Effect.gen(function* () {
     const core = yield* Core
     yield* core.startStream(console.credentials, streamOptions(settings))
+  })
+
+// The PS5 refuses a new session for ~9 s after one ends ("busy"), so a reconnect retries.
+export const reconnectRetryDelay = "1500 millis"
+export const reconnectGiveUpMs = 30_000
+export const reconnectAnswerTimeout = "15 seconds"
+
+type Answer = "connected" | "busy"
+
+/** Starts a stream and waits for the console's answer. The previous session's normal quit can
+ * arrive meanwhile; only connected, busy and error quits count. */
+const attemptStream = (
+  console: PairedConsole,
+  settings: Settings,
+): Effect.Effect<Answer, CoreError | ReconnectFailed, Core> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const core = yield* Core
+      const answer = yield* Deferred.make<Answer, ReconnectFailed>()
+      yield* Effect.acquireRelease(
+        core.onStreamEvent((event) => {
+          if (event.type === "connected") Deferred.doneUnsafe(answer, Effect.succeed("connected"))
+          else if (event.type === "quit" && event.busy === true) Deferred.doneUnsafe(answer, Effect.succeed("busy"))
+          else if (event.type === "quit" && event.error)
+            Deferred.doneUnsafe(answer, Effect.fail(new ReconnectFailed({ message: `Reconnect failed: ${event.reason}` })))
+        }),
+        (unsubscribe) => Effect.sync(unsubscribe),
+      )
+      yield* core.startStream(console.credentials, streamOptions(settings))
+      return yield* Deferred.await(answer).pipe(
+        Effect.timeoutOrElse({
+          duration: reconnectAnswerTimeout,
+          orElse: () => Effect.fail(new ReconnectFailed({ message: "The console didn't answer. Try again." })),
+        }),
+      )
+    }),
+  )
+
+/** Restarts the stream with new settings, retrying while the console is still busy. */
+export const reconnect = (
+  console: PairedConsole,
+  settings: Settings,
+): Effect.Effect<void, CoreError | ReconnectFailed, Core> =>
+  Effect.gen(function* () {
+    const core = yield* Core
+    yield* core.stopStream
+    const started = yield* Clock.currentTimeMillis
+    const loop: Effect.Effect<void, CoreError | ReconnectFailed, Core> = Effect.suspend(() =>
+      Effect.flatMap(attemptStream(console, settings), (answer) =>
+        answer === "connected"
+          ? Effect.void
+          : Effect.gen(function* () {
+              if ((yield* Clock.currentTimeMillis) - started >= reconnectGiveUpMs) {
+                return yield* new ReconnectFailed({ message: "The console is still busy. Try again in a moment." })
+              }
+              yield* Effect.sleep(reconnectRetryDelay)
+              return yield* loop
+            }),
+      ),
+    )
+    return yield* loop
   })
 
 export const stop: Effect.Effect<void, CoreError, Core> = Effect.gen(function* () {

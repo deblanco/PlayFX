@@ -280,7 +280,9 @@ static void session_event_cb(ChiakiEvent *event, void *user) {
         char msg[512];
         snprintf(msg, sizeof(msg), "%s%s%s", chiaki_quit_reason_string(event->quit.reason),
                  event->quit.reason_str ? ": " : "", event->quit.reason_str ? event->quit.reason_str : "");
-        s->cb.event(s->cb.user, PSRP_EVENT_QUIT, chiaki_quit_reason_is_error(event->quit.reason) ? 1 : 0, 0, msg);
+        // "Busy": Remote Play is still in use on the console, e.g. for a few seconds after a session ends.
+        bool busy = event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
+        s->cb.event(s->cb.user, PSRP_EVENT_QUIT, chiaki_quit_reason_is_error(event->quit.reason) ? 1 : 0, busy ? 1 : 0, msg);
         break;
     }
     case CHIAKI_EVENT_LOGIN_PIN_REQUEST:

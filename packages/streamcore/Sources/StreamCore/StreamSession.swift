@@ -31,7 +31,9 @@ public final class StreamSession {
 
     public enum Event: Sendable {
         case connected
-        case quit(reason: String, error: Bool)
+        /// `busy`: the console refused because Remote Play is still in use (it is for ~9 s after a
+        /// session ends), so retrying shortly can succeed.
+        case quit(reason: String, error: Bool, busy: Bool)
         case loginPinRequested(incorrect: Bool)
         case rumble(left: UInt8, right: UInt8)
         case nickname(String)
@@ -158,7 +160,7 @@ extension StreamSession.Event {
     init?(type: Int32, a: Int32, b: Int32, message text: String) {
         switch UInt32(type) {
         case PSRP_EVENT_CONNECTED.rawValue: self = .connected
-        case PSRP_EVENT_QUIT.rawValue: self = .quit(reason: text, error: a != 0)
+        case PSRP_EVENT_QUIT.rawValue: self = .quit(reason: text, error: a != 0, busy: b != 0)
         case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: self = .loginPinRequested(incorrect: a != 0)
         case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
         case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)

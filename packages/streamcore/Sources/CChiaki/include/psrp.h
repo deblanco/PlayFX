@@ -68,7 +68,7 @@ bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACC
 
 typedef enum {
     PSRP_EVENT_CONNECTED = 1,
-    PSRP_EVENT_QUIT = 2,              // message = reason; a = 1 if it was an error
+    PSRP_EVENT_QUIT = 2,              // message = reason; a = 1 if it was an error; b = 1 if the console was busy
     PSRP_EVENT_LOGIN_PIN_REQUEST = 3, // a = 1 if the previous PIN was wrong
     PSRP_EVENT_RUMBLE = 4,            // a = left (low freq), b = right (high freq)
     PSRP_EVENT_NICKNAME = 5,          // message = console nickname

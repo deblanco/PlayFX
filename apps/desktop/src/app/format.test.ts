@@ -3,15 +3,18 @@ import { Option } from "effect"
 import { defaultSettings } from "@/core/schema"
 import {
   consoleRows,
+  bitrateLabel,
   framesPerSecond,
   megabitsPerSecond,
+  pipelineStages,
   renderParams,
   hudStats,
   quitMessage,
-  settingValue,
   streamOptions,
+  streamSummary,
+  strengthLabel,
   upscalerLabel,
-  withSetting,
+  type Stage,
 } from "./format"
 import { pairedPs5, ps5, status } from "./testing"
 
@@ -127,35 +130,39 @@ describe("quitMessage", () => {
   })
 })
 
-describe("withSetting / settingValue", () => {
-  it("parses select values", () => {
-    expect(withSetting(defaultSettings, "height", "720").height).toBe(720)
-    expect(withSetting(defaultSettings, "fps", "30").fps).toBe(30)
-    expect(withSetting(defaultSettings, "hevc", "h264").hevc).toBe(false)
-    expect(withSetting(defaultSettings, "upscaler", "bilinear").upscaler).toBe("bilinear")
-    expect(withSetting(defaultSettings, "bitrate", "30000").bitrate).toBe(30000)
-    expect(withSetting(defaultSettings, "autoDowngrade", "off").autoDowngrade).toBe(false)
-    expect(withSetting(defaultSettings, "audio", "off").audio).toBe(false)
-    expect(withSetting(defaultSettings, "sharpness", "0.6").sharpness).toBe(0.6)
-    expect(withSetting(defaultSettings, "compare", "on").compare).toBe(true)
-    expect(withSetting(defaultSettings, "deblock", "0.6").deblock).toBe(0.6)
-    expect(withSetting(defaultSettings, "deband", "1").deband).toBe(1)
-    expect(withSetting(defaultSettings, "accurateColor", "off").accurateColor).toBe(false)
-    expect(withSetting(defaultSettings, "chroma", "bilinear").chroma).toBe("bilinear")
-    expect(withSetting(defaultSettings, "colorMatrix", "bt601").colorMatrix).toBe("bt601")
-    expect(withSetting(defaultSettings, "colorRange", "full").colorRange).toBe("full")
+describe("settings labels", () => {
+  it("names bitrates and strengths", () => {
+    expect(bitrateLabel(0)).toBe("Auto")
+    expect(bitrateLabel(40000)).toBe("40 Mbps")
+    expect(strengthLabel(0)).toBe("Off")
+    expect(strengthLabel(0.35)).toBe("35%")
+    expect(strengthLabel(1)).toBe("100%")
   })
-  it("ignores invalid values", () => {
-    expect(withSetting(defaultSettings, "height", "999")).toBe(defaultSettings)
-    expect(withSetting(defaultSettings, "bitrate", "12345")).toBe(defaultSettings)
-    expect(withSetting(defaultSettings, "sharpness", "1.5")).toBe(defaultSettings)
-    expect(withSetting(defaultSettings, "deband", "-1")).toBe(defaultSettings)
+  it("summarizes the stream settings", () => {
+    expect(streamSummary(defaultSettings)).toBe("1080p · 60 fps · HEVC · auto bitrate")
+    expect(streamSummary({ ...defaultSettings, height: 720, fps: 30, hevc: false, bitrate: 20000 })).toBe(
+      "720p · 30 fps · H.264 · 20 Mbps",
+    )
   })
-  it("renders select values", () => {
-    expect(settingValue(defaultSettings, "height")).toBe("1080")
-    expect(settingValue(defaultSettings, "hevc")).toBe("hevc")
-    expect(settingValue({ ...defaultSettings, hevc: false }, "hevc")).toBe("h264")
-    expect(settingValue(defaultSettings, "audio")).toBe("on")
-    expect(settingValue({ ...defaultSettings, autoDowngrade: false }, "autoDowngrade")).toBe("off")
+})
+
+describe("pipelineStages", () => {
+  const view = (stages: readonly Stage[]) => stages.map((s) => [s.id, s.value, s.active])
+  it("lists the picture steps in render order with their values", () => {
+    expect(view(pipelineStages(defaultSettings, true))).toEqual([
+      ["cleanup", "Off", false],
+      ["upscale", "MetalFX", true],
+      ["sharpen", "30%", true],
+      ["color", "Accurate", true],
+    ])
+  })
+  it("reflects changes and an unsupported MetalFX", () => {
+    const settings = { ...defaultSettings, deblock: 0.2, deband: 0.6, sharpness: 0, accurateColor: false }
+    expect(view(pipelineStages(settings, false))).toEqual([
+      ["cleanup", "60%", true],
+      ["upscale", "Bilinear", false],
+      ["sharpen", "Off", false],
+      ["color", "Vivid", false],
+    ])
   })
 })

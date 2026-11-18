@@ -197,7 +197,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         let text: String
         switch event {
         case .connected: ctl.connected = true; text = "connected"
-        case .quit(let reason, let error): ctl.connected = false; text = "quit (\(error ? "error" : "ok")): \(reason)"
+        case .quit(let reason, let error, _): ctl.connected = false; text = "quit (\(error ? "error" : "ok")): \(reason)"
         case .loginPinRequested(let incorrect): text = "login PIN requested (incorrect: \(incorrect))"
         case .rumble: return
         case .nickname(let n): text = "nickname: \(n)"

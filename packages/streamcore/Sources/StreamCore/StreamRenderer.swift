@@ -229,7 +229,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         }
 
-        if params.compare {
+        // The split compares stream processing; it means nothing over the idle test pattern.
+        if params.compare && !showsTestPattern {
             let split = Self.compareRects(target)
             enc.setScissorRect(Self.scissor(split.left))
             enc.setRenderPipelineState(presentPipeline)

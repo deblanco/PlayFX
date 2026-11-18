@@ -37,7 +37,7 @@ private func emit(_ object: [String: Any]) {
 @_cdecl("sc_free")
 public func sc_free(_ p: UnsafeMutablePointer<CChar>?) { free(p) }
 
-/// Receives session events as JSON: {"type":"connected"} | {"type":"quit","reason":..,"error":bool} |
+/// Receives session events as JSON: {"type":"connected"} | {"type":"quit","reason":..,"error":bool,"busy":bool} |
 /// {"type":"loginPin","incorrect":bool} | {"type":"nickname","name":..}. Called from any thread.
 @_cdecl("sc_set_event_callback")
 public func sc_set_event_callback(_ cb: (@convention(c) (UnsafePointer<CChar>) -> Void)?) {
@@ -154,7 +154,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
 func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
     switch event {
     case .connected: return ["type": "connected"]
-    case .quit(let reason, let isError): return ["type": "quit", "reason": reason, "error": isError]
+    case .quit(let reason, let isError, let busy): return ["type": "quit", "reason": reason, "error": isError, "busy": busy]
     case .loginPinRequested(let incorrect): return ["type": "loginPin", "incorrect": incorrect]
     case .nickname(let name): return ["type": "nickname", "name": name]
     case .rumble: return nil

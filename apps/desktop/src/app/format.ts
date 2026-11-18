@@ -1,11 +1,11 @@
-import { Option, Schema } from "effect"
+import { Option } from "effect"
 import {
-  Settings,
   type DiscoveredConsole,
   type PairedConsole,
   type PairedConsoles,
   type RenderParams,
   type RendererStatus,
+  type Settings,
   type StreamEvent,
   type StreamOptions,
 } from "@/core/schema"
@@ -110,32 +110,40 @@ export const quitMessage = (event: Extract<StreamEvent, { type: "quit" }>): Opti
 
 export type SettingKey = keyof Settings
 
-const parsers: Readonly<Record<SettingKey, (raw: string) => unknown>> = {
-  height: Number,
-  fps: Number,
-  hevc: (raw) => raw === "hevc",
-  bitrate: Number,
-  autoDowngrade: (raw) => raw === "on",
-  audio: (raw) => raw === "on",
-  upscaler: (raw) => raw,
-  sharpness: Number,
-  deblock: Number,
-  deband: Number,
-  compare: (raw) => raw === "on",
-  colorMatrix: (raw) => raw,
-  colorRange: (raw) => raw,
-  chroma: (raw) => raw,
-  accurateColor: (raw) => raw === "on",
+/** "Auto" or "40 Mbps". */
+export const bitrateLabel = (kbps: number): string => (kbps === 0 ? "Auto" : `${String(kbps / 1000)} Mbps`)
+
+/** A 0–1 filter strength as the UI shows it: "Off" or "30%". */
+export const strengthLabel = (strength: number): string =>
+  strength === 0 ? "Off" : `${String(Math.round(strength * 100))}%`
+
+/** The stream settings in one line, for the home screen. */
+export const streamSummary = (settings: Settings): string =>
+  [
+    `${String(settings.height)}p`,
+    `${String(settings.fps)} fps`,
+    settings.hevc ? "HEVC" : "H.264",
+    settings.bitrate === 0 ? "auto bitrate" : bitrateLabel(settings.bitrate),
+  ].join(" · ")
+
+export type StageId = "cleanup" | "upscale" | "sharpen" | "color"
+
+/** One step of the picture pipeline, in the order the renderer applies them. */
+export interface Stage {
+  readonly id: StageId
+  readonly name: string
+  readonly value: string
+  /** Whether this step changes the picture. */
+  readonly active: boolean
 }
 
-/** Applies a raw `<select>` value to the settings; values the schema rejects leave them unchanged. */
-export const withSetting = (settings: Settings, key: SettingKey, raw: string): Settings =>
-  Option.getOrElse(Schema.decodeUnknownOption(Settings)({ ...settings, [key]: parsers[key](raw) }), () => settings)
-
-/** The `<select>` value for a setting. */
-export const settingValue = (settings: Settings, key: SettingKey): string => {
-  const value = settings[key]
-  if (key === "hevc") return value ? "hevc" : "h264"
-  if (typeof value === "boolean") return value ? "on" : "off"
-  return String(value)
+export const pipelineStages = (settings: Settings, metalfxSupported: boolean): readonly Stage[] => {
+  const cleanup = Math.max(settings.deblock, settings.deband)
+  const metalfx = settings.upscaler === "metalfx" && metalfxSupported
+  return [
+    { id: "cleanup", name: "Clean up", value: strengthLabel(cleanup), active: cleanup > 0 },
+    { id: "upscale", name: "Upscale", value: metalfx ? "MetalFX" : "Bilinear", active: metalfx },
+    { id: "sharpen", name: "Sharpen", value: strengthLabel(settings.sharpness), active: settings.sharpness > 0 },
+    { id: "color", name: "Color", value: settings.accurateColor ? "Accurate" : "Vivid", active: settings.accurateColor },
+  ]
 }

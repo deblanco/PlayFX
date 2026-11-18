@@ -14,9 +14,10 @@ import Testing
 
     @Test func mapsEveryEventType() {
         guard case .connected = event(PSRP_EVENT_CONNECTED) else { Issue.record("connected"); return }
-        guard case .quit(let reason, let error) = event(PSRP_EVENT_QUIT, 1, 0, "Stopped") else { Issue.record("quit"); return }
+        guard case .quit(let reason, let error, false) = event(PSRP_EVENT_QUIT, 1, 0, "Stopped") else { Issue.record("quit"); return }
         #expect(reason == "Stopped" && error)
-        guard case .quit(_, false) = event(PSRP_EVENT_QUIT, 0) else { Issue.record("quit ok"); return }
+        guard case .quit(_, false, false) = event(PSRP_EVENT_QUIT, 0) else { Issue.record("quit ok"); return }
+        guard case .quit(_, true, true) = event(PSRP_EVENT_QUIT, 1, 1) else { Issue.record("quit busy"); return }
         guard case .loginPinRequested(true) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 1) else { Issue.record("pin"); return }
         guard case .loginPinRequested(false) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 0) else { Issue.record("pin"); return }
         guard case .rumble(255, 0) = event(PSRP_EVENT_RUMBLE, 300, -5) else { Issue.record("rumble"); return }
@@ -57,7 +58,7 @@ extension Serial {
             let session = try StreamSession(credentials: fakeCredentials(), options: options)
             let events = LockedLines()
             session.onEvent = { event in
-                if case .quit(let reason, let error) = event { events.append("quit \(error) \(reason)") }
+                if case .quit(let reason, let error, _) = event { events.append("quit \(error) \(reason)") }
             }
             session.setController(ControllerState())
             session.setLoginPin("1234")

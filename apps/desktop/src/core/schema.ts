@@ -46,8 +46,9 @@ export const Fps = Schema.Literals([30, 60])
 export const Upscaler = Schema.Literals(["metalfx", "bilinear"])
 export type Upscaler = typeof Upscaler.Type
 
-/** Video bitrate in kbps; 0 lets the console pick its default for the resolution. */
-export const Bitrate = Schema.Literals([0, 10000, 15000, 20000, 30000, 40000, 50000])
+/** Video bitrates offered, in kbps; 0 lets the console pick its default for the resolution. */
+export const bitrates = [0, 10000, 15000, 20000, 30000, 40000, 50000] as const
+export const Bitrate = Schema.Literals(bitrates)
 export type Bitrate = typeof Bitrate.Type
 
 /** A setting added after the first release: settings saved before it existed decode with `value`. */
@@ -145,10 +146,17 @@ export const StreamOptions = Schema.Struct({
   autoDowngrade: Schema.Boolean,
 })
 export type StreamOptions = typeof StreamOptions.Type
+export const sameStreamOptions = Schema.toEquivalence(StreamOptions)
 
 export const StreamEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("connected") }),
-  Schema.Struct({ type: Schema.Literal("quit"), reason: Schema.String, error: Schema.Boolean }),
+  Schema.Struct({
+    type: Schema.Literal("quit"),
+    reason: Schema.String,
+    error: Schema.Boolean,
+    /** The console refused because Remote Play is still in use (it is for ~9 s after a session ends). */
+    busy: Schema.optionalKey(Schema.Boolean),
+  }),
   Schema.Struct({ type: Schema.Literal("loginPin"), incorrect: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("nickname"), name: Schema.String }),
 ])
