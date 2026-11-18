@@ -204,6 +204,16 @@ describe("CoreLive", () => {
       }).pipe(Effect.provide(fake.layer))
     })
 
+    it.effect("PSN sign-in status and sign-out", () => {
+      const fake = fakeBridge({ psn_signed_in: Effect.succeed(true), psn_sign_out: Effect.succeed(null) })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        expect(yield* core.psnSignedIn).toBe(true)
+        yield* core.psnSignOut
+        expect(fake.calls.map((c) => c.command)).toEqual(["psn_signed_in", "psn_sign_out"])
+      }).pipe(Effect.provide(fake.layer))
+    })
+
     it.effect("toggleFullscreen decodes the new state", () => {
       const fake = fakeBridge({ toggle_fullscreen: Effect.succeed(true) })
       return Effect.gen(function* () {

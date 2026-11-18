@@ -154,6 +154,16 @@ fn toggle_fullscreen<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
 }
 
 #[tauri::command(async)]
+fn psn_signed_in<R: Runtime>(app: AppHandle<R>) -> bool {
+    core(&app).psn_signed_in()
+}
+
+#[tauri::command(async)]
+fn psn_sign_out<R: Runtime>(app: AppHandle<R>) {
+    core(&app).psn_sign_out();
+}
+
+#[tauri::command(async)]
 fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     let core = core(&app);
     let (state, stats) = on_main(&app, move || {
@@ -181,6 +191,8 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_controller,
         set_render_params,
         toggle_fullscreen,
+        psn_signed_in,
+        psn_sign_out,
         renderer_status
     ])
 }

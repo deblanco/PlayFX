@@ -20,6 +20,16 @@ describe("account", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("signing out also forgets the PSN sign-in kept for internet play", () => {
+    const { core, layer } = setup()
+    core.state.psnSignedIn = true
+    return Effect.gen(function* () {
+      expect(yield* actions.internetReady).toBe(true)
+      yield* actions.signOut
+      expect(yield* actions.internetReady).toBe(false)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("rejects an invalid account ID", () => {
     const { layer } = setup()
     return Effect.gen(function* () {

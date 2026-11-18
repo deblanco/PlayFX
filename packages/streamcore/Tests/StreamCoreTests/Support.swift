@@ -170,7 +170,9 @@ final class StubURLProtocol: URLProtocol {
 /// Answers the token exchange like Sony's endpoint does, for `userId`.
 func psnStub(userId: String?) -> (URLRequest) -> (Int, Data)? {
     { request in
-        if request.httpMethod == "POST" { return (200, Data(#"{"access_token":"tok123"}"#.utf8)) }
+        if request.httpMethod == "POST" {
+            return (200, Data(#"{"access_token":"tok123","refresh_token":"ref456","expires_in":3600}"#.utf8))
+        }
         if request.url?.lastPathComponent == "tok123" {
             return (200, Data((userId.map { #"{"user_id":"\#($0)"}"# } ?? "{}").utf8))
         }

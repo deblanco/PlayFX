@@ -54,12 +54,15 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 
 ### P0 — the features that most change what the product can do
 
-- ❌ **Remote Play over the internet (PSN hole-punching).** Today everything is LAN-only; the
-  app can't reach the console from another network. libchiaki already implements it
-  (`lib/src/remote/holepunch.c`, `rudp.c`), but the shim wires `holepunch_session = NULL`.
-  Work: extend `psrp.h`/`StreamSession` to accept a PSN token + DUID, implement the PSN session
-  manager calls (device list, session create/message), surface a "connect from anywhere" path in
-  the UI. This is the single highest-value feature (it's the reason LAN-only blocked real use).
+- 🔶 **Remote Play over the internet (PSN hole-punching).** In progress — PS5 only (libchiaki only lists
+  PS5s), console must be paired on the LAN first. libchiaki does PSN sessions, STUN/UPnP, hole punching and
+  a fresh PSN-side registration per connection inside `chiaki_session_start`; the app supplies tokens, the
+  console's PSN device ID, and runs the blocking setup (≤30 s per step) off the main thread.
+  - ✅ 1. PSN tokens: sign-in carries a fresh `duid`; access + refresh tokens kept in the Keychain (never
+    the web UI), refreshed a minute before expiry, cleared on a rejected refresh or sign-out.
+  - ❌ 2. Find the console via PSN (`chiaki_holepunch_list_devices`), matched to paired consoles by name.
+  - ❌ 3. Connect over the internet: holepunch setup on a worker thread, progress events, cancel, errors.
+  - ❌ 4. UI + verification from another network (e.g. phone hotspot).
 - ✅ **Auto-wake on Play.** *(done: Play is enabled for consoles in rest mode — it sends the wake-up,
   shows "Waking…" with Cancel, polls discovery every second (re-sending the wake-up every 5 checks), and
   plays once the console is ready; after 45 s it explains the "Stay connected to the internet" rest-mode

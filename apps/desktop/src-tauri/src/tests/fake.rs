@@ -10,6 +10,7 @@ pub struct FakeCore {
     pub login_url: String,
     pub redirect_url: String,
     pub wakeup_ok: bool,
+    pub psn_signed_in: bool,
     pub metalfx: bool,
     pub mode: i32,
     pub gpu_ms: f64,
@@ -54,6 +55,12 @@ impl NativeCore for FakeCore {
     fn psn_account_id(&self, redirect: &str) -> String {
         self.log(format!("psn_account_id {redirect}"));
         self.reply.clone()
+    }
+    fn psn_signed_in(&self) -> bool {
+        self.psn_signed_in
+    }
+    fn psn_sign_out(&self) {
+        self.log("psn_sign_out".into());
     }
     fn session_start(&self, request: &str) -> String {
         self.log(format!("session_start {request}"));

@@ -54,10 +54,16 @@ export const saveAccountId = (raw: string): Effect.Effect<string, ValidationErro
     return id
   })
 
-export const signOut: Effect.Effect<void, StorageError, Preferences> = Effect.gen(function* () {
+/** Forgets the account ID and the PSN sign-in kept for internet play. */
+export const signOut: Effect.Effect<void, StorageError | CoreError, Preferences | Core> = Effect.gen(function* () {
   const prefs = yield* Preferences
+  const core = yield* Core
   yield* prefs.setAccountId(Option.none())
+  yield* core.psnSignOut
 })
+
+/** Whether consoles can be reached over the internet (a PSN sign-in is kept). */
+export const internetReady: Effect.Effect<boolean, CoreError, Core> = Effect.flatMap(Core, (core) => core.psnSignedIn)
 
 /** Opens Sony's sign-in window; the account arrives later through `onPsnAccount`. */
 export const signIn: Effect.Effect<void, CoreError, Core> = Effect.gen(function* () {

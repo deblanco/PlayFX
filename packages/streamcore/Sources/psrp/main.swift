@@ -112,7 +112,7 @@ func run() throws {
         guard let input = args.positional.first, let code = PSNAuth.code(fromRedirect: input) else {
             throw fail("usage: psrp account-id <redirect URL containing ?code=...>")
         }
-        let id = try blocking { try await PSNAuth.accountId(code: code) }
+        let id = try blocking { try await PSNAccount.shared.signIn(code: code) } // also keeps the tokens
         config.accountId = id
         try config.save()
         print(id)

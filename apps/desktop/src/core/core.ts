@@ -31,6 +31,9 @@ export class Core extends Context.Service<
     readonly wakeup: (credentials: Credentials) => Effect.Effect<boolean, CoreError>
     /** Opens Sony's sign-in window; the result arrives through `onPsnAccount`. */
     readonly psnLogin: Effect.Effect<void, CoreError>
+    /** Whether the PSN sign-in for internet play is kept (in the Keychain, never in the web UI). */
+    readonly psnSignedIn: Effect.Effect<boolean, CoreError>
+    readonly psnSignOut: Effect.Effect<void, CoreError>
     readonly startStream: (credentials: Credentials, options: StreamOptions) => Effect.Effect<void, CoreError>
     readonly stopStream: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
@@ -90,6 +93,8 @@ export const CoreLive = Layer.effect(
         }),
       wakeup: (credentials) => call(Schema.Boolean, "wakeup", { credentials }),
       psnLogin: Effect.asVoid(call(unit, "psn_login")),
+      psnSignedIn: call(Schema.Boolean, "psn_signed_in"),
+      psnSignOut: Effect.asVoid(call(unit, "psn_sign_out")),
       startStream: (credentials, options) =>
         Effect.asVoid(call(StartReply, "start_stream", { request: { credentials, options } })),
       stopStream: Effect.asVoid(call(unit, "stop_stream")),

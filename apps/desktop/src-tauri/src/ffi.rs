@@ -28,6 +28,8 @@ unsafe extern "C" {
     pub fn sc_psn_login_url() -> *mut c_char;
     pub fn sc_psn_redirect_url() -> *mut c_char;
     pub fn sc_psn_account_id(redirect: *const c_char) -> *mut c_char;
+    pub fn sc_psn_signed_in() -> bool;
+    pub fn sc_psn_sign_out();
     fn sc_free(p: *mut c_char);
 }
 
@@ -72,6 +74,12 @@ impl NativeCore for MacCore {
     }
     fn psn_account_id(&self, redirect: &str) -> String {
         take(unsafe { sc_psn_account_id(cstr(redirect).as_ptr()) })
+    }
+    fn psn_signed_in(&self) -> bool {
+        unsafe { sc_psn_signed_in() }
+    }
+    fn psn_sign_out(&self) {
+        unsafe { sc_psn_sign_out() }
     }
     fn session_start(&self, request: &str) -> String {
         take(unsafe { sc_session_start(cstr(request).as_ptr()) })

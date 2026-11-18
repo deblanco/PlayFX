@@ -141,6 +141,15 @@ fn psn_login_opens_sign_in_window() {
 }
 
 #[test]
+fn psn_tokens_status_and_sign_out() {
+    let core = FakeCore { psn_signed_in: true, ..Default::default() }.leak();
+    let app = mock(core);
+    assert!(psn_signed_in(app.handle().clone()));
+    psn_sign_out(app.handle().clone());
+    assert_eq!(core.calls(), ["psn_sign_out"]);
+}
+
+#[test]
 fn toggle_fullscreen_needs_the_main_window() {
     let app = mock(FakeCore::default().leak());
     assert_eq!(toggle_fullscreen(app.handle().clone()), Err("no main window".into()));

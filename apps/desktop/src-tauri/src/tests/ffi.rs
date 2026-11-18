@@ -48,6 +48,7 @@ fn mac_core_without_session_or_renderer() {
     assert!(reply(&core.psn_account_id("https://example.invalid/no-code")).is_err());
     assert!(reply(&core.register("{}")).is_err());
     assert!(!core.wakeup("{}"));
+    let _ = core.psn_signed_in(); // reads the real Keychain; sign-out is never called here
     assert!(reply(&core.session_start("{}")).is_err());
     core.set_login_pin("1234");
     assert!(core.set_render_params(r#"{"upscaler":"metalfx"}"#)); // no renderer: accepted, no-op

@@ -149,7 +149,8 @@ public func sc_psn_account_id(_ redirect: UnsafePointer<CChar>) -> UnsafeMutable
     let done = DispatchSemaphore(value: 0)
     var result: Result<String, Error> = .failure(ConsoleError.message("PSN sign-in timed out"))
     Task.detached {
-        do { result = .success(try await PSNAuth.accountId(code: code)) } catch { result = .failure(error) }
+        // Also keeps the tokens (Keychain) for playing over the internet.
+        do { result = .success(try await PSNAccount.shared.signIn(code: code)) } catch { result = .failure(error) }
         done.signal()
     }
     _ = done.wait(timeout: .now() + 30)
@@ -158,6 +159,14 @@ public func sc_psn_account_id(_ redirect: UnsafePointer<CChar>) -> UnsafeMutable
     case .failure(let e): return failure(e.localizedDescription)
     }
 }
+
+/// Whether PSN tokens are kept (internet play is possible).
+@_cdecl("sc_psn_signed_in")
+public func sc_psn_signed_in() -> Bool { PSNAccount.shared.signedIn }
+
+/// Forgets the PSN tokens.
+@_cdecl("sc_psn_sign_out")
+public func sc_psn_sign_out() { PSNAccount.shared.signOut() }
 
 // MARK: Session (main)
 

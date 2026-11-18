@@ -89,10 +89,12 @@ describe("home: PSN account", () => {
       core.emitPsn({ error: "denied" })
     })
     expect(await screen.findByText("PSN sign-in failed: denied")).toBeInTheDocument()
+    core.state.psnSignedIn = true // the native side kept the tokens
     act(() => {
       core.emitPsn({ accountId })
     })
     expect(await screen.findByText(`(${accountId})`)).toBeInTheDocument()
+    expect(await screen.findByText(/Internet play is on/)).toBeInTheDocument()
     const item = await consoleItem()
     expect(item.getByRole("button", { name: "Pair" })).toBeEnabled()
   })
@@ -121,6 +123,8 @@ describe("home: PSN account", () => {
     await userEvent.type(input, accountId)
     await userEvent.click(screen.getByRole("button", { name: "Save" }))
     expect(await screen.findByText(/PSN account linked/)).toBeInTheDocument()
+    // A pasted ID pairs, but internet play needs the real sign-in.
+    await userEvent.click(screen.getByRole("button", { name: "sign in with PlayStation" }))
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }))
     expect(await screen.findByRole("button", { name: "Sign in with PlayStation" })).toBeInTheDocument()
     const stored = await runtime.runPromise(Preferences.use((prefs) => prefs.accountId))

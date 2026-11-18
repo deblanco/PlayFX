@@ -24,7 +24,10 @@ private let receivedEvents = LockedLines()
 extension Serial {
     @Suite struct BridgeTests {
         @Test func psnURLs() throws {
-            #expect(take(sc_psn_login_url()) == PSNAuth.loginURL.absoluteString)
+            // Each sign-in URL carries a new device ID; the rest is fixed.
+            let withoutDUID = { (url: String) in url.replacingOccurrences(of: #"&duid=[0-9a-f]{48}"#, with: "", options: .regularExpression) }
+            #expect(withoutDUID(take(sc_psn_login_url())) == withoutDUID(PSNAuth.loginURL.absoluteString))
+            _ = sc_psn_signed_in() // reads the real Keychain: no assumption about its content
             #expect(take(sc_psn_redirect_url()) == PSNAuth.redirectURL)
             sc_free(nil)
         }

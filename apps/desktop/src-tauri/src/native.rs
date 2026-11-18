@@ -34,6 +34,9 @@ pub trait NativeCore: Send + Sync {
     fn psn_login_url(&self) -> String;
     fn psn_redirect_url(&self) -> String;
     fn psn_account_id(&self, redirect: &str) -> String;
+    /// Whether PSN tokens are kept for playing over the internet (Keychain).
+    fn psn_signed_in(&self) -> bool;
+    fn psn_sign_out(&self);
     // main thread
     fn session_start(&self, request: &str) -> String;
     fn session_stop(&self);

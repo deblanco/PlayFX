@@ -1,5 +1,5 @@
 import { Option } from "effect"
-import { useId, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,30 +16,58 @@ export const AccountSection = ({ accountId, onChange }: AccountSectionProps) => 
   const run = useRun()
   const inputId = useId()
   const [manual, setManual] = useState("")
+  const [internet, setInternet] = useState(false)
+  const checkInternet = useMemo(() => () => { run(actions.internetReady, { onSuccess: setInternet }) }, [run])
+  useEffect(checkInternet, [checkInternet])
 
   useFork(
     useMemo(
       () =>
         actions.onPsnAccount((event: PsnAccountEvent) => {
-          run(actions.receivePsnAccount(event), { onSuccess: (id) => { onChange(Option.some(id)); } })
+          run(actions.receivePsnAccount(event), {
+            onSuccess: (id) => {
+              onChange(Option.some(id))
+              checkInternet()
+            },
+          })
         }),
-      [run, onChange],
+      [run, onChange, checkInternet],
     ),
   )
 
   return Option.match(accountId, {
     onSome: (id) => (
-      <section aria-label="PSN account" className="flex items-center justify-between gap-3">
-        <div className="min-w-0 text-sm">
-          PSN account linked <span className="text-muted-foreground">({id})</span>
+      <section aria-label="PSN account" className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 text-sm">
+            PSN account linked <span className="text-muted-foreground">({id})</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              run(actions.signOut, {
+                onSuccess: () => {
+                  onChange(Option.none())
+                  setInternet(false)
+                },
+              })
+            }}
+          >
+            Sign out
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => { run(actions.signOut, { onSuccess: () => { onChange(Option.none()); } }); }}
-        >
-          Sign out
-        </Button>
+        {internet ? (
+          <p className="text-xs text-muted-foreground">Internet play is on: your PS5 can be reached away from home.</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            To play away from home,{" "}
+            <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => { run(actions.signIn) }}>
+              sign in with PlayStation
+            </button>{" "}
+            once more.
+          </p>
+        )}
       </section>
     ),
     onNone: () => (
@@ -74,7 +102,8 @@ export const AccountSection = ({ accountId, onChange }: AccountSectionProps) => 
           </form>
         </div>
         <p className="text-xs text-muted-foreground">
-          Needed once to pair with a console. Only the account ID is kept, in this app&apos;s local storage.
+          Needed once to pair with a console. The account ID is kept in this app&apos;s storage; the PlayStation
+          sign-in, used to play over the internet, in your Mac&apos;s Keychain.
         </p>
       </section>
     ),
