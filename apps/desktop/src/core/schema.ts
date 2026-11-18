@@ -182,6 +182,8 @@ export type StreamStats = typeof StreamStats.Type
 export const RendererStatus = Schema.Struct({
   metalfxSupported: Schema.Boolean,
   activeMode: Schema.Literals(["bilinear", "metalfx", "none"]),
+  /** Smoothed GPU time per rendered frame; 0 until something was rendered. */
+  gpuMs: Schema.Number,
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

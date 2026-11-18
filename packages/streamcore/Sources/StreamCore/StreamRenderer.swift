@@ -77,6 +77,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
     /// Upscaler actually used for the last frame (MetalFX is skipped when not upscaling).
     public private(set) var activeMode: UpscaleMode = .bilinear
+    /// GPU time per frame (conversion, cleanup, upscale, present), smoothed; 0 until a frame finished.
+    public var gpuMilliseconds: Double { gpuTime.withLock { $0 } }
+    private let gpuTime = OSAllocatedUnfairLock<Double>(initialState: 0)
     /// Shows the animated test pattern when no video frames are arriving.
     public var showsTestPattern = true
 
@@ -188,6 +191,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Everything `draw` does short of presenting: pending frame (or test pattern) → input texture →
     /// optional MetalFX upscale → letterboxed into `pass`.
     func encode(_ cb: MTLCommandBuffer, pass: MTLRenderPassDescriptor, drawableSize: CGSize) {
+        cb.addCompletedHandler { [gpuTime] done in
+            let ms = (done.gpuEndTime - done.gpuStartTime) * 1000
+            guard ms > 0 else { return }
+            gpuTime.withLock { $0 = Self.smoothed($0, ms) }
+        }
         if let frame = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) {
             encodeVideoFrame(frame, cb)
         } else if showsTestPattern {
@@ -260,6 +268,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         dispatch(enc, clean)
         enc.endEncoding()
         return clean
+    }
+
+    /// Exponential moving average for the GPU time readout (the first sample starts it).
+    static func smoothed(_ average: Double, _ sample: Double) -> Double {
+        average == 0 ? sample : average * 0.9 + sample * 0.1
     }
 
     /// CAS's negative lobe weight for a 0–1 sharpness (AMD FidelityFX CAS: -1 / lerp(8, 5, s)).

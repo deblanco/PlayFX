@@ -146,9 +146,9 @@ fn set_render_params<R: Runtime>(app: AppHandle<R>, params: Value) -> Result<(),
 #[tauri::command(async)]
 fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     let core = core(&app);
-    let (metalfx, mode, stats) =
-        on_main(&app, move || (core.metalfx_supported(), core.active_mode(), core.session_stats()))?;
-    Ok(renderer_status_json(metalfx, mode, &stats))
+    let (metalfx, mode, gpu, stats) =
+        on_main(&app, move || (core.metalfx_supported(), core.active_mode(), core.gpu_milliseconds(), core.session_stats()))?;
+    Ok(renderer_status_json(metalfx, mode, gpu, &stats))
 }
 
 /// Registers the commands the React UI invokes (see apps/desktop/src/core/core.ts).

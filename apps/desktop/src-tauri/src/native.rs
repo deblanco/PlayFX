@@ -43,6 +43,8 @@ pub trait NativeCore: Send + Sync {
     fn set_render_params(&self, params: &str) -> bool;
     fn metalfx_supported(&self) -> bool;
     fn active_mode(&self) -> i32;
+    /// Smoothed GPU time per rendered frame (0 = nothing rendered yet).
+    fn gpu_milliseconds(&self) -> f64;
     fn session_stats(&self) -> String;
 }
 
@@ -68,10 +70,11 @@ pub fn mode_name(mode: i32) -> &'static str {
 }
 
 /// The `renderer_status` reply; unparseable stats become `null`.
-pub fn renderer_status_json(metalfx_supported: bool, active_mode: i32, stats: &str) -> Value {
+pub fn renderer_status_json(metalfx_supported: bool, active_mode: i32, gpu_ms: f64, stats: &str) -> Value {
     json!({
         "metalfxSupported": metalfx_supported,
         "activeMode": mode_name(active_mode),
+        "gpuMs": (gpu_ms * 100.0).round() / 100.0,
         "stream": serde_json::from_str::<Value>(stats).unwrap_or(Value::Null),
     })
 }

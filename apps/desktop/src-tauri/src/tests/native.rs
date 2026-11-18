@@ -37,12 +37,12 @@ fn mode_name_maps_numbers() {
 #[test]
 fn renderer_status_json_assembles_reply() {
     assert_eq!(
-        renderer_status_json(true, 1, r#"{"active":false}"#),
-        json!({"metalfxSupported": true, "activeMode": "metalfx", "stream": {"active": false}})
+        renderer_status_json(true, 1, 1.23456, r#"{"active":false}"#),
+        json!({"metalfxSupported": true, "activeMode": "metalfx", "gpuMs": 1.23, "stream": {"active": false}})
     );
     assert_eq!(
-        renderer_status_json(false, -1, "not json"),
-        json!({"metalfxSupported": false, "activeMode": "none", "stream": Value::Null})
+        renderer_status_json(false, -1, 0.0, "not json"),
+        json!({"metalfxSupported": false, "activeMode": "none", "gpuMs": 0.0, "stream": Value::Null})
     );
 }
 

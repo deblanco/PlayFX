@@ -191,6 +191,17 @@ import Testing
         #expect(sharp.dark > 0 && sharp.light < 255) // no clipping halos
     }
 
+    @Test func measuresGPUTime() throws {
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
+        #expect(r.gpuMilliseconds == 0)
+        _ = try render(r, size: (256, 256))
+        // The completed handler can run just after waitUntilCompleted returns.
+        for _ in 0..<100 where r.gpuMilliseconds == 0 { usleep(10_000) }
+        #expect(r.gpuMilliseconds > 0)
+        #expect(StreamRenderer.smoothed(0, 4) == 4)
+        #expect(abs(StreamRenderer.smoothed(2, 12) - 3) < 1e-9)
+    }
+
     @Test func casPeakFollowsSharpness() {
         #expect(abs(StreamRenderer.casPeak(sharpness: 0) - -1.0 / 8) < 1e-6)
         #expect(abs(StreamRenderer.casPeak(sharpness: 1) - -1.0 / 5) < 1e-6)

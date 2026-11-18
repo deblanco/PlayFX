@@ -54,6 +54,7 @@ export const picture = (overrides: Partial<RenderParams> = {}): RenderParams => 
 export const status = (stream: Partial<RendererStatus["stream"]> = {}, metalfxSupported = true): RendererStatus => ({
   metalfxSupported,
   activeMode: "metalfx",
+  gpuMs: 0,
   stream: { active: true, ...stream },
 })
 

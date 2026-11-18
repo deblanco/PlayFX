@@ -12,6 +12,7 @@ pub struct FakeCore {
     pub wakeup_ok: bool,
     pub metalfx: bool,
     pub mode: i32,
+    pub gpu_ms: f64,
     pub stats: String,
     pub calls: Mutex<Vec<String>>,
 }
@@ -72,6 +73,9 @@ impl NativeCore for FakeCore {
     }
     fn metalfx_supported(&self) -> bool {
         self.metalfx
+    }
+    fn gpu_milliseconds(&self) -> f64 {
+        self.gpu_ms
     }
     fn active_mode(&self) -> i32 {
         self.mode

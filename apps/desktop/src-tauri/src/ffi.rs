@@ -10,6 +10,7 @@ unsafe extern "C" {
     pub fn sc_set_render_params(params: *const c_char) -> bool;
     pub fn sc_metalfx_supported() -> bool;
     pub fn sc_active_mode() -> i32;
+    pub fn sc_gpu_milliseconds() -> f64;
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
     pub fn sc_session_stop();
     pub fn sc_session_set_login_pin(pin: *const c_char);
@@ -90,6 +91,9 @@ impl NativeCore for MacCore {
     }
     fn active_mode(&self) -> i32 {
         unsafe { sc_active_mode() }
+    }
+    fn gpu_milliseconds(&self) -> f64 {
+        unsafe { sc_gpu_milliseconds() }
     }
     fn session_stats(&self) -> String {
         take(unsafe { sc_session_stats() })

@@ -74,6 +74,12 @@ public func sc_metalfx_supported() -> Bool {
     renderer?.metalFXSupported ?? false
 }
 
+/// Smoothed GPU time per rendered frame in milliseconds (0 = no renderer or no frame yet).
+@_cdecl("sc_gpu_milliseconds")
+public func sc_gpu_milliseconds() -> Double {
+    renderer?.gpuMilliseconds ?? 0
+}
+
 /// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, -1 = no renderer.
 @_cdecl("sc_active_mode")
 public func sc_active_mode() -> Int32 {

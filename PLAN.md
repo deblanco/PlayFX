@@ -126,7 +126,10 @@ Work items:
     rather than only bilinear vs MetalFX. A Settings sheet with *Stream* and *Picture* sections (shadcn studio
   components), sliders for the 0–1 params, live preview while streaming, "Reset to defaults",
   and a compare mode that splits **current params vs. baseline** (not just bilinear vs MetalFX).
-- ❌ **Q6. Measure.** Per-pass GPU time (`MTLCommandBuffer` GPU start/end) in the stats overlay;
+- ✅ **Q6. Measure.** *(done: smoothed GPU time per frame in the HUD — measured 2.9 ms for 720p →
+  window with MetalFX + sharpen + split, well inside a 60 fps frame; `psrp /grid.png?vary=…&values=…&crop=…`
+  renders one frame per value, so A/B grids are same-frame and reproducible. Scope cut: per-pass timings
+  (would need Metal counter sample buffers) — toggle a stage in the HUD to see its cost instead.)* Per-pass GPU time (`MTLCommandBuffer` GPU start/end) in the stats overlay;
   a `psrp` capture script that renders a fixed frame with N param sets → labeled grid, so
   quality claims are reproducible.
 - ❌ **Q7. ML super-resolution (later, after Q1–Q6).** Apple's `VTLowLatencySuperResolutionScaler`
@@ -223,7 +226,7 @@ Work items:
 
 ## 4. Suggested order of work
 
-0. Picture quality & full stream configuration, Q1 → Q6, then evaluate Q7. *(P1, requested)*
+0. ~~Picture quality & full stream configuration, Q1 → Q6~~ (done); next: evaluate Q7. *(P1, requested)*
 1. Auto-wake on Play (small, removes a constant papercut). *(P0)*
 2. Reconnect/resilience + clear quit-reason UI. *(P0)*
 3. Remote Play over the internet (hole-punching) — the headline feature. *(P0)*

@@ -105,6 +105,9 @@ describe("megabitsPerSecond", () => {
 describe("hudStats", () => {
   it("shows size, fps and upscaler", () => {
     expect(hudStats(status({ width: 1920, height: 1080 }), 60, 14.25)).toBe("1920×1080 · 60 fps · 14.3 Mbps · MetalFX")
+    expect(hudStats({ ...status({ width: 1280, height: 720 }), gpuMs: 1.436 }, 60, 9)).toBe(
+      "1280×720 · 60 fps · 9.0 Mbps · MetalFX · GPU 1.4 ms",
+    )
   })
   it("waits for video and reports decode errors", () => {
     expect(hudStats({ ...status({ decodeErrors: 3 }), activeMode: "bilinear" }, 0, 0)).toBe(

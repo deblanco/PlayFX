@@ -1,4 +1,5 @@
 import CoreImage
+import CoreText
 import Foundation
 import Network
 import os
@@ -18,6 +19,7 @@ import StreamCore
 //          /hold?buttons=r2  /release  /keyframe  /sleep  /quit  /frameinfo (latest frame's colorimetry)
 //          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&deblock=0&deband=0&chroma=bicubic&w=3840&h=2160   latest frame, on the GPU
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
+//          /grid.png?vary=sharpness&values=0,0.3,1&crop=2400,500,600,600   one frame, one tile per value
 //
 // Saved state: ~/.config/psrp/config.json (contains pairing keys — keep it private).
 
@@ -219,6 +221,53 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
 
 let ciContext = CIContext()
 
+/// Picture settings from /render.png and /grid.png queries: mode=metalfx|bilinear|compare,
+/// sharpness, deblock, deband (0–1), chroma=bicubic|bilinear.
+func renderParams(_ query: [String: String]) throws -> RenderParams {
+    var params = RenderParams()
+    switch query["mode"] ?? "metalfx" {
+    case "bilinear": params.upscaler = .bilinear
+    case "metalfx": params.upscaler = .metalFX
+    case "compare": params.compare = true
+    default: throw fail("mode must be bilinear, metalfx or compare")
+    }
+    params.sharpness = query["sharpness"].flatMap(Float.init) ?? (params.upscaler == .bilinear ? 0 : 0.3)
+    params.deblock = query["deblock"].flatMap(Float.init) ?? 0
+    params.deband = query["deband"].flatMap(Float.init) ?? 0
+    if let chroma = query["chroma"] {
+        guard let filter = ChromaFilter(rawValue: chroma) else { throw fail("chroma must be bicubic or bilinear") }
+        params.chroma = filter
+    }
+    return params
+}
+
+/// Tiles side by side with a label strip above each, as PNG.
+func grid(_ tiles: [(label: String, image: CGImage)]) -> Data? {
+    guard let first = tiles.first?.image else { return nil }
+    let (tw, th, gap, strip) = (first.width, first.height, 6, 48)
+    let width = tiles.count * tw + (tiles.count - 1) * gap, height = th + strip
+    guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+    ctx.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.06, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 26, nil)
+    for (i, tile) in tiles.enumerated() {
+        let x = i * (tw + gap)
+        ctx.draw(tile.image, in: CGRect(x: x, y: 0, width: tw, height: th))
+        let text = NSAttributedString(string: tile.label, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 1, alpha: 1),
+        ])
+        let line = CTLineCreateWithAttributedString(text)
+        let bounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
+        ctx.textPosition = CGPoint(x: CGFloat(x) + (CGFloat(tw) - bounds.width) / 2, y: CGFloat(th) + 14)
+        CTLineDraw(line, ctx)
+    }
+    guard let image = ctx.makeImage() else { return nil }
+    return ciContext.pngRepresentation(of: CIImage(cgImage: image), format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+}
+
 /// Offscreen renderer for /render.png (created lazily; GPU access serialized by the lock).
 let offscreen = OSAllocatedUnfairLock<StreamRenderer?>(initialState: nil)
 
@@ -248,25 +297,31 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
             return (200, "image/png", png)
         case "/render.png":
             guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }
-            var params = RenderParams()
-            switch query["mode"] ?? "metalfx" {
-            case "bilinear": params.upscaler = .bilinear
-            case "metalfx": params.upscaler = .metalFX
-            case "compare": params.compare = true
-            default: throw fail("mode must be bilinear, metalfx or compare")
-            }
-            params.sharpness = query["sharpness"].flatMap(Float.init) ?? (params.upscaler == .bilinear ? 0 : 0.3)
-            params.deblock = query["deblock"].flatMap(Float.init) ?? 0
-            params.deband = query["deband"].flatMap(Float.init) ?? 0
-            if let chroma = query["chroma"] {
-                guard let filter = ChromaFilter(rawValue: chroma) else { throw fail("chroma must be bicubic or bilinear") }
-                params.chroma = filter
-            }
+            let params = try renderParams(query)
             let w = Int(query["w"] ?? "") ?? 3840, h = Int(query["h"] ?? "") ?? 2160
             guard let image = render(frame, params: params, width: w, height: h),
                   let png = ciContext.pngRepresentation(of: CIImage(cgImage: image), format: .RGBA8,
                                                         colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
             else { return (500, "text/plain", Data("render failed\n".utf8)) }
+            return (200, "image/png", png)
+        case "/grid.png":
+            // The same frame rendered once per value of one setting, cropped and labelled side by side.
+            guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }
+            guard let key = query["vary"], let values = query["values"]?.split(separator: ",").map(String.init), !values.isEmpty
+            else { throw fail("usage: /grid.png?vary=sharpness&values=0,0.3,1[&crop=x,y,w,h][&w=3840&h=2160][&mode=…]") }
+            let w = Int(query["w"] ?? "") ?? 3840, h = Int(query["h"] ?? "") ?? 2160
+            let crop = query["crop"].map { $0.split(separator: ",").compactMap { Int($0) } }
+            let rect = crop.flatMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
+                ?? CGRect(x: 0, y: 0, width: w, height: h)
+            var tiles: [(String, CGImage)] = []
+            for value in values {
+                var variant = query
+                variant[key] = value
+                guard let image = render(frame, params: try renderParams(variant), width: w, height: h)?.cropping(to: rect)
+                else { return (500, "text/plain", Data("render failed\n".utf8)) }
+                tiles.append(("\(key) \(value)", image))
+            }
+            guard let png = grid(tiles) else { return (500, "text/plain", Data("grid failed\n".utf8)) }
             return (200, "image/png", png)
         case "/frameinfo":
             guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }

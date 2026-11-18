@@ -99,7 +99,15 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
   const size =
     stream.width !== undefined && stream.height !== undefined ? `${stream.width}×${stream.height}` : "waiting for video"
   const errors = stream.decodeErrors ?? 0
-  return [size, `${fps} fps`, `${mbps.toFixed(1)} Mbps`, upscalerLabel(status.activeMode), errors > 0 ? `${errors} decode errors` : undefined]
+  const gpu = status.gpuMs > 0 ? `GPU ${status.gpuMs.toFixed(1)} ms` : undefined
+  return [
+    size,
+    `${String(fps)} fps`,
+    `${mbps.toFixed(1)} Mbps`,
+    upscalerLabel(status.activeMode),
+    gpu,
+    errors > 0 ? `${String(errors)} decode errors` : undefined,
+  ]
     .filter((part) => part !== undefined)
     .join(" · ")
 }

@@ -103,10 +103,11 @@ fn session_commands_reach_the_core() {
 #[test]
 fn renderer_status_reports_core_state() {
     let core =
-        FakeCore { metalfx: true, mode: 0, stats: r#"{"active":true}"#.into(), ..Default::default() }.leak();
+        FakeCore { metalfx: true, mode: 0, gpu_ms: 2.5, stats: r#"{"active":true}"#.into(), ..Default::default() }
+            .leak();
     assert_eq!(
         renderer_status(mock(core).handle().clone()),
-        Ok(json!({"metalfxSupported": true, "activeMode": "bilinear", "stream": {"active": true}}))
+        Ok(json!({"metalfxSupported": true, "activeMode": "bilinear", "gpuMs": 2.5, "stream": {"active": true}}))
     );
 }
 
@@ -220,7 +221,7 @@ fn ipc_contract_matches_the_ui() {
     );
     assert_eq!(
         invoke(&app, "renderer_status", json!({})),
-        Ok(json!({"metalfxSupported": false, "activeMode": "none", "stream": {"active": false}}))
+        Ok(json!({"metalfxSupported": false, "activeMode": "none", "gpuMs": 0.0, "stream": {"active": false}}))
     );
 }
 

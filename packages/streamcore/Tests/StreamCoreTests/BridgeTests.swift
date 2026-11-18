@@ -77,6 +77,7 @@ extension Serial {
             // The bridge's renderer is process-wide; this only holds until a window is attached.
             if sc_active_mode() == -1 {
                 #expect(!sc_metalfx_supported())
+                #expect(sc_gpu_milliseconds() == 0)
                 #expect(sc_set_render_params(#"{"upscaler":"metalfx"}"#)) // no renderer: accepted, no-op
             }
         }
