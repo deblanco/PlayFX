@@ -180,32 +180,55 @@ const isReady = (console: PairedConsole): Effect.Effect<boolean, never, Core> =>
     Effect.orElseSucceed(() => false),
   )
 
-/** Wakes a console from rest mode and waits until it can stream. */
-export const wakeUntilReady = (console: PairedConsole): Effect.Effect<void, CoreError | WakeFailed, Core> =>
+/** How Play reaches a console after waking it. */
+export type WakeRoute = { readonly via: "local" } | { readonly via: "internet"; readonly psnDuid: string }
+
+/** With PSN available, how long to wait for a local wake before going through PSN instead. */
+export const wakeFallbackAfter = "20 seconds"
+
+/** Wakes a console from rest mode and waits until it can stream. A PS5 in deeper rest may not hear the
+ * local wake-up at all; when PSN can reach it (`psnDuid`), Play then goes through PSN, which wakes it
+ * as part of connecting. */
+export const wakeUntilReady = (
+  console: PairedConsole,
+  psnDuid?: string,
+): Effect.Effect<WakeRoute, CoreError | WakeFailed, Core> =>
   Effect.gen(function* () {
-    yield* wake(console)
-    const waitForReady = (checks: number): Effect.Effect<void, CoreError | WakeFailed, Core> =>
+    const internet: WakeRoute | undefined = psnDuid === undefined ? undefined : { via: "internet", psnDuid }
+    const local: WakeRoute = { via: "local" }
+    const viaPsn = (why: string): Effect.Effect<WakeRoute> =>
+      Effect.as(Effect.logInfo(`${why}; connecting through PSN, which wakes it`), internet ?? local)
+    const sent = yield* wake(console).pipe(
+      Effect.as(true),
+      Effect.catch((error) => (internet ? Effect.succeed(false) : Effect.fail(error))),
+    )
+    if (!sent) return yield* viaPsn(`Couldn't wake ${console.name} on this network`)
+    const waitForReady = (checks: number): Effect.Effect<void, never, Core> =>
       Effect.flatMap(isReady(console), (ready) =>
         ready
           ? Effect.void
           : Effect.gen(function* () {
               yield* Effect.sleep(wakePollInterval)
-              if ((checks + 1) % wakeResendEvery === 0) yield* wake(console)
+              // Resend now and then (UDP can get lost); a failed resend is no reason to stop waiting.
+              if ((checks + 1) % wakeResendEvery === 0) yield* Effect.ignore(wake(console))
               return yield* waitForReady(checks + 1)
             }),
       )
     return yield* waitForReady(0).pipe(
       Effect.tap(() => Effect.logInfo(`${console.name} is ready`)),
-      Effect.tapError((error) => Effect.logWarning(error.message)),
+      Effect.as(local),
       Effect.timeoutOrElse({
-        duration: wakeTimeout,
+        duration: internet ? wakeFallbackAfter : wakeTimeout,
         orElse: () =>
-          Effect.fail(
-            new WakeFailed({
-              message: `${console.name} didn't wake up. Check that "Stay connected to the internet" is on in its rest mode settings.`,
-            }),
-          ),
+          internet
+            ? viaPsn(`${console.name} didn't answer the wake-up on this network`)
+            : Effect.fail(
+                new WakeFailed({
+                  message: `${console.name} didn't wake up. Check that "Stay connected to the internet" is on in its rest mode settings.`,
+                }),
+              ),
       }),
+      Effect.tapError((error) => Effect.logWarning(error.message)),
     )
   })
 

@@ -124,6 +124,28 @@ static size_t broadcast_addresses(struct sockaddr_storage *out, size_t max) {
     return n;
 }
 
+bool psrp_wakeup(const char *host, const char regist_key[PSRP_REGIST_KEY_SIZE], bool ps5) {
+    ensure_init();
+    // The wakeup credential is the regist key (a hex string) parsed as a number.
+    char key[PSRP_REGIST_KEY_SIZE + 1] = {0};
+    memcpy(key, regist_key, PSRP_REGIST_KEY_SIZE);
+    char *end = NULL;
+    uint64_t credential = strtoull(key, &end, 16);
+    if (end == key) return false;
+    bool sent = chiaki_discovery_wakeup(&g_log, NULL, host, credential, ps5) == CHIAKI_ERR_SUCCESS;
+    // A PS5 in deeper rest stops answering for its own address (no ARP reply: "No route to host") but
+    // still hears broadcasts, so send the packet to every broadcast address too. Only a console that
+    // was paired with this credential reacts to it.
+    struct sockaddr_storage addrs[16];
+    size_t n = broadcast_addresses(addrs, 16);
+    for (size_t i = 0; i < n; i++) {
+        char text[INET_ADDRSTRLEN];
+        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)&addrs[i])->sin_addr, text, sizeof(text))) continue;
+        if (chiaki_discovery_wakeup(&g_log, NULL, text, credential, ps5) == CHIAKI_ERR_SUCCESS) sent = true;
+    }
+    return sent;
+}
+
 int psrp_psn_list_consoles(const char *oauth_token, PsrpPsnConsole *out, int max, char *error, size_t error_size) {
     ensure_init();
     ChiakiHolepunchDeviceInfo *devices = NULL;
@@ -186,16 +208,6 @@ int psrp_discover(const char *host, int timeout_ms, PsrpHost *out, int max) {
     return count;
 }
 
-bool psrp_wakeup(const char *host, const char regist_key[PSRP_REGIST_KEY_SIZE], bool ps5) {
-    ensure_init();
-    // The wakeup credential is the regist key (a hex string) parsed as a number.
-    char key[PSRP_REGIST_KEY_SIZE + 1] = {0};
-    memcpy(key, regist_key, PSRP_REGIST_KEY_SIZE);
-    char *end = NULL;
-    uint64_t credential = strtoull(key, &end, 16);
-    if (end == key) return false;
-    return chiaki_discovery_wakeup(&g_log, NULL, host, credential, ps5) == CHIAKI_ERR_SUCCESS;
-}
 
 // ---------------------------------------------------------------------------------------------
 // Registration

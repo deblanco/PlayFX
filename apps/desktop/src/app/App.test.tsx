@@ -235,6 +235,20 @@ describe("home: paired consoles", () => {
     })
   })
 
+  it("plays a resting console through PSN when it can't be woken on this network", async () => {
+    const core = fakeCore()
+    core.state.discovered = [{ ...ps5, state: "standby" }]
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    vi.mocked(core.service.wakeup).mockReturnValueOnce(Effect.succeed(false))
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    await userEvent.click(await item.findByRole("button", { name: "Play" }))
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
+    })
+  })
+
   it("can cancel waking, and reports a wake-up that couldn't be sent", async () => {
     const core = fakeCore()
     core.state.discovered = [{ ...ps5, state: "standby" }]

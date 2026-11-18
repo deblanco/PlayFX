@@ -414,6 +414,35 @@ describe("wakeUntilReady", () => {
       expect((yield* Effect.flip(actions.wakeUntilReady(pairedPs5))).message).toBe("Wake-up failed")
     }).pipe(Effect.provide(layer))
   })
+
+  it.effect("plays locally when the console wakes, even with PSN available", () => {
+    const { layer } = setup()
+    return Effect.gen(function* () {
+      expect(yield* actions.wakeUntilReady(pairedPs5, "aa")).toEqual({ via: "local" })
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("goes through PSN at once when the wake-up can't be sent on this network", () => {
+    const { core, layer } = setup()
+    vi.mocked(core.service.wakeup).mockReturnValueOnce(Effect.succeed(false))
+    return Effect.gen(function* () {
+      expect(yield* actions.wakeUntilReady(pairedPs5, "aa")).toEqual({ via: "internet", psnDuid: "aa" })
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("goes through PSN when the console doesn't answer the local wake-up in time", () => {
+    const { core, layer } = setup()
+    core.state.discovered = asleep
+    vi.mocked(core.service.wakeup).mockReturnValue(Effect.succeed(true))
+    return Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(actions.wakeUntilReady(pairedPs5, "aa"))
+      for (let i = 0; i < 4; i++) yield* TestClock.adjust(actions.wakePollInterval)
+      vi.mocked(core.service.wakeup).mockReturnValue(Effect.succeed(false)) // a failed resend keeps waiting
+      yield* TestClock.adjust(actions.wakeFallbackAfter)
+      expect(yield* Fiber.join(fiber)).toEqual({ via: "internet", psnDuid: "aa" })
+      vi.mocked(core.service.wakeup).mockReturnValue(Effect.succeed(true))
+    }).pipe(Effect.provide(layer))
+  })
 })
 
 describe("psnReachable", () => {

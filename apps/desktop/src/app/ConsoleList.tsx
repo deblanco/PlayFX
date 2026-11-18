@@ -47,11 +47,11 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
     }
     setWaking(row.hostId)
     wakeFiber.current = runtime.runFork(
-      Effect.match(actions.wakeUntilReady(console), {
-        onSuccess: () => {
+      Effect.match(actions.wakeUntilReady(console, onPsn[row.hostId]), {
+        onSuccess: (route) => {
           wakeFiber.current = null
           setWaking(null)
-          onPlay(console)
+          onPlay(console, route.via === "internet" ? route.psnDuid : undefined)
         },
         onFailure: (error) => {
           wakeFiber.current = null

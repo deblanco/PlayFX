@@ -271,12 +271,11 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   attempts (busy retries, outcome), every stream event (quits with reason and kind, as warnings when
   they're errors), settings changes (debug), and every failure shown as a toast. Unit-tested incl. the
   plugin call; live check pending (the console wouldn't wake and the screen was locked).
-- 🐞 Found via the logs: waking a PS5 in deeper rest fails with "No route to host" — the unicast wake
-  packet to its address can't be sent (no ARP answer) while broadcast discovery still sees it in
-  standby. Candidate fix: also send the wake packet to the broadcast address — and fall back to PSN:
-  re-verified after the test fix, `psrp stream --psn` woke the PS5 from exactly this deep rest and
-  streamed (39 s to connect, 1280×720, 0 lost frames, "linking" progress now delivered; the token file
-  was byte-identical after a full test run).
+- ✅ Wake from deeper rest (found via the logs: the unicast wake packet failed with "No route to host"
+  while discovery still saw the PS5 in standby). The wake packet now also goes to every interface's
+  broadcast address; and when the PS5 is on the PSN account, Play falls back to connecting through
+  PSN (which wakes it — verified with `psrp stream --psn`) if the local wake-up can't be sent or the
+  console isn't ready within 20 s. Unit-tested; live deep-rest check skipped for now (user's call).
 - ✅ L4. Settings → Diagnostics: "Detailed logs" (saved; switches native/libchiaki and web UI debug
   entries on, applied at startup and when it changes), "Copy diagnostics" (app and macOS versions,
   renderer capabilities, settings, the last 200 log lines — already scrubbed) and "Open logs folder".
