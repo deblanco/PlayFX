@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title>Remote Play</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <!-- The video is drawn natively (Metal) behind this transparent webview. -->
+    <header class="toolbar">
+      <label>
+        Upscaler
+        <select id="upscaler">
+          <option value="metalfx">MetalFX</option>
+          <option value="bilinear">Bilinear</option>
+        </select>
+      </label>
+      <label>
+        Source
+        <select id="source">
+          <option value="960x540">540p</option>
+          <option value="1280x720" selected>720p</option>
+          <option value="1920x1080">1080p</option>
+        </select>
+      </label>
+      <span id="status" class="status">…</span>
+    </header>
+  </body>
+</html>

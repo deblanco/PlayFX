@@ -1,0 +1,50 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+  font-size: 13px;
+  color: #f2f4f8;
+  color-scheme: dark;
+}
+
+/* Transparent so the native Metal video layer behind the webview shows through. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+}
+
+.toolbar {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(16, 18, 24, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #aab1c0;
+}
+
+.toolbar select {
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.status {
+  font-variant-numeric: tabular-nums;
+  color: #7ee0a1;
+}

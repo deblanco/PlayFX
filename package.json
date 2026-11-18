@@ -1,0 +1,10 @@
+{
+  "name": "ps-remote-play",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "desktop": "bun run --cwd apps/desktop tauri dev",
+    "desktop:build": "bun run --cwd apps/desktop tauri build",
+    "streamcore:build": "bun run --cwd packages/streamcore build"
+  }
+}

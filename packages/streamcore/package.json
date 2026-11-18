@@ -1,0 +1,9 @@
+{
+  "name": "@psrp/streamcore",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shared Swift core (Metal rendering + MetalFX upscaling) for macOS and iOS",
+  "scripts": {
+    "build": "swift build -c release"
+  }
+}
