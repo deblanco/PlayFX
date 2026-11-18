@@ -552,6 +552,10 @@ void psrp_session_set_controller_state(PsrpSession *s, const PsrpControllerState
     chiaki_session_set_controller_state(&s->session, &state);
 }
 
+uint64_t psrp_session_rtt_us(PsrpSession *s) {
+    return s ? s->session.rtt_us : 0;
+}
+
 void psrp_session_set_login_pin(PsrpSession *s, const char *pin) {
     if (!started(s) || !pin) return;
     chiaki_session_set_login_pin(&s->session, (const uint8_t *)pin, strlen(pin));

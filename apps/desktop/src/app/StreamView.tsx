@@ -9,7 +9,7 @@ import { idleController, type Settings } from "@/core/schema"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
 import { ConnectingOverlay } from "./ConnectingOverlay"
-import type { Capabilities, Route } from "./format"
+import type { Capabilities, Route, StatRow } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
 import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
@@ -119,7 +119,7 @@ export const StreamView = ({
 }: StreamViewProps) => {
   const run = useRun()
   const idle = useIdle(hudIdleMs)
-  const [stats, setStats] = useState("Connecting…")
+  const [stats, setStats] = useState<actions.LiveStats>({ line: "Connecting…", rows: [] })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tab, setTab] = useState<SettingsTab>("picture")
   const [fullscreen, setFullscreen] = useState(false)
@@ -171,7 +171,7 @@ export const StreamView = ({
                   ? "Reaching your PS5 over the internet…"
                   : remoteStage === "data"
                     ? "Opening the data connection…"
-                    : stats}
+                    : stats.line}
         </span>
         <details className="group relative text-xs">
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">
@@ -209,6 +209,7 @@ export const StreamView = ({
         </Button>
       </header>
       {settings.compare && connected && <CompareLabels />}
+      {settings.showStats && connected && stats.rows.length > 0 && <StatsPanel rows={stats.rows} />}
       {(!connected || reconnect.reconnecting !== false) && Option.isNone(loginPin) && (
         <ConnectingOverlay
           consoleName={title}
@@ -234,6 +235,22 @@ export const StreamView = ({
     </>
   )
 }
+
+/** The stream's numbers, kept on screen while "Stats on screen" is on (the HUD fades; this doesn't).
+ * Top left, below the HUD, so the settings sheet on the right never covers it. */
+const StatsPanel = ({ rows }: { readonly rows: readonly StatRow[] }) => (
+  <dl
+    aria-label="Stream stats"
+    className="pointer-events-none fixed top-16 left-4 grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-xs backdrop-blur-md"
+  >
+    {rows.map((row) => (
+      <div key={row.label} className="col-span-2 grid grid-cols-subgrid">
+        <dt className="text-white/55">{row.label}</dt>
+        <dd className={cn("text-right font-medium tabular-nums", row.warn ? "text-signal" : "text-white")}>{row.value}</dd>
+      </div>
+    ))}
+  </dl>
+)
 
 /** Names the two halves of the split-screen comparison, on either side of the divider (the
  * video's center), so both stay visible with the settings sheet open. */

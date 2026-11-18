@@ -229,12 +229,19 @@ describe("streaming", () => {
     return Effect.gen(function* () {
       const reports: string[] = []
       core.state.status = status({ framesDecoded: 0, bytesReceived: 0, width: 1920, height: 1080 })
-      const fiber = yield* Effect.forkChild(actions.pollStats((stats) => reports.push(stats)))
+      const rows: (readonly { readonly label: string; readonly value: string }[])[] = []
+      const fiber = yield* Effect.forkChild(
+        actions.pollStats((stats) => {
+          reports.push(stats.line)
+          rows.push(stats.rows)
+        }),
+      )
       yield* Effect.yieldNow
       expect(reports).toEqual(["1920×1080 · 0 fps · 0.0 Mbps · MetalFX"])
       core.state.status = status({ framesDecoded: 60, bytesReceived: 2_500_000, width: 1920, height: 1080 })
       yield* TestClock.adjust("1 second")
       expect(reports[1]).toBe("1920×1080 · 60 fps · 20.0 Mbps · MetalFX")
+      expect(rows[1]?.find((row) => row.label === "Bitrate")?.value).toBe("20.0 Mbps")
       broken = true
       yield* TestClock.adjust("1 second")
       expect(reports).toHaveLength(2)

@@ -16,6 +16,7 @@ import {
   hudStats,
   quitMessage,
   samePaired,
+  statRows,
   connectionHint,
   connectionSteps,
   connectionTitle,
@@ -319,6 +320,34 @@ describe("samePaired", () => {
     expect(samePaired({ HOST1: pairedPs5 }, { HOST1: { ...pairedPs5 } })).toBe(true)
     expect(samePaired({ HOST1: pairedPs5 }, { HOST1: { ...pairedPs5, name: "Den" } })).toBe(false)
     expect(samePaired({ HOST1: pairedPs5 }, {})).toBe(false)
+  })
+})
+
+describe("statRows", () => {
+  it("is empty until video arrives", () => {
+    expect(statRows(status({}), 0, 0)).toEqual([])
+  })
+
+  it("lists the stream's numbers and flags the troubling ones", () => {
+    const rows = statRows(
+      { ...status({ width: 1920, height: 1080, framesLost: 3, decodeErrors: 1, rttMs: 4.25 }), gpuMs: 1.24 },
+      60,
+      24.31,
+    )
+    expect(rows.map((row) => [row.label, row.value, row.warn])).toEqual([
+      ["Resolution", "1920×1080", false],
+      ["Frame rate", "60 fps", false],
+      ["Bitrate", "24.3 Mbps", false],
+      ["Ping", "4.3 ms", false],
+      ["GPU", "1.2 ms", false],
+      ["Upscaler", "MetalFX", false],
+      ["Lost frames", "3", true],
+      ["Decode errors", "1", true],
+    ])
+    const slow = statRows({ ...status({ width: 1280, height: 720, rttMs: 85 }), gpuMs: 9 }, 30, 5)
+    expect(slow.find((row) => row.label === "Ping")).toEqual({ label: "Ping", value: "85 ms", warn: true })
+    expect(slow.find((row) => row.label === "GPU")?.warn).toBe(true)
+    expect(slow.some((row) => row.label === "Decode errors")).toBe(false)
   })
 })
 

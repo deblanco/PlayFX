@@ -105,6 +105,33 @@ export const megabitsPerSecond = (previous: FrameSample, current: FrameSample): 
   return Math.max(0, Math.round(((current.bytes - previous.bytes) * 8) / elapsed / 100) / 10)
 }
 
+/** One number on the stats panel; `warn` marks one that signals trouble. */
+export interface StatRow {
+  readonly label: string
+  readonly value: string
+  readonly warn: boolean
+}
+
+/** What the stream is doing, for the stats panel (empty until video arrives). */
+export const statRows = (status: RendererStatus, fps: number, mbps: number): readonly StatRow[] => {
+  const { stream } = status
+  if (!stream.active || stream.width === undefined || stream.height === undefined) return []
+  const lost = stream.framesLost ?? 0
+  const errors = stream.decodeErrors ?? 0
+  const rtt = stream.rttMs ?? 0
+  const rows: (StatRow | undefined)[] = [
+    { label: "Resolution", value: `${String(stream.width)}×${String(stream.height)}`, warn: false },
+    { label: "Frame rate", value: `${String(fps)} fps`, warn: false },
+    { label: "Bitrate", value: `${mbps.toFixed(1)} Mbps`, warn: false },
+    rtt > 0 ? { label: "Ping", value: `${rtt.toFixed(rtt < 10 ? 1 : 0)} ms`, warn: rtt >= 60 } : undefined,
+    status.gpuMs > 0 ? { label: "GPU", value: `${status.gpuMs.toFixed(1)} ms`, warn: status.gpuMs >= 8 } : undefined,
+    { label: "Upscaler", value: upscalerLabel(status.activeMode, status.mlActive), warn: false },
+    { label: "Lost frames", value: String(lost), warn: lost > 0 },
+    errors > 0 ? { label: "Decode errors", value: String(errors), warn: true } : undefined,
+  ]
+  return rows.filter((row) => row !== undefined)
+}
+
 /** The HUD's stats line. */
 export const hudStats = (status: RendererStatus, fps: number, mbps: number): string => {
   const { stream } = status
@@ -125,11 +152,11 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
     .join(" · ")
 }
 
-/** The PSN device ID of each paired console PSN knows (with Remote Play on), matched by name as
- * chiaki-ng does: hostId → duid. */
 /** Whether two paired-console lists hold the same consoles with the same details. */
 export const samePaired = (a: PairedConsoles, b: PairedConsoles): boolean => JSON.stringify(a) === JSON.stringify(b)
 
+/** The PSN device ID of each paired console PSN knows (with Remote Play on), matched by name as
+ * chiaki-ng does: hostId → duid. */
 export const psnDeviceIds = (
   paired: PairedConsoles,
   onPsn: readonly PsnConsole[],

@@ -325,6 +325,6 @@ public func sc_session_stats() -> UnsafeMutablePointer<CChar> {
     let s = session.stats
     return json(["active": true, "framesDecoded": s.framesDecoded, "decodeErrors": s.decodeErrors,
                  "framesLost": s.framesLost, "width": s.width, "height": s.height,
-                 "bytesReceived": s.bytesReceived])
+                 "bytesReceived": s.bytesReceived, "rttMs": s.rttMs])
 }
 #endif

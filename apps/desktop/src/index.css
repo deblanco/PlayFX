@@ -149,6 +149,13 @@
   * {
     @apply border-border outline-ring/50;
     }
+  /* Tailwind v4 dropped v3's pointer cursor on buttons; bring it back for everything clickable
+     (buttons, toggles, tabs, switches, the Keys disclosure). */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    @apply cursor-pointer;
+  }
   /* Transparent all the way down: the native Metal video renders behind the webview. */
   html,
   body,

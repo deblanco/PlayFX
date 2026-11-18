@@ -80,6 +80,8 @@ public final class StreamSession {
         public var height = 0
         /// Compressed video bytes received; the host derives the live bitrate from it.
         public var bytesReceived = 0
+        /// Round trip to the console, measured while connecting (0 until then).
+        public var rttMs = 0.0
     }
 
     /// Called from libchiaki's threads.
@@ -109,7 +111,11 @@ public final class StreamSession {
     /// Called from the video thread with every decoded frame.
     public var onFrame: ((CVPixelBuffer) -> Void)?
 
-    public var stats: Stats { lock.withLock { _stats } }
+    public var stats: Stats {
+        var s = lock.withLock { _stats }
+        if let handle { s.rttMs = Double(psrp_session_rtt_us(handle)) / 1000 }
+        return s
+    }
     public var latestFrame: CVPixelBuffer? { lock.withLock { _latestFrame } }
 
     private var handle: OpaquePointer?

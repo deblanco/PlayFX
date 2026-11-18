@@ -142,6 +142,12 @@ const PicturePanel = ({ settings, capabilities, set, live }: {
           onCheckedChange={(on) => { set("compare", on) }}
         />
       )}
+      <SwitchRow
+        label="Stats on screen"
+        description="Frame rate, bitrate, ping, GPU time and lost frames, always visible while playing."
+        checked={settings.showStats}
+        onCheckedChange={(on) => { set("showStats", on) }}
+      />
       <Section stage={stages[0]} step={1} hint="Smooths compression artifacts before upscaling.">
         <StrengthSlider label="Blockiness" value={settings.deblock} onChange={(v) => { set("deblock", v) }} />
         <StrengthSlider label="Banding" value={settings.deband} onChange={(v) => { set("deband", v) }} />

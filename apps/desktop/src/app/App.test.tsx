@@ -679,6 +679,18 @@ describe("streaming", () => {
     expect(core.streamListeners()).toBe(1)
   })
 
+  it("keeps the stream's numbers on screen when asked to", async () => {
+    const core = fakeCore()
+    core.state.status = status({ width: 1920, height: 1080, framesDecoded: 0, rttMs: 12 })
+    await startStreaming(core)
+    expect(screen.queryByLabelText("Stream stats")).not.toBeInTheDocument()
+    const sheet = await openSettings("Picture")
+    await userEvent.click(sheet.getByRole("switch", { name: /Stats on screen/ }))
+    const panel = await screen.findByLabelText("Stream stats")
+    expect(panel).toHaveTextContent("Resolution1920×1080")
+    expect(panel).toHaveTextContent("Ping12 ms")
+  })
+
   it("tunes the picture from the HUD with a labelled split screen", async () => {
     const { core } = await startStreaming()
     expect(screen.queryByLabelText("Split-screen comparison")).not.toBeInTheDocument()

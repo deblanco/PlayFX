@@ -108,6 +108,8 @@ export const Settings = Schema.Struct({
   /** Debug entries in the log file (native, libchiaki and web UI), for tracking down problems. */
   detailedLogs: since(Schema.Boolean, false),
   connection: since(ConnectionRoute, "auto"),
+  /** Keeps the stream's numbers (frame rate, bitrate, ping, GPU time…) on screen while playing. */
+  showStats: since(Schema.Boolean, false),
 })
 export type Settings = typeof Settings.Type
 
@@ -130,6 +132,7 @@ export const defaultSettings: Settings = {
   accurateColor: true,
   detailedLogs: false,
   connection: "auto",
+  showStats: false,
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).
@@ -207,6 +210,8 @@ export const StreamStats = Schema.Struct({
   width: Schema.optionalKey(Schema.Number),
   height: Schema.optionalKey(Schema.Number),
   bytesReceived: Schema.optionalKey(Schema.Number),
+  /** Round trip to the console, measured while connecting (0 until then). */
+  rttMs: Schema.optionalKey(Schema.Number),
 })
 export type StreamStats = typeof StreamStats.Type
 

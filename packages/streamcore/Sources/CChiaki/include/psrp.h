@@ -184,6 +184,8 @@ typedef struct {
 
 void psrp_session_set_controller_state(PsrpSession *session, const PsrpControllerState *state);
 void psrp_session_set_login_pin(PsrpSession *session, const char *pin);
+/// Round trip to the console in microseconds, measured while connecting (0 until then).
+uint64_t psrp_session_rtt_us(PsrpSession *session);
 void psrp_session_request_idr(PsrpSession *session);
 /// Puts the console into rest mode.
 void psrp_session_goto_bed(PsrpSession *session);

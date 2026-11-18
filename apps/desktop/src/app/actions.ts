@@ -19,6 +19,8 @@ import {
   describeEvent,
   framesPerSecond,
   hudStats,
+  statRows,
+  type StatRow,
   megabitsPerSecond,
   psnDeviceIds,
   renderParams,
@@ -455,7 +457,13 @@ export const onStreamEvent = (handler: (event: StreamEvent) => void): Effect.Eff
 export const statsInterval = "1 second"
 
 /** Polls the renderer every second, reporting the HUD stats line; failed polls are skipped. */
-export const pollStats = (report: (stats: string) => void): Effect.Effect<number, never, Core> =>
+/** The HUD's line and the stats panel's rows, refreshed every second. */
+export interface LiveStats {
+  readonly line: string
+  readonly rows: readonly StatRow[]
+}
+
+export const pollStats = (report: (stats: LiveStats) => void): Effect.Effect<number, never, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
     const last = yield* Ref.make<FrameSample>({ frames: 0, bytes: 0, time: yield* Clock.currentTimeMillis })
@@ -467,7 +475,9 @@ export const pollStats = (report: (stats: string) => void): Effect.Effect<number
         time: yield* Clock.currentTimeMillis,
       }
       const previous = yield* Ref.getAndSet(last, sample)
-      report(hudStats(status, framesPerSecond(previous, sample), megabitsPerSecond(previous, sample)))
+      const fps = framesPerSecond(previous, sample)
+      const mbps = megabitsPerSecond(previous, sample)
+      report({ line: hudStats(status, fps, mbps), rows: statRows(status, fps, mbps) })
     })
     return yield* Effect.ignore(tick).pipe(Effect.repeat(Schedule.spaced(statsInterval)))
   })
