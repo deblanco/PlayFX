@@ -1,5 +1,5 @@
 import { render } from "@testing-library/react"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { vi } from "vitest"
 import { Core } from "@/core/core"
 import { memoryStore, PreferencesLive } from "@/core/preferences"
@@ -97,6 +97,9 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     keyboardSetText: vi.fn<CoreService["keyboardSetText"]>(() => Effect.void),
     keyboardDone: vi.fn<CoreService["keyboardDone"]>(() => Effect.void),
     setMicrophone: vi.fn<CoreService["setMicrophone"]>(() => Effect.void),
+    secretGet: () => Effect.succeed(Option.none()),
+    secretSet: () => Effect.void,
+    secretRemove: () => Effect.void,
     setRenderParams: vi.fn<CoreService["setRenderParams"]>(() => Effect.void),
     setDetailedLogs: vi.fn<CoreService["setDetailedLogs"]>(() => Effect.void),
     openLogsFolder: Effect.sync(() => {

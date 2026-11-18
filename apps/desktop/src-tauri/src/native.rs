@@ -51,6 +51,11 @@ pub trait NativeCore: Send + Sync {
     fn psn_sign_out(&self);
     /// Blocking: the PS5s on the PSN account, as JSON (or {"error"}).
     fn psn_consoles(&self) -> String;
+    /// The app's secrets (pairing keys, account ID): Keychain in release builds, a 0600 file in dev.
+    /// `secret_get` replies {"value": "…" | null}; `secret_set` {"ok"} or {"error"}.
+    fn secret_get(&self, key: &str) -> String;
+    fn secret_set(&self, key: &str, value: &str) -> String;
+    fn secret_remove(&self, key: &str);
     /// Blocking: a fresh PSN access token as {"token"} (or {"error"}). Stays native.
     fn psn_access_token(&self) -> String;
     // main thread

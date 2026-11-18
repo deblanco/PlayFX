@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema, Semaphore } from "effect"
+import { Context, Effect, Layer, Option, Schema, Semaphore } from "effect"
 import { CoreError, ValidationError } from "./errors"
 import {
   Credentials,
@@ -51,6 +51,10 @@ export class Core extends Context.Service<
     /** Types into the console's open text field (replacing its text); `keyboardDone` sends or cancels. */
     readonly keyboardSetText: (text: string) => Effect.Effect<void, CoreError>
     readonly keyboardDone: (accept: boolean) => Effect.Effect<void, CoreError>
+    /** The native secret store (Keychain in release builds, a 0600 file in development). */
+    readonly secretGet: (key: string) => Effect.Effect<Option.Option<string>, CoreError>
+    readonly secretSet: (key: string, value: string) => Effect.Effect<void, CoreError>
+    readonly secretRemove: (key: string) => Effect.Effect<void, CoreError>
     /** Voice chat on/off; the outcome arrives as a "microphone" stream event. */
     readonly setMicrophone: (on: boolean) => Effect.Effect<void, CoreError>
     /** The Mac's pointer as a touchpad finger (merged natively with the pad's state). */
@@ -129,6 +133,12 @@ export const CoreLive = Layer.effect(
       keyboardSetText: (text) => Effect.asVoid(call(unit, "keyboard_set_text", { text })),
       keyboardDone: (accept) => Effect.asVoid(call(unit, "keyboard_done", { accept })),
       setMicrophone: (on) => Effect.asVoid(call(unit, "set_microphone", { on })),
+      secretGet: (key) =>
+        Effect.map(call(Schema.Struct({ value: Schema.NullOr(Schema.String) }), "secret_get", { key }), (r) =>
+          Option.fromNullishOr(r.value),
+        ),
+      secretSet: (key, value) => Effect.asVoid(call(Schema.Struct({ ok: Schema.Literal(true) }), "secret_set", { key, value })),
+      secretRemove: (key) => Effect.asVoid(call(unit, "secret_remove", { key })),
       setRenderParams: (params) =>
         Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
       toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),

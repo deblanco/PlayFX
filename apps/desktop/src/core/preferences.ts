@@ -34,6 +34,10 @@ export const LocalStorageLive = Layer.sync(KeyValueStore, () => ({
     }),
 }))
 
+/** Where secrets live (pairing keys, the PSN account ID): the native store — the Keychain in release
+ * builds, a 0600 file in development — never the webview's localStorage. Same shape as KeyValueStore. */
+export class SecretStore extends Context.Service<SecretStore, KeyValueStore["Service"]>()("SecretStore") {}
+
 export const memoryStore = (initial: Record<string, string> = {}) => {
   const data = new Map(Object.entries(initial))
   return Layer.succeed(KeyValueStore, {
@@ -61,14 +65,37 @@ export class Preferences extends Context.Service<
   }
 >()("Preferences") {}
 
-export const PreferencesLive = Layer.effect(
-  Preferences,
-  Effect.gen(function* () {
-    const store = yield* KeyValueStore
+/** Secrets read from `secrets`; a value still in the old place (`legacy`, localStorage) moves over on
+ * first read and is deleted there. */
+export const migratingSecrets = (
+  secrets: KeyValueStore["Service"],
+  legacy: KeyValueStore["Service"],
+): KeyValueStore["Service"] => ({
+  get: (key) =>
+    Effect.flatMap(secrets.get(key), (found) =>
+      Option.isSome(found)
+        ? Effect.succeed(found)
+        : Effect.flatMap(legacy.get(key), (old) =>
+            Option.match(old, {
+              onNone: () => Effect.succeed(old),
+              onSome: (value) =>
+                secrets.set(key, value).pipe(
+                  Effect.andThen(legacy.remove(key)),
+                  Effect.tap(() => Effect.logInfo(`Moved ${key} out of the webview's storage`)),
+                  Effect.as(old),
+                ),
+            }),
+          ),
+    ),
+  set: (key, value) => Effect.andThen(secrets.set(key, value), legacy.remove(key)),
+  remove: (key) => Effect.andThen(secrets.remove(key), legacy.remove(key)),
+})
 
-    /** Reads JSON under `key`; missing or corrupt data yields `fallback`. */
-    const read = <A>(schema: Schema.Codec<A, unknown>, key: string, fallback: A) =>
-      store.get(key).pipe(
+const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore["Service"]) => {
+
+    /** Reads JSON under `key` from `from`; missing or corrupt data yields `fallback`. */
+    const read = <A>(schema: Schema.Codec<A, unknown>, key: string, fallback: A, from = store) =>
+      from.get(key).pipe(
         Effect.map((raw) =>
           Option.match(raw, {
             onNone: () => fallback,
@@ -78,24 +105,25 @@ export const PreferencesLive = Layer.effect(
         ),
       )
 
-    const write = (key: string, value: unknown) => store.set(key, JSON.stringify(value))
+    const write = (key: string, value: unknown, to = store) => to.set(key, JSON.stringify(value))
+    const writePaired = (value: PairedConsoles) => write(keys.consoles, value, secret)
 
-    const paired = read(PairedConsoles, keys.consoles, {})
+    const paired = read(PairedConsoles, keys.consoles, {}, secret)
 
     /** A stored account ID that isn't a valid one (corrupt or hand-edited) reads as signed out. */
     const decodeAccountId = Schema.decodeUnknownOption(Schema.String.check(Schema.makeFilter((id: string) => isAccountId(id))))
 
     return {
-      accountId: Effect.map(store.get(keys.accountId), Option.flatMap(decodeAccountId)),
+      accountId: Effect.map(secret.get(keys.accountId), Option.flatMap(decodeAccountId)),
       setAccountId: (id) =>
-        Option.match(id, { onNone: () => store.remove(keys.accountId), onSome: (v) => store.set(keys.accountId, v) }),
+        Option.match(id, { onNone: () => secret.remove(keys.accountId), onSome: (v) => secret.set(keys.accountId, v) }),
       paired,
       savePaired: (console) =>
-        Effect.flatMap(paired, (all) => write(keys.consoles, { ...all, [console.hostId]: console })),
+        Effect.flatMap(paired, (all) => writePaired({ ...all, [console.hostId]: console })),
       forget: (hostId) =>
         Effect.flatMap(paired, (all) => {
           const { [hostId]: _removed, ...rest } = all
-          return write(keys.consoles, rest)
+          return writePaired(rest)
         }),
       refreshAddresses: (seen) =>
         Effect.flatMap(paired, (all) => {
@@ -109,10 +137,28 @@ export const PreferencesLive = Layer.effect(
             const p = next[s.hostId]
             if (p) next[s.hostId] = { ...p, credentials: { ...p.credentials, address: s.address } }
           }
-          return write(keys.consoles, next)
+          return writePaired(next)
         }),
       settings: read(Settings, keys.settings, defaultSettings),
       saveSettings: (settings) => write(keys.settings, settings),
-    }
+    } satisfies Preferences["Service"]
+}
+
+/** Everything in one key-value store (tests). */
+export const PreferencesLive = Layer.effect(
+  Preferences,
+  Effect.gen(function* () {
+    const store = yield* KeyValueStore
+    return makePreferences(store, store)
+  }),
+)
+
+/** The app: settings in localStorage, secrets in the native store (moved there from localStorage once). */
+export const SecurePreferencesLive = Layer.effect(
+  Preferences,
+  Effect.gen(function* () {
+    const store = yield* KeyValueStore
+    const secrets = yield* SecretStore
+    return makePreferences(store, migratingSecrets(secrets, store))
   }),
 )

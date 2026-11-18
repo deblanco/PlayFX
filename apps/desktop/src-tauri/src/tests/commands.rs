@@ -164,6 +164,17 @@ fn psn_consoles_replies_or_maps_errors() {
 }
 
 #[test]
+fn secrets_go_through_the_native_store() {
+    let core = FakeCore::default().leak();
+    let app = mock(core);
+    assert_eq!(secret_get(app.handle().clone(), "consoles".into()), Ok(json!({"value": null})));
+    assert_eq!(secret_set(app.handle().clone(), "consoles".into(), "abc".into()), Ok(json!({"ok": true})));
+    assert_eq!(secret_get(app.handle().clone(), "consoles".into()), Ok(json!({"value": "abc"})));
+    secret_remove(app.handle().clone(), "consoles".into());
+    assert_eq!(secret_get(app.handle().clone(), "consoles".into()), Ok(json!({"value": null})));
+}
+
+#[test]
 fn diagnostics_and_detailed_logs() {
     let core = FakeCore::default().leak();
     let app = mock(core);

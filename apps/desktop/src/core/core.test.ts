@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "@effect/vitest"
-import { Effect, Exit, Layer } from "effect"
+import { Effect, Exit, Layer, Option } from "effect"
 import { Core, CoreLive } from "./core"
 import { CoreError } from "./errors"
 import type { Credentials, DiscoveredConsole, PsnAccountEvent, RenderParams, StreamEvent, StreamOptions } from "./schema"
@@ -227,6 +227,21 @@ describe("CoreLive", () => {
         expect(yield* core.psnSignedIn).toBe(true)
         yield* core.psnSignOut
         expect(fake.calls.map((c) => c.command)).toEqual(["psn_signed_in", "psn_sign_out"])
+      }).pipe(Effect.provide(fake.layer))
+    })
+
+    it.effect("secret store commands", () => {
+      const fake = fakeBridge({
+        secret_get: Effect.succeed({ value: "abc" }),
+        secret_set: Effect.succeed({ ok: true }),
+        secret_remove: Effect.succeed(null),
+      })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        expect(yield* core.secretGet("psrp.consoles")).toEqual(Option.some("abc"))
+        yield* core.secretSet("psrp.consoles", "{}")
+        yield* core.secretRemove("psrp.consoles")
+        expect(fake.calls.map((c) => c.command)).toEqual(["secret_get", "secret_set", "secret_remove"])
       }).pipe(Effect.provide(fake.layer))
     })
 

@@ -27,6 +27,9 @@ unsafe extern "C" {
     pub fn sc_session_keyboard_done(accept: bool);
     pub fn sc_session_set_mic(on: bool);
     pub fn sc_session_stats() -> *mut c_char;
+    pub fn sc_secret_get(key: *const c_char) -> *mut c_char;
+    pub fn sc_secret_set(key: *const c_char, value: *const c_char) -> *mut c_char;
+    pub fn sc_secret_remove(key: *const c_char);
     // any thread (blocking ones must stay off the main thread)
     pub fn sc_set_event_callback(cb: Option<extern "C" fn(*const c_char)>);
     pub fn sc_set_log_callback(cb: Option<extern "C" fn(i32, *const c_char, *const c_char)>, detailed: bool);
@@ -91,6 +94,18 @@ impl NativeCore for MacCore {
     }
     fn psn_signed_in(&self) -> bool {
         unsafe { sc_psn_signed_in() }
+    }
+    fn secret_get(&self, key: &str) -> String {
+        let key = cstr(key);
+        take(unsafe { sc_secret_get(key.as_ptr()) })
+    }
+    fn secret_set(&self, key: &str, value: &str) -> String {
+        let (key, value) = (cstr(key), cstr(value));
+        take(unsafe { sc_secret_set(key.as_ptr(), value.as_ptr()) })
+    }
+    fn secret_remove(&self, key: &str) {
+        let key = cstr(key);
+        unsafe { sc_secret_remove(key.as_ptr()) }
     }
     fn psn_consoles(&self) -> String {
         take(unsafe { sc_psn_consoles() })

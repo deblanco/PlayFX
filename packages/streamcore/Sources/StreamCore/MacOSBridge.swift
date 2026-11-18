@@ -301,6 +301,27 @@ func networkPayload(_ change: NetworkWatch.Change) -> [String: Any] {
     ["type": "network", "online": change == .changed]
 }
 
+/// The app's secrets (pairing keys, account ID): Keychain in release builds, a 0600 file in development.
+/// Replies `{"value": "…"}` or `{"value": null}`.
+@_cdecl("sc_secret_get")
+public func sc_secret_get(_ key: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
+    let value = SecretStores.shared.get(String(cString: key))
+    return json(["value": value.map { $0 as Any } ?? NSNull()])
+}
+
+@_cdecl("sc_secret_set")
+public func sc_secret_set(_ key: UnsafePointer<CChar>, _ value: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
+    do {
+        try SecretStores.shared.set(String(cString: key), String(cString: value))
+        return json(["ok": true])
+    } catch { return failure(error.localizedDescription) }
+}
+
+@_cdecl("sc_secret_remove")
+public func sc_secret_remove(_ key: UnsafePointer<CChar>) {
+    SecretStores.shared.remove(String(cString: key))
+}
+
 @_cdecl("sc_session_stop")
 public func sc_session_stop() {
     endSession(idle: true)

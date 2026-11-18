@@ -15,9 +15,10 @@ afterEach(() => {
 })
 
 describe("makeAppRuntime", () => {
-  it("wires Core to Tauri and Preferences to localStorage by default", async () => {
-    vi.mocked(invoke).mockResolvedValue([])
-    localStorage.setItem("psrp.accountId", "AAAAAAAAAAA=")
+  it("wires Core to Tauri, settings to localStorage and secrets to the native store", async () => {
+    const replies: Record<string, unknown> = { discover: [], secret_get: { value: null }, secret_set: { ok: true } }
+    vi.mocked(invoke).mockImplementation((command: string) => Promise.resolve(replies[command] ?? null))
+    localStorage.setItem("psrp.accountId", "AAAAAAAAAAA=") // an older build kept it here
     const runtime = makeAppRuntime()
     const program = Effect.gen(function* () {
       const core = yield* Core
@@ -27,6 +28,9 @@ describe("makeAppRuntime", () => {
     const result = await runtime.runPromise(program)
     expect(result).toEqual({ consoles: [], accountId: Option.some("AAAAAAAAAAA=") })
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("discover", undefined)
+    // Moved to the native store and gone from the webview.
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("secret_set", { key: "psrp.accountId", value: "AAAAAAAAAAA=" })
+    expect(localStorage.getItem("psrp.accountId")).toBeNull()
     await runtime.dispose()
   })
 

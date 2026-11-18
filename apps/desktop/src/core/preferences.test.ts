@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest"
 import { Effect, Layer, Option } from "effect"
-import { KeyValueStore, LocalStorageLive, memoryStore, Preferences, PreferencesLive } from "./preferences"
+import {
+  KeyValueStore,
+  LocalStorageLive,
+  memoryStore,
+  Preferences,
+  PreferencesLive,
+  SecretStore,
+  SecurePreferencesLive,
+} from "./preferences"
 import { defaultSettings, type PairedConsole, type Settings } from "./schema"
 
 const living: PairedConsole = {
@@ -275,4 +283,39 @@ describe("LocalStorageLive", () => {
       })
     }).pipe(Effect.provide(prefsLayer)),
   )
+})
+
+describe("SecurePreferencesLive", () => {
+  const kvWith = (initial: Record<string, string>) => {
+    const data = new Map(Object.entries(initial))
+    const service: KeyValueStore["Service"] = {
+      get: (key) => Effect.sync(() => Option.fromNullishOr(data.get(key))),
+      set: (key, value) => Effect.sync(() => void data.set(key, value)),
+      remove: (key) => Effect.sync(() => void data.delete(key)),
+    }
+    return { data, service }
+  }
+
+  it.effect("moves pairing keys and the account ID out of localStorage, and keeps settings there", () => {
+    const paired = { [living.hostId]: living }
+    const local = kvWith({ "psrp.consoles": JSON.stringify(paired), "psrp.accountId": "AQEBAQEBAQE=", "psrp.settings": "{}" })
+    const secrets = kvWith({})
+    const layer = SecurePreferencesLive.pipe(
+      Layer.provide(Layer.merge(Layer.succeed(KeyValueStore, local.service), Layer.succeed(SecretStore, secrets.service))),
+    )
+    return Effect.gen(function* () {
+      const prefs = yield* Preferences
+      expect(yield* prefs.paired).toEqual(paired)
+      expect(Option.getOrNull(yield* prefs.accountId)).toBe("AQEBAQEBAQE=")
+      expect(secrets.data.has("psrp.consoles") && secrets.data.has("psrp.accountId")).toBe(true)
+      expect(local.data.has("psrp.consoles") || local.data.has("psrp.accountId")).toBe(false) // gone from the webview
+      expect(local.data.has("psrp.settings")).toBe(true)
+      // New pairings go to the secret store only.
+      yield* prefs.forget(living.hostId)
+      expect(secrets.data.get("psrp.consoles")).toBe("{}")
+      expect(local.data.has("psrp.consoles")).toBe(false)
+      yield* prefs.setAccountId(Option.none())
+      expect(secrets.data.has("psrp.accountId")).toBe(false)
+    }).pipe(Effect.provide(layer))
+  })
 })

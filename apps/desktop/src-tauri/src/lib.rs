@@ -224,6 +224,21 @@ fn psn_signed_in<R: Runtime>(app: AppHandle<R>) -> bool {
 }
 
 #[tauri::command(async)]
+fn secret_get<R: Runtime>(app: AppHandle<R>, key: String) -> Result<Value, String> {
+    reply(&core(&app).secret_get(&key))
+}
+
+#[tauri::command(async)]
+fn secret_set<R: Runtime>(app: AppHandle<R>, key: String, value: String) -> Result<Value, String> {
+    reply(&core(&app).secret_set(&key, &value))
+}
+
+#[tauri::command(async)]
+fn secret_remove<R: Runtime>(app: AppHandle<R>, key: String) {
+    core(&app).secret_remove(&key);
+}
+
+#[tauri::command(async)]
 fn psn_consoles<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     reply(&core(&app).psn_consoles())
 }
@@ -298,6 +313,9 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         keyboard_set_text,
         keyboard_done,
         set_microphone,
+        secret_get,
+        secret_set,
+        secret_remove,
         set_render_params,
         toggle_fullscreen,
         psn_signed_in,

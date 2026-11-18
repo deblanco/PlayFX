@@ -21,6 +21,7 @@ pub struct FakeCore {
     pub hdr: bool,
     pub stats: String,
     pub calls: Mutex<Vec<String>>,
+    pub secrets: Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl FakeCore {
@@ -65,6 +66,17 @@ impl NativeCore for FakeCore {
     }
     fn psn_signed_in(&self) -> bool {
         self.psn_signed_in
+    }
+    fn secret_get(&self, key: &str) -> String {
+        self.log(format!("secret_get {key}"));
+        self.secrets.lock().unwrap().get(key).map_or_else(|| r#"{"value":null}"#.into(), |v| format!(r#"{{"value":"{v}"}}"#))
+    }
+    fn secret_set(&self, key: &str, value: &str) -> String {
+        self.secrets.lock().unwrap().insert(key.into(), value.into());
+        r#"{"ok":true}"#.into()
+    }
+    fn secret_remove(&self, key: &str) {
+        self.secrets.lock().unwrap().remove(key);
     }
     fn psn_consoles(&self) -> String {
         self.reply.clone()

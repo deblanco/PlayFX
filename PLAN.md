@@ -265,8 +265,13 @@ Work items:
   HUD button and double-click on the video toggle native fullscreen (Rust `toggle_fullscreen`, reading
   the window's real state); the cursor auto-hides after 5 s without mouse movement while streaming and
   comes back on any movement, never while the settings are open. Verified live on the PS5.)*
-- ❌ **Credential storage hardening**: move registration keys from `localStorage` to the macOS
-  **Keychain** (and Keychain/Keystore on mobile).
+- ✅ **Credential storage hardening**: pairing keys and the PSN account ID live in a native secret store —
+  the Keychain in release builds, a 0600 file in development (`~/.config/psrp/playfx-secrets.json`, or
+  `$PSRP_SECRET_FILE`; an unsigned build would get a Keychain prompt after every rebuild) — through
+  `sc_secret_get/set/remove` and Tauri commands. Existing pairings move out of the webview's localStorage
+  on first read and are deleted there; settings stay in localStorage. Verified on the user's real data:
+  the file is created 0600 with the pairing and account ID, both gone from localStorage, the console still
+  listed as paired.
 - ❌ **First-run / onboarding** and clearer pairing guidance.
 
 ### Out of scope: other platforms

@@ -1,14 +1,18 @@
 import { Layer, ManagedRuntime } from "effect"
 import { Core, CoreLive } from "./core"
 import { LoggingLive } from "./logging"
-import { LocalStorageLive, Preferences, PreferencesLive } from "./preferences"
+import { LocalStorageLive, Preferences, SecurePreferencesLive } from "./preferences"
+import { NativeSecretStoreLive } from "./secrets"
 import { TauriBridgeLive } from "./tauri"
 
 export type AppServices = Core | Preferences
 
+const CoreAppLive = CoreLive.pipe(Layer.provide(TauriBridgeLive))
+
 export const AppLayer: Layer.Layer<AppServices> = Layer.mergeAll(
-  CoreLive.pipe(Layer.provide(TauriBridgeLive)),
-  PreferencesLive.pipe(Layer.provide(LocalStorageLive)),
+  CoreAppLive,
+  // Settings in localStorage; pairing keys and the account ID in the native secret store.
+  SecurePreferencesLive.pipe(Layer.provide(Layer.merge(LocalStorageLive, NativeSecretStoreLive.pipe(Layer.provide(CoreAppLive))))),
   LoggingLive,
 )
 
