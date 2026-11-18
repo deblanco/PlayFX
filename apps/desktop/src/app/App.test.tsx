@@ -875,6 +875,38 @@ describe("streaming", () => {
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
   })
 
+  it("reconnects at once when the Mac's network changes", async () => {
+    const { core } = await startStreaming()
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: /Connecting/ })).not.toBeInTheDocument()
+    })
+    vi.mocked(core.service.startStream).mockClear()
+    act(() => {
+      core.emitStream({ type: "network", online: false }) // offline: nothing to do yet
+    })
+    expect(core.service.startStream).not.toHaveBeenCalled()
+    act(() => {
+      core.emitStream({ type: "network", online: true })
+    })
+    expect(await screen.findByRole("region", { name: "Your network changed. Reconnecting to Living Room" })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it("offers to try again when a stream ends with an error", async () => {
+    const { core } = await startStreaming(fakeCore(), { connected: false })
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Remote Play on Console has crashed", error: true, kind: "final" })
+    })
+    expect(await screen.findByText("Remote Play stopped on the console. Try again in a moment.")).toBeInTheDocument()
+    vi.mocked(core.service.startStream).mockClear()
+    fireEvent.click(screen.getByRole("button", { name: "Try again" })) // (the toast's swipe handling needs pointer capture, which jsdom lacks)
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), undefined)
+    })
+  })
+
   it("can cancel while connecting", async () => {
     const { core } = await startStreaming(fakeCore(), { connected: false })
     const connecting = screen.getByRole("region", { name: "Connecting to Living Room" })

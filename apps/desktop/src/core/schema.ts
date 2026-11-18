@@ -195,6 +195,8 @@ export const StreamEvent = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal("loginPin"), incorrect: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("nickname"), name: Schema.String }),
+  /** The Mac's network changed mid-stream: `online` = on a (different) network again, reconnect now. */
+  Schema.Struct({ type: Schema.Literal("network"), online: Schema.Boolean }),
   /** Connecting over the internet: linking (PSN, up to ~30 s per step) → data → connected. */
   Schema.Struct({ type: Schema.Literal("remoteProgress"), stage: Schema.Literals(["linking", "data", "connected"]) }),
 ])

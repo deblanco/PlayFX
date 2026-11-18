@@ -25,6 +25,8 @@ private func keepAwake(_ on: Bool) {
 private var input: ControllerInput?
 private var rumble: Rumble?
 private var triggers: AdaptiveTriggers?
+/// Watches the Mac's network while a session runs; a change becomes a "network" event for the host.
+private var networkWatch: NetworkWatch?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
 nonisolated(unsafe) private var logCallback: (@convention(c) (Int32, UnsafePointer<CChar>, UnsafePointer<CChar>) -> Void)?
 
@@ -268,6 +270,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         input = i
         rumble = haptics
         triggers = adaptive
+        networkWatch = NetworkWatch { change in emit(networkPayload(change)) }
         // The backdrop keeps moving until the first frame arrives (connecting can take a while).
         keepAwake(true)
         return json(["ok": true])
@@ -284,6 +287,11 @@ func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
     case .nickname(let name): return ["type": "nickname", "name": name]
     case .rumble, .triggerEffects: return nil
     }
+}
+
+/// `online: true` when the Mac is on a (different) network again, so the stream should reconnect.
+func networkPayload(_ change: NetworkWatch.Change) -> [String: Any] {
+    ["type": "network", "online": change == .changed]
 }
 
 @_cdecl("sc_session_stop")
@@ -306,6 +314,7 @@ private func endSession(idle: Bool) {
     rumble = nil
     triggers?.reset()
     triggers = nil
+    networkWatch = nil
     keepAwake(false)
     if idle { renderer?.showsTestPattern = true }
 }

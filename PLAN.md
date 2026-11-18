@@ -70,10 +70,13 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
     controller/PIN/IDR calls are dropped until the session exists; clear errors for "PSN can't reach
     the PS5" and "this network blocks it". The token is fetched natively (Rust, off the main thread) and
     never passes through the web UI. `psrp stream --psn` for CLI testing.
-  - 🔶 4. UI: paired PS5s PSN can reach but that aren't on this network show as "internet" (checked every
-    minute when signed in for internet play); Play connects through PSN, the HUD shows "Reaching your PS5
-    over the internet…" → "Opening the data connection…"; reconnects keep the internet route and allow
-    2 minutes for PSN's setup.
+  - ✅ 4. UI: paired PS5s PSN can reach but that aren't on this network show as "internet" (checked every
+    minute when signed in for internet play); Play connects through PSN with a connecting screen (route
+    map, steps, elapsed time, Cancel); a Connect choice on the home screen (Automatic / Home network /
+    Internet); Automatic falls back to PSN when the home network can't reach or wake the console;
+    reconnects through PSN stop the old session and wait 10 s for the console to release it. Verified in
+    the desktop app on the real PS5 (connects in ~27 s; settings reconnect in 39 s). Still to do: a run
+    from another network (phone hotspot) — needs the user.
   - ✅ Verified on the real account and PS5 (via `psrp stream --psn`, routed through PSN from the home
     network): PSN lists PS5-454; connected in 28 s (UPnP mapping, PSN-side registration, data hole);
     1280×720 with 0 lost frames; controller input reaches the console; cancelling mid-setup exits in
@@ -92,12 +95,15 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   plays once the console is ready; after 45 s it explains the "Stay connected to the internet" rest-mode
   setting. A stream that gets "busy" before it connected (just woken, or right after another session)
   waits it out instead of failing. Verified on the PS5: rest mode → one click → streaming in 11 s.)*
-- 🔶 **Reconnect & resilience.** *(done: StreamCore classifies quits as final / busy / dropped; a connected
+- ✅ **Reconnect & resilience.** *(done: StreamCore classifies quits as final / busy / dropped; a connected
   stream that drops (stream/control connection lost) reconnects on its own — HUD "Connection lost.
   Reconnecting…", last frame held — up to 3 times per session, retrying while the console is busy; final
-  quits (console asleep, version mismatch…) go home with the reason. Not yet: Wi-Fi/network-change
-  detection, a manual "Try again" on the error, and verifying a real drop on hardware — it needs pulling
-  the network for a few seconds, which this session couldn't do without root.)*
+  quits (console asleep, version mismatch…) go home with the reason in plain words and a **Try again**
+  button (same console, same route). **Network changes**: an `NWPathMonitor` runs while a session does;
+  when the Mac comes back online or moves to another interface (Wi-Fi ↔ Ethernet, another Wi-Fi) the app
+  reconnects at once ("Your network changed. Reconnecting…") instead of waiting for the stream to time
+  out; going offline alone does nothing. Not verified on hardware: switching networks mid-stream would cut
+  the remote session used to develop this, so it's unit-tested only.)*
 
 
 ### P1 — Picture quality & full stream configuration (next up)

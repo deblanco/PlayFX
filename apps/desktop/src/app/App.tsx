@@ -93,6 +93,38 @@ export const App = () => {
     [leave, run],
   )
 
+  const play = (console: PairedConsole, psnDuid?: string, psnFallback?: string) => {
+    const starting: Session = {
+      console,
+      started: false,
+      title: console.name,
+      loginPin: Option.none(),
+      startedWith: streamOptions(settings),
+      connected: false,
+      reconnecting: false,
+      autoReconnects: 0,
+      psnDuid,
+      psnFallback: psnDuid === undefined ? psnFallback : undefined,
+      remoteStage: psnDuid === undefined ? undefined : "linking",
+    }
+    setSession(starting)
+    run(actions.play(console, settings, psnDuid), {
+      // A quit that arrived while starting already cleared (or replaced) the session.
+      onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },
+      onFailure: () => { setSession((s) => (s?.console === console ? null : s)); },
+    })
+  }
+
+  /** Back home after a stream ended with an error, offering to play the same console the same way again. */
+  const fail = (failed: Session, error: Option.Option<string>) => {
+    end(Option.none())
+    Option.map(error, (message) =>
+      toast.error(message, {
+        action: { label: "Try again", onClick: () => { play(failed.console, failed.psnDuid, failed.psnFallback) } },
+      }),
+    )
+  }
+
   /** Restarts the stream: to apply new stream settings, or after the connection dropped. */
   const reconnect = (why: Exclude<Reconnecting, false>) => {
     if (!session) return
@@ -117,33 +149,12 @@ export const App = () => {
         },
         onFailure: (error) => {
           reconnectFiber.current = null
-          end(Option.some(error.message))
+          fail(session, Option.some(error.message))
         },
       }),
     )
   }
 
-  const play = (console: PairedConsole, psnDuid?: string, psnFallback?: string) => {
-    const starting: Session = {
-      console,
-      started: false,
-      title: console.name,
-      loginPin: Option.none(),
-      startedWith: streamOptions(settings),
-      connected: false,
-      reconnecting: false,
-      autoReconnects: 0,
-      psnDuid,
-      psnFallback: psnDuid === undefined ? psnFallback : undefined,
-      remoteStage: psnDuid === undefined ? undefined : "linking",
-    }
-    setSession(starting)
-    run(actions.play(console, settings, psnDuid), {
-      // A quit that arrived while starting already cleared (or replaced) the session.
-      onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },
-      onFailure: () => { setSession((s) => (s?.console === console ? null : s)); },
-    })
-  }
 
   // A lost connection reconnects on its own; while reconnecting, quit events belong to the reconnect.
   // An effect event sees the latest session without re-subscribing.
@@ -153,7 +164,7 @@ export const App = () => {
         const next = session ? afterQuit(session, event) : "end"
         if (next === "reconnect") reconnect("dropped")
         else if (next === "retry-start") reconnect("starting")
-        else if (next === "via-internet" && settings.connection !== "auto") end(quitMessage(event))
+        else if (next === "via-internet" && settings.connection !== "auto" && session) fail(session, quitMessage(event))
         else if (next === "via-internet" && session) {
           // Known from the console list, or asked now (Play may have come before that lookup finished).
           const { console, psnFallback } = session
@@ -161,7 +172,7 @@ export const App = () => {
           run(duid, {
             onSuccess: (found) => {
               if (found === undefined) {
-                end(quitMessage(event))
+                fail(session, quitMessage(event))
                 return
               }
               toast.info(`Couldn't reach ${console.name} on this network. Connecting over the internet…`)
@@ -170,6 +181,7 @@ export const App = () => {
             },
           })
         }
+        else if (next === "end" && session) fail(session, quitMessage(event))
         else if (next === "end") end(quitMessage(event))
         break
       }
@@ -178,6 +190,11 @@ export const App = () => {
         break
       case "nickname":
         setSession((s) => s && { ...s, title: event.name })
+        break
+      case "network":
+        // The stream's sockets belong to the old network: reconnect at once rather than waiting for it
+        // to time out. While offline there's nothing to do; the change back online triggers this.
+        if (event.online && session?.started === true && session.reconnecting === false) reconnect("network")
         break
       case "connected":
         setSession((s) => s && { ...s, connected: true, remoteStage: undefined })

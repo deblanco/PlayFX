@@ -179,7 +179,7 @@ export const psnDeviceIds = (
 
 /** Why a stream is being (re)started: new stream settings, a lost connection, or a console that was
  * still busy when the stream first started (e.g. just woken, or just after another session). */
-export type Reconnecting = false | "apply" | "dropped" | "starting"
+export type Reconnecting = false | "apply" | "dropped" | "starting" | "network"
 
 /** How many automatic reconnects in a row (without a stable minute in between) before giving up. */
 export const maxAutoReconnects = 3
@@ -217,6 +217,8 @@ export const describeEvent = (event: StreamEvent): { readonly line: string; read
       return { line: `Over the internet: ${event.stage}`, warn: false }
     case "loginPin":
       return { line: event.incorrect ? "Console asks for its login PIN again (wrong PIN)" : "Console asks for its login PIN", warn: false }
+    case "network":
+      return { line: event.online ? "The Mac's network changed" : "The Mac went offline", warn: !event.online }
     case "nickname":
       return { line: `Console name: ${event.name}`, warn: false }
   }
@@ -324,6 +326,8 @@ export const connectionTitle = (reconnecting: Reconnecting, consoleName: string)
   switch (reconnecting) {
     case "dropped":
       return `Connection lost. Reconnecting to ${consoleName}`
+    case "network":
+      return `Your network changed. Reconnecting to ${consoleName}`
     case "apply":
       return `Reconnecting to ${consoleName} with the new settings`
     case "starting":

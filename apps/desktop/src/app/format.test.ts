@@ -208,6 +208,8 @@ describe("describeEvent", () => {
     expect(describeEvent({ type: "loginPin", incorrect: true }).line).toContain("wrong PIN")
     expect(describeEvent({ type: "loginPin", incorrect: false }).line).toBe("Console asks for its login PIN")
     expect(describeEvent({ type: "nickname", name: "PS5-454" }).line).toBe("Console name: PS5-454")
+    expect(describeEvent({ type: "network", online: true })).toEqual({ line: "The Mac's network changed", warn: false })
+    expect(describeEvent({ type: "network", online: false })).toEqual({ line: "The Mac went offline", warn: true })
   })
 })
 
@@ -307,6 +309,7 @@ describe("connecting screen", () => {
     expect(connectionTitle("dropped", "PS5")).toBe("Connection lost. Reconnecting to PS5")
     expect(connectionTitle("apply", "PS5")).toBe("Reconnecting to PS5 with the new settings")
     expect(connectionTitle("starting", "PS5")).toBe("PS5 is finishing its last session")
+    expect(connectionTitle("network", "PS5")).toBe("Your network changed. Reconnecting to PS5")
   })
 
   it("sets expectations, then says what to check when it's slow", () => {
