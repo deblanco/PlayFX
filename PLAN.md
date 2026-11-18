@@ -210,8 +210,8 @@ Work items:
   the touchpad** (done): hold ⌥ Option over the video and the pointer is a finger (the video's area maps
   to the pad), ⌥-click presses the touchpad; the video is outlined as a glowing pad with the finger dot
   (ripple on press). StreamCore merges this finger and press into whatever the pad or keyboard sends
-  (`sc_session_set_pointer_touch`), one update per animation frame. The overlay was checked live; the
-  console's reaction to the touches is still to be seen in a game that uses the touchpad.)*
+  (`sc_session_set_pointer_touch`), one update per animation frame. **Verified on the PS5**: in
+  Silent Hill 2 an ⌥-click on the video opened the map, as the pad's touchpad button does.)*
 - ✅ **Microphone** (verified on the Mac with the user allowing the prompt: capture starts — 48 kHz mono
   input converted to stereo — the stream stays clean at 60 fps / 0 lost, the amber button and the tag
   after the HUD fades both show, and turning it off stops capture; hearing it on the console needs a
