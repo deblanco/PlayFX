@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect"
-import { SlidersHorizontal } from "lucide-react"
-import { useEffect, useId, useMemo, useState } from "react"
+import { Maximize, Minimize, SlidersHorizontal } from "lucide-react"
+import { useEffect, useEffectEvent, useId, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -14,6 +14,8 @@ import { useFork, useRun, useRuntime } from "./runtime"
 import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
 
 export const hudIdleMs = 2500
+/** The cursor hides over the video after this long without moving (it comes back on any movement). */
+export const cursorIdleMs = 5000
 
 /** True once the mouse has been still for `ms`. */
 const useIdle = (ms: number): boolean => {
@@ -32,6 +34,14 @@ const useIdle = (ms: number): boolean => {
     }
   }, [ms])
   return idle
+}
+
+/** Hides the mouse cursor over the whole window while `hidden` (Tailwind's `cursor-none` on <html>). */
+const useHiddenCursor = (hidden: boolean): void => {
+  useEffect(() => {
+    document.documentElement.classList.toggle("cursor-none", hidden)
+    return () => { document.documentElement.classList.remove("cursor-none") }
+  }, [hidden])
 }
 
 /** Keyboard-as-controller: forwards key state to the console while `enabled`. Mainly for testing
@@ -103,6 +113,23 @@ export const StreamView = ({
   const [stats, setStats] = useState("Connecting…")
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tab, setTab] = useState<SettingsTab>("picture")
+  const [fullscreen, setFullscreen] = useState(false)
+  const cursorIdle = useIdle(cursorIdleMs)
+  useHiddenCursor(cursorIdle && !settingsOpen)
+
+  const toggleFullscreen = () => {
+    run(actions.toggleFullscreen, { onSuccess: setFullscreen })
+  }
+  // Double-clicking the video (not the HUD or the settings) toggles fullscreen, as in video players.
+  const onDoubleClick = useEffectEvent((event: MouseEvent) => {
+    if (event.target instanceof Element && event.target.closest("header, [role=dialog]") !== null) return
+    toggleFullscreen()
+  })
+  useEffect(() => {
+    const listener = (event: MouseEvent) => { onDoubleClick(event) }
+    window.addEventListener("dblclick", listener)
+    return () => { window.removeEventListener("dblclick", listener) }
+  }, [])
 
   useFork(useMemo(() => actions.pollStats(setStats), []))
   // Off while the login-PIN dialog or the settings are open, so typing there isn't read as gameplay.
@@ -149,6 +176,10 @@ export const StreamView = ({
             </dl>
           </div>
         </details>
+        <Button variant="secondary" size="sm" onClick={toggleFullscreen}>
+          {fullscreen ? <Minimize /> : <Maximize />}
+          {fullscreen ? "Exit fullscreen" : "Fullscreen"}
+        </Button>
         <Button
           variant="secondary"
           size="sm"

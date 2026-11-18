@@ -289,6 +289,9 @@ export const stop: Effect.Effect<void, CoreError, Core> = Effect.gen(function* (
   yield* core.stopStream
 })
 
+/** Enters or leaves fullscreen; succeeds with whether the window is now fullscreen. */
+export const toggleFullscreen: Effect.Effect<boolean, CoreError, Core> = Effect.flatMap(Core, (core) => core.toggleFullscreen)
+
 /** Sends a controller state to the console (keyboard-as-controller). */
 export const setController = (state: ControllerState): Effect.Effect<void, CoreError, Core> =>
   Effect.flatMap(Core, (core) => core.setController(state))

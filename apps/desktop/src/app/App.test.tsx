@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { CoreError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
-import { hudIdleMs } from "./StreamView"
+import { cursorIdleMs, hudIdleMs } from "./StreamView"
 import { useRuntime } from "./runtime"
 import { accountId, credentials, fakeCore, pairedPs5, picture, ps5, renderApp, status } from "./testing"
 
@@ -713,6 +713,56 @@ describe("streaming", () => {
     expect(hud).toHaveAttribute("data-idle", "true")
     fireEvent.mouseMove(window)
     expect(hud).toHaveAttribute("data-idle", "false")
+  })
+
+  it("hides the cursor after 5 s without mouse movement, but not while the settings are open", async () => {
+    await startStreaming()
+    const html = document.documentElement
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    fireEvent.mouseMove(window)
+    act(() => {
+      vi.advanceTimersByTime(cursorIdleMs - 1)
+    })
+    expect(html).not.toHaveClass("cursor-none")
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(html).toHaveClass("cursor-none")
+    fireEvent.mouseMove(window) // any movement brings it back
+    expect(html).not.toHaveClass("cursor-none")
+    vi.useRealTimers()
+
+    await userEvent.click(screen.getByRole("button", { name: /Settings/ }))
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    act(() => {
+      vi.advanceTimersByTime(cursorIdleMs * 2)
+    })
+    expect(html).not.toHaveClass("cursor-none")
+  })
+
+  it("toggles fullscreen from the HUD and by double-clicking the video", async () => {
+    const { core } = await startStreaming()
+    await userEvent.click(screen.getByRole("button", { name: "Fullscreen" }))
+    expect(await screen.findByRole("button", { name: "Exit fullscreen" })).toBeInTheDocument()
+    expect(core.state.fullscreen).toBe(true)
+    fireEvent.doubleClick(document.body) // the video area
+    expect(await screen.findByRole("button", { name: "Fullscreen" })).toBeInTheDocument()
+    fireEvent.doubleClick(screen.getByRole("banner")) // the HUD itself: no toggle
+    expect(core.state.fullscreen).toBe(false)
+  })
+
+  it("leaves the cursor visible once the stream view is gone", async () => {
+    await startStreaming()
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    fireEvent.mouseMove(window) // restart the idle timer under fake time
+    act(() => {
+      vi.advanceTimersByTime(cursorIdleMs)
+    })
+    expect(document.documentElement).toHaveClass("cursor-none")
+    vi.useRealTimers()
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
+    expect(document.documentElement).not.toHaveClass("cursor-none")
   })
 })
 

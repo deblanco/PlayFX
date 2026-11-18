@@ -9,6 +9,19 @@ import AppKit
 
 private(set) var renderer: StreamRenderer? // internal for tests
 private(set) var session: StreamSession? // internal for tests
+/// Held while a session runs, so neither the Mac nor its display sleeps mid-game.
+private var awakeActivity: NSObjectProtocol?
+var keepingAwake: Bool { awakeActivity != nil } // for tests
+
+private func keepAwake(_ on: Bool) {
+    if on, awakeActivity == nil {
+        awakeActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleDisplaySleepDisabled], reason: "Streaming from a PlayStation")
+    } else if !on, let activity = awakeActivity {
+        ProcessInfo.processInfo.endActivity(activity)
+        awakeActivity = nil
+    }
+}
 private var input: ControllerInput?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
 
@@ -170,6 +183,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         session = s
         input = i
         renderer?.showsTestPattern = false
+        keepAwake(true)
         return json(["ok": true])
     } catch { return failure(error.localizedDescription) }
 }
@@ -201,6 +215,7 @@ private func endSession(idle: Bool) {
     input = nil
     session?.stop()
     session = nil
+    keepAwake(false)
     if idle { renderer?.showsTestPattern = true }
 }
 

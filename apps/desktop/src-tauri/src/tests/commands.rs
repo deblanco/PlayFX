@@ -141,6 +141,14 @@ fn psn_login_opens_sign_in_window() {
 }
 
 #[test]
+fn toggle_fullscreen_needs_the_main_window() {
+    let app = mock(FakeCore::default().leak());
+    assert_eq!(toggle_fullscreen(app.handle().clone()), Err("no main window".into()));
+    WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().expect("webview");
+    assert!(toggle_fullscreen(app.handle().clone()).is_ok());
+}
+
+#[test]
 fn psn_login_rejects_bad_login_url() {
     let core = FakeCore { login_url: "not a url".into(), ..Default::default() }.leak();
     let err = psn_login(mock(core).handle().clone()).unwrap_err();

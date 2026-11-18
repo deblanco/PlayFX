@@ -204,6 +204,15 @@ describe("CoreLive", () => {
       }).pipe(Effect.provide(fake.layer))
     })
 
+    it.effect("toggleFullscreen decodes the new state", () => {
+      const fake = fakeBridge({ toggle_fullscreen: Effect.succeed(true) })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        expect(yield* core.toggleFullscreen).toBe(true)
+        expect(fake.calls).toEqual([{ command: "toggle_fullscreen", args: undefined }])
+      }).pipe(Effect.provide(fake.layer))
+    })
+
     it.effect("void commands accept any reply and forward their arguments", () => {
       const fake = fakeBridge({
         psn_login: Effect.succeed(null),

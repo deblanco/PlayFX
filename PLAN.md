@@ -178,8 +178,11 @@ Work items:
 - ❌ **Latency & frame pacing**: measure end-to-end latency, tune the audio/video jitter buffers,
   consider a low-latency present path; expose a stats overlay.
 - ❌ **Audio controls**: output-device selection and volume.
-- ❌ **Window UX**: fullscreen toggle, hide cursor during play, and **prevent the Mac from
-  sleeping** while streaming (`IOPMAssertion`/`NSProcessInfo` activity).
+- ✅ **Window UX.** *(done: the Mac and its display stay awake exactly while a session runs (a
+  `ProcessInfo` user activity — `pmset -g assertions` shows "Streaming from a PlayStation"); a Fullscreen
+  HUD button and double-click on the video toggle native fullscreen (Rust `toggle_fullscreen`, reading
+  the window's real state); the cursor auto-hides after 5 s without mouse movement while streaming and
+  comes back on any movement, never while the settings are open. Verified live on the PS5.)*
 - ❌ **Credential storage hardening**: move registration keys from `localStorage` to the macOS
   **Keychain** (and Keychain/Keystore on mobile).
 - ❌ **First-run / onboarding** and clearer pairing guidance.
@@ -244,6 +247,6 @@ Work items:
 2. Reconnect/resilience + clear quit-reason UI. *(P0)*
 3. Remote Play over the internet (hole-punching) — the headline feature. *(P0)*
 4. Rumble + adaptive triggers + touchpad/motion. *(P1)*
-5. Keychain credential storage; sleep-prevention; fullscreen/cursor. *(P2)*
+5. Keychain credential storage. *(P2)* (sleep-prevention, fullscreen and cursor: done)
 6. Packaging + AGPL/licensing + CI. *(P4, before any release)*
 7. iOS (Expo) once Xcode is installed; then Windows/Linux via an FSR path. *(P3)*

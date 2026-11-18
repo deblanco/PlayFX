@@ -143,6 +143,16 @@ fn set_render_params<R: Runtime>(app: AppHandle<R>, params: Value) -> Result<(),
     }
 }
 
+/// Toggles native fullscreen on the main window; replies with the new state. Reads the window's actual
+/// state, so it stays right when the user also uses the green button.
+#[tauri::command(async)]
+fn toggle_fullscreen<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    let window = app.get_webview_window("main").ok_or("no main window")?;
+    let on = !window.is_fullscreen().map_err(|e| e.to_string())?;
+    window.set_fullscreen(on).map_err(|e| e.to_string())?;
+    Ok(on)
+}
+
 #[tauri::command(async)]
 fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     let core = core(&app);
@@ -170,6 +180,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_login_pin,
         set_controller,
         set_render_params,
+        toggle_fullscreen,
         renderer_status
     ])
 }

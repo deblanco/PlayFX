@@ -109,7 +109,9 @@ extension Serial {
             var options = StreamSession.Options()
             options.audio = false
             let request = #"{"credentials":\#(json(fakeCredentials())),"options":\#(json(options))}"#
+            #expect(!keepingAwake)
             #expect(try call(sc_session_start, request)["ok"] as? Bool == true)
+            #expect(keepingAwake) // no sleeping mid-stream
             let stats = try object(sc_session_stats())
             #expect(stats["active"] as? Bool == true && stats["framesDecoded"] as? Int == 0)
             "1234".withCString(sc_session_set_login_pin)
@@ -119,6 +121,7 @@ extension Serial {
             // The quit handler stops the session on the main queue, keeping the last frame up.
             #expect(await waitUntil { (try? object(sc_session_stats())["active"] as? Bool) == false })
             if let r = renderer { #expect(!r.showsTestPattern) }
+            #expect(!keepingAwake) // the session ended
             sc_session_stop() // the host went home: idle pattern back
             if let r = renderer { #expect(r.showsTestPattern) }
 

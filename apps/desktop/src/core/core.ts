@@ -36,6 +36,8 @@ export class Core extends Context.Service<
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
     readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
     readonly setRenderParams: (params: RenderParams) => Effect.Effect<void, CoreError>
+    /** Toggles native fullscreen; succeeds with the new state. */
+    readonly toggleFullscreen: Effect.Effect<boolean, CoreError>
     readonly rendererStatus: Effect.Effect<RendererStatus, CoreError>
     readonly onStreamEvent: (handler: (event: StreamEvent) => void) => Effect.Effect<() => void, CoreError>
     readonly onPsnAccount: (handler: (event: PsnAccountEvent) => void) => Effect.Effect<() => void, CoreError>
@@ -95,6 +97,7 @@ export const CoreLive = Layer.effect(
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
       setRenderParams: (params) =>
         Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
+      toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),
       rendererStatus: call(RendererStatus, "renderer_status"),
       onStreamEvent: subscribe(StreamEvent, "stream-event"),
       onPsnAccount: subscribe(PsnAccountEvent, "psn-account"),
