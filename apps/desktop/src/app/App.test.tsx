@@ -249,6 +249,24 @@ describe("home: paired consoles", () => {
     })
   })
 
+  it("plays through PSN when the local network can't reach the console", async () => {
+    const core = fakeCore()
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    await userEvent.click(await item.findByRole("button", { name: "Play" }))
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.anything(), undefined) // locally first
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+    })
+    expect(await screen.findByText("Couldn't reach Living Room on this network. Connecting over the internet…")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.anything(), "aa")
+    })
+    expect(await screen.findByRole("banner")).toHaveTextContent("Reaching your PS5 over the internet…")
+  })
+
   it("can cancel waking, and reports a wake-up that couldn't be sent", async () => {
     const core = fakeCore()
     core.state.discovered = [{ ...ps5, state: "standby" }]

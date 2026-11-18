@@ -16,7 +16,8 @@ interface HomeProps {
   readonly settings: Settings
   readonly capabilities: Capabilities
   readonly onSettingsChange: (next: Settings) => void
-  readonly onPlay: (console: PairedConsole, psnDuid?: string) => void
+  /** `psnFallback`: playing locally, the console's PSN device ID, if PSN can reach it too. */
+  readonly onPlay: (console: PairedConsole, psnDuid?: string, psnFallback?: string) => void
 }
 
 export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeProps) => {

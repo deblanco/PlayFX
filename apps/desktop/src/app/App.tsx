@@ -30,6 +30,9 @@ interface Session {
   readonly reconnecting: Reconnecting
   /** Set when streaming over the internet: the console's PSN device ID (reused to reconnect). */
   readonly psnDuid: string | undefined
+  /** Playing locally, the console's PSN device ID when it's also on the PSN account: used to go
+   * through PSN instead if the local network can't reach it. */
+  readonly psnFallback: string | undefined
   /** While connecting over the internet, the setup step under way. */
   readonly remoteStage: "linking" | "data" | undefined
   /** Automatic reconnects since the stream was last stable (capped, so a bad link doesn't loop forever). */
@@ -120,6 +123,28 @@ export const App = () => {
     )
   }
 
+  const play = (console: PairedConsole, psnDuid?: string, psnFallback?: string) => {
+    const starting: Session = {
+      console,
+      started: false,
+      title: console.name,
+      loginPin: Option.none(),
+      startedWith: streamOptions(settings),
+      connected: false,
+      reconnecting: false,
+      autoReconnects: 0,
+      psnDuid,
+      psnFallback: psnDuid === undefined ? psnFallback : undefined,
+      remoteStage: psnDuid === undefined ? undefined : "linking",
+    }
+    setSession(starting)
+    run(actions.play(console, settings, psnDuid), {
+      // A quit that arrived while starting already cleared (or replaced) the session.
+      onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },
+      onFailure: () => { setSession((s) => (s?.console === console ? null : s)); },
+    })
+  }
+
   // A lost connection reconnects on its own; while reconnecting, quit events belong to the reconnect.
   // An effect event sees the latest session without re-subscribing.
   const onStreamEvent = useEffectEvent((event: StreamEvent) => {
@@ -128,6 +153,11 @@ export const App = () => {
         const next = session ? afterQuit(session, event) : "end"
         if (next === "reconnect") reconnect("dropped")
         else if (next === "retry-start") reconnect("starting")
+        else if (next === "via-internet" && session) {
+          toast.info(`Couldn't reach ${session.console.name} on this network. Connecting over the internet…`)
+          run(Effect.logWarning(`${session.console.name} unreachable on the local network; trying through PSN`))
+          play(session.console, session.psnFallback)
+        }
         else if (next === "end") end(quitMessage(event))
         break
       }
@@ -156,26 +186,6 @@ export const App = () => {
     }
   }, [runtime])
 
-  const play = (console: PairedConsole, psnDuid?: string) => {
-    const starting: Session = {
-      console,
-      started: false,
-      title: console.name,
-      loginPin: Option.none(),
-      startedWith: streamOptions(settings),
-      connected: false,
-      reconnecting: false,
-      autoReconnects: 0,
-      psnDuid,
-      remoteStage: psnDuid === undefined ? undefined : "linking",
-    }
-    setSession(starting)
-    run(actions.play(console, settings, psnDuid), {
-      // A quit that arrived while starting already cleared (or replaced) the session.
-      onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },
-      onFailure: () => { setSession((s) => (s?.console === console ? null : s)); },
-    })
-  }
 
   const clearLoginPin = useCallback(() => {
     setSession((s) => s && { ...s, loginPin: Option.none() })

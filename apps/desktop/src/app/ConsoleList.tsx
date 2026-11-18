@@ -14,7 +14,8 @@ import { StatusBadge } from "./StatusBadge"
 interface ConsoleListProps {
   readonly accountId: Option.Option<string>
   /** `psnDuid`: connect over the internet to the console with that PSN device ID. */
-  readonly onPlay: (console: PairedConsole, psnDuid?: string) => void
+  /** `psnFallback`: playing locally, the console's PSN device ID, if PSN can reach it too. */
+  readonly onPlay: (console: PairedConsole, psnDuid?: string, psnFallback?: string) => void
 }
 
 export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
@@ -42,7 +43,7 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
       return
     }
     if (row.status !== "standby") {
-      onPlay(console)
+      onPlay(console, undefined, onPsn[row.hostId])
       return
     }
     setWaking(row.hostId)
@@ -51,7 +52,8 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
         onSuccess: (route) => {
           wakeFiber.current = null
           setWaking(null)
-          onPlay(console, route.via === "internet" ? route.psnDuid : undefined)
+          if (route.via === "internet") onPlay(console, route.psnDuid)
+          else onPlay(console, undefined, onPsn[row.hostId])
         },
         onFailure: (error) => {
           wakeFiber.current = null

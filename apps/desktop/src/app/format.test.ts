@@ -159,6 +159,16 @@ describe("psnDeviceIds", () => {
 describe("afterQuit", () => {
   const live = { connected: true, reconnecting: false, autoReconnects: 0 } as const
   const dropped = { type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" } as const
+  it("goes through PSN when the local network can't reach a console that's on the PSN account", () => {
+    const starting = { connected: false, reconnecting: false, autoReconnects: 0 } as const
+    const unreachable = { type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" } as const
+    expect(afterQuit({ ...starting, psnFallback: "aa" }, unreachable)).toBe("via-internet")
+    expect(afterQuit(starting, unreachable)).toBe("end") // not on PSN
+    expect(afterQuit({ ...starting, psnFallback: "aa", psnDuid: "aa" }, unreachable)).toBe("end") // already via PSN
+    expect(afterQuit({ ...live, psnFallback: "aa" }, unreachable)).toBe("end") // it had connected
+    expect(afterQuit({ ...starting, psnFallback: "aa" }, { ...unreachable, reason: "Connection Refused in Session Request" })).toBe("end")
+  })
+
   it("reconnects a connected stream that lost its connection, a few times", () => {
     expect(afterQuit(live, dropped)).toBe("reconnect")
     expect(afterQuit({ ...live, autoReconnects: maxAutoReconnects - 1 }, dropped)).toBe("reconnect")

@@ -145,13 +145,26 @@ export type Reconnecting = false | "apply" | "dropped" | "starting"
 /** How many automatic reconnects in a row (without a stable minute in between) before giving up. */
 export const maxAutoReconnects = 3
 
+/** libchiaki's reason when the console can't be reached on the local network at all. */
+export const unreachableReason = "Unknown Session Request Error"
+
 /** What a quit means for the running stream. */
 export const afterQuit = (
-  session: { readonly connected: boolean; readonly reconnecting: Reconnecting; readonly autoReconnects: number },
+  session: {
+    readonly connected: boolean
+    readonly reconnecting: Reconnecting
+    readonly autoReconnects: number
+    readonly psnDuid?: string | undefined
+    readonly psnFallback?: string | undefined
+  },
   event: Extract<StreamEvent, { type: "quit" }>,
-): "ignore" | "reconnect" | "retry-start" | "end" => {
+): "ignore" | "reconnect" | "retry-start" | "via-internet" | "end" => {
   if (session.reconnecting !== false) return "ignore" // the old session ending, or a busy console: the reconnect handles it
   if (!session.connected && event.kind === "busy") return "retry-start" // still busy for a few seconds: wait it out
+  // Not reachable on this network, but on the PSN account: go through PSN instead.
+  if (!session.connected && session.psnDuid === undefined && session.psnFallback !== undefined && event.reason === unreachableReason) {
+    return "via-internet"
+  }
   if (session.connected && event.kind === "dropped" && session.autoReconnects < maxAutoReconnects) return "reconnect"
   return "end"
 }

@@ -276,6 +276,10 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   broadcast address; and when the PS5 is on the PSN account, Play falls back to connecting through
   PSN (which wakes it — verified with `psrp stream --psn`) if the local wake-up can't be sent or the
   console isn't ready within 20 s. Unit-tested; live deep-rest check skipped for now (user's call).
+- ✅ Play falls back to PSN when the local network can't reach a console that's awake (seen live: the Mac
+  reached the router but every unicast to the PS5 failed with "No route to host" while broadcast
+  discovery still listed it as ready). If the local session request fails that way before connecting
+  and the console is on the PSN account, the app says so and connects over the internet instead.
 - ✅ L4. Settings → Diagnostics: "Detailed logs" (saved; switches native/libchiaki and web UI debug
   entries on, applied at startup and when it changes), "Copy diagnostics" (app and macOS versions,
   renderer capabilities, settings, the last 200 log lines — already scrubbed) and "Open logs folder".
