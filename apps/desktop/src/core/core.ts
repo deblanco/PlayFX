@@ -13,6 +13,7 @@ import {
   type DiscoveredConsole,
   type StreamOptions,
   type RenderParams,
+  PsnConsole,
 } from "./schema"
 import { TauriBridge } from "./tauri"
 
@@ -34,6 +35,8 @@ export class Core extends Context.Service<
     /** Whether the PSN sign-in for internet play is kept (in the Keychain, never in the web UI). */
     readonly psnSignedIn: Effect.Effect<boolean, CoreError>
     readonly psnSignOut: Effect.Effect<void, CoreError>
+    /** The PS5s on the PSN account (for playing over the internet). */
+    readonly psnConsoles: Effect.Effect<readonly PsnConsole[], CoreError>
     readonly startStream: (credentials: Credentials, options: StreamOptions) => Effect.Effect<void, CoreError>
     readonly stopStream: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
@@ -95,6 +98,7 @@ export const CoreLive = Layer.effect(
       psnLogin: Effect.asVoid(call(unit, "psn_login")),
       psnSignedIn: call(Schema.Boolean, "psn_signed_in"),
       psnSignOut: Effect.asVoid(call(unit, "psn_sign_out")),
+      psnConsoles: call(Schema.Array(PsnConsole), "psn_consoles"),
       startStream: (credentials, options) =>
         Effect.asVoid(call(StartReply, "start_stream", { request: { credentials, options } })),
       stopStream: Effect.asVoid(call(unit, "stop_stream")),

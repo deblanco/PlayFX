@@ -1,3 +1,4 @@
+import CChiaki
 import Foundation
 import Security
 
@@ -110,6 +111,42 @@ public final class PSNAccount {
     }
 
     public func signOut() { store.clear() }
+
+    /// The PS5s on this PSN account (blocking network call, up to ~5 s; run off the main thread).
+    public func consoles() async throws -> [PSNConsole] {
+        let token = try await validAccessToken()
+        return try listConsoles(token)
+    }
+
+    /// The shim's device list (tests replace it).
+    var listConsoles: (String) throws -> [PSNConsole] = { token in
+        var out = [PsrpPsnConsole](repeating: PsrpPsnConsole(), count: 16)
+        var error = [CChar](repeating: 0, count: 256)
+        let n = psrp_psn_list_consoles(token, &out, Int32(out.count), &error, error.count)
+        guard n >= 0 else { throw ConsoleError.message("Couldn't list your PSN consoles: \(String(cString: error))") }
+        return out.prefix(Int(n)).map(PSNConsole.init)
+    }
+}
+
+/// A console on the PSN account, as PSN knows it.
+public struct PSNConsole: Codable, Equatable, Sendable {
+    public var name: String
+    /// The console's PSN device ID (hex), used to reach it over the internet.
+    public var duid: String
+    public var remotePlay: Bool
+
+    public init(name: String, duid: String, remotePlay: Bool) {
+        self.name = name
+        self.duid = duid
+        self.remotePlay = remotePlay
+    }
+
+    init(_ c: PsrpPsnConsole) {
+        var c = c
+        name = withUnsafeBytes(of: &c.name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        duid = withUnsafeBytes(of: &c.duid) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        remotePlay = c.remote_play
+    }
 }
 
 public enum PSNError: Error, Equatable, LocalizedError {

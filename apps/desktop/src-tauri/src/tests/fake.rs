@@ -59,6 +59,9 @@ impl NativeCore for FakeCore {
     fn psn_signed_in(&self) -> bool {
         self.psn_signed_in
     }
+    fn psn_consoles(&self) -> String {
+        self.reply.clone()
+    }
     fn psn_sign_out(&self) {
         self.log("psn_sign_out".into());
     }

@@ -9,6 +9,7 @@ import type {
   DiscoveredConsole,
   PairedConsole,
   PsnAccountEvent,
+  PsnConsole,
   RendererStatus,
   RenderParams,
   Settings,
@@ -64,7 +65,7 @@ type CoreService = Core["Service"]
 
 /** A Core whose replies are mutable state, recording calls and letting tests fire events. */
 export const fakeCore = (overrides: Partial<CoreService> = {}) => {
-  const state = { discovered: [ps5] as readonly DiscoveredConsole[], status: status(), fullscreen: false, psnSignedIn: false }
+  const state = { discovered: [ps5] as readonly DiscoveredConsole[], status: status(), fullscreen: false, psnSignedIn: false, psnConsoles: [] as readonly PsnConsole[] }
   const counts = { discover: 0, psnLogin: 0, stopStream: 0 }
   const streamHandlers = new Set<(event: StreamEvent) => void>()
   const psnHandlers = new Set<(event: PsnAccountEvent) => void>()
@@ -79,6 +80,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
       counts.psnLogin++
     }),
     psnSignedIn: Effect.sync(() => state.psnSignedIn),
+    psnConsoles: Effect.sync(() => state.psnConsoles),
     psnSignOut: Effect.sync(() => {
       state.psnSignedIn = false
     }),

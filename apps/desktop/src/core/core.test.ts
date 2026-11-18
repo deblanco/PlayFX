@@ -204,6 +204,15 @@ describe("CoreLive", () => {
       }).pipe(Effect.provide(fake.layer))
     })
 
+    it.effect("psnConsoles decodes the account's consoles", () => {
+      const consoles = [{ name: "PS5-454", duid: "ab", remotePlay: true }]
+      const fake = fakeBridge({ psn_consoles: Effect.succeed(consoles) })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        expect(yield* core.psnConsoles).toEqual(consoles)
+      }).pipe(Effect.provide(fake.layer))
+    })
+
     it.effect("PSN sign-in status and sign-out", () => {
       const fake = fakeBridge({ psn_signed_in: Effect.succeed(true), psn_sign_out: Effect.succeed(null) })
       return Effect.gen(function* () {

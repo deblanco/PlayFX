@@ -415,3 +415,23 @@ describe("wakeUntilReady", () => {
   })
 })
 
+describe("psnReachable", () => {
+  it.effect("finds paired consoles on the PSN account when signed in for internet play", () => {
+    const { core, layer } = setup()
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    return Effect.gen(function* () {
+      expect(yield* actions.psnReachable({ HOST1: pairedPs5 })).toEqual({}) // not signed in: not even asked
+      core.state.psnSignedIn = true
+      expect(yield* actions.psnReachable({ HOST1: pairedPs5 })).toEqual({ HOST1: "aa" })
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("is empty when PSN can't be reached", () => {
+    const core = fakeCore({ psnConsoles: Effect.fail(new CoreError({ command: "psn_consoles", message: "offline" })) })
+    core.state.psnSignedIn = true
+    const { layer } = setup(core)
+    return Effect.gen(function* () {
+      expect(yield* actions.psnReachable({ HOST1: pairedPs5 })).toEqual({})
+    }).pipe(Effect.provide(layer))
+  })
+})

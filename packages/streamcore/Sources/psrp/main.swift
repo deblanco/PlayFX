@@ -12,6 +12,7 @@ import StreamCore
 //   psrp account-id <redirect-url|code>     exchange the sign-in redirect for the account ID (saved)
 //   psrp register --host IP --pin PIN [--account-id B64] [--ps4]   pair; credentials saved
 //   psrp consoles                           list saved consoles
+//   psrp psn-consoles                       list the PS5s on the PSN account (after account-id)
 //   psrp wake [--host IP]
 //   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--port 7777]
 //        control API on http://127.0.0.1:PORT
@@ -126,6 +127,9 @@ func run() throws {
         config.consoles.append(creds)
         try config.save()
         log("Paired with \(creds.nickname) (\(host)); saved to \(Config.url.path)")
+
+    case "psn-consoles": // the PS5s on the signed-in PSN account (internet play)
+        printJSON(try blocking { try await PSNAccount.shared.consoles() })
 
     case "consoles":
         printJSON(config.consoles.map { ["address": $0.address, "nickname": $0.nickname, "ps5": "\($0.ps5)"] })

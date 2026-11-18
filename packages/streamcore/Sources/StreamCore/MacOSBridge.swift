@@ -164,6 +164,22 @@ public func sc_psn_account_id(_ redirect: UnsafePointer<CChar>) -> UnsafeMutable
 @_cdecl("sc_psn_signed_in")
 public func sc_psn_signed_in() -> Bool { PSNAccount.shared.signedIn }
 
+/// Blocking. The PS5s on the PSN account → [{"name","duid","remotePlay"}] or {"error"}.
+@_cdecl("sc_psn_consoles")
+public func sc_psn_consoles() -> UnsafeMutablePointer<CChar> {
+    let done = DispatchSemaphore(value: 0)
+    var result: Result<[PSNConsole], Error> = .failure(ConsoleError.message("PSN didn't answer"))
+    Task.detached {
+        do { result = .success(try await PSNAccount.shared.consoles()) } catch { result = .failure(error) }
+        done.signal()
+    }
+    _ = done.wait(timeout: .now() + 30)
+    switch result {
+    case .success(let consoles): return json(encodable: consoles)
+    case .failure(let e): return failure(e.localizedDescription)
+    }
+}
+
 /// Forgets the PSN tokens.
 @_cdecl("sc_psn_sign_out")
 public func sc_psn_sign_out() { PSNAccount.shared.signOut() }

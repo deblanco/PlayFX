@@ -10,6 +10,7 @@ import {
   megabitsPerSecond,
   mlApplies,
   pipelineStages,
+  psnDeviceIds,
   renderParams,
   hudStats,
   quitMessage,
@@ -128,6 +129,19 @@ describe("upscalerLabel", () => {
   it("names each mode", () => {
     expect(upscalerLabel("none")).toBe("No upscaling")
     expect(upscalerLabel("metalfx")).toBe("MetalFX")
+  })
+})
+
+describe("psnDeviceIds", () => {
+  it("matches paired consoles to PSN's by name, if Remote Play is on", () => {
+    const bedroom = { ...pairedPs5, hostId: "HOST2", name: "Bedroom", credentials: { ...pairedPs5.credentials, nickname: "PS5-777" } }
+    const onPsn = [
+      { name: "Living Room", duid: "aa", remotePlay: true },
+      { name: "PS5-777", duid: "bb", remotePlay: true }, // matched by the console's own nickname
+      { name: "Office", duid: "cc", remotePlay: true },
+    ]
+    expect(psnDeviceIds({ HOST1: pairedPs5, HOST2: bedroom }, onPsn)).toEqual({ HOST1: "aa", HOST2: "bb" })
+    expect(psnDeviceIds({ HOST1: pairedPs5 }, [{ name: "Living Room", duid: "aa", remotePlay: false }])).toEqual({})
   })
 })
 

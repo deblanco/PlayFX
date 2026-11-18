@@ -3,6 +3,7 @@ import {
   type DiscoveredConsole,
   type PairedConsole,
   type PairedConsoles,
+  type PsnConsole,
   type RenderParams,
   type RendererStatus,
   type Settings,
@@ -113,6 +114,19 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
     .filter((part) => part !== undefined)
     .join(" · ")
 }
+
+/** The PSN device ID of each paired console PSN knows (with Remote Play on), matched by name as
+ * chiaki-ng does: hostId → duid. */
+export const psnDeviceIds = (
+  paired: PairedConsoles,
+  onPsn: readonly PsnConsole[],
+): Readonly<Record<string, string>> =>
+  Object.fromEntries(
+    Object.values(paired).flatMap((console) => {
+      const match = onPsn.find((c) => c.remotePlay && (c.name === console.name || c.name === console.credentials.nickname))
+      return match ? [[console.hostId, match.duid]] : []
+    }),
+  )
 
 /** Why a stream is being (re)started: new stream settings, a lost connection, or a console that was
  * still busy when the stream first started (e.g. just woken, or just after another session). */

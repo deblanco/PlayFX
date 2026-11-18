@@ -159,6 +159,11 @@ fn psn_signed_in<R: Runtime>(app: AppHandle<R>) -> bool {
 }
 
 #[tauri::command(async)]
+fn psn_consoles<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    reply(&core(&app).psn_consoles())
+}
+
+#[tauri::command(async)]
 fn psn_sign_out<R: Runtime>(app: AppHandle<R>) {
     core(&app).psn_sign_out();
 }
@@ -192,6 +197,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_render_params,
         toggle_fullscreen,
         psn_signed_in,
+        psn_consoles,
         psn_sign_out,
         renderer_status
     ])

@@ -37,6 +37,8 @@ pub trait NativeCore: Send + Sync {
     /// Whether PSN tokens are kept for playing over the internet (Keychain).
     fn psn_signed_in(&self) -> bool;
     fn psn_sign_out(&self);
+    /// Blocking: the PS5s on the PSN account, as JSON (or {"error"}).
+    fn psn_consoles(&self) -> String;
     // main thread
     fn session_start(&self, request: &str) -> String;
     fn session_stop(&self);

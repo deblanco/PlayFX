@@ -140,6 +140,15 @@ export type ControllerState = typeof ControllerState.Type
 
 export const idleController: ControllerState = { buttons: 0, l2: 0, r2: 0, leftX: 0, leftY: 0, rightX: 0, rightY: 0 }
 
+/** A console on the PSN account (internet play; PS5 only). */
+export const PsnConsole = Schema.Struct({
+  name: Schema.String,
+  /** The console's PSN device ID (hex). */
+  duid: Schema.String,
+  remotePlay: Schema.Boolean,
+})
+export type PsnConsole = typeof PsnConsole.Type
+
 export const StreamOptions = Schema.Struct({
   height: Schema.Number,
   fps: Schema.Number,

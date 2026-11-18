@@ -3,6 +3,7 @@
 #include <chiaki/discoveryservice.h>
 #include <chiaki/opusdecoder.h>
 #include <chiaki/regist.h>
+#include <chiaki/remote/holepunch.h>
 #include <chiaki/orientation.h>
 #include <chiaki/session.h>
 
@@ -120,6 +121,26 @@ static size_t broadcast_addresses(struct sockaddr_storage *out, size_t max) {
         n++;
     }
     freeifaddrs(ifs);
+    return n;
+}
+
+int psrp_psn_list_consoles(const char *oauth_token, PsrpPsnConsole *out, int max, char *error, size_t error_size) {
+    ensure_init();
+    ChiakiHolepunchDeviceInfo *devices = NULL;
+    size_t count = 0;
+    ChiakiErrorCode err = chiaki_holepunch_list_devices(oauth_token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &devices, &count, &g_log);
+    if (err != CHIAKI_ERR_SUCCESS) {
+        copy_str(error, error_size, chiaki_error_string(err));
+        return -1;
+    }
+    int n = 0;
+    for (size_t i = 0; i < count && n < max; i++, n++) {
+        memset(&out[n], 0, sizeof(out[n]));
+        copy_str(out[n].name, sizeof(out[n].name), devices[i].device_name);
+        for (int b = 0; b < 32; b++) snprintf(out[n].duid + 2 * b, 3, "%02x", devices[i].device_uid[b]);
+        out[n].remote_play = devices[i].remoteplay_enabled;
+    }
+    chiaki_holepunch_free_device_list(&devices);
     return n;
 }
 

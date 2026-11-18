@@ -1,3 +1,4 @@
+import CChiaki
 import Foundation
 import Testing
 @testable import StreamCore
@@ -82,6 +83,34 @@ extension Serial {
             await #expect(throws: PSNError.notSignedIn) { try await account.validAccessToken() }
             #expect(PSNError.notSignedIn.errorDescription?.contains("Sign in") == true)
             #expect(PSNError.signInExpired.errorDescription?.contains("expired") == true)
+        }
+
+        @Test func listsConsolesWithAValidToken() async throws {
+            let (account, _) = account(PSNTokens(accessToken: "a", refreshToken: "r", expiresAt: start.addingTimeInterval(600)))
+            var usedToken: String?
+            account.listConsoles = { token in
+                usedToken = token
+                return [PSNConsole(name: "PS5-454", duid: String(repeating: "ab", count: 32), remotePlay: true)]
+            }
+            let consoles = try await account.consoles()
+            #expect(usedToken == "a" && consoles.map(\.name) == ["PS5-454"])
+            account.listConsoles = { _ in throw ConsoleError.message("Couldn't list your PSN consoles: Unknown") }
+            await #expect(throws: ConsoleError.message("Couldn't list your PSN consoles: Unknown")) { try await account.consoles() }
+            let (signedOut, _) = self.account()
+            await #expect(throws: PSNError.notSignedIn) { try await signedOut.consoles() }
+        }
+
+        @Test func readsTheShimsConsoleRecord() {
+            var c = PsrpPsnConsole()
+            func write(_ text: String, into field: inout some Any) {
+                withUnsafeMutableBytes(of: &field) { dst in
+                    text.utf8CString.withUnsafeBytes { src in dst.copyMemory(from: src) }
+                }
+            }
+            write("PS5-454", into: &c.name)
+            write("ab12", into: &c.duid)
+            c.remote_play = true
+            #expect(PSNConsole(c) == PSNConsole(name: "PS5-454", duid: "ab12", remotePlay: true))
         }
 
         @Test func keychainRoundTrip() throws {

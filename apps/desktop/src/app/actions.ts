@@ -12,7 +12,16 @@ import {
   type Settings,
   type StreamEvent,
 } from "@/core/schema"
-import { framesPerSecond, hudStats, megabitsPerSecond, renderParams, streamOptions, type Capabilities, type FrameSample } from "./format"
+import {
+  framesPerSecond,
+  hudStats,
+  megabitsPerSecond,
+  psnDeviceIds,
+  renderParams,
+  streamOptions,
+  type Capabilities,
+  type FrameSample,
+} from "./format"
 
 // Every side effect the UI triggers lives here, as an Effect over the Core and Preferences services.
 
@@ -61,6 +70,15 @@ export const signOut: Effect.Effect<void, StorageError | CoreError, Preferences 
   yield* prefs.setAccountId(Option.none())
   yield* core.psnSignOut
 })
+
+/** The PSN device IDs of the paired consoles PSN can reach (hostId → duid); empty when not signed in
+ * for internet play, or when PSN can't be reached. */
+export const psnReachable = (paired: PairedConsoles): Effect.Effect<Readonly<Record<string, string>>, never, Core> =>
+  Effect.gen(function* () {
+    const core = yield* Core
+    if (!(yield* core.psnSignedIn)) return {}
+    return psnDeviceIds(paired, yield* core.psnConsoles)
+  }).pipe(Effect.orElseSucceed(() => ({})))
 
 /** Whether consoles can be reached over the internet (a PSN sign-in is kept). */
 export const internetReady: Effect.Effect<boolean, CoreError, Core> = Effect.flatMap(Core, (core) => core.psnSignedIn)

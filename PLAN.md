@@ -60,7 +60,9 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   console's PSN device ID, and runs the blocking setup (≤30 s per step) off the main thread.
   - ✅ 1. PSN tokens: sign-in carries a fresh `duid`; access + refresh tokens kept in the Keychain (never
     the web UI), refreshed a minute before expiry, cleared on a rejected refresh or sign-out.
-  - ❌ 2. Find the console via PSN (`chiaki_holepunch_list_devices`), matched to paired consoles by name.
+  - ✅ 2. Find the console via PSN: `psrp_psn_list_consoles` (libchiaki's device list, PS5) → name, PSN
+    device ID, Remote Play on; matched to paired consoles by name or the console's nickname, as chiaki-ng
+    does; `psrp psn-consoles` for checking from the CLI. (Real account check pending the user's sign-in.)
   - ❌ 3. Connect over the internet: holepunch setup on a worker thread, progress events, cancel, errors.
   - ❌ 4. UI + verification from another network (e.g. phone hotspot).
 - ✅ **Auto-wake on Play.** *(done: Play is enabled for consoles in rest mode — it sends the wake-up,

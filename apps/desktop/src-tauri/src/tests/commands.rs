@@ -150,6 +150,12 @@ fn psn_tokens_status_and_sign_out() {
 }
 
 #[test]
+fn psn_consoles_replies_or_maps_errors() {
+    assert_eq!(psn_consoles(mock(ok_reply()).handle().clone()), Ok(json!({"ok": true})));
+    assert_eq!(psn_consoles(mock(err_reply()).handle().clone()), Err("nope".into()));
+}
+
+#[test]
 fn toggle_fullscreen_needs_the_main_window() {
     let app = mock(FakeCore::default().leak());
     assert_eq!(toggle_fullscreen(app.handle().clone()), Err("no main window".into()));

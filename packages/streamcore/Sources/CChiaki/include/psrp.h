@@ -47,6 +47,20 @@ int psrp_discover(const char *host, int timeout_ms, PsrpHost *out, int max);
 bool psrp_wakeup(const char *host, const char regist_key[PSRP_REGIST_KEY_SIZE], bool ps5);
 
 // ---------------------------------------------------------------------------------------------
+// Consoles on the PSN account (for playing over the internet; PS5 only)
+// ---------------------------------------------------------------------------------------------
+
+typedef struct {
+    char name[32];
+    char duid[65];      // the console's PSN device ID, 32 bytes as lowercase hex
+    bool remote_play;   // Remote Play enabled on the console
+} PsrpPsnConsole;
+
+/// Blocking (up to ~5 s). Lists the PS5s on the PSN account behind `oauth_token`. Returns the number
+/// written to `out` (<= max), or -1 with a message in `error`.
+int psrp_psn_list_consoles(const char *oauth_token, PsrpPsnConsole *out, int max, char *error, size_t error_size);
+
+// ---------------------------------------------------------------------------------------------
 // Registration (pairing with the 8-digit PIN from Settings > System > Remote Play > Pair Device)
 // ---------------------------------------------------------------------------------------------
 
