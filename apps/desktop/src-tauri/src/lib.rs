@@ -5,7 +5,7 @@ mod native;
 mod tests;
 
 use native::{
-    controller_state, is_psn_redirect, psn_account, native_level, renderer_status_json, reply, with_psn_token, CoreHandle, RendererState,
+    controller_state, is_psn_redirect, psn_account, native_level, renderer_status_json, reply, tail_lines, with_psn_token, CoreHandle, RendererState,
     NativeCore,
 };
 use serde_json::Value;
@@ -208,6 +208,39 @@ fn psn_sign_out<R: Runtime>(app: AppHandle<R>) {
 }
 
 #[tauri::command(async)]
+fn set_detailed_logs<R: Runtime>(app: AppHandle<R>, on: bool) {
+    log::info!("Detailed logs {}", if on { "on" } else { "off" });
+    core(&app).set_detailed_logs(on);
+}
+
+/// Shows the folder with the app's log file in Finder.
+#[tauri::command(async)]
+fn open_logs_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let dir = app.path().app_log_dir().map_err(error_text)?;
+    std::fs::create_dir_all(&dir).map_err(error_text)?;
+    std::process::Command::new("open").arg(&dir).spawn().map_err(error_text)?;
+    Ok(())
+}
+
+/// For bug reports: versions and the end of the log file (already scrubbed of credentials).
+#[tauri::command(async)]
+fn diagnostics<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    let dir = app.path().app_log_dir().map_err(error_text)?;
+    let log = std::fs::read_to_string(dir.join("ps-remote-play.log")).unwrap_or_default();
+    let os = std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    Ok(serde_json::json!({
+        "appVersion": app.package_info().version.to_string(),
+        "os": format!("macOS {os}"),
+        "logFolder": dir.display().to_string(),
+        "recentLog": tail_lines(&log, 200),
+    }))
+}
+
+#[tauri::command(async)]
 fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     let core = core(&app);
     let (state, stats) = on_main(&app, move || {
@@ -238,6 +271,9 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         psn_signed_in,
         psn_consoles,
         psn_sign_out,
+        set_detailed_logs,
+        open_logs_folder,
+        diagnostics,
         renderer_status
     ])
 }

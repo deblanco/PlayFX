@@ -23,6 +23,7 @@ unsafe extern "C" {
     // any thread (blocking ones must stay off the main thread)
     pub fn sc_set_event_callback(cb: Option<extern "C" fn(*const c_char)>);
     pub fn sc_set_log_callback(cb: Option<extern "C" fn(i32, *const c_char, *const c_char)>, detailed: bool);
+    pub fn sc_set_log_detailed(detailed: bool);
     pub fn sc_discover(timeout_ms: i32) -> *mut c_char;
     pub fn sc_register(request: *const c_char) -> *mut c_char;
     pub fn sc_wakeup(credentials: *const c_char) -> bool;
@@ -77,6 +78,9 @@ impl NativeCore for MacCore {
     }
     fn psn_account_id(&self, redirect: &str) -> String {
         take(unsafe { sc_psn_account_id(cstr(redirect).as_ptr()) })
+    }
+    fn set_detailed_logs(&self, on: bool) {
+        unsafe { sc_set_log_detailed(on) }
     }
     fn psn_signed_in(&self) -> bool {
         unsafe { sc_psn_signed_in() }

@@ -260,7 +260,7 @@ Work items:
 
 ---
 
-### Logging & diagnostics (in progress, requested)
+### Logging & diagnostics (done, requested)
 
 For users and us to debug: one scrubbed log across native, Rust and the web UI, and a diagnostics export.
 - ✅ L1. Native logger (`Log`): levels (debug/info/warning/error) and areas (session, psn, console,
@@ -284,7 +284,10 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 - 🐞 Found via the logs: waking a PS5 in deeper rest fails with "No route to host" — the unicast wake
   packet to its address can't be sent (no ARP answer) while broadcast discovery still sees it in
   standby. Candidate fix: also send the wake packet to the broadcast address.
-- ❌ L4. Settings → Diagnostics: "Detailed logs", "Open logs folder", "Copy diagnostics".
+- ✅ L4. Settings → Diagnostics: "Detailed logs" (saved; switches native/libchiaki and web UI debug
+  entries on, applied at startup and when it changes), "Copy diagnostics" (app and macOS versions,
+  renderer capabilities, settings, the last 200 log lines — already scrubbed) and "Open logs folder".
+  Live click-through pending (the screen was locked).
 - Development builds keep the PSN sign-in in a 0600 JSON file (`~/.config/psrp/psn-tokens.json`, or
   `$PSRP_TOKEN_FILE`) instead of the Keychain, which would prompt after every rebuild of an unsigned
   build — unanswerable when developing remotely. Release builds use the Keychain.

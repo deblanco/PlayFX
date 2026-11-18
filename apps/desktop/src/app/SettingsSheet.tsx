@@ -1,4 +1,4 @@
-import { ChevronRight, RotateCcw } from "lucide-react"
+import { ChevronRight, ClipboardCopy, FolderOpen, RotateCcw } from "lucide-react"
 import { useId, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -8,7 +8,9 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { bitrates, defaultSettings, type Settings } from "@/core/schema"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import * as actions from "./actions"
 import {
   bitrateLabel,
   pipelineStages,
@@ -19,8 +21,15 @@ import {
   type Stage,
   type StageId,
 } from "./format"
+import { useRun } from "./runtime"
 
-export type SettingsTab = "picture" | "stream"
+export type SettingsTab = "picture" | "stream" | "diagnostics"
+
+const tabHints: Readonly<Record<SettingsTab, string>> = {
+  picture: "Changes show on the video right away.",
+  stream: "Changes apply the next time you connect.",
+  diagnostics: "For tracking down problems and reporting bugs.",
+}
 
 /** Shown while streaming: stream settings only take effect on a new connection. */
 export interface ReconnectState {
@@ -76,17 +85,18 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
         <SheetHeader className="px-5 pt-5 pb-3">
           <SheetTitle>Settings</SheetTitle>
           <SheetDescription>
-            {props.tab === "picture" ? "Changes show on the video right away." : "Changes apply the next time you connect."}
+            {tabHints[props.tab]}
           </SheetDescription>
         </SheetHeader>
         <Tabs
           value={props.tab}
-          onValueChange={(tab) => { props.onTabChange(tab === "stream" ? "stream" : "picture") }}
+          onValueChange={(tab) => { props.onTabChange(tab === "stream" || tab === "diagnostics" ? tab : "picture") }}
           className="gap-0"
         >
-          <TabsList className="mx-5 grid grid-cols-2">
+          <TabsList className="mx-5 grid grid-cols-3">
             <TabsTrigger value="picture">Picture</TabsTrigger>
             <TabsTrigger value="stream">Stream</TabsTrigger>
+            <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
           </TabsList>
           <TabsContent value="picture" className="flex flex-col gap-5 px-5 pt-5 pb-6">
             <PicturePanel settings={settings} capabilities={props.capabilities} set={set} live={props.reconnect !== undefined} />
@@ -100,6 +110,9 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, streamKeys)) }}>
               <RotateCcw /> Reset stream
             </Button>
+          </TabsContent>
+          <TabsContent value="diagnostics" className="flex flex-col gap-5 px-5 pt-5 pb-6">
+            <DiagnosticsPanel settings={settings} set={set} />
           </TabsContent>
         </Tabs>
       </SheetContent>
@@ -321,6 +334,41 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
         onCheckedChange={(on) => { set("autoDowngrade", on) }}
       />
       <SwitchRow label="Sound" checked={settings.audio} onCheckedChange={(on) => { set("audio", on) }} />
+    </>
+  )
+}
+
+// ---------- Diagnostics ----------
+
+const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; readonly set: Set }) => {
+  const run = useRun()
+  return (
+    <>
+      <SwitchRow
+        label="Detailed logs"
+        description="Records much more about connections and the picture. Turn it off once the problem is found."
+        checked={settings.detailedLogs}
+        onCheckedChange={(on) => { set("detailedLogs", on) }}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            run(actions.copyDiagnostics(settings), {
+              onSuccess: () => { toast.success("Diagnostics copied. Paste them into your bug report.") },
+            })
+          }}
+        >
+          <ClipboardCopy /> Copy diagnostics
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => { run(actions.openLogsFolder) }}>
+          <FolderOpen /> Open logs folder
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Logs never contain your PlayStation sign-in, pairing keys or account ID.
+      </p>
     </>
   )
 }

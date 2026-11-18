@@ -1,9 +1,12 @@
 import { Clock, Deferred, Effect, Option, Ref, Schedule, Schema } from "effect"
 import { Core } from "@/core/core"
+import { detailedLogs, setDetailedLogs } from "@/core/logging"
 import { ValidationError, type CoreError, type StorageError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
 import {
   isAccountId,
+  type Diagnostics,
+  type RendererStatus,
   type DiscoveredConsole,
   type ControllerState,
   type PairedConsole,
@@ -220,6 +223,47 @@ export interface Startup {
   readonly capabilities: Capabilities
 }
 
+/** Switches detailed logs (native and web UI) when the setting differs from what's applied. */
+const applyDetailedLogs = (on: boolean): Effect.Effect<void, CoreError, Core> =>
+  Effect.gen(function* () {
+    if ((yield* detailedLogs) === on) return
+    const core = yield* Core
+    yield* core.setDetailedLogs(on)
+    yield* setDetailedLogs(on)
+  })
+
+/** Copying to the clipboard failed. */
+export class ClipboardFailed extends Schema.TaggedError<ClipboardFailed>()("ClipboardFailed", {
+  message: Schema.String,
+}) {}
+
+/** A bug-report text: versions, what the renderer supports, the settings (nothing secret in them), and
+ * the end of the log file (already scrubbed of credentials). */
+export const diagnosticsReport = (d: Diagnostics, status: RendererStatus, settings: Settings): string =>
+  [
+    `PS Remote Play ${d.appVersion} on ${d.os}`,
+    `Renderer: MetalFX ${status.metalfxSupported ? "yes" : "no"}, ML super-resolution ${status.mlSupported ? "yes" : "no"}`,
+    `Settings: ${JSON.stringify(settings)}`,
+    `Log folder: ${d.logFolder}`,
+    "",
+    "Recent log:",
+    d.recentLog,
+  ].join("\n")
+
+/** Puts a diagnostics report on the clipboard, for bug reports. */
+export const copyDiagnostics = (settings: Settings): Effect.Effect<void, CoreError | ClipboardFailed, Core> =>
+  Effect.gen(function* () {
+    const core = yield* Core
+    const report = diagnosticsReport(yield* core.diagnostics, yield* core.rendererStatus, settings)
+    yield* Effect.tryPromise({
+      try: () => navigator.clipboard.writeText(report),
+      catch: () => new ClipboardFailed({ message: "Couldn't copy the diagnostics to the clipboard" }),
+    })
+    yield* Effect.logInfo("Diagnostics copied")
+  })
+
+export const openLogsFolder: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openLogsFolder)
+
 /** Loads saved settings and applies the saved picture settings to the renderer. */
 export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Preferences> = Effect.gen(function* () {
   const core = yield* Core
@@ -227,6 +271,7 @@ export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Pr
   const settings = yield* prefs.settings
   const status = yield* core.rendererStatus
   yield* core.setRenderParams(renderParams(settings))
+  yield* applyDetailedLogs(settings.detailedLogs)
   return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported } }
 })
 
@@ -237,6 +282,7 @@ export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreErro
     const core = yield* Core
     const prefs = yield* Preferences
     yield* prefs.saveSettings(next)
+    yield* applyDetailedLogs(next.detailedLogs)
     yield* Effect.logDebug(`Settings: ${JSON.stringify(next)}`)
     yield* core.setRenderParams(renderParams(next))
     return next

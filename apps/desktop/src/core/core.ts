@@ -14,6 +14,7 @@ import {
   type StreamOptions,
   type RenderParams,
   PsnConsole,
+  Diagnostics,
 } from "./schema"
 import { TauriBridge } from "./tauri"
 
@@ -47,6 +48,9 @@ export class Core extends Context.Service<
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
     readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
     readonly setRenderParams: (params: RenderParams) => Effect.Effect<void, CoreError>
+    readonly setDetailedLogs: (on: boolean) => Effect.Effect<void, CoreError>
+    readonly openLogsFolder: Effect.Effect<void, CoreError>
+    readonly diagnostics: Effect.Effect<Diagnostics, CoreError>
     /** Toggles native fullscreen; succeeds with the new state. */
     readonly toggleFullscreen: Effect.Effect<boolean, CoreError>
     readonly rendererStatus: Effect.Effect<RendererStatus, CoreError>
@@ -116,6 +120,9 @@ export const CoreLive = Layer.effect(
       setRenderParams: (params) =>
         Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
       toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),
+      setDetailedLogs: (on) => Effect.asVoid(call(unit, "set_detailed_logs", { on })),
+      openLogsFolder: Effect.asVoid(call(unit, "open_logs_folder")),
+      diagnostics: call(Diagnostics, "diagnostics"),
       rendererStatus: call(RendererStatus, "renderer_status"),
       onStreamEvent: subscribe(StreamEvent, "stream-event"),
       onPsnAccount: subscribe(PsnAccountEvent, "psn-account"),

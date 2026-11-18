@@ -58,6 +58,9 @@ impl NativeCore for FakeCore {
         self.log(format!("psn_account_id {redirect}"));
         self.reply.clone()
     }
+    fn set_detailed_logs(&self, on: bool) {
+        self.log(format!("set_detailed_logs {on}"));
+    }
     fn psn_signed_in(&self) -> bool {
         self.psn_signed_in
     }

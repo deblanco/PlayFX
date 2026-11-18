@@ -156,6 +156,18 @@ fn psn_consoles_replies_or_maps_errors() {
 }
 
 #[test]
+fn diagnostics_and_detailed_logs() {
+    let core = FakeCore::default().leak();
+    let app = mock(core);
+    set_detailed_logs(app.handle().clone(), true);
+    assert_eq!(core.calls(), ["set_detailed_logs true"]);
+    let report = diagnostics(app.handle().clone()).expect("diagnostics");
+    assert!(report["os"].as_str().is_some_and(|os| os.starts_with("macOS")));
+    assert!(report["logFolder"].as_str().is_some_and(|dir| !dir.is_empty()));
+    assert!(report["recentLog"].is_string());
+}
+
+#[test]
 fn toggle_fullscreen_needs_the_main_window() {
     let app = mock(FakeCore::default().leak());
     assert_eq!(toggle_fullscreen(app.handle().clone()), Err("no main window".into()));

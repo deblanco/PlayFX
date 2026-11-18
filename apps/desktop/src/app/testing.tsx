@@ -66,7 +66,7 @@ type CoreService = Core["Service"]
 /** A Core whose replies are mutable state, recording calls and letting tests fire events. */
 export const fakeCore = (overrides: Partial<CoreService> = {}) => {
   const state = { discovered: [ps5] as readonly DiscoveredConsole[], status: status(), fullscreen: false, psnSignedIn: false, psnConsoles: [] as readonly PsnConsole[] }
-  const counts = { discover: 0, psnLogin: 0, stopStream: 0 }
+  const counts = { discover: 0, psnLogin: 0, stopStream: 0, openLogsFolder: 0 }
   const streamHandlers = new Set<(event: StreamEvent) => void>()
   const psnHandlers = new Set<(event: PsnAccountEvent) => void>()
   const service: CoreService = {
@@ -91,6 +91,16 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     setLoginPin: vi.fn<CoreService["setLoginPin"]>(() => Effect.void),
     setController: vi.fn<CoreService["setController"]>(() => Effect.void),
     setRenderParams: vi.fn<CoreService["setRenderParams"]>(() => Effect.void),
+    setDetailedLogs: vi.fn<CoreService["setDetailedLogs"]>(() => Effect.void),
+    openLogsFolder: Effect.sync(() => {
+      counts.openLogsFolder++
+    }),
+    diagnostics: Effect.sync(() => ({
+      appVersion: "0.1.0",
+      os: "macOS 27.2",
+      logFolder: "/Users/me/Library/Logs/dev.psremoteplay.desktop",
+      recentLog: "[INFO] Stream connected",
+    })),
     toggleFullscreen: Effect.sync(() => {
       state.fullscreen = !state.fullscreen
       return state.fullscreen

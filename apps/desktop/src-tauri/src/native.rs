@@ -34,6 +34,8 @@ pub trait NativeCore: Send + Sync {
     fn psn_login_url(&self) -> String;
     fn psn_redirect_url(&self) -> String;
     fn psn_account_id(&self, redirect: &str) -> String;
+    /// Detailed (debug) native logs, including libchiaki's verbose ones.
+    fn set_detailed_logs(&self, on: bool);
     /// Whether PSN tokens are kept for playing over the internet (Keychain).
     fn psn_signed_in(&self) -> bool;
     fn psn_sign_out(&self);
@@ -79,6 +81,12 @@ pub fn native_level(level: i32) -> log::Level {
         2 => log::Level::Warn,
         _ => log::Level::Error,
     }
+}
+
+/// The last `count` lines of a log file's text.
+pub fn tail_lines(text: &str, count: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(count)..].join("\n")
 }
 
 /// Turns a StreamCore JSON reply into Ok(value) / Err(message).

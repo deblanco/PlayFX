@@ -229,6 +229,22 @@ describe("CoreLive", () => {
       }).pipe(Effect.provide(fake.layer))
     })
 
+    it.effect("diagnostics commands", () => {
+      const report = { appVersion: "0.1.0", os: "macOS 27.2", logFolder: "/logs", recentLog: "" }
+      const fake = fakeBridge({
+        set_detailed_logs: Effect.succeed(null),
+        open_logs_folder: Effect.succeed(null),
+        diagnostics: Effect.succeed(report),
+      })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        yield* core.setDetailedLogs(true)
+        yield* core.openLogsFolder
+        expect(yield* core.diagnostics).toEqual(report)
+        expect(fake.calls[0]).toEqual({ command: "set_detailed_logs", args: { on: true } })
+      }).pipe(Effect.provide(fake.layer))
+    })
+
     it.effect("toggleFullscreen decodes the new state", () => {
       const fake = fakeBridge({ toggle_fullscreen: Effect.succeed(true) })
       return Effect.gen(function* () {

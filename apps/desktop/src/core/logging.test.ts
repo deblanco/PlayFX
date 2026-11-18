@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Cause, Effect, Logger, type LogLevel } from "effect"
 import { vi } from "vitest"
-import { formatEntry, LoggingLive, makeLogger } from "./logging"
+import { detailedLogs, formatEntry, LoggingLive, makeLogger, setDetailedLogs } from "./logging"
 
 const plugin = vi.hoisted(() => ({
   info: vi.fn(() => Promise.resolve()),
@@ -34,6 +34,21 @@ describe("logging", () => {
       ])
     }).pipe(Effect.provide(Logger.layer([makeLogger((level, line) => lines.push([level, line]))])))
   })
+
+  it.effect("keeps debug lines only while detailed logs are on", () =>
+    Effect.gen(function* () {
+      plugin.debug.mockClear()
+      yield* Effect.logDebug("quiet")
+      yield* Effect.yieldNow
+      expect(plugin.debug).not.toHaveBeenCalled()
+      yield* setDetailedLogs(true)
+      expect(yield* detailedLogs).toBe(true)
+      yield* Effect.logDebug("now kept")
+      yield* Effect.yieldNow
+      expect(plugin.debug).toHaveBeenCalledWith("now kept")
+      yield* setDetailedLogs(false)
+    }).pipe(Effect.provide(LoggingLive)),
+  )
 
   it.effect("sends entries to the app's log file by level", () =>
     Effect.gen(function* () {

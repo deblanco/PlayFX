@@ -103,6 +103,8 @@ export const Settings = Schema.Struct({
   colorRange: since(ColorRange, "auto"),
   chroma: since(ChromaFilter, "bicubic"),
   accurateColor: since(Schema.Boolean, true),
+  /** Debug entries in the log file (native, libchiaki and web UI), for tracking down problems. */
+  detailedLogs: since(Schema.Boolean, false),
 })
 export type Settings = typeof Settings.Type
 
@@ -123,6 +125,7 @@ export const defaultSettings: Settings = {
   colorRange: "auto",
   chroma: "bicubic",
   accurateColor: true,
+  detailedLogs: false,
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).
@@ -139,6 +142,15 @@ export const ControllerState = Schema.Struct({
 export type ControllerState = typeof ControllerState.Type
 
 export const idleController: ControllerState = { buttons: 0, l2: 0, r2: 0, leftX: 0, leftY: 0, rightX: 0, rightY: 0 }
+
+/** For bug reports: versions and the end of the log file (already scrubbed). */
+export const Diagnostics = Schema.Struct({
+  appVersion: Schema.String,
+  os: Schema.String,
+  logFolder: Schema.String,
+  recentLog: Schema.String,
+})
+export type Diagnostics = typeof Diagnostics.Type
 
 /** A console on the PSN account (internet play; PS5 only). */
 export const PsnConsole = Schema.Struct({

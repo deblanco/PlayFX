@@ -41,6 +41,13 @@ fn with_psn_token_adds_the_token_only_for_internet_play() {
 }
 
 #[test]
+fn tail_keeps_the_last_lines() {
+    assert_eq!(tail_lines("a\nb\nc\n", 2), "b\nc");
+    assert_eq!(tail_lines("only", 5), "only");
+    assert_eq!(tail_lines("", 3), "");
+}
+
+#[test]
 fn native_levels_map_to_log_levels() {
     assert_eq!(native_level(0), log::Level::Debug);
     assert_eq!(native_level(1), log::Level::Info);

@@ -267,7 +267,7 @@ describe("home: paired consoles", () => {
 })
 
 /** Opens the settings sheet from the home screen or the HUD, on the given tab. */
-const openSettings = async (tab: "Picture" | "Stream") => {
+const openSettings = async (tab: "Picture" | "Stream" | "Diagnostics") => {
   await userEvent.click(screen.getByRole("button", { name: /Settings/ }))
   const sheet = await screen.findByRole("dialog", { name: "Settings" })
   await userEvent.click(within(sheet).getByRole("tab", { name: tab }))
@@ -411,6 +411,26 @@ describe("settings", () => {
     expect(sheet.getByText("MetalFX isn't available on this Mac.")).toBeInTheDocument()
     expect(sheet.getByRole("switch", { name: /ML upscaling first/ })).toBeDisabled()
     expect(sheet.getByText("Needs macOS 26 on a supported Mac.")).toBeInTheDocument()
+  })
+
+  it("offers diagnostics: detailed logs, copying a report, the logs folder", async () => {
+    const core = fakeCore()
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: () => Promise.resolve() }, configurable: true })
+    renderApp(core)
+    const sheet = await openSettings("Diagnostics")
+    expect(sheet.getByText("For tracking down problems and reporting bugs.")).toBeInTheDocument()
+    expect(sheet.getByText(/never contain your PlayStation sign-in/)).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ }))
+    await waitFor(() => {
+      expect(core.service.setDetailedLogs).toHaveBeenLastCalledWith(true)
+    })
+    await userEvent.click(sheet.getByRole("button", { name: "Copy diagnostics" }))
+    expect(await screen.findByText("Diagnostics copied. Paste them into your bug report.")).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("button", { name: "Open logs folder" }))
+    await waitFor(() => {
+      expect(core.counts.openLogsFolder).toBe(1)
+    })
+    await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ })) // back off
   })
 
   it("toasts startup failures", async () => {
