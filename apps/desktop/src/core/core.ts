@@ -9,6 +9,7 @@ import {
   RendererStatus,
   StartReply,
   StreamEvent,
+  type ControllerState,
   type DiscoveredConsole,
   type StreamOptions,
   type Upscaler,
@@ -33,6 +34,7 @@ export class Core extends Context.Service<
     readonly startStream: (credentials: Credentials, options: StreamOptions) => Effect.Effect<void, CoreError>
     readonly stopStream: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
+    readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
     readonly setUpscaler: (mode: Upscaler) => Effect.Effect<void, CoreError>
     readonly rendererStatus: Effect.Effect<RendererStatus, CoreError>
     readonly onStreamEvent: (handler: (event: StreamEvent) => void) => Effect.Effect<() => void, CoreError>
@@ -87,6 +89,7 @@ export const CoreLive = Layer.effect(
         Effect.asVoid(call(StartReply, "start_stream", { request: { credentials, options } })),
       stopStream: Effect.asVoid(call(unit, "stop_stream")),
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
+      setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
       setUpscaler: (mode) => Effect.asVoid(call(unit, "set_upscaler", { mode })),
       rendererStatus: call(RendererStatus, "renderer_status"),
       onStreamEvent: subscribe(StreamEvent, "stream-event"),

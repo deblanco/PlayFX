@@ -394,3 +394,35 @@ describe("subscription failures", () => {
     expect(await screen.findByText("no ipc")).toBeInTheDocument()
   })
 })
+
+describe("keyboard controller", () => {
+  it("forwards pressed keys to the console and releases on key up", async () => {
+    const { core } = await startStreaming()
+    const dpadUp = 1 << 6
+
+    fireEvent.keyDown(window, { code: "ArrowUp" })
+    await waitFor(() => {
+      expect(core.service.setController).toHaveBeenCalled()
+    })
+    const pressed = vi.mocked(core.service.setController).mock.lastCall?.[0]
+    expect(pressed && pressed.buttons & dpadUp).toBe(dpadUp)
+
+    fireEvent.keyUp(window, { code: "ArrowUp" })
+    await waitFor(() => {
+      const released = vi.mocked(core.service.setController).mock.lastCall?.[0]
+      expect(released?.buttons).toBe(0)
+    })
+  })
+
+  it("does not capture keys while the login PIN dialog is open", async () => {
+    const core = fakeCore()
+    await startStreaming(core)
+    act(() => {
+      core.emitStream({ type: "loginPin", incorrect: false })
+    })
+    await screen.findByRole("dialog")
+    vi.mocked(core.service.setController).mockClear()
+    fireEvent.keyDown(window, { code: "ArrowUp" })
+    expect(core.service.setController).not.toHaveBeenCalled()
+  })
+})

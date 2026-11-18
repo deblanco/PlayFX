@@ -5,6 +5,7 @@ import { Preferences } from "@/core/preferences"
 import {
   isAccountId,
   type DiscoveredConsole,
+  type ControllerState,
   type PairedConsole,
   type PairedConsoles,
   type PsnAccountEvent,
@@ -180,6 +181,10 @@ export const stop: Effect.Effect<void, CoreError, Core> = Effect.gen(function* (
   const core = yield* Core
   yield* core.stopStream
 })
+
+/** Sends a controller state to the console (keyboard-as-controller). */
+export const setController = (state: ControllerState): Effect.Effect<void, CoreError, Core> =>
+  Effect.flatMap(Core, (core) => core.setController(state))
 
 /** Sends the console's login PIN (asked for when the PS5 user has a passcode). */
 export const submitLoginPin = (raw: string): Effect.Effect<void, CoreError | ValidationError, Core> =>

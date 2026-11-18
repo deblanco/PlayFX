@@ -170,6 +170,22 @@ public func sc_session_set_login_pin(_ pin: UnsafePointer<CChar>) {
     session?.setLoginPin(String(cString: pin))
 }
 
+/// Pushes a controller state from the web UI (e.g. keyboard-as-controller for testing). This is
+/// the same path as a physical pad; last writer wins if both are active.
+@_cdecl("sc_session_set_controller")
+public func sc_session_set_controller(_ buttons: UInt32, _ l2: UInt8, _ r2: UInt8,
+                                      _ leftX: Int16, _ leftY: Int16, _ rightX: Int16, _ rightY: Int16) {
+    var state = ControllerState()
+    state.buttons = buttons
+    state.l2 = l2
+    state.r2 = r2
+    state.leftX = leftX
+    state.leftY = leftY
+    state.rightX = rightX
+    state.rightY = rightY
+    session?.setController(state)
+}
+
 @_cdecl("sc_session_stats")
 public func sc_session_stats() -> UnsafeMutablePointer<CChar> {
     guard let session else { return json(["active": false]) }

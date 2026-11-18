@@ -2,7 +2,7 @@
 
 use std::ffi::{CStr, CString, c_char, c_void};
 
-use crate::native::NativeCore;
+use crate::native::{ControllerState, NativeCore};
 
 unsafe extern "C" {
     // main thread
@@ -13,6 +13,9 @@ unsafe extern "C" {
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
     pub fn sc_session_stop();
     pub fn sc_session_set_login_pin(pin: *const c_char);
+    pub fn sc_session_set_controller(
+        buttons: u32, l2: u8, r2: u8, left_x: i16, left_y: i16, right_x: i16, right_y: i16,
+    );
     pub fn sc_session_stats() -> *mut c_char;
     // any thread (blocking ones must stay off the main thread)
     pub fn sc_set_event_callback(cb: Option<extern "C" fn(*const c_char)>);
@@ -75,6 +78,9 @@ impl NativeCore for MacCore {
     }
     fn set_login_pin(&self, pin: &str) {
         unsafe { sc_session_set_login_pin(cstr(pin).as_ptr()) }
+    }
+    fn set_controller(&self, s: ControllerState) {
+        unsafe { sc_session_set_controller(s.buttons, s.l2, s.r2, s.left_x, s.left_y, s.right_x, s.right_y) }
     }
     fn set_upscale_mode(&self, mode: i32) {
         unsafe { sc_set_upscale_mode(mode) }

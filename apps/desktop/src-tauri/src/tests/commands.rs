@@ -86,10 +86,15 @@ fn session_commands_reach_the_core() {
     let app = mock(core);
     assert_eq!(stop_stream(app.handle().clone()), Ok(()));
     assert_eq!(set_login_pin(app.handle().clone(), "1234".into()), Ok(()));
+    assert_eq!(set_controller(app.handle().clone(), json!({"buttons": 1, "l2": 0, "r2": 0, "leftX": 0, "leftY": 0, "rightX": 0, "rightY": 0})), Ok(()));
+    assert!(set_controller(app.handle().clone(), json!({"buttons": "x"})).is_err());
     assert_eq!(set_upscaler(app.handle().clone(), "metalfx".into()), Ok(()));
     assert_eq!(set_upscaler(app.handle().clone(), "bilinear".into()), Ok(()));
     assert_eq!(set_upscaler(app.handle().clone(), "fsr".into()), Err("unknown upscaler: fsr".into()));
-    assert_eq!(core.calls(), ["session_stop", "set_login_pin 1234", "set_upscale_mode 1", "set_upscale_mode 0"]);
+    assert_eq!(
+        core.calls(),
+        ["session_stop", "set_login_pin 1234", "set_controller 1", "set_upscale_mode 1", "set_upscale_mode 0"]
+    );
 }
 
 #[test]
@@ -201,6 +206,10 @@ fn ipc_contract_matches_the_ui() {
     assert_eq!(invoke(&app, "start_stream", json!({"request": {}})), Ok(json!({"ok": true})));
     assert_eq!(invoke(&app, "stop_stream", json!({})), Ok(Value::Null));
     assert_eq!(invoke(&app, "set_login_pin", json!({"pin": "1234"})), Ok(Value::Null));
+    assert_eq!(
+        invoke(&app, "set_controller", json!({"state": {"buttons": 3, "l2": 0, "r2": 0, "leftX": 0, "leftY": 0, "rightX": 0, "rightY": 0}})),
+        Ok(Value::Null)
+    );
     assert_eq!(invoke(&app, "set_upscaler", json!({"mode": "metalfx"})), Ok(Value::Null));
     assert_eq!(invoke(&app, "set_upscaler", json!({"mode": "x"})), Err(json!("unknown upscaler: x")));
     assert_eq!(

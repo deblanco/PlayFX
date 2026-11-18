@@ -63,6 +63,9 @@ impl NativeCore for FakeCore {
     fn set_login_pin(&self, pin: &str) {
         self.log(format!("set_login_pin {pin}"));
     }
+    fn set_controller(&self, state: crate::native::ControllerState) {
+        self.log(format!("set_controller {}", state.buttons));
+    }
     fn set_upscale_mode(&self, mode: i32) {
         self.log(format!("set_upscale_mode {mode}"));
     }

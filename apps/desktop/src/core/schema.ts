@@ -56,6 +56,21 @@ export type Settings = typeof Settings.Type
 
 export const defaultSettings: Settings = { height: 1080, fps: 60, hevc: true, upscaler: "metalfx" }
 
+/** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).
+ * Button bits and ranges match StreamCore's `sc_session_set_controller`. */
+export const ControllerState = Schema.Struct({
+  buttons: Schema.Number,
+  l2: Schema.Number,
+  r2: Schema.Number,
+  leftX: Schema.Number,
+  leftY: Schema.Number,
+  rightX: Schema.Number,
+  rightY: Schema.Number,
+})
+export type ControllerState = typeof ControllerState.Type
+
+export const idleController: ControllerState = { buttons: 0, l2: 0, r2: 0, leftX: 0, leftY: 0, rightX: 0, rightY: 0 }
+
 export const StreamOptions = Schema.Struct({
   height: Schema.Number,
   fps: Schema.Number,

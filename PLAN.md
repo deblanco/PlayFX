@@ -34,7 +34,11 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Video: H.264 + HEVC hardware decode via VideoToolbox.
 - Rendering: NV12 → RGB → MetalFX spatial upscale (with bilinear fallback), letterboxed.
 - Audio: Opus decode → low-latency `AVAudioEngine` with a jitter buffer.
-- Input: DualSense/DualShock/Xbox/MFi + keyboard via the GameController framework.
+- Input: DualSense/DualShock/Xbox/MFi via the GameController framework.
+- **Keyboard-as-controller** (testing without a pad): the web UI captures keys and forwards a
+  controller state through `sc_session_set_controller`; mapping is a pure, tested function
+  (`src/app/keyboard.ts`), with an in-HUD key legend. The headless `psrp` CLI also drives input
+  via its `/press`, `/hold`, `/stick` control API.
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials kept client-side (webview `localStorage`); PSN login via Sony's own page.
 - Tests + gates: TS 130 tests (100% lines), Swift 58 tests (95%), Rust 31 tests (86%),
@@ -70,8 +74,10 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   gyro/accel for motion-aware games.
 - ❌ **Microphone.** chiaki supports mic capture/echo-cancel (speex, currently disabled); wire an
   opt-in mic path.
-- ❌ **Keyboard passthrough** to the console (`enable_keyboard`) and the on-screen keyboard events
-  (`KEYBOARD_*`) → let the user type into PS fields.
+- ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch
+  pad overlay, remappable keys.
+- ❌ **Keyboard text passthrough** to the console (`enable_keyboard`) and the on-screen keyboard
+  events (`KEYBOARD_*`) → let the user type into PS text fields (distinct from the above).
 - ❌ **HDR.** `CHIAKI_CODEC_H265_HDR` isn't selectable; add HDR decode + display tone-mapping.
 - 🔶 **Login PIN (console passcode) flow.** Plumbed end to end but not verified on a console that
   requires it; confirm and polish the dialog.

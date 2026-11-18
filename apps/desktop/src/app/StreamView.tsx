@@ -1,13 +1,14 @@
-import { Option } from "effect"
+import { Effect, Option } from "effect"
 import { useEffect, useId, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import type { Settings } from "@/core/schema"
+import { idleController, type Settings } from "@/core/schema"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
-import { useFork, useRun } from "./runtime"
+import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
+import { useFork, useRun, useRuntime } from "./runtime"
 import { UpscalerSelect } from "./Settings"
 
 export const hudIdleMs = 2500
@@ -29,6 +30,45 @@ const useIdle = (ms: number): boolean => {
     }
   }, [ms])
   return idle
+}
+
+/** Keyboard-as-controller: forwards key state to the console while `enabled`. Mainly for testing
+ * gameplay without a physical pad. Fire-and-forget (a dead session is handled by the quit event). */
+const useKeyboardController = (enabled: boolean): void => {
+  const runtime = useRuntime()
+  useEffect(() => {
+    if (!enabled) return
+    const pressed = new Set<string>()
+    const send = (): void => {
+      runtime.runFork(Effect.ignore(actions.setController(controllerStateFrom(pressed))))
+    }
+    const down = (event: KeyboardEvent): void => {
+      if (!isControllerKey(event.code)) return
+      event.preventDefault()
+      if (event.repeat || pressed.has(event.code)) return
+      pressed.add(event.code)
+      send()
+    }
+    const up = (event: KeyboardEvent): void => {
+      if (!pressed.delete(event.code)) return
+      event.preventDefault()
+      send()
+    }
+    const clear = (): void => {
+      if (pressed.size === 0) return
+      pressed.clear()
+      send()
+    }
+    window.addEventListener("keydown", down)
+    window.addEventListener("keyup", up)
+    window.addEventListener("blur", clear)
+    return () => {
+      window.removeEventListener("keydown", down)
+      window.removeEventListener("keyup", up)
+      window.removeEventListener("blur", clear)
+      runtime.runFork(Effect.ignore(actions.setController(idleController)))
+    }
+  }, [enabled, runtime])
 }
 
 interface StreamViewProps {
@@ -58,6 +98,8 @@ export const StreamView = ({
   const [stats, setStats] = useState("Connecting…")
 
   useFork(useMemo(() => actions.pollStats(setStats), []))
+  // Disabled while the login-PIN dialog is up, so typing the PIN isn't read as gameplay input.
+  useKeyboardController(Option.isNone(loginPin))
 
   const stop = () => {
     const end = () => { onEnd(Option.none()); }
@@ -75,6 +117,22 @@ export const StreamView = ({
       >
         <span className="font-medium">{title}</span>
         <span className="flex-1 truncate text-xs text-muted-foreground tabular-nums">{stats}</span>
+        <details className="group relative text-xs">
+          <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">
+            Keys
+          </summary>
+          <div className="absolute right-0 z-10 mt-2 w-56 rounded-lg border bg-popover/95 p-3 shadow-xl backdrop-blur-xl">
+            <p className="mb-2 font-medium text-foreground">Keyboard controller</p>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-muted-foreground">
+              {keyboardLayout.map(([keys, action]) => (
+                <div key={keys} className="col-span-2 grid grid-cols-subgrid">
+                  <dt className="font-mono text-foreground">{keys}</dt>
+                  <dd className="text-right">{action}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </details>
         <UpscalerSelect settings={settings} metalfxSupported={metalfxSupported} onChange={onSettingsChange} />
         <Button variant="destructive" size="sm" onClick={stop}>
           Stop

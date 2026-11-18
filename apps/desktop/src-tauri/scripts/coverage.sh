@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the crate's tests under cargo-llvm-cov, prints the per-file summary and fails below 80%
-# line or function coverage. Test-only code (src/tests/) is excluded from the report.
+# line or function coverage. Test-only code (src/tests/) and the bare binary entry (main.rs) are excluded from the report.
 #
 # One-time setup: rustup component add llvm-tools-preview && cargo install cargo-llvm-cov --locked
 # Branch coverage needs nightly (-Z coverage-options=branch), so it isn't gated on stable.
@@ -14,7 +14,7 @@ if ! cargo llvm-cov --version >/dev/null 2>&1; then
 fi
 
 cargo llvm-cov \
-  --ignore-filename-regex 'src/tests/' \
+  --ignore-filename-regex 'src/(tests/|main\.rs)' \
   --show-missing-lines \
   --fail-under-lines 80 \
   --fail-under-functions 80 \

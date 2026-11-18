@@ -3,7 +3,27 @@
 //! Command handlers talk to `NativeCore` through `CoreHandle` (Tauri managed state), so tests can
 //! swap the real FFI implementation (`ffi::MacCore`) for a fake.
 
+use serde::Deserialize;
 use serde_json::{Value, json};
+
+/// A controller state sent from the web UI (keyboard-as-controller, on-screen pad, etc.).
+/// Field order and ranges match StreamCore's `sc_session_set_controller`.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ControllerState {
+    pub buttons: u32,
+    pub l2: u8,
+    pub r2: u8,
+    pub left_x: i16,
+    pub left_y: i16,
+    pub right_x: i16,
+    pub right_y: i16,
+}
+
+/// Decodes a controller state from the command payload.
+pub fn controller_state(value: Value) -> Result<ControllerState, String> {
+    serde_json::from_value(value).map_err(|e| format!("invalid controller state: {e}"))
+}
 
 /// Everything the commands need from StreamCore. Strings are JSON in and out, as in the C ABI.
 pub trait NativeCore: Send + Sync {
@@ -18,6 +38,7 @@ pub trait NativeCore: Send + Sync {
     fn session_start(&self, request: &str) -> String;
     fn session_stop(&self);
     fn set_login_pin(&self, pin: &str);
+    fn set_controller(&self, state: ControllerState);
     fn set_upscale_mode(&self, mode: i32);
     fn metalfx_supported(&self) -> bool;
     fn active_mode(&self) -> i32;

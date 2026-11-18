@@ -4,7 +4,10 @@ mod native;
 #[cfg(test)]
 mod tests;
 
-use native::{CoreHandle, NativeCore, is_psn_redirect, psn_account, renderer_status_json, reply, upscale_mode};
+use native::{
+    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, upscale_mode, CoreHandle,
+    NativeCore,
+};
 use serde_json::Value;
 use tauri::{AppHandle, Builder, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
 
@@ -123,6 +126,13 @@ fn set_login_pin<R: Runtime>(app: AppHandle<R>, pin: String) -> Result<(), Strin
 }
 
 #[tauri::command(async)]
+fn set_controller<R: Runtime>(app: AppHandle<R>, state: Value) -> Result<(), String> {
+    let state = controller_state(state)?;
+    let core = core(&app);
+    on_main(&app, move || core.set_controller(state))
+}
+
+#[tauri::command(async)]
 fn set_upscaler<R: Runtime>(app: AppHandle<R>, mode: String) -> Result<(), String> {
     let mode = upscale_mode(&mode)?;
     let core = core(&app);
@@ -147,6 +157,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         start_stream,
         stop_stream,
         set_login_pin,
+        set_controller,
         set_upscaler,
         renderer_status
     ])
