@@ -26,12 +26,15 @@ import Testing
 
     @Test func optionsDefaultsAndJSON() throws {
         let o = StreamSession.Options()
-        #expect(o.height == 1080 && o.fps == 60 && o.hevc && o.bitrate == 0 && o.audio)
+        #expect(o.height == 1080 && o.fps == 60 && o.hevc && o.bitrate == 0 && o.audio && o.autoDowngrade)
         let decoded = try JSONDecoder().decode(StreamSession.Options.self,
                                                from: Data(#"{"height":720,"fps":30,"hevc":false,"bitrate":5000,"audio":false}"#.utf8))
         #expect(decoded.height == 720 && decoded.fps == 30 && !decoded.hevc && decoded.bitrate == 5000 && !decoded.audio)
+        #expect(decoded.autoDowngrade) // missing key keeps the default
+        let full = try JSONDecoder().decode(StreamSession.Options.self, from: Data(#"{"autoDowngrade":false}"#.utf8))
+        #expect(!full.autoDowngrade && full.height == 1080 && full.bitrate == 0)
         let stats = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StreamSession.Stats())) as? [String: Int]
-        #expect(stats == ["framesDecoded": 0, "decodeErrors": 0, "framesLost": 0, "width": 0, "height": 0])
+        #expect(stats == ["framesDecoded": 0, "decodeErrors": 0, "framesLost": 0, "width": 0, "height": 0, "bytesReceived": 0])
     }
 }
 
@@ -50,6 +53,7 @@ extension Serial {
             options.height = 720
             options.fps = 30
             options.hevc = false
+            options.autoDowngrade = false
             let session = try StreamSession(credentials: fakeCredentials(), options: options)
             let events = LockedLines()
             session.onEvent = { event in
@@ -90,6 +94,7 @@ extension Serial {
             #expect(stats.framesDecoded == 3 && frames == 3)
             #expect(stats.framesLost == 2 && stats.decodeErrors == 1)
             #expect(stats.width == 320 && stats.height == 240)
+            #expect(stats.bytesReceived == encoded.reduce(6) { $0 + $1.annexB.count })
             #expect(session.latestFrame.map(CVPixelBufferGetWidth) == 320)
         }
     }

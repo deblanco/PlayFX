@@ -12,7 +12,21 @@ public final class StreamSession {
         public var hevc: Bool = true    // PS5 only; PS4 is always H.264
         public var bitrate: Int = 0     // kbps, 0 = preset default
         public var audio: Bool = true
+        /// Let the console lower the resolution when the network can't keep up.
+        public var autoDowngrade: Bool = true
         public init() {}
+
+        /// Missing keys keep their defaults, so older hosts' JSON still decodes.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = Options()
+            height = try c.decodeIfPresent(Int.self, forKey: .height) ?? d.height
+            fps = try c.decodeIfPresent(Int.self, forKey: .fps) ?? d.fps
+            hevc = try c.decodeIfPresent(Bool.self, forKey: .hevc) ?? d.hevc
+            bitrate = try c.decodeIfPresent(Int.self, forKey: .bitrate) ?? d.bitrate
+            audio = try c.decodeIfPresent(Bool.self, forKey: .audio) ?? d.audio
+            autoDowngrade = try c.decodeIfPresent(Bool.self, forKey: .autoDowngrade) ?? d.autoDowngrade
+        }
     }
 
     public enum Event: Sendable {
@@ -29,6 +43,8 @@ public final class StreamSession {
         public var framesLost = 0
         public var width = 0
         public var height = 0
+        /// Compressed video bytes received; the host derives the live bitrate from it.
+        public var bytesReceived = 0
     }
 
     /// Called from libchiaki's threads.
@@ -75,6 +91,7 @@ public final class StreamSession {
         config.fps = Int32(options.fps)
         config.codec = Int32(hevc ? PSRP_CODEC_H265.rawValue : PSRP_CODEC_H264.rawValue)
         config.bitrate = Int32(options.bitrate)
+        config.auto_downgrade = options.autoDowngrade
 
         var callbacks = PsrpCallbacks()
         callbacks.user = Unmanaged.passUnretained(self).toOpaque()
@@ -125,7 +142,11 @@ public final class StreamSession {
     }
 
     func handleVideo(_ data: UnsafeRawBufferPointer, framesLost: Int) -> Bool {
-        if framesLost > 0 { lock.withLock { _stats.framesLost += framesLost } }
+        let bytes = data.count
+        lock.withLock {
+            _stats.framesLost += framesLost
+            _stats.bytesReceived += bytes
+        }
         let ok = decoder.decode(data)
         if !ok { lock.withLock { _stats.decodeErrors += 1 } }
         return ok

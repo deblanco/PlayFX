@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 // Everything that crosses the native boundary or localStorage is described here once;
 // TypeScript types are derived from these schemas.
@@ -46,15 +46,34 @@ export const Fps = Schema.Literals([30, 60])
 export const Upscaler = Schema.Literals(["metalfx", "bilinear", "compare"])
 export type Upscaler = typeof Upscaler.Type
 
+/** Video bitrate in kbps; 0 lets the console pick its default for the resolution. */
+export const Bitrate = Schema.Literals([0, 10000, 15000, 20000, 30000, 40000, 50000])
+export type Bitrate = typeof Bitrate.Type
+
+/** A setting added after the first release: settings saved before it existed decode with `value`. */
+const since = <S extends Schema.Top>(schema: S, value: S["Encoded"]) =>
+  schema.pipe(Schema.withDecodingDefaultKey(Effect.succeed(value)))
+
 export const Settings = Schema.Struct({
   height: Resolution,
   fps: Fps,
   hevc: Schema.Boolean,
+  bitrate: since(Bitrate, 0),
+  autoDowngrade: since(Schema.Boolean, true),
+  audio: since(Schema.Boolean, true),
   upscaler: Upscaler,
 })
 export type Settings = typeof Settings.Type
 
-export const defaultSettings: Settings = { height: 1080, fps: 60, hevc: true, upscaler: "metalfx" }
+export const defaultSettings: Settings = {
+  height: 1080,
+  fps: 60,
+  hevc: true,
+  bitrate: 0,
+  autoDowngrade: true,
+  audio: true,
+  upscaler: "metalfx",
+}
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).
  * Button bits and ranges match StreamCore's `sc_session_set_controller`. */
@@ -77,6 +96,7 @@ export const StreamOptions = Schema.Struct({
   hevc: Schema.Boolean,
   bitrate: Schema.Number,
   audio: Schema.Boolean,
+  autoDowngrade: Schema.Boolean,
 })
 export type StreamOptions = typeof StreamOptions.Type
 
@@ -101,6 +121,7 @@ export const StreamStats = Schema.Struct({
   framesLost: Schema.optionalKey(Schema.Number),
   width: Schema.optionalKey(Schema.Number),
   height: Schema.optionalKey(Schema.Number),
+  bytesReceived: Schema.optionalKey(Schema.Number),
 })
 export type StreamStats = typeof StreamStats.Type
 

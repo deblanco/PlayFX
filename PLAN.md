@@ -86,7 +86,9 @@ Findings that drive this (from the 720p → 4K screenshot session):
   JSON `RenderParams` via a single `sc_set_render_params` (replaces `sc_set_upscale_mode`).
 
 Work items:
-- ❌ **Q1. Stream parameters.** Expose bitrate (presets 5–50 Mbps + "Auto" = chiaki default),
+- ✅ **Q1. Stream parameters.** *(done: bitrate Auto/10–50 Mbps, auto-downgrade, audio; live Mbps in the
+  HUD from received bytes. Measured on the PS5 while switching tiles at 1080p: 5.8 Mbps at the default
+  cap vs 9.5 Mbps at 40 Mbps. Still frames converge at any cap: bitrate pays off in motion.)* Expose bitrate (presets 5–50 Mbps + "Auto" = chiaki default),
   auto-downgrade toggle, audio toggle; validate against the console's reply (actual resolution /
   bitrate from streaminfo) and show it in the HUD. Shim: pass `video_profile_auto_downgrade`
   through `PsrpSessionConfig`. Schema: extend `Settings` (Effect `Schema`) with migration of

@@ -12,7 +12,7 @@ import {
   type Settings,
   type StreamEvent,
 } from "@/core/schema"
-import { framesPerSecond, hudStats, streamOptions, type FrameSample } from "./format"
+import { framesPerSecond, hudStats, megabitsPerSecond, streamOptions, type FrameSample } from "./format"
 
 // Every side effect the UI triggers lives here, as an Effect over the Core and Preferences services.
 
@@ -207,12 +207,16 @@ export const statsInterval = "1 second"
 export const pollStats = (report: (stats: string) => void): Effect.Effect<number, never, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
-    const last = yield* Ref.make<FrameSample>({ frames: 0, time: yield* Clock.currentTimeMillis })
+    const last = yield* Ref.make<FrameSample>({ frames: 0, bytes: 0, time: yield* Clock.currentTimeMillis })
     const tick = Effect.gen(function* () {
       const status = yield* core.rendererStatus
-      const sample = { frames: status.stream.framesDecoded ?? 0, time: yield* Clock.currentTimeMillis }
+      const sample = {
+        frames: status.stream.framesDecoded ?? 0,
+        bytes: status.stream.bytesReceived ?? 0,
+        time: yield* Clock.currentTimeMillis,
+      }
       const previous = yield* Ref.getAndSet(last, sample)
-      report(hudStats(status, framesPerSecond(previous, sample)))
+      report(hudStats(status, framesPerSecond(previous, sample), megabitsPerSecond(previous, sample)))
     })
     return yield* Effect.ignore(tick).pipe(Effect.repeat(Schedule.spaced(statsInterval)))
   })

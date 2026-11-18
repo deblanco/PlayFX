@@ -12,7 +12,7 @@ import StreamCore
 //   psrp register --host IP --pin PIN [--account-id B64] [--ps4]   pair; credentials saved
 //   psrp consoles                           list saved consoles
 //   psrp wake [--host IP]
-//   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--no-audio] [--port 7777]
+//   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--port 7777]
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
 //          /hold?buttons=r2  /release  /keyframe  /sleep  /quit
@@ -187,6 +187,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
     options.hevc = !args.has("h264")
     options.bitrate = Int(args["bitrate"] ?? "") ?? 0
     options.audio = !args.has("no-audio")
+    options.autoDowngrade = !args.has("no-downgrade")
 
     log("Connecting to \(console.nickname) at \(console.address) (\(options.height)p\(options.fps), \(options.hevc ? "HEVC" : "H.264"))…")
     let session = try StreamSession(credentials: console, options: options)

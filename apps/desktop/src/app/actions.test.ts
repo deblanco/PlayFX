@@ -172,6 +172,7 @@ describe("streaming", () => {
         hevc: true,
         bitrate: 0,
         audio: true,
+        autoDowngrade: true,
       })
       yield* actions.stop
       expect(core.counts.stopStream).toBe(1)
@@ -216,13 +217,13 @@ describe("streaming", () => {
     )
     return Effect.gen(function* () {
       const reports: string[] = []
-      core.state.status = status({ framesDecoded: 0, width: 1920, height: 1080 })
+      core.state.status = status({ framesDecoded: 0, bytesReceived: 0, width: 1920, height: 1080 })
       const fiber = yield* Effect.forkChild(actions.pollStats((stats) => reports.push(stats)))
       yield* Effect.yieldNow
-      expect(reports).toEqual(["1920×1080 · 0 fps · MetalFX"])
-      core.state.status = status({ framesDecoded: 60, width: 1920, height: 1080 })
+      expect(reports).toEqual(["1920×1080 · 0 fps · 0.0 Mbps · MetalFX"])
+      core.state.status = status({ framesDecoded: 60, bytesReceived: 2_500_000, width: 1920, height: 1080 })
       yield* TestClock.adjust("1 second")
-      expect(reports[1]).toBe("1920×1080 · 60 fps · MetalFX")
+      expect(reports[1]).toBe("1920×1080 · 60 fps · 20.0 Mbps · MetalFX")
       broken = true
       yield* TestClock.adjust("1 second")
       expect(reports).toHaveLength(2)

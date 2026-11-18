@@ -51,7 +51,7 @@ const credentials: Credentials = {
   accountId: "AAAAAAAAAAA=",
 }
 
-const options: StreamOptions = { height: 1080, fps: 60, hevc: true, bitrate: 15000, audio: true }
+const options: StreamOptions = { height: 1080, fps: 60, hevc: true, bitrate: 15000, audio: true, autoDowngrade: true }
 
 describe("CoreLive", () => {
   describe("discover", () => {

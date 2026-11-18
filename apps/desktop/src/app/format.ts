@@ -45,12 +45,15 @@ export const streamOptions = (settings: Settings): StreamOptions => ({
   height: settings.height,
   fps: settings.fps,
   hevc: settings.hevc,
-  bitrate: 0,
-  audio: true,
+  bitrate: settings.bitrate,
+  audio: settings.audio,
+  autoDowngrade: settings.autoDowngrade,
 })
 
+/** The decoder's counters at one moment, for computing rates between polls. */
 export interface FrameSample {
   readonly frames: number
+  readonly bytes: number
   readonly time: number
 }
 
@@ -70,14 +73,21 @@ const upscalerLabels: Readonly<Record<RendererStatus["activeMode"], string>> = {
 
 export const upscalerLabel = (mode: RendererStatus["activeMode"]): string => upscalerLabels[mode]
 
+/** Received video bitrate between two samples, in Mbps with one decimal. */
+export const megabitsPerSecond = (previous: FrameSample, current: FrameSample): number => {
+  const elapsed = current.time - previous.time
+  if (elapsed <= 0) return 0
+  return Math.max(0, Math.round(((current.bytes - previous.bytes) * 8) / elapsed / 100) / 10)
+}
+
 /** The HUD's stats line. */
-export const hudStats = (status: RendererStatus, fps: number): string => {
+export const hudStats = (status: RendererStatus, fps: number, mbps: number): string => {
   const { stream } = status
   if (!stream.active) return "Connecting…"
   const size =
     stream.width !== undefined && stream.height !== undefined ? `${stream.width}×${stream.height}` : "waiting for video"
   const errors = stream.decodeErrors ?? 0
-  return [size, `${fps} fps`, upscalerLabel(status.activeMode), errors > 0 ? `${errors} decode errors` : undefined]
+  return [size, `${fps} fps`, `${mbps.toFixed(1)} Mbps`, upscalerLabel(status.activeMode), errors > 0 ? `${errors} decode errors` : undefined]
     .filter((part) => part !== undefined)
     .join(" · ")
 }
@@ -92,6 +102,9 @@ const parsers: Readonly<Record<SettingKey, (raw: string) => unknown>> = {
   height: Number,
   fps: Number,
   hevc: (raw) => raw === "hevc",
+  bitrate: Number,
+  autoDowngrade: (raw) => raw === "on",
+  audio: (raw) => raw === "on",
   upscaler: (raw) => raw,
 }
 
@@ -100,5 +113,9 @@ export const withSetting = (settings: Settings, key: SettingKey, raw: string): S
   Option.getOrElse(Schema.decodeUnknownOption(Settings)({ ...settings, [key]: parsers[key](raw) }), () => settings)
 
 /** The `<select>` value for a setting. */
-export const settingValue = (settings: Settings, key: SettingKey): string =>
-  key === "hevc" ? (settings.hevc ? "hevc" : "h264") : String(settings[key])
+export const settingValue = (settings: Settings, key: SettingKey): string => {
+  const value = settings[key]
+  if (key === "hevc") return value ? "hevc" : "h264"
+  if (typeof value === "boolean") return value ? "on" : "off"
+  return String(value)
+}

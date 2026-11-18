@@ -200,11 +200,22 @@ describe("settings", () => {
     await userEvent.selectOptions(resolution, "540")
     await userEvent.selectOptions(screen.getByLabelText("FPS"), "30")
     await userEvent.selectOptions(screen.getByLabelText("Codec"), "h264")
+    await userEvent.selectOptions(screen.getByLabelText("Bitrate"), "40000")
+    await userEvent.selectOptions(screen.getByLabelText("When the network is slow"), "off")
+    await userEvent.selectOptions(screen.getByLabelText("Audio"), "off")
     await userEvent.selectOptions(screen.getByLabelText("Upscaler"), "bilinear")
     expect(core.service.setUpscaler).toHaveBeenLastCalledWith("bilinear")
     await waitFor(async () => {
       const saved = await runtime.runPromise(Preferences.use((prefs) => prefs.settings))
-      expect(saved).toEqual({ height: 540, fps: 30, hevc: false, upscaler: "bilinear" })
+      expect(saved).toEqual({
+        height: 540,
+        fps: 30,
+        hevc: false,
+        bitrate: 40000,
+        autoDowngrade: false,
+        audio: false,
+        upscaler: "bilinear",
+      })
     })
   })
 
@@ -235,10 +246,11 @@ describe("streaming", () => {
       hevc: true,
       bitrate: 0,
       audio: true,
+      autoDowngrade: true,
     })
     expect(screen.queryByText("Consoles")).not.toBeInTheDocument()
     expect(screen.getByText("Living Room")).toBeInTheDocument()
-    expect(await screen.findByText(/^1920×1080 · \d+ fps · MetalFX$/)).toBeInTheDocument()
+    expect(await screen.findByText(/^1920×1080 · \d+ fps · [\d.]+ Mbps · MetalFX$/)).toBeInTheDocument()
   })
 
   it("stays home when the stream can't start", async () => {

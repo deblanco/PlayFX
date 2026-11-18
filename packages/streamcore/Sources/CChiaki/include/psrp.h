@@ -96,6 +96,7 @@ typedef struct {
     int fps;     // 30 or 60
     int codec;   // PsrpCodec (PS4 is always H.264)
     int bitrate; // kbps, 0 = preset default
+    bool auto_downgrade; // let the console lower the resolution when the network can't keep up
 } PsrpSessionConfig;
 
 typedef struct PsrpSession PsrpSession;

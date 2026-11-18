@@ -185,11 +185,22 @@ describe("PreferencesLive (memory)", () => {
     it.effect("round-trips saved settings as JSON", () =>
       Effect.gen(function* () {
         const prefs = yield* Preferences
-        const next: Settings = { height: 720, fps: 30, hevc: false, upscaler: "bilinear" }
+        const next: Settings = { ...defaultSettings, height: 720, fps: 30, hevc: false, bitrate: 30000, upscaler: "bilinear" }
         yield* prefs.saveSettings(next)
         expect(yield* prefs.settings).toEqual(next)
         expect(yield* rawGet("psrp.settings")).toEqual(Option.some(JSON.stringify(next)))
       }).pipe(Effect.provide(withMemory())),
+    )
+
+    it.effect("fills settings added later from defaults, keeping the saved ones", () =>
+      Effect.gen(function* () {
+        const prefs = yield* Preferences
+        expect(yield* prefs.settings).toEqual({ ...defaultSettings, height: 720, upscaler: "bilinear" })
+      }).pipe(
+        Effect.provide(
+          withMemory({ "psrp.settings": JSON.stringify({ height: 720, fps: 60, hevc: true, upscaler: "bilinear" }) }),
+        ),
+      ),
     )
 
     it.effect("defaults when stored settings are corrupt or out of range", () =>

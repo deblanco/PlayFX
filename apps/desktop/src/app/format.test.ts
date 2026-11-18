@@ -4,6 +4,7 @@ import { defaultSettings } from "@/core/schema"
 import {
   consoleRows,
   framesPerSecond,
+  megabitsPerSecond,
   hudStats,
   quitMessage,
   settingValue,
@@ -35,38 +36,51 @@ describe("consoleRows", () => {
 
 describe("streamOptions", () => {
   it("derives native stream options from settings", () => {
-    expect(streamOptions({ height: 720, fps: 30, hevc: false, upscaler: "bilinear" })).toEqual({
+    const settings = { ...defaultSettings, height: 720, fps: 30, hevc: false, bitrate: 40000, audio: false } as const
+    expect(streamOptions({ ...settings, autoDowngrade: false })).toEqual({
       height: 720,
       fps: 30,
       hevc: false,
-      bitrate: 0,
-      audio: true,
+      bitrate: 40000,
+      audio: false,
+      autoDowngrade: false,
     })
   })
 })
 
 describe("framesPerSecond", () => {
   it("computes the rate between samples", () => {
-    expect(framesPerSecond({ frames: 0, time: 0 }, { frames: 60, time: 1000 })).toBe(60)
-    expect(framesPerSecond({ frames: 100, time: 0 }, { frames: 115, time: 500 })).toBe(30)
+    expect(framesPerSecond({ frames: 0, bytes: 0, time: 0 }, { frames: 60, bytes: 0, time: 1000 })).toBe(60)
+    expect(framesPerSecond({ frames: 100, bytes: 0, time: 0 }, { frames: 115, bytes: 0, time: 500 })).toBe(30)
   })
   it("never divides by zero or goes negative", () => {
-    expect(framesPerSecond({ frames: 0, time: 10 }, { frames: 60, time: 10 })).toBe(0)
-    expect(framesPerSecond({ frames: 90, time: 0 }, { frames: 0, time: 1000 })).toBe(0)
+    expect(framesPerSecond({ frames: 0, bytes: 0, time: 10 }, { frames: 60, bytes: 0, time: 10 })).toBe(0)
+    expect(framesPerSecond({ frames: 90, bytes: 0, time: 0 }, { frames: 0, bytes: 0, time: 1000 })).toBe(0)
+  })
+})
+
+describe("megabitsPerSecond", () => {
+  it("computes the received bitrate between samples", () => {
+    expect(megabitsPerSecond({ frames: 0, bytes: 0, time: 0 }, { frames: 0, bytes: 1_875_000, time: 1000 })).toBe(15)
+    expect(megabitsPerSecond({ frames: 0, bytes: 0, time: 0 }, { frames: 0, bytes: 155_000, time: 100 })).toBe(12.4)
+  })
+  it("never divides by zero or goes negative", () => {
+    expect(megabitsPerSecond({ frames: 0, bytes: 0, time: 5 }, { frames: 0, bytes: 9, time: 5 })).toBe(0)
+    expect(megabitsPerSecond({ frames: 0, bytes: 9, time: 0 }, { frames: 0, bytes: 0, time: 1000 })).toBe(0)
   })
 })
 
 describe("hudStats", () => {
   it("shows size, fps and upscaler", () => {
-    expect(hudStats(status({ width: 1920, height: 1080 }), 60)).toBe("1920×1080 · 60 fps · MetalFX")
+    expect(hudStats(status({ width: 1920, height: 1080 }), 60, 14.25)).toBe("1920×1080 · 60 fps · 14.3 Mbps · MetalFX")
   })
   it("waits for video and reports decode errors", () => {
-    expect(hudStats({ ...status({ decodeErrors: 3 }), activeMode: "bilinear" }, 0)).toBe(
-      "waiting for video · 0 fps · Bilinear · 3 decode errors",
+    expect(hudStats({ ...status({ decodeErrors: 3 }), activeMode: "bilinear" }, 0, 0)).toBe(
+      "waiting for video · 0 fps · 0.0 Mbps · Bilinear · 3 decode errors",
     )
   })
   it("says connecting while the stream isn't active", () => {
-    expect(hudStats(status({ active: false }), 0)).toBe("Connecting…")
+    expect(hudStats(status({ active: false }), 0, 0)).toBe("Connecting…")
   })
 })
 
@@ -90,13 +104,19 @@ describe("withSetting / settingValue", () => {
     expect(withSetting(defaultSettings, "fps", "30").fps).toBe(30)
     expect(withSetting(defaultSettings, "hevc", "h264").hevc).toBe(false)
     expect(withSetting(defaultSettings, "upscaler", "bilinear").upscaler).toBe("bilinear")
+    expect(withSetting(defaultSettings, "bitrate", "30000").bitrate).toBe(30000)
+    expect(withSetting(defaultSettings, "autoDowngrade", "off").autoDowngrade).toBe(false)
+    expect(withSetting(defaultSettings, "audio", "off").audio).toBe(false)
   })
   it("ignores invalid values", () => {
     expect(withSetting(defaultSettings, "height", "999")).toBe(defaultSettings)
+    expect(withSetting(defaultSettings, "bitrate", "12345")).toBe(defaultSettings)
   })
   it("renders select values", () => {
     expect(settingValue(defaultSettings, "height")).toBe("1080")
     expect(settingValue(defaultSettings, "hevc")).toBe("hevc")
     expect(settingValue({ ...defaultSettings, hevc: false }, "hevc")).toBe("h264")
+    expect(settingValue(defaultSettings, "audio")).toBe("on")
+    expect(settingValue({ ...defaultSettings, autoDowngrade: false }, "autoDowngrade")).toBe("off")
   })
 })

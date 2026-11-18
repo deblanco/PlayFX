@@ -321,7 +321,7 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
                                         config->fps >= 60 ? CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30);
     if (config->bitrate > 0) info.video_profile.bitrate = (unsigned int)config->bitrate;
     info.video_profile.codec = config->ps5 ? (ChiakiCodec)config->codec : CHIAKI_CODEC_H264;
-    info.video_profile_auto_downgrade = true;
+    info.video_profile_auto_downgrade = config->auto_downgrade;
     info.enable_keyboard = false;
     info.enable_dualsense = config->ps5;
     info.audio_video_disabled = 0;

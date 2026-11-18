@@ -88,6 +88,36 @@ export const SettingsRow = (props: SettingsProps) => (
         { value: "h264", label: "H.264" },
       ]}
     />
+    <SettingSelect
+      label="Bitrate"
+      setting="bitrate"
+      settings={props.settings}
+      onChange={props.onChange}
+      options={[
+        { value: "0", label: "Auto" },
+        ...[10, 15, 20, 30, 40, 50].map((mbps) => ({ value: String(mbps * 1000), label: `${mbps} Mbps` })),
+      ]}
+    />
+    <SettingSelect
+      label="When the network is slow"
+      setting="autoDowngrade"
+      settings={props.settings}
+      onChange={props.onChange}
+      options={[
+        { value: "on", label: "Lower resolution" },
+        { value: "off", label: "Keep resolution" },
+      ]}
+    />
+    <SettingSelect
+      label="Audio"
+      setting="audio"
+      settings={props.settings}
+      onChange={props.onChange}
+      options={[
+        { value: "on", label: "On" },
+        { value: "off", label: "Off" },
+      ]}
+    />
     <UpscalerSelect {...props} />
   </section>
 )
