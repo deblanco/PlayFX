@@ -185,8 +185,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
 
     /// Queues a decoded frame for the next draw. Thread-safe; only the newest frame is kept.
+    /// Shows a decoded frame; the first one replaces the idle backdrop.
     public func display(_ frame: CVPixelBuffer) {
         frameLock.withLock { $0 = frame }
+        showsTestPattern = false
     }
 
     // MARK: MTKViewDelegate

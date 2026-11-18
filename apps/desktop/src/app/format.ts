@@ -161,10 +161,8 @@ export const afterQuit = (
 ): "ignore" | "reconnect" | "retry-start" | "via-internet" | "end" => {
   if (session.reconnecting !== false) return "ignore" // the old session ending, or a busy console: the reconnect handles it
   if (!session.connected && event.kind === "busy") return "retry-start" // still busy for a few seconds: wait it out
-  // Not reachable on this network, but on the PSN account: go through PSN instead.
-  if (!session.connected && session.psnDuid === undefined && session.psnFallback !== undefined && event.reason === unreachableReason) {
-    return "via-internet"
-  }
+  // Not reachable on this network: try through PSN (if the console is on the account).
+  if (!session.connected && session.psnDuid === undefined && event.reason === unreachableReason) return "via-internet"
   if (session.connected && event.kind === "dropped" && session.autoReconnects < maxAutoReconnects) return "reconnect"
   return "end"
 }
@@ -256,3 +254,51 @@ export const pipelineStages = (settings: Settings, capabilities: Capabilities): 
     { id: "color", name: "Color", value: settings.accurateColor ? "Accurate" : "Vivid", active: settings.accurateColor },
   ]
 }
+
+/** How a stream reaches the console. */
+export type Route = "local" | "internet"
+
+export interface ConnectStep {
+  readonly label: string
+  readonly state: "done" | "active" | "waiting"
+}
+
+/** Which step of connecting is under way: over the internet the console reports its setup stages;
+ * on the local network there's a single wait for the console. */
+export const activeStep = (route: Route, stage: "linking" | "data" | undefined): number =>
+  route === "local" ? 0 : stage === "linking" ? 0 : stage === "data" ? 1 : 2
+
+/** The steps of connecting, in order, in plain words. */
+export const connectionSteps = (route: Route, stage: "linking" | "data" | undefined, consoleName: string): readonly ConnectStep[] => {
+  const labels =
+    route === "internet"
+      ? ["Finding your PS5 through PSN", "Opening a direct connection to it", "Starting the stream"]
+      : [`Contacting ${consoleName} on your network`, "Starting the stream"]
+  const active = activeStep(route, stage)
+  return labels.map((label, i) => ({ label, state: i < active ? "done" : i === active ? "active" : "waiting" }))
+}
+
+/** The connecting screen's heading. */
+export const connectionTitle = (reconnecting: Reconnecting, consoleName: string): string => {
+  switch (reconnecting) {
+    case "dropped":
+      return `Connection lost. Reconnecting to ${consoleName}`
+    case "apply":
+      return `Reconnecting to ${consoleName} with the new settings`
+    case "starting":
+      return `${consoleName} is finishing its last session`
+    case false:
+      return `Connecting to ${consoleName}`
+  }
+}
+
+/** What to expect after `seconds` of waiting, then what to check once it's taking too long. */
+export const connectionHint = (route: Route, seconds: number): string => {
+  if (route === "internet") {
+    return seconds < 60
+      ? "Over the internet this usually takes 20 to 40 seconds."
+      : "This is taking longer than usual. Check that the PS5 is on, or in rest mode with \"Stay connected to the internet\" on."
+  }
+  return seconds < 15 ? "On your network this takes a few seconds." : "This is taking longer than usual. Check that the PS5 is on."
+}
+

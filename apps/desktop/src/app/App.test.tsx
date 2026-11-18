@@ -20,7 +20,8 @@ const consoleItem = async (name = "Living Room") => {
 }
 
 /** Renders the app with a paired, ready console and starts streaming it. */
-const startStreaming = async (core = fakeCore()) => {
+/** Plays the paired console; `connected` also reports the stream as up (otherwise it stays connecting). */
+const startStreaming = async (core = fakeCore(), { connected = true } = {}) => {
   const app = renderApp(core, { accountId, paired: [pairedPs5] })
   const item = await consoleItem()
   await userEvent.click(item.getByRole("button", { name: "Play" }))
@@ -28,6 +29,11 @@ const startStreaming = async (core = fakeCore()) => {
   await waitFor(() => {
     expect(core.streamListeners()).toBe(1)
   })
+  if (connected) {
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+  }
   return { ...app, core }
 }
 
@@ -215,15 +221,24 @@ describe("home: paired consoles", () => {
     expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
     const hud = await screen.findByRole("banner")
     expect(hud).toHaveTextContent("Reaching your PS5 over the internet…")
+    // The connecting screen shows the route's steps and how long it's been.
+    const connecting = screen.getByRole("region", { name: "Connecting to Living Room" })
+    expect(within(connecting).getByText("Finding your PS5 through PSN").closest("li")).toHaveAttribute("aria-current", "step")
+    expect(within(connecting).getByRole("status")).toHaveTextContent("0 s so far. Over the internet this usually takes 20 to 40 seconds.")
+    await waitFor(() => {
+      expect(within(connecting).getByRole("status")).toHaveTextContent("1 s so far.")
+    }, { timeout: 2000 })
     act(() => {
       core.emitStream({ type: "remoteProgress", stage: "data" })
     })
     expect(hud).toHaveTextContent("Opening the data connection…")
+    expect(within(connecting).getByText("Opening a direct connection to it").closest("li")).toHaveAttribute("aria-current", "step")
     act(() => {
       core.emitStream({ type: "remoteProgress", stage: "connected" })
       core.emitStream({ type: "connected" })
     })
     expect(hud).not.toHaveTextContent("over the internet")
+    expect(screen.queryByRole("region", { name: "Connecting to Living Room" })).not.toBeInTheDocument()
 
     // A drop reconnects over the internet too.
     vi.mocked(core.service.startStream).mockClear()
@@ -745,7 +760,7 @@ describe("streaming", () => {
   })
 
   it("waits out a console that's still busy when the stream starts", async () => {
-    const { core } = await startStreaming()
+    const { core } = await startStreaming(fakeCore(), { connected: false })
     act(() => {
       core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, kind: "busy" })
     })
@@ -762,8 +777,44 @@ describe("streaming", () => {
     expect(screen.queryByText(/Disconnected/)).not.toBeInTheDocument()
   })
 
+  it("asks PSN on the spot when Play came before the console list knew about PSN", async () => {
+    const core = fakeCore()
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    await userEvent.click(await item.findByRole("button", { name: "Play" })) // PSN not signed in yet: local only
+    await waitFor(() => {
+      expect(core.streamListeners()).toBe(1)
+    })
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+    })
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.anything(), "aa")
+    })
+  })
+
+  it("ends with advice when the console can't be reached at all", async () => {
+    const { core } = await startStreaming(fakeCore(), { connected: false })
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+    })
+    expect(await screen.findByText(/^Couldn't reach the console on this network/)).toBeInTheDocument()
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
+  })
+
+  it("can cancel while connecting", async () => {
+    const { core } = await startStreaming(fakeCore(), { connected: false })
+    const connecting = screen.getByRole("region", { name: "Connecting to Living Room" })
+    expect(within(connecting).getByText("Contacting Living Room on your network")).toBeInTheDocument()
+    await userEvent.click(within(connecting).getByRole("button", { name: "Cancel" }))
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
+    expect(core.counts.stopStream).toBe(1)
+  })
+
   it("doesn't retry a drop before the stream ever connected", async () => {
-    const { core } = await startStreaming()
+    const { core } = await startStreaming(fakeCore(), { connected: false })
     act(() => {
       core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
     })

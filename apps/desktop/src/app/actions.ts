@@ -84,6 +84,10 @@ export const psnReachable = (paired: PairedConsoles): Effect.Effect<Readonly<Rec
     return psnDeviceIds(paired, yield* core.psnConsoles)
   }).pipe(Effect.orElseSucceed(() => ({})))
 
+/** The console's PSN device ID if it can be reached over the internet right now (asks PSN). */
+export const psnDuidFor = (console: PairedConsole): Effect.Effect<string | undefined, never, Core> =>
+  Effect.map(psnReachable({ [console.hostId]: console }), (ids) => ids[console.hostId])
+
 /** Whether consoles can be reached over the internet (a PSN sign-in is kept). */
 export const internetReady: Effect.Effect<boolean, CoreError, Core> = Effect.flatMap(Core, (core) => core.psnSignedIn)
 

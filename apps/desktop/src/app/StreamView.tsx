@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label"
 import { idleController, type Settings } from "@/core/schema"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
-import type { Capabilities } from "./format"
+import { ConnectingOverlay } from "./ConnectingOverlay"
+import type { Capabilities, Route } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
 import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
@@ -95,6 +96,9 @@ interface StreamViewProps {
   readonly reconnect: ReconnectState
   /** While connecting over the internet, the setup step under way. */
   readonly remoteStage?: "linking" | "data" | undefined
+  /** The console accepted the stream; until then the connecting screen shows. */
+  readonly connected?: boolean
+  readonly route?: Route
   readonly onLoginPinSubmitted: () => void
   /** The stream ended; carries the error to show, if any. */
   readonly onEnd: (error: Option.Option<string>) => void
@@ -108,6 +112,8 @@ export const StreamView = ({
   onSettingsChange,
   reconnect,
   remoteStage,
+  connected = true,
+  route = "local",
   onLoginPinSubmitted,
   onEnd,
 }: StreamViewProps) => {
@@ -202,7 +208,16 @@ export const StreamView = ({
           Stop
         </Button>
       </header>
-      {settings.compare && <CompareLabels />}
+      {settings.compare && connected && <CompareLabels />}
+      {(!connected || reconnect.reconnecting !== false) && Option.isNone(loginPin) && (
+        <ConnectingOverlay
+          consoleName={title}
+          route={route}
+          stage={remoteStage}
+          reconnecting={reconnect.reconnecting}
+          onCancel={stop}
+        />
+      )}
       <SettingsSheet
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

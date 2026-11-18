@@ -154,9 +154,20 @@ export const App = () => {
         if (next === "reconnect") reconnect("dropped")
         else if (next === "retry-start") reconnect("starting")
         else if (next === "via-internet" && session) {
-          toast.info(`Couldn't reach ${session.console.name} on this network. Connecting over the internet…`)
-          run(Effect.logWarning(`${session.console.name} unreachable on the local network; trying through PSN`))
-          play(session.console, session.psnFallback)
+          // Known from the console list, or asked now (Play may have come before that lookup finished).
+          const { console, psnFallback } = session
+          const duid = psnFallback === undefined ? actions.psnDuidFor(console) : Effect.succeed(psnFallback)
+          run(duid, {
+            onSuccess: (found) => {
+              if (found === undefined) {
+                end(quitMessage(event))
+                return
+              }
+              toast.info(`Couldn't reach ${console.name} on this network. Connecting over the internet…`)
+              run(Effect.logWarning(`${console.name} unreachable on the local network; trying through PSN`))
+              play(console, found)
+            },
+          })
         }
         else if (next === "end") end(quitMessage(event))
         break
@@ -206,6 +217,8 @@ export const App = () => {
             onReconnect: () => { reconnect("apply") },
           }}
           remoteStage={session.remoteStage}
+          connected={session.connected}
+          route={session.psnDuid === undefined ? "local" : "internet"}
           onLoginPinSubmitted={clearLoginPin}
           onEnd={leave}
         />

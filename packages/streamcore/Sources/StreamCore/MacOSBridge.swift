@@ -256,7 +256,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         input = i
         rumble = haptics
         triggers = adaptive
-        renderer?.showsTestPattern = false
+        // The backdrop keeps moving until the first frame arrives (connecting can take a while).
         keepAwake(true)
         return json(["ok": true])
     } catch { return failure(error.localizedDescription) }

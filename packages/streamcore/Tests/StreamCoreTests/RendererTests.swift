@@ -53,6 +53,8 @@ import Testing
         #expect(r.activeMode == .bilinear)
         #expect(r.showsTestPattern)
         #expect(r.inputSize == (64, 32))
+        r.display(try makeNV12(width: 64, height: 32, y: 120, cb: 128, cr: 128))
+        #expect(!r.showsTestPattern) // the first frame replaces the backdrop
         #expect(r.view.delegate === r)
         #expect(r.view.colorPixelFormat == .bgra8Unorm)
         r.setInputSize(width: 0, height: 10)   // ignored

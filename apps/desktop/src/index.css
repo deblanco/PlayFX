@@ -5,6 +5,26 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The idle backdrop's light (StreamCore's ribbons), for the connecting screen's route map. */
+@theme {
+    --color-ice: #a9c8ff;
+    --color-ribbon: #1e5bff;
+    /* A light pulse travelling a link while it's being set up. */
+    --animate-travel: travel 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    /* Dashes flowing along that link. */
+    --animate-flow: flow 0.9s linear infinite;
+
+    @keyframes travel {
+        0% { offset-distance: 0%; opacity: 0; }
+        15% { opacity: 1; }
+        85% { opacity: 1; }
+        100% { offset-distance: 100%; opacity: 0; }
+    }
+    @keyframes flow {
+        to { stroke-dashoffset: -16; }
+    }
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;

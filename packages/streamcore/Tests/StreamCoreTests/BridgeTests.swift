@@ -145,7 +145,7 @@ extension Serial {
             #expect(await waitUntil { receivedEvents.lines.contains { $0.contains(#""type":"quit""#) } })
             // The quit handler stops the session on the main queue, keeping the last frame up.
             #expect(await waitUntil { (try? object(sc_session_stats())["active"] as? Bool) == false })
-            if let r = renderer { #expect(!r.showsTestPattern) }
+            if let r = renderer { #expect(r.showsTestPattern) } // no frame ever came: the backdrop kept moving
             #expect(!keepingAwake) // the session ended
             sc_session_stop() // the host went home: idle pattern back
             if let r = renderer { #expect(r.showsTestPattern) }

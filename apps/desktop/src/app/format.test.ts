@@ -15,6 +15,9 @@ import {
   renderParams,
   hudStats,
   quitMessage,
+  connectionHint,
+  connectionSteps,
+  connectionTitle,
   streamOptions,
   streamSummary,
   strengthLabel,
@@ -159,11 +162,11 @@ describe("psnDeviceIds", () => {
 describe("afterQuit", () => {
   const live = { connected: true, reconnecting: false, autoReconnects: 0 } as const
   const dropped = { type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" } as const
-  it("goes through PSN when the local network can't reach a console that's on the PSN account", () => {
+  it("tries PSN when the local network can't reach the console", () => {
     const starting = { connected: false, reconnecting: false, autoReconnects: 0 } as const
     const unreachable = { type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" } as const
     expect(afterQuit({ ...starting, psnFallback: "aa" }, unreachable)).toBe("via-internet")
-    expect(afterQuit(starting, unreachable)).toBe("end") // not on PSN
+    expect(afterQuit(starting, unreachable)).toBe("via-internet") // PSN is asked then
     expect(afterQuit({ ...starting, psnFallback: "aa", psnDuid: "aa" }, unreachable)).toBe("end") // already via PSN
     expect(afterQuit({ ...live, psnFallback: "aa" }, unreachable)).toBe("end") // it had connected
     expect(afterQuit({ ...starting, psnFallback: "aa" }, { ...unreachable, reason: "Connection Refused in Session Request" })).toBe("end")
@@ -273,3 +276,40 @@ describe("pipelineStages", () => {
     ])
   })
 })
+
+describe("connecting screen", () => {
+  const states = (steps: ReturnType<typeof connectionSteps>) => steps.map((step) => step.state)
+
+  it("follows the console's setup stages over the internet", () => {
+    expect(connectionSteps("internet", "linking", "PS5").map((step) => step.label)).toEqual([
+      "Finding your PS5 through PSN",
+      "Opening a direct connection to it",
+      "Starting the stream",
+    ])
+    expect(states(connectionSteps("internet", "linking", "PS5"))).toEqual(["active", "waiting", "waiting"])
+    expect(states(connectionSteps("internet", "data", "PS5"))).toEqual(["done", "active", "waiting"])
+    expect(states(connectionSteps("internet", undefined, "PS5"))).toEqual(["done", "done", "active"])
+  })
+
+  it("waits for the console on the local network", () => {
+    expect(connectionSteps("local", undefined, "Living Room")).toEqual([
+      { label: "Contacting Living Room on your network", state: "active" },
+      { label: "Starting the stream", state: "waiting" },
+    ])
+  })
+
+  it("names what's happening", () => {
+    expect(connectionTitle(false, "PS5")).toBe("Connecting to PS5")
+    expect(connectionTitle("dropped", "PS5")).toBe("Connection lost. Reconnecting to PS5")
+    expect(connectionTitle("apply", "PS5")).toBe("Reconnecting to PS5 with the new settings")
+    expect(connectionTitle("starting", "PS5")).toBe("PS5 is finishing its last session")
+  })
+
+  it("sets expectations, then says what to check when it's slow", () => {
+    expect(connectionHint("internet", 10)).toBe("Over the internet this usually takes 20 to 40 seconds.")
+    expect(connectionHint("internet", 60)).toMatch(/^This is taking longer than usual/)
+    expect(connectionHint("local", 3)).toBe("On your network this takes a few seconds.")
+    expect(connectionHint("local", 15)).toBe("This is taking longer than usual. Check that the PS5 is on.")
+  })
+})
+
