@@ -29,3 +29,8 @@ ios/Pods/
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# StreamCore: generated libchiaki build + staged artifacts (scripts/build-chiaki.sh)
+packages/streamcore/.build-chiaki/
+packages/streamcore/vendor/
+packages/streamcore/Sources/CChiaki/include/chiaki/

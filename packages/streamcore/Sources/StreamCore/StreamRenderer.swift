@@ -1,14 +1,16 @@
+import CoreVideo
 import Metal
 import MetalFX
 import MetalKit
 import QuartzCore
+import os
 
 public enum UpscaleMode: Int32 {
     case bilinear = 0
     case metalFX = 1
 }
 
-/// Renders the stream into an MTKView: source frame (low res) → optional MetalFX spatial
+/// Renders the stream into an MTKView: video frame (NV12) → RGB → optional MetalFX spatial
 /// upscale to the on-screen size → present, letterboxed to the source aspect ratio.
 /// Platform-agnostic; macOS/iOS hosts only differ in how they embed `view`.
 public final class StreamRenderer: NSObject, MTKViewDelegate {
@@ -17,10 +19,15 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public var mode: UpscaleMode = .metalFX
     /// Upscaler actually used for the last frame (MetalFX is skipped when not upscaling).
     public private(set) var activeMode: UpscaleMode = .bilinear
+    /// Shows the animated test pattern when no video frames are arriving.
+    public var showsTestPattern = true
 
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let patternPipeline: MTLComputePipelineState
+    private let nv12Pipeline: MTLComputePipelineState
+    private let textureCache: CVMetalTextureCache
+    private let frameLock = OSAllocatedUnfairLock<CVPixelBuffer?>(initialState: nil)
     private let presentPipeline: MTLRenderPipelineState
     private let sampler: MTLSamplerState
     private let startTime = CACurrentMediaTime()
@@ -34,7 +41,12 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
               let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: shaderSource, options: nil),
               let kernel = library.makeFunction(name: "testPattern"),
-              let patternPipeline = try? device.makeComputePipelineState(function: kernel)
+              let patternPipeline = try? device.makeComputePipelineState(function: kernel),
+              let nv12Kernel = library.makeFunction(name: "nv12ToRGB"),
+              let nv12Pipeline = try? device.makeComputePipelineState(function: nv12Kernel)
+        else { return nil }
+        var cache: CVMetalTextureCache?
+        guard CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) == kCVReturnSuccess, let textureCache = cache
         else { return nil }
 
         let view = MTKView(frame: .zero, device: device)
@@ -57,6 +69,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.device = device
         self.queue = queue
         self.patternPipeline = patternPipeline
+        self.nv12Pipeline = nv12Pipeline
+        self.textureCache = textureCache
         self.presentPipeline = presentPipeline
         self.sampler = sampler
         self.inputTexture = input
@@ -74,6 +88,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         scaler = nil
     }
 
+    /// Queues a decoded frame for the next draw. Thread-safe; only the newest frame is kept.
+    public func display(_ frame: CVPixelBuffer) {
+        frameLock.withLock { $0 = frame }
+    }
+
     // MARK: MTKViewDelegate
 
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -83,7 +102,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
               let pass = view.currentRenderPassDescriptor,
               let cb = queue.makeCommandBuffer() else { return }
 
-        encodeTestPattern(cb)
+        if let frame = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) {
+            encodeVideoFrame(frame, cb)
+        } else if showsTestPattern {
+            encodeTestPattern(cb)
+        }
 
         let target = fittedRect(drawable: view.drawableSize)
         var source = inputTexture
@@ -114,15 +137,45 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
     // MARK: Private
 
+    /// NV12 → RGBA into `inputTexture` (resized to the frame), zero-copy via CVMetalTextureCache.
+    private func encodeVideoFrame(_ frame: CVPixelBuffer, _ cb: MTLCommandBuffer) {
+        let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
+        if w != inputTexture.width || h != inputTexture.height { setInputSize(width: w, height: h) }
+        guard let luma = planeTexture(frame, plane: 0, format: .r8Unorm),
+              let chroma = planeTexture(frame, plane: 1, format: .rg8Unorm),
+              let lumaTex = CVMetalTextureGetTexture(luma), let chromaTex = CVMetalTextureGetTexture(chroma),
+              let enc = cb.makeComputeCommandEncoder() else { return }
+        enc.setComputePipelineState(nv12Pipeline)
+        enc.setTexture(lumaTex, index: 0)
+        enc.setTexture(chromaTex, index: 1)
+        enc.setTexture(inputTexture, index: 2)
+        dispatch(enc, inputTexture)
+        enc.endEncoding()
+        // Keep the CoreVideo textures (and the frame) alive until the GPU is done with them.
+        cb.addCompletedHandler { _ in _ = (luma, chroma, frame) }
+    }
+
+    private func planeTexture(_ frame: CVPixelBuffer, plane: Int, format: MTLPixelFormat) -> CVMetalTexture? {
+        var tex: CVMetalTexture?
+        let status = CVMetalTextureCacheCreateTextureFromImage(
+            nil, textureCache, frame, nil, format,
+            CVPixelBufferGetWidthOfPlane(frame, plane), CVPixelBufferGetHeightOfPlane(frame, plane), plane, &tex)
+        return status == kCVReturnSuccess ? tex : nil
+    }
+
+    private func dispatch(_ enc: MTLComputeCommandEncoder, _ target: MTLTexture) {
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let grid = MTLSize(width: (target.width + 15) / 16, height: (target.height + 15) / 16, depth: 1)
+        enc.dispatchThreadgroups(grid, threadsPerThreadgroup: tg)
+    }
+
     private func encodeTestPattern(_ cb: MTLCommandBuffer) {
         guard let enc = cb.makeComputeCommandEncoder() else { return }
         var t = Float(CACurrentMediaTime() - startTime)
         enc.setComputePipelineState(patternPipeline)
         enc.setTexture(inputTexture, index: 0)
         enc.setBytes(&t, length: MemoryLayout<Float>.size, index: 0)
-        let tg = MTLSize(width: 16, height: 16, depth: 1)
-        let grid = MTLSize(width: (inputTexture.width + 15) / 16, height: (inputTexture.height + 15) / 16, depth: 1)
-        enc.dispatchThreadgroups(grid, threadsPerThreadgroup: tg)
+        dispatch(enc, inputTexture)
         enc.endEncoding()
     }
 

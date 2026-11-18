@@ -26,6 +26,23 @@ kernel void testPattern(texture2d<float, access::write> out [[texture(0)]],
     out.write(float4(col, 1.0), gid);
 }
 
+// Decoded video (NV12, BT.709 video range) → RGBA, the input to the upscaler.
+kernel void nv12ToRGB(texture2d<float, access::read> lumaTex [[texture(0)]],
+                      texture2d<float, access::sample> chromaTex [[texture(1)]],
+                      texture2d<float, access::write> out [[texture(2)]],
+                      uint2 gid [[thread_position_in_grid]]) {
+    uint w = out.get_width(), h = out.get_height();
+    if (gid.x >= w || gid.y >= h) return;
+    constexpr sampler s(filter::linear, coord::normalized, address::clamp_to_edge);
+    float2 uv = (float2(gid) + 0.5) / float2(w, h);
+    float y = (lumaTex.read(gid).r - 16.0 / 255.0) * (255.0 / 219.0);
+    float2 c = (chromaTex.sample(s, uv).rg - 128.0 / 255.0) * (255.0 / 224.0);
+    float3 rgb = float3(y + 1.5748 * c.y,
+                        y - 0.1873 * c.x - 0.4681 * c.y,
+                        y + 1.8556 * c.x);
+    out.write(float4(saturate(rgb), 1.0), gid);
+}
+
 struct VOut { float4 pos [[position]]; float2 uv; };
 
 vertex VOut fullscreenVertex(uint vid [[vertex_id]]) {

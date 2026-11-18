@@ -1,0 +1,5 @@
+// Expose only the psrp shim to Swift; chiaki's own headers stay private to psrp.c.
+module CChiaki {
+    header "psrp.h"
+    export *
+}

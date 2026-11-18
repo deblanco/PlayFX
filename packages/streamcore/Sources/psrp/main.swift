@@ -1,0 +1,288 @@
+import CoreImage
+import Foundation
+import Network
+import StreamCore
+
+// psrp — headless Remote Play tool built on StreamCore, for debugging without the desktop UI.
+//
+//   psrp discover [--host IP] [--timeout S]
+//   psrp login-url                          print the PSN sign-in URL
+//   psrp account-id <redirect-url|code>     exchange the sign-in redirect for the account ID (saved)
+//   psrp register --host IP --pin PIN [--account-id B64] [--ps4]   pair; credentials saved
+//   psrp consoles                           list saved consoles
+//   psrp wake [--host IP]
+//   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--no-audio] [--port 7777]
+//        control API on http://127.0.0.1:PORT
+//          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
+//          /hold?buttons=r2  /release  /keyframe  /sleep  /quit
+//
+// Saved state: ~/.config/psrp/config.json (contains pairing keys — keep it private).
+
+struct Config: Codable {
+    var accountId: String?
+    var consoles: [ConsoleCredentials] = []
+
+    static let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/psrp/config.json")
+    static func load() -> Config {
+        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Config.self, from: $0) } ?? Config()
+    }
+    func save() throws {
+        try FileManager.default.createDirectory(at: Self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try enc.encode(self).write(to: Self.url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.url.path)
+    }
+    func console(host: String?) throws -> ConsoleCredentials {
+        if let host {
+            guard let c = consoles.first(where: { $0.address == host }) else { throw fail("No saved console at \(host); run `psrp register` first") }
+            return c
+        }
+        guard let c = consoles.first else { throw fail("No saved consoles; run `psrp register` first") }
+        return c
+    }
+}
+
+struct Args {
+    var positional: [String] = []
+    var options: [String: String] = [:]
+    init(_ argv: [String]) {
+        var i = 0
+        while i < argv.count {
+            let a = argv[i]
+            if a.hasPrefix("--") {
+                let key = String(a.dropFirst(2))
+                if i + 1 < argv.count, !argv[i + 1].hasPrefix("--") { options[key] = argv[i + 1]; i += 1 } else { options[key] = "" }
+            } else { positional.append(a) }
+            i += 1
+        }
+    }
+    subscript(_ key: String) -> String? { options[key] }
+    func has(_ key: String) -> Bool { options[key] != nil }
+}
+
+func fail(_ message: String) -> Error { ConsoleError.message(message) }
+
+func printJSON<T: Encodable>(_ value: T) {
+    let enc = JSONEncoder()
+    enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+    print(String(decoding: (try? enc.encode(value)) ?? Data(), as: UTF8.self))
+}
+
+func log(_ s: String) { FileHandle.standardError.write(Data("\(s)\n".utf8)) }
+
+// MARK: - Commands
+
+func run() async throws {
+    var argv = Array(CommandLine.arguments.dropFirst())
+    guard !argv.isEmpty else { throw fail("usage: psrp <discover|login-url|account-id|register|consoles|wake|stream> ...") }
+    let command = argv.removeFirst()
+    let args = Args(argv)
+    Console.configureLogging(verbose: args.has("verbose"))
+    var config = Config.load()
+
+    switch command {
+    case "discover":
+        let consoles = Console.discover(host: args["host"], timeout: Double(args["timeout"] ?? "") ?? 2)
+        printJSON(consoles)
+
+    case "login-url":
+        print(PSNAuth.loginURL.absoluteString)
+
+    case "account-id":
+        guard let input = args.positional.first, let code = PSNAuth.code(fromRedirect: input) else {
+            throw fail("usage: psrp account-id <redirect URL containing ?code=...>")
+        }
+        let id = try await PSNAuth.accountId(code: code)
+        config.accountId = id
+        try config.save()
+        print(id)
+
+    case "register":
+        guard let host = args["host"], let pin = args["pin"] else { throw fail("usage: psrp register --host IP --pin PIN") }
+        guard let account = args["account-id"] ?? config.accountId else { throw fail("No account ID; run `psrp account-id` first") }
+        let creds = try Console.register(address: host, ps5: !args.has("ps4"), accountId: account, pin: pin)
+        config.accountId = account
+        config.consoles.removeAll { $0.address == host }
+        config.consoles.append(creds)
+        try config.save()
+        log("Paired with \(creds.nickname) (\(host)); saved to \(Config.url.path)")
+
+    case "consoles":
+        printJSON(config.consoles.map { ["address": $0.address, "nickname": $0.nickname, "ps5": "\($0.ps5)"] })
+
+    case "wake":
+        let c = try config.console(host: args["host"])
+        print(Console.wakeup(c) ? "wakeup sent to \(c.address)" : "wakeup failed")
+
+    case "stream":
+        try stream(try config.console(host: args["host"]), args)
+
+    default:
+        throw fail("unknown command \(command)")
+    }
+}
+
+// MARK: - Stream + control API
+
+final class Controller {
+    let session: StreamSession
+    var held = ControllerState()
+    var events: [String] = []
+    var connected = false
+    let queue = DispatchQueue(label: "psrp.input")
+
+    init(session: StreamSession) { self.session = session }
+
+    func apply(_ s: ControllerState) { session.setController(s) }
+
+    /// Presses `buttons` (and optional stick values) for `ms`, then returns to the held state.
+    func tap(_ s: ControllerState, ms: Int) {
+        queue.async {
+            var merged = s
+            merged.buttons |= self.held.buttons
+            self.apply(merged)
+            Thread.sleep(forTimeInterval: Double(ms) / 1000)
+            self.apply(self.held)
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+}
+
+func parseButtons(_ list: String?) throws -> ControllerState {
+    var s = ControllerState()
+    for name in (list ?? "").split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces).lowercased() }) where !name.isEmpty {
+        switch name {
+        case "l2": s.l2 = 255
+        case "r2": s.r2 = 255
+        default:
+            guard let bit = ControllerState.buttonNames[name] else {
+                throw fail("unknown button \(name); valid: \(ControllerState.buttonNames.keys.sorted().joined(separator: ",")),l2,r2")
+            }
+            s.buttons |= bit
+        }
+    }
+    return s
+}
+
+func stream(_ console: ConsoleCredentials, _ args: Args) throws {
+    var options = StreamSession.Options()
+    options.height = Int(args["height"] ?? "") ?? 1080
+    options.fps = Int(args["fps"] ?? "") ?? 60
+    options.hevc = !args.has("h264")
+    options.bitrate = Int(args["bitrate"] ?? "") ?? 0
+    options.audio = !args.has("no-audio")
+
+    log("Connecting to \(console.nickname) at \(console.address) (\(options.height)p\(options.fps), \(options.hevc ? "HEVC" : "H.264"))…")
+    let session = try StreamSession(credentials: console, options: options)
+    let ctl = Controller(session: session)
+    session.onEvent = { event in
+        let text: String
+        switch event {
+        case .connected: ctl.connected = true; text = "connected"
+        case .quit(let reason, let error): ctl.connected = false; text = "quit (\(error ? "error" : "ok")): \(reason)"
+        case .loginPinRequested(let incorrect): text = "login PIN requested (incorrect: \(incorrect))"
+        case .rumble: return
+        case .nickname(let n): text = "nickname: \(n)"
+        }
+        log("[event] \(text)")
+        ctl.queue.async { ctl.events.append(text) }
+        if case .quit = event { exit(0) }
+    }
+
+    let port = UInt16(args["port"] ?? "") ?? 7777
+    try serve(port: port, ctl)
+    log("Control API: http://127.0.0.1:\(port)/status  (/snapshot.png, /press?buttons=cross, /quit)")
+    signal(SIGINT, SIG_IGN)
+    let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    sigint.setEventHandler { session.stop(); exit(0) }
+    sigint.resume()
+    withExtendedLifetime(sigint) { dispatchMain() }
+}
+
+let ciContext = CIContext()
+
+func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, String, Data) {
+    func json<T: Encodable>(_ v: T) -> (Int, String, Data) { (200, "application/json", (try? JSONEncoder().encode(v)) ?? Data()) }
+    func ok() -> (Int, String, Data) { (200, "text/plain", Data("ok\n".utf8)) }
+    do {
+        switch path {
+        case "/status":
+            struct Status: Encodable { let connected: Bool; let stats: StreamSession.Stats; let events: [String] }
+            return json(Status(connected: ctl.connected, stats: ctl.session.stats, events: ctl.queue.sync { ctl.events }))
+        case "/snapshot.png":
+            guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }
+            let image = CIImage(cvPixelBuffer: frame)
+            guard let png = ciContext.pngRepresentation(of: image, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+            else { return (500, "text/plain", Data("encode failed\n".utf8)) }
+            return (200, "image/png", png)
+        case "/press":
+            var s = try parseButtons(query["buttons"] ?? query["b"])
+            if let v = query["lx"].flatMap(Int16.init) { s.leftX = v }
+            if let v = query["ly"].flatMap(Int16.init) { s.leftY = v }
+            ctl.tap(s, ms: Int(query["ms"] ?? "") ?? 120)
+            return ok()
+        case "/stick":
+            var s = ControllerState()
+            s.leftX = query["lx"].flatMap(Int16.init) ?? 0
+            s.leftY = query["ly"].flatMap(Int16.init) ?? 0
+            s.rightX = query["rx"].flatMap(Int16.init) ?? 0
+            s.rightY = query["ry"].flatMap(Int16.init) ?? 0
+            ctl.tap(s, ms: Int(query["ms"] ?? "") ?? 300)
+            return ok()
+        case "/hold":
+            let s = try parseButtons(query["buttons"] ?? query["b"])
+            ctl.queue.async { ctl.held = s; ctl.apply(s) }
+            return ok()
+        case "/release":
+            ctl.queue.async { ctl.held = ControllerState(); ctl.apply(ctl.held) }
+            return ok()
+        case "/keyframe":
+            ctl.session.requestKeyframe()
+            return ok()
+        case "/sleep":
+            ctl.session.sleepConsole()
+            return ok()
+        case "/quit":
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { ctl.session.stop(); exit(0) }
+            return ok()
+        default:
+            return (404, "text/plain", Data("not found\n".utf8))
+        }
+    } catch {
+        return (400, "text/plain", Data("\(error.localizedDescription)\n".utf8))
+    }
+}
+
+/// Minimal HTTP/1.0 server on localhost (one request per connection).
+func serve(port: UInt16, _ ctl: Controller) throws {
+    let params = NWParameters.tcp
+    params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
+    let listener = try NWListener(using: params)
+    listener.newConnectionHandler = { conn in
+        conn.start(queue: .global())
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, _, _ in
+            let request = String(decoding: data ?? Data(), as: UTF8.self)
+            let target = request.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            let comps = URLComponents(string: target)
+            var query: [String: String] = [:]
+            comps?.queryItems?.forEach { query[$0.name] = $0.value ?? "" }
+            let (status, type, body) = handle(path: comps?.path ?? target, query: query, ctl)
+            var head = Data("HTTP/1.0 \(status) \(status == 200 ? "OK" : "Error")\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+            head.append(body)
+            conn.send(content: head, completion: .contentProcessed { _ in conn.cancel() })
+        }
+    }
+    listener.start(queue: .global())
+    servers.append(listener)
+}
+var servers: [NWListener] = []
+
+// MARK: - Entry
+
+do {
+    try await run()
+} catch {
+    log("error: \(error.localizedDescription)")
+    exit(1)
+}
