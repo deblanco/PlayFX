@@ -13,6 +13,8 @@ unsafe extern "C" {
     pub fn sc_gpu_milliseconds() -> f64;
     pub fn sc_ml_supported() -> bool;
     pub fn sc_ml_active() -> bool;
+    pub fn sc_smooth_supported() -> bool;
+    pub fn sc_smooth_active() -> bool;
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
     pub fn sc_session_stop();
     pub fn sc_session_set_login_pin(pin: *const c_char);
@@ -120,6 +122,9 @@ impl NativeCore for MacCore {
     }
     fn ml_status(&self) -> (bool, bool) {
         unsafe { (sc_ml_supported(), sc_ml_active()) }
+    }
+    fn smooth_status(&self) -> (bool, bool) {
+        unsafe { (sc_smooth_supported(), sc_smooth_active()) }
     }
     fn session_stats(&self) -> String {
         take(unsafe { sc_session_stats() })

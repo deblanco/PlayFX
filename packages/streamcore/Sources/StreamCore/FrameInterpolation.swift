@@ -1,0 +1,87 @@
+import CoreMedia
+import CoreVideo
+import Metal
+import VideoToolbox
+
+/// "Smooth motion": Apple's low-latency frame interpolation (VideoToolbox, macOS 26+) makes a frame
+/// halfway between the previous decoded frame and the new one. The renderer shows it first and the new
+/// frame one screen refresh later, doubling the frame rate when the screen refreshes at least twice as
+/// fast as the stream (30 fps on a 60 Hz screen, 60 fps on a 120 Hz one). The cost is that the real
+/// frame lands one refresh late, so it's off by default.
+final class FrameInterpolator {
+    /// Whether this OS and Mac can run it at all.
+    static var isAvailable: Bool {
+        if #available(macOS 26.0, iOS 26.0, *) { return VTLowLatencyFrameInterpolationConfiguration.isSupported }
+        return false
+    }
+
+    /// An in-between frame only shows if the screen refreshes at least ~twice per stream frame;
+    /// otherwise it would just replace real frames (adding lag for nothing).
+    static func helps(streamInterval: Double, displayInterval: Double) -> Bool {
+        streamInterval > 0 && displayInterval > 0 && streamInterval >= displayInterval * 1.8
+    }
+
+    private var session: AnyObject? // VTFrameProcessor on macOS 26+
+    private var size: (width: Int, height: Int)?
+    private var pool: CVPixelBufferPool?
+    private var failed: Set<String> = []
+    private var timestamp: Int64 = 0
+
+    deinit { end() }
+
+    /// Encodes the frame halfway between `previous` and `current` into a new NV12 buffer in `cb`; nil
+    /// when it can't run (unsupported format or size, or the frames differ in size).
+    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer? {
+        guard #available(macOS 26.0, iOS 26.0, *), Self.isAvailable,
+              CVPixelBufferGetPixelFormatType(current) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+              CVPixelBufferGetPixelFormatType(previous) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return nil }
+        let w = CVPixelBufferGetWidth(current), h = CVPixelBufferGetHeight(current)
+        guard CVPixelBufferGetWidth(previous) == w, CVPixelBufferGetHeight(previous) == h else { return nil }
+        let sizeKey = "\(w)x\(h)"
+        guard !failed.contains(sizeKey) else { return nil }
+        if size?.width != w || size?.height != h {
+            end()
+            var newPool: CVPixelBufferPool?
+            let processor = VTFrameProcessor()
+            guard let config = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: 1),
+                  (try? processor.startSession(configuration: config)) != nil,
+                  CVPixelBufferPoolCreate(nil, nil, Self.metalCompatible(config.destinationPixelBufferAttributes) as CFDictionary,
+                                          &newPool) == kCVReturnSuccess else {
+                failed.insert(sizeKey)
+                Log.warning(.renderer, "Smooth motion couldn't start for \(sizeKey) streams")
+                return nil
+            }
+            session = processor
+            pool = newPool
+            size = (w, h)
+            Log.info(.renderer, "Smooth motion on for \(sizeKey) streams")
+        }
+        var output: CVPixelBuffer?
+        timestamp += 2
+        guard let processor = session as? VTFrameProcessor, let pool,
+              CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output) == kCVReturnSuccess, let output,
+              let before = VTFrameProcessorFrame(buffer: previous, presentationTimeStamp: CMTime(value: timestamp - 2, timescale: 120)),
+              let after = VTFrameProcessorFrame(buffer: current, presentationTimeStamp: CMTime(value: timestamp, timescale: 120)),
+              let middle = VTFrameProcessorFrame(buffer: output, presentationTimeStamp: CMTime(value: timestamp - 1, timescale: 120)),
+              let parameters = VTLowLatencyFrameInterpolationParameters(sourceFrame: after, previousFrame: before,
+                                                                        interpolationPhase: [0.5], destinationFrames: [middle])
+        else { return nil }
+        // Keep the colorimetry so the NV12 conversion still reads the stream's matrix and siting.
+        CVBufferPropagateAttachments(current, output)
+        processor.process(with: cb, parameters: parameters)
+        return output
+    }
+
+    private static func metalCompatible(_ attributes: [String: Any]) -> [String: Any] {
+        var attrs = attributes
+        attrs[kCVPixelBufferMetalCompatibilityKey as String] = true
+        return attrs
+    }
+
+    private func end() {
+        if #available(macOS 26.0, iOS 26.0, *) { (session as? VTFrameProcessor)?.endSession() }
+        session = nil
+        pool = nil
+        size = nil
+    }
+}

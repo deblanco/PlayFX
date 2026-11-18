@@ -301,7 +301,7 @@ export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Pr
   const status = yield* core.rendererStatus
   yield* core.setRenderParams(renderParams(settings))
   yield* applyDetailedLogs(settings.detailedLogs)
-  return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported } }
+  return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported, smooth: status.smoothSupported } }
 })
 
 /** Persists new settings and applies their picture part to the renderer (cheap, and always the latest

@@ -129,6 +129,18 @@ public func sc_ml_active() -> Bool {
     renderer?.mlActive ?? false
 }
 
+/// Whether frame interpolation ("Smooth motion") can run here (macOS 26+, supported Mac).
+@_cdecl("sc_smooth_supported")
+public func sc_smooth_supported() -> Bool {
+    renderer?.smoothSupported ?? false
+}
+
+/// Whether the last stream frame was preceded by an interpolated one.
+@_cdecl("sc_smooth_active")
+public func sc_smooth_active() -> Bool {
+    renderer?.smoothActive ?? false
+}
+
 /// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, -1 = no renderer.
 @_cdecl("sc_active_mode")
 public func sc_active_mode() -> Int32 {

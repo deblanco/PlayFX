@@ -153,7 +153,7 @@ describe("settings", () => {
     const saved = { ...defaultSettings, upscaler: "bilinear" as const }
     const { layer } = setup(core, { settings: saved })
     return Effect.gen(function* () {
-      expect(yield* actions.startup).toEqual({ settings: saved, capabilities: { metalfx: false, ml: false } })
+      expect(yield* actions.startup).toEqual({ settings: saved, capabilities: { metalfx: false, ml: false, smooth: false } })
       expect(core.service.setRenderParams).toHaveBeenCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
     }).pipe(Effect.provide(layer))
   })

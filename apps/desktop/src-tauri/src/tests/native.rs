@@ -69,17 +69,17 @@ fn mode_name_maps_numbers() {
 fn renderer_status_json_assembles_reply() {
     assert_eq!(
         renderer_status_json(
-            &RendererState { metalfx_supported: true, active_mode: 1, gpu_ms: 1.23456, ml: (true, false) },
+            &RendererState { metalfx_supported: true, active_mode: 1, gpu_ms: 1.23456, ml: (true, false), smooth: (true, true) },
             r#"{"active":false}"#
         ),
-        json!({"metalfxSupported": true, "activeMode": "metalfx", "gpuMs": 1.23, "mlSupported": true, "mlActive": false, "stream": {"active": false}})
+        json!({"metalfxSupported": true, "activeMode": "metalfx", "gpuMs": 1.23, "mlSupported": true, "mlActive": false, "smoothSupported": true, "smoothActive": true, "stream": {"active": false}})
     );
     assert_eq!(
         renderer_status_json(
-            &RendererState { metalfx_supported: false, active_mode: -1, gpu_ms: 0.0, ml: (false, false) },
+            &RendererState { metalfx_supported: false, active_mode: -1, gpu_ms: 0.0, ml: (false, false), smooth: (false, false) },
             "not json"
         ),
-        json!({"metalfxSupported": false, "activeMode": "none", "gpuMs": 0.0, "mlSupported": false, "mlActive": false, "stream": Value::Null})
+        json!({"metalfxSupported": false, "activeMode": "none", "gpuMs": 0.0, "mlSupported": false, "mlActive": false, "smoothSupported": false, "smoothActive": false, "stream": Value::Null})
     );
 }
 

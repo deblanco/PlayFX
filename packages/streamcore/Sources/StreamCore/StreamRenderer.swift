@@ -39,6 +39,9 @@ public struct RenderParams: Codable, Equatable, Sendable {
     public var deband: Float = 0
     /// Apple's ML super-resolution on the decoded frame first (macOS 26+, streams up to 1280 px wide).
     public var mlUpscale = false
+    /// "Smooth motion": an interpolated frame between each pair of stream frames (macOS 26+), when the
+    /// screen refreshes at least twice as fast as the stream. Adds one screen refresh of latency.
+    public var smoothMotion = false
     /// Split screen: left half is the baseline (bilinear, no processing), right half these params.
     public var compare = false
     public var colorMatrix: ColorMatrix = .auto
@@ -66,6 +69,7 @@ public struct RenderParams: Codable, Equatable, Sendable {
         chroma = try c.decodeIfPresent(ChromaFilter.self, forKey: .chroma) ?? d.chroma
         accurateColor = try c.decodeIfPresent(Bool.self, forKey: .accurateColor) ?? d.accurateColor
         mlUpscale = try c.decodeIfPresent(Bool.self, forKey: .mlUpscale) ?? d.mlUpscale
+        smoothMotion = try c.decodeIfPresent(Bool.self, forKey: .smoothMotion) ?? d.smoothMotion
     }
 }
 
@@ -85,6 +89,20 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Whether the last decoded frame went through ML super-resolution.
     public private(set) var mlActive = false
     private let ml = MLSuperResolution()
+    /// Whether frame interpolation ("Smooth motion") can run on this Mac and OS.
+    public let smoothSupported = FrameInterpolator.isAvailable
+    /// Whether the last stream frame was preceded by an interpolated one.
+    public private(set) var smoothActive = false
+    private let interpolator = FrameInterpolator()
+    /// The last stream frame (the interpolation's "before"), and a new one held back for one refresh
+    /// while the in-between frame shows.
+    private var previousFrame: CVPixelBuffer?
+    private var heldFrame: CVPixelBuffer?
+    /// Smoothed seconds between screen refreshes (draws) and between stream frames.
+    private var displayInterval = 0.0
+    private var streamInterval = 0.0
+    private var lastDraw = 0.0
+    private var lastArrival = 0.0
     /// The raw stream converted at its own size, for the compare view's baseline while ML is on.
     private var baselineTexture: MTLTexture?
     /// Width of the last decoded frame, before any ML upscale (the codec's block grid lives there).
@@ -206,13 +224,14 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
     /// Everything `draw` does short of presenting: pending frame (or test pattern) → input texture →
     /// optional MetalFX upscale → letterboxed into `pass`.
-    func encode(_ cb: MTLCommandBuffer, pass: MTLRenderPassDescriptor, drawableSize: CGSize) {
+    func encode(_ cb: MTLCommandBuffer, pass: MTLRenderPassDescriptor, drawableSize: CGSize,
+                now: Double = CACurrentMediaTime()) {
         cb.addCompletedHandler { [gpuTime] done in
             let ms = (done.gpuEndTime - done.gpuStartTime) * 1000
             guard ms > 0 else { return }
             gpuTime.withLock { $0 = Self.smoothed($0, ms) }
         }
-        if let frame = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) {
+        if let frame = nextFrame(cb, now: now) {
             let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: fittedRect(drawable: drawableSize).size) : nil
             mlActive = enhanced != nil
             decodedWidth = CVPixelBufferGetWidth(frame)
@@ -418,6 +437,35 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         #else
         UIAccessibility.isReduceMotionEnabled
         #endif
+    }
+
+    /// The frame to show on this refresh: a new stream frame (or, with Smooth motion, the in-between
+    /// frame first and the new one on the next refresh), nil when nothing changed.
+    private func nextFrame(_ cb: MTLCommandBuffer, now: Double) -> CVPixelBuffer? {
+        if lastDraw > 0 { displayInterval = Self.smoothedInterval(displayInterval, now - lastDraw) }
+        lastDraw = now
+        guard let incoming = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) else {
+            defer { heldFrame = nil }
+            return heldFrame
+        }
+        if lastArrival > 0 { streamInterval = Self.smoothedInterval(streamInterval, now - lastArrival) }
+        lastArrival = now
+        defer { previousFrame = incoming }
+        if params.smoothMotion, FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval),
+           let previous = previousFrame, let middle = interpolator.encode(cb, previous: previous, current: incoming) {
+            heldFrame = incoming
+            smoothActive = true
+            return middle
+        }
+        heldFrame = nil
+        smoothActive = false
+        return incoming
+    }
+
+    /// Running average of an interval; gaps over a quarter second (pauses) are ignored.
+    static func smoothedInterval(_ average: Double, _ sample: Double) -> Double {
+        guard sample > 0, sample < 0.25 else { return average }
+        return average == 0 ? sample : average * 0.9 + sample * 0.1
     }
 
     /// Largest rect with the source aspect ratio that fits the drawable, centered (pixels).

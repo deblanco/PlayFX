@@ -82,6 +82,7 @@ describe("renderParams", () => {
       deblock: 0.6,
       deband: 0.3,
       mlUpscale: true,
+      smoothMotion: true,
       compare: true,
       colorMatrix: "bt2020",
       colorRange: "full",
@@ -94,6 +95,7 @@ describe("renderParams", () => {
       deblock: 0.6,
       deband: 0.3,
       mlUpscale: true,
+      smoothMotion: true,
       compare: true,
       colorMatrix: "bt2020",
       colorRange: "full",
@@ -227,14 +229,14 @@ describe("quitMessage", () => {
 describe("ML super-resolution", () => {
   const ml = { ...defaultSettings, mlUpscale: true, height: 720 } as const
   it("applies to 720p and lower streams when the Mac supports it", () => {
-    expect(mlApplies(ml, { metalfx: true, ml: true })).toBe(true)
-    expect(mlApplies({ ...ml, height: 540 }, { metalfx: true, ml: true })).toBe(true)
-    expect(mlApplies({ ...ml, height: 1080 }, { metalfx: true, ml: true })).toBe(false)
-    expect(mlApplies(ml, { metalfx: true, ml: false })).toBe(false)
-    expect(mlApplies({ ...ml, mlUpscale: false }, { metalfx: true, ml: true })).toBe(false)
+    expect(mlApplies(ml, { metalfx: true, ml: true, smooth: false })).toBe(true)
+    expect(mlApplies({ ...ml, height: 540 }, { metalfx: true, ml: true, smooth: false })).toBe(true)
+    expect(mlApplies({ ...ml, height: 1080 }, { metalfx: true, ml: true, smooth: false })).toBe(false)
+    expect(mlApplies(ml, { metalfx: true, ml: false, smooth: false })).toBe(false)
+    expect(mlApplies({ ...ml, mlUpscale: false }, { metalfx: true, ml: true, smooth: false })).toBe(false)
   })
   it("shows in the pipeline and the HUD", () => {
-    const [, upscale] = pipelineStages({ ...ml, upscaler: "bilinear" }, { metalfx: true, ml: true })
+    const [, upscale] = pipelineStages({ ...ml, upscaler: "bilinear" }, { metalfx: true, ml: true, smooth: false })
     expect(upscale).toMatchObject({ value: "ML + Bilinear", active: true })
     expect(hudStats({ ...status({ width: 1280, height: 720 }), mlActive: true }, 60, 8)).toBe(
       "1280×720 · 60 fps · 8.0 Mbps · ML + MetalFX",
@@ -261,7 +263,7 @@ describe("settings labels", () => {
 describe("pipelineStages", () => {
   const view = (stages: readonly Stage[]) => stages.map((s) => [s.id, s.value, s.active])
   it("lists the picture steps in render order with their values", () => {
-    expect(view(pipelineStages(defaultSettings, { metalfx: true, ml: true }))).toEqual([
+    expect(view(pipelineStages(defaultSettings, { metalfx: true, ml: true, smooth: false }))).toEqual([
       ["cleanup", "Off", false],
       ["upscale", "MetalFX", true],
       ["sharpen", "30%", true],
@@ -270,7 +272,7 @@ describe("pipelineStages", () => {
   })
   it("reflects changes and an unsupported MetalFX", () => {
     const settings = { ...defaultSettings, deblock: 0.2, deband: 0.6, sharpness: 0, accurateColor: false }
-    expect(view(pipelineStages(settings, { metalfx: false, ml: false }))).toEqual([
+    expect(view(pipelineStages(settings, { metalfx: false, ml: false, smooth: false }))).toEqual([
       ["cleanup", "60%", true],
       ["upscale", "Bilinear", false],
       ["sharpen", "Off", false],
@@ -344,6 +346,8 @@ describe("statRows", () => {
       ["Lost frames", "3", true],
       ["Decode errors", "1", true],
     ])
+    const smooth = statRows({ ...status({ width: 1280, height: 720 }), smoothActive: true }, 60, 5)
+    expect(smooth.find((row) => row.label === "Smooth motion")?.inline).toBe("smooth motion")
     const slow = statRows({ ...status({ width: 1280, height: 720, rttMs: 85 }), gpuMs: 9 }, 30, 5)
     expect(slow.find((row) => row.label === "Ping")).toEqual({ label: "Ping", value: "85 ms", inline: "ping 85 ms", warn: true })
     expect(slow.find((row) => row.label === "GPU")?.warn).toBe(true)

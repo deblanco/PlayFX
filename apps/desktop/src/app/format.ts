@@ -68,6 +68,7 @@ export const renderParams = (settings: Settings): RenderParams => ({
   deblock: settings.deblock,
   deband: settings.deband,
   mlUpscale: settings.mlUpscale,
+  smoothMotion: settings.smoothMotion,
   compare: settings.compare,
   colorMatrix: settings.colorMatrix,
   colorRange: settings.colorRange,
@@ -133,6 +134,7 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number): rea
     rtt > 0 ? row("Ping", ping, `ping ${ping}`, rtt >= 60) : undefined,
     status.gpuMs > 0 ? row("GPU", gpu, `GPU ${gpu}`, status.gpuMs >= 8) : undefined,
     row("Upscaler", upscaler, upscaler),
+    status.smoothActive ? row("Smooth motion", "On", "smooth motion") : undefined,
     row("Lost frames", String(lost), `${String(lost)} lost frames`, lost > 0),
     errors > 0 ? row("Decode errors", String(errors), `${String(errors)} decode errors`, true) : undefined,
   ]
@@ -258,6 +260,8 @@ export interface Capabilities {
   readonly metalfx: boolean
   /** Apple ML super-resolution (macOS 26+). */
   readonly ml: boolean
+  /** Frame interpolation, "Smooth motion" (macOS 26+). */
+  readonly smooth: boolean
 }
 
 /** ML super-resolution only takes streams up to 1280 px wide, i.e. 720p and lower. */

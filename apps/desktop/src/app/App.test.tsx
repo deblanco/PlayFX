@@ -506,7 +506,8 @@ describe("settings", () => {
     })
     expect(sheet.getByText("MetalFX isn't available on this Mac.")).toBeInTheDocument()
     expect(sheet.getByRole("switch", { name: /ML upscaling first/ })).toBeDisabled()
-    expect(sheet.getByText("Needs macOS 26 on a supported Mac.")).toBeInTheDocument()
+    expect(sheet.getAllByText("Needs macOS 26 on a supported Mac.")).toHaveLength(2) // ML upscaling, Smooth motion
+    expect(sheet.getByRole("switch", { name: /Smooth motion/ })).toBeDisabled()
   })
 
   it("offers diagnostics: detailed logs, copying a report, the logs folder", async () => {
@@ -677,6 +678,15 @@ describe("streaming", () => {
     expect(await screen.findByText("already gone")).toBeInTheDocument()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     expect(core.streamListeners()).toBe(1)
+  })
+
+  it("turns Smooth motion on for the renderer", async () => {
+    const core = fakeCore()
+    core.state.status = { ...status(), smoothSupported: true }
+    await startStreaming(core)
+    const sheet = await openSettings("Picture")
+    await userEvent.click(sheet.getByRole("switch", { name: /Smooth motion/ }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ smoothMotion: true }))
   })
 
   it("keeps the stream's numbers on screen when asked to", async () => {

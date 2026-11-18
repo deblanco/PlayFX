@@ -78,6 +78,8 @@ export const RenderParams = Schema.Struct({
   deband: Strength,
   /** Apple's ML super-resolution on the decoded frame first (720p and lower, macOS 26+). */
   mlUpscale: Schema.Boolean,
+  /** An interpolated frame between stream frames when the screen is fast enough (macOS 26+). */
+  smoothMotion: Schema.Boolean,
   /** Split screen: left half is the unprocessed baseline, right half these settings. */
   compare: Schema.Boolean,
   colorMatrix: ColorMatrix,
@@ -100,6 +102,7 @@ export const Settings = Schema.Struct({
   deblock: since(Strength, 0),
   deband: since(Strength, 0),
   mlUpscale: since(Schema.Boolean, false),
+  smoothMotion: since(Schema.Boolean, false),
   compare: since(Schema.Boolean, false),
   colorMatrix: since(ColorMatrix, "auto"),
   colorRange: since(ColorRange, "auto"),
@@ -125,6 +128,7 @@ export const defaultSettings: Settings = {
   deblock: 0,
   deband: 0,
   mlUpscale: false,
+  smoothMotion: false,
   compare: false,
   colorMatrix: "auto",
   colorRange: "auto",
@@ -224,6 +228,10 @@ export const RendererStatus = Schema.Struct({
   mlSupported: Schema.Boolean,
   /** The last frame went through ML super-resolution. */
   mlActive: Schema.Boolean,
+  /** Frame interpolation ("Smooth motion") can run on this Mac (macOS 26+). */
+  smoothSupported: Schema.Boolean,
+  /** The last stream frame was preceded by an interpolated one. */
+  smoothActive: Schema.Boolean,
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

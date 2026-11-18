@@ -56,6 +56,8 @@ pub trait NativeCore: Send + Sync {
     fn gpu_milliseconds(&self) -> f64;
     /// Apple ML super-resolution: (can run here, ran on the last frame).
     fn ml_status(&self) -> (bool, bool);
+    /// Frame interpolation ("Smooth motion"): (can run here, made the last in-between frame).
+    fn smooth_status(&self) -> (bool, bool);
     fn session_stats(&self) -> String;
 }
 
@@ -120,6 +122,8 @@ pub struct RendererState {
     pub gpu_ms: f64,
     /// Apple ML super-resolution: (can run here, ran on the last frame).
     pub ml: (bool, bool),
+    /// Frame interpolation ("Smooth motion"): (can run here, active on the last frame).
+    pub smooth: (bool, bool),
 }
 
 /// The `renderer_status` reply; unparseable stats become `null`.
@@ -130,6 +134,8 @@ pub fn renderer_status_json(state: &RendererState, stats: &str) -> Value {
         "gpuMs": (state.gpu_ms * 100.0).round() / 100.0,
         "mlSupported": state.ml.0,
         "mlActive": state.ml.1,
+        "smoothSupported": state.smooth.0,
+        "smoothActive": state.smooth.1,
         "stream": serde_json::from_str::<Value>(stats).unwrap_or(Value::Null),
     })
 }

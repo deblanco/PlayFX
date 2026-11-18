@@ -22,7 +22,7 @@ import Testing
 
 @Suite struct StreamRendererTests {
     /// Encodes one frame offscreen at `size` and returns the BGRA pixels.
-    func render(_ r: StreamRenderer, size: (Int, Int)) throws -> [UInt8] {
+    func render(_ r: StreamRenderer, size: (Int, Int), now: Double? = nil) throws -> [UInt8] {
         let device = r.commandQueue.device
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: size.0, height: size.1, mipmapped: false)
         td.usage = [.renderTarget, .shaderRead]
@@ -32,7 +32,11 @@ import Testing
         pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].storeAction = .store
         let cb = try #require(r.commandQueue.makeCommandBuffer())
-        r.encode(cb, pass: pass, drawableSize: CGSize(width: size.0, height: size.1))
+        if let now {
+            r.encode(cb, pass: pass, drawableSize: CGSize(width: size.0, height: size.1), now: now)
+        } else {
+            r.encode(cb, pass: pass, drawableSize: CGSize(width: size.0, height: size.1))
+        }
         cb.commit()
         cb.waitUntilCompleted()
         #expect(cb.status == .completed)
