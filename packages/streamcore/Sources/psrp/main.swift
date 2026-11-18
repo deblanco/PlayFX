@@ -16,7 +16,7 @@ import StreamCore
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
 //          /hold?buttons=r2  /release  /keyframe  /sleep  /quit  /frameinfo (latest frame's colorimetry)
-//          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&chroma=bicubic&w=3840&h=2160   latest frame, on the GPU
+//          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&deblock=0&deband=0&chroma=bicubic&w=3840&h=2160   latest frame, on the GPU
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //
 // Saved state: ~/.config/psrp/config.json (contains pairing keys — keep it private).
@@ -256,6 +256,8 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
             default: throw fail("mode must be bilinear, metalfx or compare")
             }
             params.sharpness = query["sharpness"].flatMap(Float.init) ?? (params.upscaler == .bilinear ? 0 : 0.3)
+            params.deblock = query["deblock"].flatMap(Float.init) ?? 0
+            params.deband = query["deband"].flatMap(Float.init) ?? 0
             if let chroma = query["chroma"] {
                 guard let filter = ChromaFilter(rawValue: chroma) else { throw fail("chroma must be bicubic or bilinear") }
                 params.chroma = filter

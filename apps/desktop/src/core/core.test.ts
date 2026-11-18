@@ -54,6 +54,8 @@ const credentials: Credentials = {
 const picture: RenderParams = {
   upscaler: "bilinear",
   sharpness: 0,
+  deblock: 0.5,
+  deband: 1,
   compare: true,
   colorMatrix: "bt601",
   colorRange: "full",

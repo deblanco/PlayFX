@@ -75,6 +75,67 @@ kernel void nv12ToRGB(texture2d<float, access::read> lumaTex [[texture(0)]],
     out.write(float4(saturate(rgb), 1.0), gid);
 }
 
+// ---- Cleanup before the upscale (deblock + deband), at stream resolution ----
+
+static float3 texel(texture2d<float, access::read> t, int2 q, int2 size) {
+    return t.read(uint2(clamp(q, int2(0), size - 1))).rgb;
+}
+
+// Small deterministic per-pixel noise in [0, 1).
+static float hash(int2 p, float salt) {
+    return fract(sin(dot(float2(p), float2(12.9898, 78.233)) + salt) * 43758.5453);
+}
+
+// H.264/HEVC-style deblocking of the 8×8 grid along one axis: when the step across a grid line
+// is small and both sides are flat (a coding artifact, not a real edge), pull the two pixels
+// next to the line toward each other.
+static float3 deblockAxis(texture2d<float, access::read> t, int2 pos, int2 size, int2 axis, float3 c, float s) {
+    int k = (axis.x != 0 ? pos.x : pos.y) % 8;
+    int along = axis.x != 0 ? pos.x : pos.y;
+    bool isP = k == 7, isQ = k == 0 && along > 0;
+    if (!isP && !isQ) return c;
+    int2 p0 = isP ? pos : pos - axis;
+    float3 vp1 = texel(t, p0 - axis, size), vp0 = texel(t, p0, size);
+    float3 vq0 = texel(t, p0 + axis, size), vq1 = texel(t, p0 + 2 * axis, size);
+    float alpha = 0.10 * s, beta = 0.03 * s, tc = 0.03 * s;
+    bool artifact = all(abs(vp0 - vq0) < alpha) && all(abs(vp1 - vp0) < beta) && all(abs(vq1 - vq0) < beta);
+    if (!artifact) return c;
+    float3 delta = clamp(((vq0 - vp0) * 4.0 + (vp1 - vq1)) / 8.0, -tc, tc);
+    return isP ? c + delta : c - delta; // on top of the other axis' correction
+}
+
+// Debanding: average four samples on a randomly rotated cross; use it only where every sample is
+// within a small threshold of this pixel (a smooth gradient, not detail), then add faint dither.
+static float3 deband(texture2d<float, access::read> t, int2 pos, int2 size, float3 c, float s) {
+    float radius = 4.0 + 12.0 * s, threshold = 0.004 + 0.012 * s;
+    float angle = hash(pos, 1.0) * 6.2831853;
+    float2 dir = float2(cos(angle), sin(angle)) * radius * (0.5 + 0.5 * hash(pos, 2.0));
+    float3 a = texel(t, pos + int2(round(dir)), size);
+    float3 b = texel(t, pos - int2(round(dir)), size);
+    float3 d = texel(t, pos + int2(round(float2(-dir.y, dir.x))), size);
+    float3 e = texel(t, pos - int2(round(float2(-dir.y, dir.x))), size);
+    float3 spread = max(max(abs(a - c), abs(b - c)), max(abs(d - c), abs(e - c)));
+    if (all(spread < threshold)) c = (a + b + d + e) * 0.25;
+    return c + (hash(pos, 3.0) - 0.5) * (s / 255.0);
+}
+
+// strengths = (deblock, deband, -, -), each 0–1.
+kernel void cleanup(texture2d<float, access::read> src [[texture(0)]],
+                    texture2d<float, access::write> dst [[texture(1)]],
+                    constant float4 &strengths [[buffer(0)]],
+                    uint2 gid [[thread_position_in_grid]]) {
+    int2 size = int2(src.get_width(), src.get_height());
+    if (int(gid.x) >= size.x || int(gid.y) >= size.y) return;
+    int2 pos = int2(gid);
+    float3 c = texel(src, pos, size);
+    if (strengths.x > 0.0) {
+        c = deblockAxis(src, pos, size, int2(1, 0), c, strengths.x);
+        c = deblockAxis(src, pos, size, int2(0, 1), c, strengths.x);
+    }
+    if (strengths.y > 0.0) c = deband(src, pos, size, c, strengths.y);
+    dst.write(float4(saturate(c), 1.0), gid);
+}
+
 struct VOut { float4 pos [[position]]; float2 uv; };
 
 vertex VOut fullscreenVertex(uint vid [[vertex_id]]) {

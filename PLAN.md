@@ -99,7 +99,10 @@ Work items:
   is subtle, 0.6 clearly crisper, 1.0 still halo-free.)* Compute pass after the upscaler (MetalFX *and* bilinear),
   `sharpness` 0–1 (0 = off). Port AMD FidelityFX CAS (MIT). Unit-test on synthetic edges
   (sharpness 0 = identity; >0 increases edge contrast without clipping).
-- ❌ **Q3. Pre-upscale cleanup.** Optional deblock + deband pass on the source-resolution
+- ✅ **Q3. Pre-upscale cleanup.** *(done: one `cleanup` compute pass at stream resolution feeding the
+  upscaler; deblock on HEVC's 8×8 grid (small, flat-sided steps only), deband via rotated-cross averaging
+  under a threshold + faint dither; both 0–1, default off; the compare baseline stays unfiltered. On PS5
+  frames deband visibly removes fog contours in Silent Hill 2; deblock is for low-bitrate motion.)* Optional deblock + deband pass on the source-resolution
   texture before the upscaler (`deblock` 0–1, `deband` 0–1). Cheap at 1080p. Tests on synthetic
   8×8 block steps and gradients.
 - ✅ **Q4. Color correctness.** *(done: matrix/range/chroma siting read from each frame — the PS5 signals

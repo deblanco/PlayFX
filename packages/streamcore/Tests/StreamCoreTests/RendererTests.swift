@@ -202,6 +202,8 @@ import Testing
         let color = try decode(#"{"colorMatrix":"bt2020","colorRange":"full","chroma":"bilinear","accurateColor":false}"#)
         #expect(color.colorMatrix == .bt2020 && color.colorRange == .full && color.chroma == .bilinear && !color.accurateColor)
         #expect(throws: DecodingError.self) { try decode(#"{"chroma":"lanczos"}"#) }
+        let clean = try decode(#"{"deblock":0.5,"deband":3}"#)
+        #expect(clean.deblock == 0.5 && clean.deband == 1 && RenderParams().deblock == 0 && RenderParams().deband == 0)
         let roundTrip = try decode(String(decoding: JSONEncoder().encode(p), as: UTF8.self))
         #expect(roundTrip == p)
     }

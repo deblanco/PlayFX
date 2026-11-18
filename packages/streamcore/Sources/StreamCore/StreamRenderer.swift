@@ -33,6 +33,10 @@ public struct RenderParams: Codable, Equatable, Sendable {
     public var upscaler: UpscaleMode = .metalFX
     /// Contrast-adaptive sharpening after the upscale: 0 = off … 1 = strongest.
     public var sharpness: Float = 0.3
+    /// Smooths compression blocking on the 8×8 grid before the upscale: 0 = off … 1 = strongest.
+    public var deblock: Float = 0
+    /// Smooths banding in gradients (with a touch of dither) before the upscale: 0 = off … 1 = strongest.
+    public var deband: Float = 0
     /// Split screen: left half is the baseline (bilinear, no processing), right half these params.
     public var compare = false
     public var colorMatrix: ColorMatrix = .auto
@@ -48,7 +52,12 @@ public struct RenderParams: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = RenderParams()
         upscaler = try c.decodeIfPresent(UpscaleMode.self, forKey: .upscaler) ?? d.upscaler
-        sharpness = min(1, max(0, try c.decodeIfPresent(Float.self, forKey: .sharpness) ?? d.sharpness))
+        func strength(_ key: CodingKeys, _ fallback: Float) throws -> Float {
+            min(1, max(0, try c.decodeIfPresent(Float.self, forKey: key) ?? fallback))
+        }
+        sharpness = try strength(.sharpness, d.sharpness)
+        deblock = try strength(.deblock, d.deblock)
+        deband = try strength(.deband, d.deband)
         compare = try c.decodeIfPresent(Bool.self, forKey: .compare) ?? d.compare
         colorMatrix = try c.decodeIfPresent(ColorMatrix.self, forKey: .colorMatrix) ?? d.colorMatrix
         colorRange = try c.decodeIfPresent(ColorRange.self, forKey: .colorRange) ?? d.colorRange
@@ -84,6 +93,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private let startTime = CACurrentMediaTime()
 
     private var inputTexture: MTLTexture
+    /// The input after deblock/deband (same size); only used while either is on.
+    private var cleanTexture: MTLTexture?
+    private let cleanupPipeline: MTLComputePipelineState
     private var scaler: MTLFXSpatialScaler?
     private var scalerOutput: MTLTexture?
 
@@ -94,7 +106,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
               let kernel = library.makeFunction(name: "testPattern"),
               let patternPipeline = try? device.makeComputePipelineState(function: kernel),
               let nv12Kernel = library.makeFunction(name: "nv12ToRGB"),
-              let nv12Pipeline = try? device.makeComputePipelineState(function: nv12Kernel)
+              let nv12Pipeline = try? device.makeComputePipelineState(function: nv12Kernel),
+              let cleanupKernel = library.makeFunction(name: "cleanup"),
+              let cleanupPipeline = try? device.makeComputePipelineState(function: cleanupKernel)
         else { return nil }
         var cache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) == kCVReturnSuccess, let textureCache = cache
@@ -125,6 +139,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.queue = queue
         self.patternPipeline = patternPipeline
         self.nv12Pipeline = nv12Pipeline
+        self.cleanupPipeline = cleanupPipeline
         self.textureCache = textureCache
         self.presentPipeline = presentPipeline
         self.dividerPipeline = dividerPipeline
@@ -148,6 +163,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
               width != inputTexture.width || height != inputTexture.height,
               let tex = Self.makeInputTexture(device, width, height) else { return }
         inputTexture = tex
+        cleanTexture = nil
         scaler = nil
     }
 
@@ -180,10 +196,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
         let target = fittedRect(drawable: drawableSize)
         let params = self.params
+        let source = encodeCleanup(cb, params) ?? inputTexture
         var upscaled: MTLTexture?
         if params.upscaler == .metalFX, metalFXSupported,
            let (scaler, output) = scaler(outputWidth: Int(target.width), outputHeight: Int(target.height)) {
-            scaler.colorTexture = inputTexture
+            scaler.colorTexture = source
             scaler.outputTexture = output
             scaler.encode(commandBuffer: cb)
             upscaled = output
@@ -208,7 +225,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             } else {
                 enc.setRenderPipelineState(presentPipeline)
             }
-            enc.setFragmentTexture(upscaled ?? inputTexture, index: 0)
+            enc.setFragmentTexture(upscaled ?? source, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         }
 
@@ -227,6 +244,21 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             drawProcessed()
         }
         enc.endEncoding()
+    }
+
+    /// Deblock/deband `inputTexture` into `cleanTexture`; nil (nothing encoded) when both are off.
+    private func encodeCleanup(_ cb: MTLCommandBuffer, _ params: RenderParams) -> MTLTexture? {
+        guard params.deblock > 0 || params.deband > 0 else { return nil }
+        if cleanTexture == nil { cleanTexture = Self.makeInputTexture(device, inputTexture.width, inputTexture.height) }
+        guard let clean = cleanTexture, let enc = cb.makeComputeCommandEncoder() else { return nil }
+        var strengths = SIMD4<Float>(params.deblock, params.deband, 0, 0)
+        enc.setComputePipelineState(cleanupPipeline)
+        enc.setTexture(inputTexture, index: 0)
+        enc.setTexture(clean, index: 1)
+        enc.setBytes(&strengths, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
+        dispatch(enc, clean)
+        enc.endEncoding()
+        return clean
     }
 
     /// CAS's negative lobe weight for a 0–1 sharpness (AMD FidelityFX CAS: -1 / lerp(8, 5, s)).

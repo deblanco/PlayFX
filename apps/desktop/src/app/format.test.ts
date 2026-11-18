@@ -66,6 +66,8 @@ describe("renderParams", () => {
       ...defaultSettings,
       upscaler: "bilinear",
       sharpness: 0,
+      deblock: 0.6,
+      deband: 0.3,
       compare: true,
       colorMatrix: "bt2020",
       colorRange: "full",
@@ -75,6 +77,8 @@ describe("renderParams", () => {
     expect(renderParams({ ...settings, fps: 30, bitrate: 50000 })).toEqual({
       upscaler: "bilinear",
       sharpness: 0,
+      deblock: 0.6,
+      deband: 0.3,
       compare: true,
       colorMatrix: "bt2020",
       colorRange: "full",
@@ -134,6 +138,8 @@ describe("withSetting / settingValue", () => {
     expect(withSetting(defaultSettings, "audio", "off").audio).toBe(false)
     expect(withSetting(defaultSettings, "sharpness", "0.6").sharpness).toBe(0.6)
     expect(withSetting(defaultSettings, "compare", "on").compare).toBe(true)
+    expect(withSetting(defaultSettings, "deblock", "0.6").deblock).toBe(0.6)
+    expect(withSetting(defaultSettings, "deband", "1").deband).toBe(1)
     expect(withSetting(defaultSettings, "accurateColor", "off").accurateColor).toBe(false)
     expect(withSetting(defaultSettings, "chroma", "bilinear").chroma).toBe("bilinear")
     expect(withSetting(defaultSettings, "colorMatrix", "bt601").colorMatrix).toBe("bt601")
@@ -143,6 +149,7 @@ describe("withSetting / settingValue", () => {
     expect(withSetting(defaultSettings, "height", "999")).toBe(defaultSettings)
     expect(withSetting(defaultSettings, "bitrate", "12345")).toBe(defaultSettings)
     expect(withSetting(defaultSettings, "sharpness", "1.5")).toBe(defaultSettings)
+    expect(withSetting(defaultSettings, "deband", "-1")).toBe(defaultSettings)
   })
   it("renders select values", () => {
     expect(settingValue(defaultSettings, "height")).toBe("1080")

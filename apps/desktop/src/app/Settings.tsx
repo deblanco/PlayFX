@@ -69,6 +69,21 @@ export const PictureSelects = ({ settings, onChange }: Omit<SettingsProps, "meta
         { value: "1", label: "Max" },
       ]}
     />
+    {(["deblock", "deband"] as const).map((setting) => (
+      <SettingSelect
+        key={setting}
+        label={setting === "deblock" ? "Smooth blockiness" : "Smooth banding"}
+        setting={setting}
+        settings={settings}
+        onChange={onChange}
+        options={[
+          { value: "0", label: "Off" },
+          { value: "0.3", label: "Low" },
+          { value: "0.6", label: "Medium" },
+          { value: "1", label: "High" },
+        ]}
+      />
+    ))}
     <SettingSelect
       label="Compare"
       setting="compare"

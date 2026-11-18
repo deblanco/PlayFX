@@ -54,6 +54,8 @@ export const streamOptions = (settings: Settings): StreamOptions => ({
 export const renderParams = (settings: Settings): RenderParams => ({
   upscaler: settings.upscaler,
   sharpness: settings.sharpness,
+  deblock: settings.deblock,
+  deband: settings.deband,
   compare: settings.compare,
   colorMatrix: settings.colorMatrix,
   colorRange: settings.colorRange,
@@ -117,6 +119,8 @@ const parsers: Readonly<Record<SettingKey, (raw: string) => unknown>> = {
   audio: (raw) => raw === "on",
   upscaler: (raw) => raw,
   sharpness: Number,
+  deblock: Number,
+  deband: Number,
   compare: (raw) => raw === "on",
   colorMatrix: (raw) => raw,
   colorRange: (raw) => raw,

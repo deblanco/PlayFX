@@ -54,8 +54,8 @@ export type Bitrate = typeof Bitrate.Type
 const since = <S extends Schema.Top>(schema: S, value: S["Encoded"]) =>
   schema.pipe(Schema.withDecodingDefaultKey(Effect.succeed(value)))
 
-/** Sharpening after the upscale: 0 = off … 1 = strongest. */
-export const Sharpness = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }))
+/** A filter strength: 0 = off … 1 = strongest. */
+export const Strength = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }))
 
 /** YCbCr → RGB matrix; "auto" uses what the stream signals (the PS5 sends BT.709). */
 export const ColorMatrix = Schema.Literals(["auto", "bt601", "bt709", "bt2020"])
@@ -67,7 +67,12 @@ export const ChromaFilter = Schema.Literals(["bicubic", "bilinear"])
 /** Picture settings, applied to every frame without reconnecting (StreamCore's RenderParams). */
 export const RenderParams = Schema.Struct({
   upscaler: Upscaler,
-  sharpness: Sharpness,
+  /** Sharpening after the upscale. */
+  sharpness: Strength,
+  /** Smooths compression blocking before the upscale. */
+  deblock: Strength,
+  /** Smooths banding in gradients before the upscale. */
+  deband: Strength,
   /** Split screen: left half is the unprocessed baseline, right half these settings. */
   compare: Schema.Boolean,
   colorMatrix: ColorMatrix,
@@ -87,7 +92,9 @@ export const Settings = Schema.Struct({
   autoDowngrade: since(Schema.Boolean, true),
   audio: since(Schema.Boolean, true),
   upscaler: Upscaler,
-  sharpness: since(Sharpness, 0.3),
+  sharpness: since(Strength, 0.3),
+  deblock: since(Strength, 0),
+  deband: since(Strength, 0),
   compare: since(Schema.Boolean, false),
   colorMatrix: since(ColorMatrix, "auto"),
   colorRange: since(ColorRange, "auto"),
@@ -105,6 +112,8 @@ export const defaultSettings: Settings = {
   audio: true,
   upscaler: "metalfx",
   sharpness: 0.3,
+  deblock: 0,
+  deband: 0,
   compare: false,
   colorMatrix: "auto",
   colorRange: "auto",
