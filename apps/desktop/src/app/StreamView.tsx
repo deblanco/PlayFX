@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { idleController, type Settings } from "@/core/schema"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
+import type { Capabilities } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
 import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
@@ -78,7 +79,7 @@ interface StreamViewProps {
   /** Set while the console waits for its login PIN. */
   readonly loginPin: Option.Option<{ readonly incorrect: boolean }>
   readonly settings: Settings
-  readonly metalfxSupported: boolean
+  readonly capabilities: Capabilities
   readonly onSettingsChange: (next: Settings) => void
   /** Whether stream settings changed since connecting, and how to reconnect with them. */
   readonly reconnect: ReconnectState
@@ -91,7 +92,7 @@ export const StreamView = ({
   title,
   loginPin,
   settings,
-  metalfxSupported,
+  capabilities,
   onSettingsChange,
   reconnect,
   onLoginPinSubmitted,
@@ -164,7 +165,7 @@ export const StreamView = ({
         tab={tab}
         onTabChange={setTab}
         settings={settings}
-        metalfxSupported={metalfxSupported}
+        capabilities={capabilities}
         onChange={onSettingsChange}
         reconnect={reconnect}
       />

@@ -80,6 +80,18 @@ public func sc_gpu_milliseconds() -> Double {
     renderer?.gpuMilliseconds ?? 0
 }
 
+/// Whether Apple's ML super-resolution can run here (macOS 26+, supported Mac).
+@_cdecl("sc_ml_supported")
+public func sc_ml_supported() -> Bool {
+    renderer?.mlSupported ?? false
+}
+
+/// Whether the last frame went through ML super-resolution.
+@_cdecl("sc_ml_active")
+public func sc_ml_active() -> Bool {
+    renderer?.mlActive ?? false
+}
+
 /// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, -1 = no renderer.
 @_cdecl("sc_active_mode")
 public func sc_active_mode() -> Int32 {

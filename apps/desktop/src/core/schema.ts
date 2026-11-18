@@ -74,6 +74,8 @@ export const RenderParams = Schema.Struct({
   deblock: Strength,
   /** Smooths banding in gradients before the upscale. */
   deband: Strength,
+  /** Apple's ML super-resolution on the decoded frame first (720p and lower, macOS 26+). */
+  mlUpscale: Schema.Boolean,
   /** Split screen: left half is the unprocessed baseline, right half these settings. */
   compare: Schema.Boolean,
   colorMatrix: ColorMatrix,
@@ -96,6 +98,7 @@ export const Settings = Schema.Struct({
   sharpness: since(Strength, 0.3),
   deblock: since(Strength, 0),
   deband: since(Strength, 0),
+  mlUpscale: since(Schema.Boolean, false),
   compare: since(Schema.Boolean, false),
   colorMatrix: since(ColorMatrix, "auto"),
   colorRange: since(ColorRange, "auto"),
@@ -115,6 +118,7 @@ export const defaultSettings: Settings = {
   sharpness: 0.3,
   deblock: 0,
   deband: 0,
+  mlUpscale: false,
   compare: false,
   colorMatrix: "auto",
   colorRange: "auto",
@@ -184,6 +188,10 @@ export const RendererStatus = Schema.Struct({
   activeMode: Schema.Literals(["bilinear", "metalfx", "none"]),
   /** Smoothed GPU time per rendered frame; 0 until something was rendered. */
   gpuMs: Schema.Number,
+  /** Apple ML super-resolution can run on this Mac (macOS 26+). */
+  mlSupported: Schema.Boolean,
+  /** The last frame went through ML super-resolution. */
+  mlActive: Schema.Boolean,
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

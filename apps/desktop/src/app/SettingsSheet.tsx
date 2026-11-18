@@ -9,7 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { bitrates, defaultSettings, type Settings } from "@/core/schema"
 import { cn } from "@/lib/utils"
-import { bitrateLabel, pipelineStages, strengthLabel, type SettingKey, type Stage, type StageId } from "./format"
+import {
+  bitrateLabel,
+  pipelineStages,
+  strengthLabel,
+  type Capabilities,
+  type SettingKey,
+  type Stage,
+  type StageId,
+} from "./format"
 
 export type SettingsTab = "picture" | "stream"
 
@@ -27,7 +35,7 @@ interface SettingsSheetProps {
   readonly tab: SettingsTab
   readonly onTabChange: (tab: SettingsTab) => void
   readonly settings: Settings
-  readonly metalfxSupported: boolean
+  readonly capabilities: Capabilities
   readonly onChange: (next: Settings) => void
   /** Present while streaming. */
   readonly reconnect?: ReconnectState
@@ -38,6 +46,7 @@ const pictureKeys = [
   "sharpness",
   "deblock",
   "deband",
+  "mlUpscale",
   "compare",
   "colorMatrix",
   "colorRange",
@@ -78,7 +87,7 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             <TabsTrigger value="stream">Stream</TabsTrigger>
           </TabsList>
           <TabsContent value="picture" className="flex flex-col gap-5 px-5 pt-5 pb-6">
-            <PicturePanel settings={settings} metalfxSupported={props.metalfxSupported} set={set} live={props.reconnect !== undefined} />
+            <PicturePanel settings={settings} capabilities={props.capabilities} set={set} live={props.reconnect !== undefined} />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, pictureKeys)) }}>
               <RotateCcw /> Reset picture
             </Button>
@@ -100,13 +109,13 @@ type Set = <K extends SettingKey>(key: K, value: Settings[K]) => void
 
 // ---------- Picture ----------
 
-const PicturePanel = ({ settings, metalfxSupported, set, live }: {
+const PicturePanel = ({ settings, capabilities, set, live }: {
   readonly settings: Settings
-  readonly metalfxSupported: boolean
+  readonly capabilities: Capabilities
   readonly set: Set
   readonly live: boolean
 }) => {
-  const stages = pipelineStages(settings, metalfxSupported)
+  const stages = pipelineStages(settings, capabilities)
   return (
     <>
       <Pipeline stages={stages} />
@@ -122,15 +131,26 @@ const PicturePanel = ({ settings, metalfxSupported, set, live }: {
         <StrengthSlider label="Blockiness" value={settings.deblock} onChange={(v) => { set("deblock", v) }} />
         <StrengthSlider label="Banding" value={settings.deband} onChange={(v) => { set("deband", v) }} />
       </Section>
-      <Section stage={stages[1]} step={2} hint={metalfxSupported ? "Brings the stream up to your screen's resolution." : "MetalFX isn't available on this Mac."}>
+      <Section stage={stages[1]} step={2} hint={capabilities.metalfx ? "Brings the stream up to your screen's resolution." : "MetalFX isn't available on this Mac."}>
         <Segmented
           label="Upscaler"
           value={settings.upscaler}
           onChange={(v) => { set("upscaler", v) }}
           options={[
-            { value: "metalfx", label: "MetalFX", disabled: !metalfxSupported },
+            { value: "metalfx", label: "MetalFX", disabled: !capabilities.metalfx },
             { value: "bilinear", label: "Bilinear" },
           ]}
+        />
+        <SwitchRow
+          label="ML upscaling first"
+          description={
+            capabilities.ml
+              ? "Apple's neural upscaler adds detail to 720p and lower streams before the step above. Adds about 5 ms of latency."
+              : "Needs macOS 26 on a supported Mac."
+          }
+          checked={settings.mlUpscale}
+          disabled={!capabilities.ml}
+          onCheckedChange={(on) => { set("mlUpscale", on) }}
         />
       </Section>
       <Section stage={stages[2]} step={3} hint="Restores edge contrast after upscaling, without halos.">
@@ -402,10 +422,11 @@ const StrengthSlider = ({ label, value, onChange }: {
   />
 )
 
-const SwitchRow = ({ label, description, checked, onCheckedChange }: {
+const SwitchRow = ({ label, description, checked, disabled = false, onCheckedChange }: {
   readonly label: string
   readonly description?: string
   readonly checked: boolean
+  readonly disabled?: boolean
   readonly onCheckedChange: (checked: boolean) => void
 }) => {
   const id = useId()
@@ -415,7 +436,7 @@ const SwitchRow = ({ label, description, checked, onCheckedChange }: {
         <span className="text-sm">{label}</span>
         {description !== undefined && <span className="text-xs text-muted-foreground">{description}</span>}
       </label>
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} className="mt-0.5 data-[state=checked]:bg-signal" />
+      <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} className="mt-0.5 data-[state=checked]:bg-signal" />
     </div>
   )
 }

@@ -305,6 +305,20 @@ describe("settings", () => {
     expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument()
   })
 
+  it("offers ML upscaling where the Mac supports it", async () => {
+    const core = fakeCore()
+    core.state.status = { ...status(), mlSupported: true }
+    renderApp(core, { settings: { ...defaultSettings, height: 720 } })
+    await waitFor(() => {
+      expect(core.service.setRenderParams).toHaveBeenCalled()
+    })
+    const sheet = await openSettings("Picture")
+    await userEvent.click(sheet.getByRole("switch", { name: /ML upscaling first/ }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ mlUpscale: true }))
+    const pipeline = within(sheet.getByRole("navigation", { name: "Picture pipeline" }))
+    expect(pipeline.getByRole("button", { name: /Upscale/ })).toHaveTextContent("ML + MetalFX")
+  })
+
   it("disables MetalFX when the GPU doesn't support it", async () => {
     const core = fakeCore()
     core.state.status = status({}, false)
@@ -317,6 +331,8 @@ describe("settings", () => {
       expect(sheet.getByRole("radio", { name: "MetalFX" })).toBeDisabled()
     })
     expect(sheet.getByText("MetalFX isn't available on this Mac.")).toBeInTheDocument()
+    expect(sheet.getByRole("switch", { name: /ML upscaling first/ })).toBeDisabled()
+    expect(sheet.getByText("Needs macOS 26 on a supported Mac.")).toBeInTheDocument()
   })
 
   it("toasts startup failures", async () => {

@@ -145,7 +145,7 @@ describe("PsnAccountEvent", () => {
 
 describe("RendererStatus", () => {
   it("decodes an idle renderer", () => {
-    const idle = { metalfxSupported: true, activeMode: "none", gpuMs: 0, stream: { active: false } }
+    const idle = { metalfxSupported: true, activeMode: "none", gpuMs: 0, mlSupported: false, mlActive: false, stream: { active: false } }
     expect(Schema.decodeUnknownSync(RendererStatus)(idle)).toEqual(idle)
   })
 
@@ -154,6 +154,8 @@ describe("RendererStatus", () => {
       metalfxSupported: false,
       activeMode: "bilinear",
       gpuMs: 1.42,
+      mlSupported: true,
+      mlActive: true,
       stream: { active: true, framesDecoded: 1200, decodeErrors: 0, framesLost: 3, width: 1920, height: 1080, bytesReceived: 4096 },
     }
     expect(Schema.decodeUnknownSync(RendererStatus)(streaming)).toEqual(streaming)

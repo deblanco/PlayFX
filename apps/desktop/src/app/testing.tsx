@@ -55,6 +55,8 @@ export const status = (stream: Partial<RendererStatus["stream"]> = {}, metalfxSu
   metalfxSupported,
   activeMode: "metalfx",
   gpuMs: 0,
+  mlSupported: false,
+  mlActive: false,
   stream: { active: true, ...stream },
 })
 

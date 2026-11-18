@@ -11,7 +11,7 @@ import {
   type StreamOptions,
 } from "@/core/schema"
 import * as actions from "./actions"
-import { quitMessage, streamOptions } from "./format"
+import { quitMessage, streamOptions, type Capabilities } from "./format"
 import { Home } from "./Home"
 import { useRun, useRuntime } from "./runtime"
 import { StreamView } from "./StreamView"
@@ -31,14 +31,14 @@ interface Session {
 export const App = () => {
   const run = useRun()
   const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const [metalfxSupported, setMetalfxSupported] = useState(true)
+  const [capabilities, setCapabilities] = useState<Capabilities>({ metalfx: true, ml: false })
   const [session, setSession] = useState<Session | null>(null)
 
   useEffect(() => {
     run(actions.startup, {
       onSuccess: (startup) => {
         setSettings(startup.settings)
-        setMetalfxSupported(startup.metalfxSupported)
+        setCapabilities(startup.capabilities)
       },
     })
   }, [run])
@@ -122,7 +122,7 @@ export const App = () => {
           title={session.title}
           loginPin={session.loginPin}
           settings={settings}
-          metalfxSupported={metalfxSupported}
+          capabilities={capabilities}
           onSettingsChange={changeSettings}
           reconnect={{
             pending: !sameStreamOptions(session.startedWith, streamOptions(settings)),
@@ -133,7 +133,7 @@ export const App = () => {
           onEnd={end}
         />
       ) : (
-        <Home settings={settings} metalfxSupported={metalfxSupported} onSettingsChange={changeSettings} onPlay={play} />
+        <Home settings={settings} capabilities={capabilities} onSettingsChange={changeSettings} onPlay={play} />
       )}
       <Toaster position="bottom-center" />
     </>

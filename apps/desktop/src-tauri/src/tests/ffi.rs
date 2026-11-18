@@ -55,6 +55,7 @@ fn mac_core_without_session_or_renderer() {
     assert!(!core.metalfx_supported());
     assert_eq!(core.active_mode(), -1);
     assert_eq!(core.gpu_milliseconds(), 0.0);
+    assert_eq!(core.ml_status(), (false, false)); // no renderer attached
     assert_eq!(reply(&core.session_stats()), Ok(json!({"active": false})));
     core.session_stop();
 }

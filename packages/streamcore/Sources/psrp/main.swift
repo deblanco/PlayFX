@@ -20,6 +20,7 @@ import StreamCore
 //          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&deblock=0&deband=0&chroma=bicubic&w=3840&h=2160   latest frame, on the GPU
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //          /grid.png?vary=sharpness&values=0,0.3,1&crop=2400,500,600,600   one frame, one tile per value
+//                       (also &ml=1: Apple ML super-resolution first, for streams up to 1280 px wide)
 //
 // Saved state: ~/.config/psrp/config.json (contains pairing keys — keep it private).
 
@@ -234,6 +235,7 @@ func renderParams(_ query: [String: String]) throws -> RenderParams {
     params.sharpness = query["sharpness"].flatMap(Float.init) ?? (params.upscaler == .bilinear ? 0 : 0.3)
     params.deblock = query["deblock"].flatMap(Float.init) ?? 0
     params.deband = query["deband"].flatMap(Float.init) ?? 0
+    params.mlUpscale = query["ml"] == "1"
     if let chroma = query["chroma"] {
         guard let filter = ChromaFilter(rawValue: chroma) else { throw fail("chroma must be bicubic or bilinear") }
         params.chroma = filter
@@ -268,6 +270,9 @@ func grid(_ tiles: [(label: String, image: CGImage)]) -> Data? {
     return ciContext.pngRepresentation(of: CIImage(cgImage: image), format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
 }
 
+/// Wall-clock time of the last offscreen render (GPU work + ML + readback), for latency checks.
+let lastRenderMs = OSAllocatedUnfairLock<Double>(initialState: 0)
+
 /// Offscreen renderer for /render.png (created lazily; GPU access serialized by the lock).
 let offscreen = OSAllocatedUnfairLock<StreamRenderer?>(initialState: nil)
 
@@ -277,7 +282,10 @@ func render(_ frame: CVPixelBuffer, params: RenderParams, width: Int, height: In
         guard let r else { return nil }
         r.params = params
         r.display(frame)
-        return r.snapshot(width: width, height: height)
+        let start = DispatchTime.now()
+        let image = r.snapshot(width: width, height: height)
+        lastRenderMs.withLock { $0 = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e6 }
+        return image
     }
 }
 
@@ -287,8 +295,10 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
     do {
         switch path {
         case "/status":
-            struct Status: Encodable { let connected: Bool; let stats: StreamSession.Stats; let events: [String] }
-            return json(Status(connected: ctl.connected, stats: ctl.session.stats, events: ctl.queue.sync { ctl.events }))
+            struct Render: Encodable { let gpuMs: Double; let wallMs: Double; let mlSupported: Bool; let mlActive: Bool }
+            struct Status: Encodable { let connected: Bool; let stats: StreamSession.Stats; let events: [String]; let render: Render? }
+            let render = offscreen.withLock { r in r.map { Render(gpuMs: $0.gpuMilliseconds, wallMs: lastRenderMs.withLock { $0 }, mlSupported: $0.mlSupported, mlActive: $0.mlActive) } }
+            return json(Status(connected: ctl.connected, stats: ctl.session.stats, events: ctl.queue.sync { ctl.events }, render: render))
         case "/snapshot.png":
             guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }
             let image = CIImage(cvPixelBuffer: frame)

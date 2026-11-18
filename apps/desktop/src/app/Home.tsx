@@ -9,17 +9,17 @@ import * as actions from "./actions"
 import { AccountSection } from "./AccountSection"
 import { ConsoleList } from "./ConsoleList"
 import { useRun } from "./runtime"
-import { streamSummary } from "./format"
+import { streamSummary, type Capabilities } from "./format"
 import { SettingsSheet, type SettingsTab } from "./SettingsSheet"
 
 interface HomeProps {
   readonly settings: Settings
-  readonly metalfxSupported: boolean
+  readonly capabilities: Capabilities
   readonly onSettingsChange: (next: Settings) => void
   readonly onPlay: (console: PairedConsole) => void
 }
 
-export const Home = ({ settings, metalfxSupported, onSettingsChange, onPlay }: HomeProps) => {
+export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeProps) => {
   const run = useRun()
   const [accountId, setAccountId] = useState<Option.Option<string>>(Option.none())
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -55,7 +55,7 @@ export const Home = ({ settings, metalfxSupported, onSettingsChange, onPlay }: H
         tab={tab}
         onTabChange={setTab}
         settings={settings}
-        metalfxSupported={metalfxSupported}
+        capabilities={capabilities}
         onChange={onSettingsChange}
       />
     </main>

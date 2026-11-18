@@ -56,6 +56,7 @@ export const renderParams = (settings: Settings): RenderParams => ({
   sharpness: settings.sharpness,
   deblock: settings.deblock,
   deband: settings.deband,
+  mlUpscale: settings.mlUpscale,
   compare: settings.compare,
   colorMatrix: settings.colorMatrix,
   colorRange: settings.colorRange,
@@ -83,7 +84,8 @@ const upscalerLabels: Readonly<Record<RendererStatus["activeMode"], string>> = {
   none: "No upscaling",
 }
 
-export const upscalerLabel = (mode: RendererStatus["activeMode"]): string => upscalerLabels[mode]
+export const upscalerLabel = (mode: RendererStatus["activeMode"], ml = false): string =>
+  ml ? `ML + ${upscalerLabels[mode]}` : upscalerLabels[mode]
 
 /** Received video bitrate between two samples, in Mbps with one decimal. */
 export const megabitsPerSecond = (previous: FrameSample, current: FrameSample): number => {
@@ -104,7 +106,7 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
     size,
     `${String(fps)} fps`,
     `${mbps.toFixed(1)} Mbps`,
-    upscalerLabel(status.activeMode),
+    upscalerLabel(status.activeMode, status.mlActive),
     gpu,
     errors > 0 ? `${String(errors)} decode errors` : undefined,
   ]
@@ -134,6 +136,17 @@ export const streamSummary = (settings: Settings): string =>
     settings.bitrate === 0 ? "auto bitrate" : bitrateLabel(settings.bitrate),
   ].join(" · ")
 
+/** What this Mac's renderer can do. */
+export interface Capabilities {
+  readonly metalfx: boolean
+  /** Apple ML super-resolution (macOS 26+). */
+  readonly ml: boolean
+}
+
+/** ML super-resolution only takes streams up to 1280 px wide, i.e. 720p and lower. */
+export const mlApplies = (settings: Settings, capabilities: Capabilities): boolean =>
+  settings.mlUpscale && capabilities.ml && settings.height <= 720
+
 export type StageId = "cleanup" | "upscale" | "sharpen" | "color"
 
 /** One step of the picture pipeline, in the order the renderer applies them. */
@@ -145,12 +158,18 @@ export interface Stage {
   readonly active: boolean
 }
 
-export const pipelineStages = (settings: Settings, metalfxSupported: boolean): readonly Stage[] => {
+export const pipelineStages = (settings: Settings, capabilities: Capabilities): readonly Stage[] => {
   const cleanup = Math.max(settings.deblock, settings.deband)
-  const metalfx = settings.upscaler === "metalfx" && metalfxSupported
+  const metalfx = settings.upscaler === "metalfx" && capabilities.metalfx
+  const upscaler = metalfx ? "MetalFX" : "Bilinear"
   return [
     { id: "cleanup", name: "Clean up", value: strengthLabel(cleanup), active: cleanup > 0 },
-    { id: "upscale", name: "Upscale", value: metalfx ? "MetalFX" : "Bilinear", active: metalfx },
+    {
+      id: "upscale",
+      name: "Upscale",
+      value: mlApplies(settings, capabilities) ? `ML + ${upscaler}` : upscaler,
+      active: metalfx || mlApplies(settings, capabilities),
+    },
     { id: "sharpen", name: "Sharpen", value: strengthLabel(settings.sharpness), active: settings.sharpness > 0 },
     { id: "color", name: "Color", value: settings.accurateColor ? "Accurate" : "Vivid", active: settings.accurateColor },
   ]

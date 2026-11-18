@@ -13,7 +13,7 @@ import {
   type Settings,
   type StreamEvent,
 } from "@/core/schema"
-import { framesPerSecond, hudStats, megabitsPerSecond, renderParams, streamOptions, type FrameSample } from "./format"
+import { framesPerSecond, hudStats, megabitsPerSecond, renderParams, streamOptions, type Capabilities, type FrameSample } from "./format"
 
 // Every side effect the UI triggers lives here, as an Effect over the Core and Preferences services.
 
@@ -149,7 +149,7 @@ export const forget = (hostId: string): Effect.Effect<PairedConsoles, StorageErr
 
 export interface Startup {
   readonly settings: Settings
-  readonly metalfxSupported: boolean
+  readonly capabilities: Capabilities
 }
 
 /** Loads saved settings and applies the saved picture settings to the renderer. */
@@ -159,7 +159,7 @@ export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Pr
   const settings = yield* prefs.settings
   const status = yield* core.rendererStatus
   yield* core.setRenderParams(renderParams(settings))
-  return { settings, metalfxSupported: status.metalfxSupported }
+  return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported } }
 })
 
 /** Persists new settings, updating the renderer when a picture setting changed. */

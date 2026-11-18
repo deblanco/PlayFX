@@ -5,7 +5,7 @@ mod native;
 mod tests;
 
 use native::{
-    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, CoreHandle,
+    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, CoreHandle, RendererState,
     NativeCore,
 };
 use serde_json::Value;
@@ -146,9 +146,16 @@ fn set_render_params<R: Runtime>(app: AppHandle<R>, params: Value) -> Result<(),
 #[tauri::command(async)]
 fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     let core = core(&app);
-    let (metalfx, mode, gpu, stats) =
-        on_main(&app, move || (core.metalfx_supported(), core.active_mode(), core.gpu_milliseconds(), core.session_stats()))?;
-    Ok(renderer_status_json(metalfx, mode, gpu, &stats))
+    let (state, stats) = on_main(&app, move || {
+        let state = RendererState {
+            metalfx_supported: core.metalfx_supported(),
+            active_mode: core.active_mode(),
+            gpu_ms: core.gpu_milliseconds(),
+            ml: core.ml_status(),
+        };
+        (state, core.session_stats())
+    })?;
+    Ok(renderer_status_json(&state, &stats))
 }
 
 /// Registers the commands the React UI invokes (see apps/desktop/src/core/core.ts).

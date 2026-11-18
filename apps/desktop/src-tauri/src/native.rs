@@ -45,6 +45,8 @@ pub trait NativeCore: Send + Sync {
     fn active_mode(&self) -> i32;
     /// Smoothed GPU time per rendered frame (0 = nothing rendered yet).
     fn gpu_milliseconds(&self) -> f64;
+    /// Apple ML super-resolution: (can run here, ran on the last frame).
+    fn ml_status(&self) -> (bool, bool);
     fn session_stats(&self) -> String;
 }
 
@@ -69,12 +71,23 @@ pub fn mode_name(mode: i32) -> &'static str {
     }
 }
 
+/// What the renderer reports for the `renderer_status` reply.
+pub struct RendererState {
+    pub metalfx_supported: bool,
+    pub active_mode: i32,
+    pub gpu_ms: f64,
+    /// Apple ML super-resolution: (can run here, ran on the last frame).
+    pub ml: (bool, bool),
+}
+
 /// The `renderer_status` reply; unparseable stats become `null`.
-pub fn renderer_status_json(metalfx_supported: bool, active_mode: i32, gpu_ms: f64, stats: &str) -> Value {
+pub fn renderer_status_json(state: &RendererState, stats: &str) -> Value {
     json!({
-        "metalfxSupported": metalfx_supported,
-        "activeMode": mode_name(active_mode),
-        "gpuMs": (gpu_ms * 100.0).round() / 100.0,
+        "metalfxSupported": state.metalfx_supported,
+        "activeMode": mode_name(state.active_mode),
+        "gpuMs": (state.gpu_ms * 100.0).round() / 100.0,
+        "mlSupported": state.ml.0,
+        "mlActive": state.ml.1,
         "stream": serde_json::from_str::<Value>(stats).unwrap_or(Value::Null),
     })
 }

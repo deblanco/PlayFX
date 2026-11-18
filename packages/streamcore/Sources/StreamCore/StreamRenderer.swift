@@ -37,6 +37,8 @@ public struct RenderParams: Codable, Equatable, Sendable {
     public var deblock: Float = 0
     /// Smooths banding in gradients (with a touch of dither) before the upscale: 0 = off … 1 = strongest.
     public var deband: Float = 0
+    /// Apple's ML super-resolution on the decoded frame first (macOS 26+, streams up to 1280 px wide).
+    public var mlUpscale = false
     /// Split screen: left half is the baseline (bilinear, no processing), right half these params.
     public var compare = false
     public var colorMatrix: ColorMatrix = .auto
@@ -63,6 +65,7 @@ public struct RenderParams: Codable, Equatable, Sendable {
         colorRange = try c.decodeIfPresent(ColorRange.self, forKey: .colorRange) ?? d.colorRange
         chroma = try c.decodeIfPresent(ChromaFilter.self, forKey: .chroma) ?? d.chroma
         accurateColor = try c.decodeIfPresent(Bool.self, forKey: .accurateColor) ?? d.accurateColor
+        mlUpscale = try c.decodeIfPresent(Bool.self, forKey: .mlUpscale) ?? d.mlUpscale
     }
 }
 
@@ -77,6 +80,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
     /// Upscaler actually used for the last frame (MetalFX is skipped when not upscaling).
     public private(set) var activeMode: UpscaleMode = .bilinear
+    /// Whether Apple's ML super-resolution can run on this Mac and OS.
+    public let mlSupported = MLSuperResolution.isAvailable
+    /// Whether the last decoded frame went through ML super-resolution.
+    public private(set) var mlActive = false
+    private let ml = MLSuperResolution()
+    /// The raw stream converted at its own size, for the compare view's baseline while ML is on.
+    private var baselineTexture: MTLTexture?
     /// GPU time per frame (conversion, cleanup, upscale, present), smoothed; 0 until a frame finished.
     public var gpuMilliseconds: Double { gpuTime.withLock { $0 } }
     private let gpuTime = OSAllocatedUnfairLock<Double>(initialState: 0)
@@ -197,7 +207,15 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             gpuTime.withLock { $0 = Self.smoothed($0, ms) }
         }
         if let frame = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) {
-            encodeVideoFrame(frame, cb)
+            let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: fittedRect(drawable: drawableSize).size) : nil
+            mlActive = enhanced != nil
+            encodeVideoFrame(enhanced ?? frame, cb)
+            baselineTexture = nil
+            if enhanced != nil, params.compare {
+                let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
+                baselineTexture = Self.makeInputTexture(device, w, h)
+                if let baseline = baselineTexture { convert(frame, into: baseline, cb) }
+            }
         } else if showsTestPattern {
             encodeTestPattern(cb)
         }
@@ -242,7 +260,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             let split = Self.compareRects(target)
             enc.setScissorRect(Self.scissor(split.left))
             enc.setRenderPipelineState(presentPipeline)
-            enc.setFragmentTexture(inputTexture, index: 0)
+            enc.setFragmentTexture(baselineTexture ?? inputTexture, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
             enc.setScissorRect(Self.scissor(split.right))
             drawProcessed()
@@ -332,6 +350,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private func encodeVideoFrame(_ frame: CVPixelBuffer, _ cb: MTLCommandBuffer) {
         let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
         if w != inputTexture.width || h != inputTexture.height { setInputSize(width: w, height: h) }
+        convert(frame, into: inputTexture, cb)
+    }
+
+    /// NV12 `frame` → RGBA `target` (same size), zero-copy via CVMetalTextureCache.
+    private func convert(_ frame: CVPixelBuffer, into target: MTLTexture, _ cb: MTLCommandBuffer) {
         guard let luma = planeTexture(frame, plane: 0, format: .r8Unorm),
               let chroma = planeTexture(frame, plane: 1, format: .rg8Unorm),
               let lumaTex = CVMetalTextureGetTexture(luma), let chromaTex = CVMetalTextureGetTexture(chroma),
@@ -339,11 +362,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         enc.setComputePipelineState(nv12Pipeline)
         enc.setTexture(lumaTex, index: 0)
         enc.setTexture(chromaTex, index: 1)
-        enc.setTexture(inputTexture, index: 2)
+        enc.setTexture(target, index: 2)
         var conversion = YCbCrConversion(frame: FrameColor(frame), matrix: params.colorMatrix,
                                          range: params.colorRange, chroma: params.chroma)
         enc.setBytes(&conversion, length: MemoryLayout<YCbCrConversion>.stride, index: 0)
-        dispatch(enc, inputTexture)
+        dispatch(enc, target)
         enc.endEncoding()
         // Keep the CoreVideo textures (and the frame) alive until the GPU is done with them.
         cb.addCompletedHandler { _ in _ = (luma, chroma, frame) }

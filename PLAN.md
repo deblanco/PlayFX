@@ -132,10 +132,14 @@ Work items:
   (would need Metal counter sample buffers) — toggle a stage in the HUD to see its cost instead.)* Per-pass GPU time (`MTLCommandBuffer` GPU start/end) in the stats overlay;
   a `psrp` capture script that renders a fixed frame with N param sets → labeled grid, so
   quality claims are reproducible.
-- ❌ **Q7. ML super-resolution (later, after Q1–Q6).** Apple's `VTLowLatencySuperResolutionScaler`
-  (VideoToolbox, macOS 26+, in the SDK here) as a third upscaler, built for decoded compressed
-  video. Check `supportedScaleFactors` for 720p/1080p, measure added latency vs MetalFX, keep
-  MetalFX as the fallback. Ship only if the A/B and the latency numbers justify it.
+- ✅ **Q7. ML super-resolution.** *(done, opt-in: Apple's `VTLowLatencySuperResolutionScaler` runs on
+  the decoded NV12 frame inside the Metal command buffer, before conversion/cleanup/MetalFX — "ML upscaling
+  first". Limits measured on this Mac: inputs ≤ 1280 px per side, 720p → 1.5× only, 540p → 1.5×/2×, so
+  **1080p streams can't use it**. On PS5 frames at 720p it's the biggest visible gain of the whole series
+  (much crisper hair/edge detail, same frame A/B via `/grid.png?vary=ml`), but it costs ~5.5 ms wall time
+  per frame (6.1 → 11.4 ms median; GPU time barely moves — the model runs off the GPU), so it's **off by
+  default** and the UI states the latency. The full (non-low-latency) VT scaler was ruled out: model
+  download, cross-frame optical flow, offline-oriented. The compare baseline stays the raw stream.)*
 - Not planned: MetalFX temporal / frame interpolation (need engine motion vectors + depth).
 
 ### P1 — making a stream feel complete
@@ -226,7 +230,7 @@ Work items:
 
 ## 4. Suggested order of work
 
-0. ~~Picture quality & full stream configuration, Q1 → Q6~~ (done); next: evaluate Q7. *(P1, requested)*
+0. ~~Picture quality & full stream configuration, Q1 → Q7~~ (done). *(P1, requested)*
 1. Auto-wake on Play (small, removes a constant papercut). *(P0)*
 2. Reconnect/resilience + clear quit-reason UI. *(P0)*
 3. Remote Play over the internet (hole-punching) — the headline feature. *(P0)*
