@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import type { DiscoveredConsole, PairedConsole, PairedConsoles } from "@/core/schema"
 import * as actions from "./actions"
+import { useDevAutoplay } from "./devSeed"
 import { consoleRows, type ConsoleRow } from "./format"
 import { PinInput } from "./PinInput"
 import { useFork, useRun } from "./runtime"
@@ -44,6 +45,7 @@ export const ConsoleList = ({ accountId, onPlay }: ConsoleListProps) => {
 
   const rows = consoleRows(discovered, paired)
   const signedIn = Option.isSome(accountId)
+  useDevAutoplay(rows, onPlay)
 
   return (
     <section aria-label="Consoles" className="flex flex-col gap-2">

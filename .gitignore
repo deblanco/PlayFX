@@ -38,3 +38,6 @@ packages/streamcore/Sources/CChiaki/include/chiaki/
 # Coverage artifacts
 *.profraw
 *.profdata
+
+# Dev E2E credential seed (private)
+apps/desktop/src/app/dev-seed.local.json
