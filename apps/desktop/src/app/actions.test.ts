@@ -273,6 +273,20 @@ describe("reconnect", () => {
     return fiber
   })
 
+  it.effect("over the internet, stops the old session and lets the console release it first", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(Effect.exit(actions.reconnect(pairedPs5, settings, "aa")))
+      yield* Effect.yieldNow
+      expect(core.counts.stopStream).toBe(1)
+      expect(core.service.startStream).not.toHaveBeenCalled()
+      yield* TestClock.adjust(actions.internetReconnectSettle)
+      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }), "aa")
+      core.emitStream({ type: "connected" })
+      expect((yield* Fiber.join(fiber))._tag).toBe("Success")
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("starts with the new settings (replacing the session) and finishes when connected", () => {
     const { core, layer } = setup()
     return Effect.gen(function* () {
@@ -502,6 +516,7 @@ describe("internet play", () => {
     return Effect.gen(function* () {
       const fiber = yield* Effect.forkChild(Effect.exit(actions.reconnect(pairedPs5, defaultSettings, "aa")))
       yield* Effect.yieldNow
+      yield* TestClock.adjust(actions.internetReconnectSettle)
       expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
       yield* TestClock.adjust(actions.reconnectAnswerTimeout) // the LAN wait has passed: still waiting
       expect(fiber.pollUnsafe()).toBeUndefined()

@@ -240,13 +240,14 @@ describe("home: paired consoles", () => {
     expect(hud).not.toHaveTextContent("over the internet")
     expect(screen.queryByRole("region", { name: "Connecting to Living Room" })).not.toBeInTheDocument()
 
-    // A drop reconnects over the internet too.
-    vi.mocked(core.service.startStream).mockClear()
+    // A drop reconnects over the internet too: the old session is stopped, then (after the console
+    // lets go of it; the wait is covered in actions.test) a new one starts through PSN.
     act(() => {
       core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
     })
+    expect(await screen.findByRole("region", { name: "Connection lost. Reconnecting to Living Room" })).toBeInTheDocument()
     await waitFor(() => {
-      expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.anything(), "aa")
+      expect(core.counts.stopStream).toBe(1)
     })
   })
 

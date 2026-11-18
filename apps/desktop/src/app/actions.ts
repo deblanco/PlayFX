@@ -345,6 +345,8 @@ export const pollPsnReachable = (
 
 // The PS5 refuses a new session for ~9 s after one ends ("busy"), so a reconnect retries.
 export const reconnectRetryDelay = "1500 millis"
+/** Over the internet, how long the console needs after a stop before PSN can set up a new session. */
+export const internetReconnectSettle = "10 seconds"
 export const reconnectGiveUpMs = 30_000
 export const reconnectAnswerTimeout = "15 seconds"
 /** Over the internet, PSN setup alone can take up to ~30 s per step. */
@@ -411,6 +413,14 @@ export const reconnect = (
       ),
     )
     yield* Effect.logInfo(`Restarting the stream ${psnDuid === undefined ? "on the local network" : "over the internet"}`)
+    if (psnDuid !== undefined) {
+      // Through PSN a new session can't replace the running one: the console must let go of it first
+      // (seen live: PSN timed out with "Host is down" when started straight away).
+      const core = yield* Core
+      yield* Effect.ignore(core.stopStream)
+      yield* Effect.logInfo(`Waiting ${internetReconnectSettle} for the console to release the old session`)
+      yield* Effect.sleep(internetReconnectSettle)
+    }
     return yield* loop.pipe(
       Effect.tap(() => Effect.logInfo("Stream restarted")),
       Effect.tapError((error) => Effect.logWarning(`Restart failed: ${error.message}`)),
