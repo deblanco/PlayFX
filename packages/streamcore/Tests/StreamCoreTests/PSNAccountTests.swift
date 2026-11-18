@@ -139,6 +139,23 @@ extension Serial {
             #expect(PSNConsole(c) == PSNConsole(name: "PS5-454", duid: "ab12", remotePlay: true))
         }
 
+        @Test func fileStoreRoundTripOnlyForTheUser() throws {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("psrp-tokens-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let store = FileTokenStore(url: dir.appendingPathComponent("nested/psn-tokens.json"))
+            #expect(store.load() == nil)
+            let tokens = PSNTokens(accessToken: "a", refreshToken: "r", expiresAt: Date(timeIntervalSince1970: 42))
+            try store.save(tokens)
+            #expect(store.load() == tokens)
+            let mode = try FileManager.default.attributesOfItem(atPath: store.url.path)[.posixPermissions] as? Int
+            #expect(mode == 0o600)
+            try Data("not json".utf8).write(to: store.url)
+            #expect(store.load() == nil) // corrupt file: signed out, not a crash
+            store.clear()
+            #expect(!FileManager.default.fileExists(atPath: store.url.path))
+            #expect(FileTokenStore.defaultURL.path.hasSuffix("psn-tokens.json"))
+        }
+
         @Test func keychainRoundTrip() throws {
             let store = KeychainTokenStore(service: "PS Remote Play tests \(UUID())")
             defer { store.clear() }

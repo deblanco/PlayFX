@@ -70,6 +70,12 @@ public enum PSNAuth {
         return accountId(userId: userId)
     }
 
+    /// Sony's error fields (no secrets), for the log.
+    static func describe(_ reply: [String: Any]) -> String {
+        [reply["error"], reply["error_code"], reply["error_description"]].compactMap { $0.map { "\($0)" } }
+            .joined(separator: " — ")
+    }
+
     static func failure(_ reply: [String: Any]) -> Error {
         ConsoleError.message("PSN sign-in failed: \(reply["error_description"] ?? reply["error"] ?? "no access token")")
     }
@@ -102,7 +108,9 @@ public enum PSNAuth {
     }
 
     static func json(_ req: URLRequest) async throws -> [String: Any] {
-        let (data, _) = try await urlSession.data(for: req)
+        let what = "\(req.httpMethod ?? "GET") \(req.url?.host ?? "")\(req.url?.path ?? "")"
+        let (data, response) = try await urlSession.data(for: req)
+        Log.debug(.psn, "\(what) → HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ConsoleError.message("Unexpected PSN response: \(String(decoding: data, as: UTF8.self))")
         }

@@ -26,6 +26,7 @@ private var input: ControllerInput?
 private var rumble: Rumble?
 private var triggers: AdaptiveTriggers?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
+nonisolated(unsafe) private var logCallback: (@convention(c) (Int32, UnsafePointer<CChar>, UnsafePointer<CChar>) -> Void)?
 
 private func cString(_ s: String) -> UnsafeMutablePointer<CChar> { strdup(s)! }
 
@@ -57,7 +58,28 @@ public func sc_free(_ p: UnsafeMutablePointer<CChar>?) { free(p) }
 @_cdecl("sc_set_event_callback")
 public func sc_set_event_callback(_ cb: (@convention(c) (UnsafePointer<CChar>) -> Void)?) {
     eventCallback = cb
-    Console.configureLogging(verbose: ProcessInfo.processInfo.environment["PSRP_VERBOSE"] != nil)
+}
+
+/// Log entries for the host (its log file): level (0 debug … 3 error), area, scrubbed message. Called
+/// from any thread. `detailed` adds debug entries, including libchiaki's verbose ones.
+@_cdecl("sc_set_log_callback")
+public func sc_set_log_callback(_ cb: (@convention(c) (Int32, UnsafePointer<CChar>, UnsafePointer<CChar>) -> Void)?,
+                                _ detailed: Bool) {
+    logCallback = cb
+    let sink: Log.Sink? = cb.map { callback in
+        { entry in
+            entry.area.rawValue.withCString { area in
+                entry.message.withCString { message in callback(Int32(entry.level.rawValue), area, message) }
+            }
+        }
+    }
+    Log.configure(detailed: detailed, sink: sink)
+}
+
+/// Switches detailed logs on or off, keeping the host's callback.
+@_cdecl("sc_set_log_detailed")
+public func sc_set_log_detailed(_ detailed: Bool) {
+    sc_set_log_callback(logCallback, detailed)
 }
 
 // MARK: Renderer (main)

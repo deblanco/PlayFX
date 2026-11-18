@@ -99,7 +99,9 @@ func run() throws {
     guard !argv.isEmpty else { throw fail("usage: psrp <discover|login-url|account-id|register|consoles|wake|stream> ...") }
     let command = argv.removeFirst()
     let args = Args(argv)
-    Console.configureLogging(verbose: args.has("verbose"))
+    Log.configure(detailed: args.has("verbose")) { entry in
+        FileHandle.standardError.write(Data("[\(entry.area.rawValue)] \(entry.message)\n".utf8))
+    }
     var config = Config.load()
 
     switch command {

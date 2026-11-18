@@ -255,6 +255,23 @@ Work items:
 
 ---
 
+### Logging & diagnostics (in progress, requested)
+
+For users and us to debug: one scrubbed log across native, Rust and the web UI, and a diagnostics export.
+- ✅ L1. Native logger (`Log`): levels (debug/info/warning/error) and areas (session, psn, console,
+  renderer, input, chiaki); every entry to the system log (Console.app, subsystem `ps-remote-play`) and
+  a sink (psrp: stderr; desktop: the host via `sc_set_log_callback`, `sc_set_log_detailed`). libchiaki's
+  messages routed through it. Secrets scrubbed before anything leaves (Bearer/Basic headers, token
+  fields, sign-in codes, the token in Sony's account-lookup URL, pairing keys, account IDs). Log points
+  for PSN (HTTP outcomes, Sony's error replies on sign-in/refresh failures, forced refreshes, console
+  list), sessions, discovery/wake/pairing, renderer capabilities and ML fallbacks, controllers.
+- ❌ L2. One log file (Rust): native + Rust + web UI entries, time-ordered, size-capped, in ~/Library/Logs.
+- ❌ L3. Web UI logging (Effect logger → the file): connect, reconnect, wake, settings, errors with causes.
+- ❌ L4. Settings → Diagnostics: "Detailed logs", "Open logs folder", "Copy diagnostics".
+- Development builds keep the PSN sign-in in a 0600 JSON file (`~/.config/psrp/psn-tokens.json`, or
+  `$PSRP_TOKEN_FILE`) instead of the Keychain, which would prompt after every rebuild of an unsigned
+  build — unanswerable when developing remotely. Release builds use the Keychain.
+
 ## 3. Known issues / tech debt
 
 - 🔶 **Swift tests under Command Line Tools**: `swift test` reports 0 tests on this machine

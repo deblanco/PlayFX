@@ -83,8 +83,8 @@ extension Serial {
 
         @Test func registerFailsWithoutAConsoleAndRoutesLogs() {
             let logs = LockedLines()
-            Console.configureLogging(verbose: true) { _, text in logs.append(text) }
-            defer { Console.configureLogging(verbose: false) }
+            Log.configure(detailed: true) { entry in if entry.area == .chiaki { logs.append(entry.message) } }
+            defer { Log.configure(detailed: false, sink: nil) }
             let account = Data(repeating: 1, count: 8).base64EncodedString()
             for ps5 in [true, false] {
                 do {

@@ -163,6 +163,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.inputTexture = input
         self.view = view
         self.metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
+        Log.info(.renderer, "Renderer on \(device.name): MetalFX \(metalFXSupported ? "yes" : "no"), "
+            + "ML super-resolution \(MLSuperResolution.isAvailable ? "yes" : "no")")
         super.init()
         view.delegate = self
         applyColorSpace()

@@ -20,9 +20,24 @@ private func call(_ f: (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>, _ 
 private func json<T: Encodable>(_ v: T) -> String { String(decoding: try! JSONEncoder().encode(v), as: UTF8.self) }
 
 private let receivedEvents = LockedLines()
+private let receivedLogs = LockedLines()
 
 extension Serial {
     @Suite struct BridgeTests {
+        @Test func logsReachTheHostScrubbed() {
+            sc_set_log_callback({ level, area, message in
+                receivedLogs.append("\(level) \(String(cString: area)) \(String(cString: message))")
+            }, false)
+            defer { sc_set_log_callback(nil, false) }
+            Log.debug(.session, "not without detailed logs")
+            Log.warning(.psn, "refresh failed: refresh_token=abc")
+            sc_set_log_detailed(true)
+            Log.debug(.session, "detailed now")
+            // Other tests log in parallel; look at this test's messages only.
+            let mine = receivedLogs.lines.filter { $0.contains("refresh failed") || $0.contains("detailed") }
+            #expect(mine == ["2 psn refresh failed: refresh_token=<redacted>", "0 session detailed now"])
+        }
+
         @Test func psnURLs() throws {
             // Each sign-in URL carries a new device ID; the rest is fixed.
             let withoutDUID = { (url: String) in url.replacingOccurrences(of: #"&duid=[0-9a-f]{48}"#, with: "", options: .regularExpression) }

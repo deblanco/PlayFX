@@ -108,6 +108,11 @@ public final class ControllerInput {
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
 
     func attach(_ controller: GCController) {
+        let pad = controller.extendedGamepad
+        Log.info(.input, "Controller: \(controller.vendorName ?? "unknown") — "
+            + "haptics \(controller.haptics == nil ? "no" : "yes"), "
+            + "adaptive triggers \(pad is GCDualSenseGamepad ? "yes" : "no"), "
+            + "motion \(controller.motion == nil ? "no" : "yes")")
         controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
             guard let self else { return }
             var state = Self.state(from: pad)

@@ -67,6 +67,37 @@ public final class KeychainTokenStore: PSNTokenStore {
     public func clear() { SecItemDelete(query as CFDictionary) }
 }
 
+/// A JSON file only the user can read (0600), for development builds: the Keychain ties its items to a
+/// build's signature, so unsigned dev builds would ask for access after every rebuild — a prompt nobody
+/// can answer when developing remotely. Outside the repo by default, so it can't be committed.
+public final class FileTokenStore: PSNTokenStore {
+    public let url: URL
+
+    /// `$PSRP_TOKEN_FILE`, else ~/.config/psrp/psn-tokens.json (next to psrp's pairing keys).
+    public static var defaultURL: URL {
+        if let path = ProcessInfo.processInfo.environment["PSRP_TOKEN_FILE"], !path.isEmpty {
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/psrp/psn-tokens.json")
+    }
+
+    public init(url: URL = FileTokenStore.defaultURL) { self.url = url }
+
+    public func load() -> PSNTokens? {
+        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(PSNTokens.self, from: $0) }
+    }
+
+    public func save(_ tokens: PSNTokens) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+        try JSONEncoder().encode(tokens).write(to: url, options: .atomic)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    public func clear() { try? FileManager.default.removeItem(at: url) }
+}
+
 /// Tokens in memory only (tests).
 final class MemoryTokenStore: PSNTokenStore {
     var tokens: PSNTokens?
@@ -77,7 +108,16 @@ final class MemoryTokenStore: PSNTokenStore {
 
 /// The signed-in PSN account: signs in, keeps the tokens fresh, signs out.
 public final class PSNAccount {
-    public static let shared = PSNAccount(store: KeychainTokenStore())
+    /// Release builds keep the tokens in the Keychain; development builds in a 0600 file (see FileTokenStore).
+    public static let shared: PSNAccount = {
+        #if DEBUG
+        let store = FileTokenStore()
+        Log.info(.psn, "Development build: PSN sign-in kept in \(store.url.path)")
+        return PSNAccount(store: store)
+        #else
+        return PSNAccount(store: KeychainTokenStore())
+        #endif
+    }()
 
     let store: PSNTokenStore
     var now: () -> Date = Date.init
@@ -93,9 +133,13 @@ public final class PSNAccount {
     /// Exchanges the sign-in code: keeps the tokens and returns the account ID (for pairing).
     public func signIn(code: String) async throws -> String {
         let reply = try await PSNAuth.json(PSNAuth.tokenRequest(code: code))
-        guard let tokens = PSNTokens(reply: reply, now: now()) else { throw PSNAuth.failure(reply) }
+        guard let tokens = PSNTokens(reply: reply, now: now()) else {
+            Log.error(.psn, "Sign-in refused by PSN: \(PSNAuth.describe(reply))")
+            throw PSNAuth.failure(reply)
+        }
         let id = try await PSNAuth.accountId(accessToken: tokens.accessToken)
         try store.save(tokens)
+        Log.info(.psn, "Signed in; access token valid until \(tokens.expiresAt)")
         return id
     }
 
@@ -105,25 +149,37 @@ public final class PSNAccount {
     public func validAccessToken(forceRefresh: Bool = false) async throws -> String {
         guard let tokens = store.load() else { throw PSNError.notSignedIn }
         guard forceRefresh || tokens.needsRefresh(at: now()) else { return tokens.accessToken }
+        Log.info(.psn, forceRefresh ? "Refreshing the PSN token (PSN rejected the current one)"
+                                    : "Refreshing the PSN token (expires \(tokens.expiresAt))")
         let reply = try await PSNAuth.json(PSNAuth.refreshRequest(refreshToken: tokens.refreshToken))
         guard let fresh = PSNTokens(reply: reply, now: now()) else {
+            Log.error(.psn, "PSN refused the token refresh, signing out: \(PSNAuth.describe(reply))")
             store.clear()
             throw PSNError.signInExpired
         }
         try store.save(fresh)
+        Log.info(.psn, "PSN token refreshed; valid until \(fresh.expiresAt)")
         return fresh.accessToken
     }
 
-    public func signOut() { store.clear() }
+    public func signOut() {
+        store.clear()
+        Log.info(.psn, "Signed out of PSN")
+    }
 
     /// The PS5s on this PSN account (blocking network call, up to ~5 s; run off the main thread).
     /// PSN can revoke an access token before it expires; then this refreshes it once and retries.
     public func consoles() async throws -> [PSNConsole] {
+        let consoles: [PSNConsole]
         do {
-            return try listConsoles(try await validAccessToken())
+            consoles = try listConsoles(try await validAccessToken())
         } catch let error as ConsoleError {
-            return try listConsoles(try await validAccessToken(forceRefresh: true), retryOf: error)
+            Log.warning(.psn, "\(error.localizedDescription); retrying with a refreshed token")
+            consoles = try listConsoles(try await validAccessToken(forceRefresh: true), retryOf: error)
         }
+        Log.info(.psn, "PSN lists \(consoles.count) PS5(s): "
+            + consoles.map { "\($0.name)\($0.remotePlay ? "" : " (Remote Play off)")" }.joined(separator: ", "))
+        return consoles
     }
 
     private func listConsoles(_ token: String, retryOf first: ConsoleError) throws -> [PSNConsole] {

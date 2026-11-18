@@ -40,6 +40,7 @@ final class MLSuperResolution {
         let supported = Config.__supportedScaleFactors(forFrameWidth: w, frameHeight: h).map(\.floatValue)
         guard !supported.isEmpty else {
             unsupported.insert(sizeKey) // the model can't take this size at all
+            Log.info(.renderer, "ML upscaling doesn't support \(sizeKey) streams; using the rest of the pipeline")
             return nil
         }
         // No factor for the current window (e.g. too small to need upscaling): skip, but try again later.
@@ -54,9 +55,11 @@ final class MLSuperResolution {
             guard (try? processor.startSession(configuration: config)) != nil,
                   CVPixelBufferPoolCreate(nil, nil, attrs as CFDictionary, &newPool) == kCVReturnSuccess else {
                 unsupported.insert(sizeKey)
+                Log.warning(.renderer, "ML upscaling couldn't start for \(sizeKey) streams")
                 return nil
             }
             session = processor
+            Log.info(.renderer, "ML upscaling \(sizeKey) ×\(factor)")
             pool = newPool
             key = (w, h, factor)
         }

@@ -37,17 +37,6 @@ public enum ConsoleError: LocalizedError {
 
 public enum Console {
     /// Routes libchiaki logs. Call before anything else to change the default (stderr, info+).
-    public static func configureLogging(verbose: Bool, handler: (@Sendable (Int32, String) -> Void)? = nil) {
-        logHandler = handler
-        let mask: UInt32 = verbose ? 0x1f : (UInt32(PSRP_LOG_INFO.rawValue) | UInt32(PSRP_LOG_WARNING.rawValue) | UInt32(PSRP_LOG_ERROR.rawValue))
-        psrp_init({ level, msg, _ in
-            let text = msg.map { String(cString: $0) } ?? ""
-            if let h = Console.logHandler { h(level, text) } else {
-                FileHandle.standardError.write(Data("[chiaki] \(text)\n".utf8))
-            }
-        }, nil, mask)
-    }
-    static var logHandler: (@Sendable (Int32, String) -> Void)?
 
     /// Blocking; pings `host` or the whole LAN for `timeout` seconds.
     public static func discover(host: String? = nil, timeout: TimeInterval = 2) -> [DiscoveredConsole] {
@@ -55,8 +44,13 @@ public enum Console {
         let n = hosts.withUnsafeMutableBufferPointer { buf in
             psrp_discover(host, Int32(timeout * 1000), buf.baseAddress, Int32(buf.count))
         }
-        guard n > 0 else { return [] }
-        return hosts[0..<Int(n)].map(console(from:))
+        guard n > 0 else {
+            Log.debug(.console, "Discovery found no consoles")
+            return []
+        }
+        let found = hosts[0..<Int(n)].map(console(from:))
+        Log.debug(.console, "Discovery: " + found.map { "\($0.name) \($0.state.rawValue) at \($0.address)" }.joined(separator: ", "))
+        return found
     }
 
     static func console(from host: PsrpHost) -> DiscoveredConsole {
@@ -83,8 +77,13 @@ public enum Console {
         let ok = account.withUnsafeBytes { acc in
             psrp_register(address, ps5, acc.bindMemory(to: UInt8.self).baseAddress, pinValue, &out, &error, error.count)
         }
-        guard ok else { throw ConsoleError.message(String(cString: error)) }
-        return credentials(from: out, address: address, ps5: ps5, accountId: accountId)
+        guard ok else {
+            Log.error(.console, "Pairing with \(address) failed: \(String(cString: error))")
+            throw ConsoleError.message(String(cString: error))
+        }
+        let paired = credentials(from: out, address: address, ps5: ps5, accountId: accountId)
+        Log.info(.console, "Paired with \(paired.nickname) at \(address)")
+        return paired
     }
 
     static func credentials(from registration: PsrpRegistration, address: String, ps5: Bool,
@@ -101,8 +100,14 @@ public enum Console {
     /// Wakes a console from rest mode.
     @discardableResult
     public static func wakeup(_ credentials: ConsoleCredentials) -> Bool {
-        guard let key = Data(base64Encoded: credentials.registKey), key.count == Int(PSRP_REGIST_KEY_SIZE) else { return false }
-        return key.withUnsafeBytes { psrp_wakeup(credentials.address, $0.bindMemory(to: CChar.self).baseAddress, credentials.ps5) }
+        guard let key = Data(base64Encoded: credentials.registKey), key.count == Int(PSRP_REGIST_KEY_SIZE) else {
+            Log.warning(.console, "Can't wake \(credentials.nickname): invalid pairing data")
+            return false
+        }
+        let sent = key.withUnsafeBytes { psrp_wakeup(credentials.address, $0.bindMemory(to: CChar.self).baseAddress, credentials.ps5) }
+        Log.info(.console, sent ? "Wake-up sent to \(credentials.nickname) at \(credentials.address)"
+                                : "Wake-up to \(credentials.nickname) at \(credentials.address) failed")
+        return sent
     }
 
     /// Reads a fixed-size C char array (imported as a tuple) as a String.
