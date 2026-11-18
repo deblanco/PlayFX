@@ -191,6 +191,9 @@ void psrp_session_set_controller_state(PsrpSession *session, const PsrpControlle
 void psrp_session_set_login_pin(PsrpSession *session, const char *pin);
 /// Round trip to the console in microseconds, measured while connecting (0 until then).
 uint64_t psrp_session_rtt_us(PsrpSession *session);
+/// One frame of the DualSense haptics stream (`frames` interleaved stereo samples) as rumble strengths.
+void psrp_haptics_to_rumble(const int16_t *samples, size_t frames, uint8_t *left, uint8_t *right);
+
 /// The Mac's microphone to the console (voice chat): turn it on/off (the first "on" connects it), and
 /// send each 10 ms of audio as PSRP_MIC_FRAME_SAMPLES interleaved stereo 16-bit samples at 48 kHz.
 #define PSRP_MIC_SAMPLE_RATE 48000

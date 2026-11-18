@@ -197,8 +197,13 @@ Work items:
   frequency), bow/galloping/machine (as the nearest weapon/vibration) and the older simple modes; the
   adapter applies them with `GCDualSenseAdaptiveTrigger`, and releases the triggers when the session
   ends. To verify: a DualSense and a game that uses the triggers, e.g. Astro's Playroom.)*
-- ❌ **DualSense haptics audio channel.** chiaki exposes a separate haptics sink; route it to the
-  controller's haptic engine.
+- 🔶 **DualSense haptics channel** (built; the stream arrives — feel on a pad unverified): PS5 games drive
+  the DualSense's voice-coil motors with a haptics audio stream instead of rumble events, so pads got
+  nothing in those games. The shim now takes libchiaki's haptics sink and, as chiaki-ng does for pads
+  that can't play it (GameController can't take raw haptic audio), turns each 10 ms frame into rumble
+  strengths (mean |sample| per channel, noise floor), reported only when they change, through the
+  existing rumble path. Seen live in Silent Hill 2: 44 rumble updates in ~10 s of play (`psrp /status`
+  now counts them). A pad in hand is needed to judge the feel.
 - 🔶 **Touchpad + motion.** *(touchpad built, **unverified on hardware**: the shim takes a struct-based
   controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
   DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new

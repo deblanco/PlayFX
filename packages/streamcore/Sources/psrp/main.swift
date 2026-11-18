@@ -160,6 +160,9 @@ final class Controller {
     var held = ControllerState()
     var events: [String] = []
     var connected = false
+    /// Rumble updates from the console (rumble events and the DualSense haptics stream), and the last one.
+    var rumbles = 0
+    var lastRumble = [0, 0]
     let queue = DispatchQueue(label: "psrp.input")
 
     init(session: StreamSession) { self.session = session }
@@ -225,7 +228,8 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         case .connected: ctl.connected = true; text = "connected"
         case .quit(let reason, let error, _): ctl.connected = false; text = "quit (\(error ? "error" : "ok")): \(reason)"
         case .loginPinRequested(let incorrect): text = "login PIN requested (incorrect: \(incorrect))"
-        case .rumble, .triggerEffects: return
+        case .rumble(let l, let r): ctl.queue.async { ctl.rumbles += 1; ctl.lastRumble = [Int(l), Int(r)] }; return
+        case .triggerEffects: return
         case .nickname(let n): text = "nickname: \(n)"
         case .remoteProgress(let stage): text = "over the internet: \(stage.rawValue)"
         case .keyboard(let change, let field): text = "keyboard \(change.rawValue): \"\(field)\""
@@ -321,9 +325,14 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
         switch path {
         case "/status":
             struct Render: Encodable { let gpuMs: Double; let wallMs: Double; let mlSupported: Bool; let mlActive: Bool }
-            struct Status: Encodable { let connected: Bool; let stats: StreamSession.Stats; let events: [String]; let render: Render? }
+            struct Status: Encodable {
+                let connected: Bool; let stats: StreamSession.Stats; let events: [String]; let render: Render?
+                let rumbles: Int; let lastRumble: [Int]
+            }
             let render = offscreen.withLock { r in r.map { Render(gpuMs: $0.gpuMilliseconds, wallMs: lastRenderMs.withLock { $0 }, mlSupported: $0.mlSupported, mlActive: $0.mlActive) } }
-            return json(Status(connected: ctl.connected, stats: ctl.session.stats, events: ctl.queue.sync { ctl.events }, render: render))
+            let (rumbles, lastRumble) = ctl.queue.sync { (ctl.rumbles, ctl.lastRumble) }
+            return json(Status(connected: ctl.connected, stats: ctl.session.stats, events: ctl.queue.sync { ctl.events },
+                               render: render, rumbles: rumbles, lastRumble: lastRumble))
         case "/snapshot.png":
             guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }
             let image = CIImage(cvPixelBuffer: frame)

@@ -288,6 +288,8 @@ struct PsrpSession {
     /// The Mac's microphone to the console: Opus-encoded 10 ms stereo frames (connected on first use).
     ChiakiOpusEncoder mic;
     bool mic_connected;
+    /// The last rumble derived from the DualSense haptics stream (only changes are reported).
+    uint8_t haptic_left, haptic_right;
     PsrpCallbacks cb;
     char host[256];
     ChiakiConnectInfo info;
@@ -379,6 +381,31 @@ static void session_event_cb(ChiakiEvent *event, void *user) {
     }
 }
 
+void psrp_haptics_to_rumble(const int16_t *samples, size_t frames, uint8_t *left, uint8_t *right) {
+    uint32_t sum_l = 0, sum_r = 0;
+    for (size_t i = 0; i < frames; i++) {
+        sum_l += (uint32_t)abs(samples[2 * i]) * 2;
+        sum_r += (uint32_t)abs(samples[2 * i + 1]) * 2;
+    }
+    uint32_t l = frames ? sum_l / frames : 0, r = frames ? sum_r / frames : 0;
+    // As chiaki-ng: weak signals are noise; the rest maps 0…65535 onto the rumble's 0…255.
+    *left = l > 100 ? (uint8_t)(l > 0xFFFF ? 0xFF : l >> 8) : 0;
+    *right = r > 100 ? (uint8_t)(r > 0xFFFF ? 0xFF : r >> 8) : 0;
+}
+
+/// The DualSense haptics stream (stereo 16-bit PCM for the voice-coil motors): pads on the Mac can't
+/// play it, so it becomes rumble, as chiaki-ng does for non-USB pads.
+static void session_haptics_cb(uint8_t *buf, size_t buf_size, void *user) {
+    PsrpSession *s = user;
+    if (!s->cb.event || buf_size < 4 || buf_size % 4 != 0) return;
+    uint8_t left, right;
+    psrp_haptics_to_rumble((const int16_t *)buf, buf_size / 4, &left, &right);
+    if (left == s->haptic_left && right == s->haptic_right) return;
+    s->haptic_left = left;
+    s->haptic_right = right;
+    s->cb.event(s->cb.user, PSRP_EVENT_RUMBLE, left, right, NULL);
+}
+
 /// Creates and starts the chiaki session from `s->info`. Callers hold `s->lock` (remote) or own `s` alone.
 static ChiakiErrorCode start_chiaki(PsrpSession *s) {
     ChiakiErrorCode err = chiaki_session_init(&s->session, &s->info, &g_log);
@@ -392,6 +419,10 @@ static ChiakiErrorCode start_chiaki(PsrpSession *s) {
     ChiakiAudioHeader mic_header;
     chiaki_audio_header_set(&mic_header, 2, 16, PSRP_MIC_SAMPLE_RATE, PSRP_MIC_FRAME_SAMPLES);
     chiaki_opus_encoder_header(&mic_header, &s->mic, &s->session);
+    if (s->info.enable_dualsense) {
+        ChiakiAudioSink haptics = { .user = s, .frame_cb = session_haptics_cb };
+        chiaki_session_set_haptics_sink(&s->session, &haptics);
+    }
     chiaki_session_set_video_sample_cb(&s->session, session_video_cb, s);
     chiaki_session_set_event_cb(&s->session, session_event_cb, s);
     err = chiaki_session_start(&s->session);
