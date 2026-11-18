@@ -117,7 +117,7 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
 /** Why a stream is being restarted: new stream settings, or a lost connection. */
 export type Reconnecting = false | "apply" | "dropped"
 
-/** How many times a session reconnects on its own after losing the connection before giving up. */
+/** How many automatic reconnects in a row (without a stable minute in between) before giving up. */
 export const maxAutoReconnects = 3
 
 /** What a quit means for the running stream. */

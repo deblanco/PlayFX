@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema, Semaphore } from "effect"
 import { CoreError, ValidationError } from "./errors"
 import {
   Credentials,
@@ -46,6 +46,9 @@ export const CoreLive = Layer.effect(
   Core,
   Effect.gen(function* () {
     const tauri = yield* TauriBridge
+    // Picture updates (one per slider tick) must reach the renderer in order: Tauri runs async commands
+    // on a thread pool, so concurrent calls could land out of order and leave an old value applied.
+    const renderParamsInOrder = yield* Semaphore.make(1)
 
     /** Invokes a command and decodes its reply, turning schema mismatches into CoreError. */
     const call = <S extends Schema.Top & { readonly DecodingServices: never }>(
@@ -90,7 +93,8 @@ export const CoreLive = Layer.effect(
       stopStream: Effect.asVoid(call(unit, "stop_stream")),
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
-      setRenderParams: (params) => Effect.asVoid(call(unit, "set_render_params", { params })),
+      setRenderParams: (params) =>
+        Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
       rendererStatus: call(RendererStatus, "renderer_status"),
       onStreamEvent: subscribe(StreamEvent, "stream-event"),
       onPsnAccount: subscribe(PsnAccountEvent, "psn-account"),

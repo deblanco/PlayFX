@@ -147,21 +147,16 @@ describe("settings", () => {
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect("persists changes and only updates the renderer when a picture setting changed", () => {
+  it.effect("persists changes and applies the picture part to the renderer every time", () => {
     const { core, layer } = setup()
     return Effect.gen(function* () {
       const fps30 = { ...defaultSettings, fps: 30 as const }
-      yield* actions.changeSettings(defaultSettings, fps30)
-      expect(core.service.setRenderParams).not.toHaveBeenCalled()
+      yield* actions.changeSettings(fps30)
       const prefs = yield* Preferences
       expect(yield* prefs.settings).toEqual(fps30)
-      yield* actions.changeSettings(fps30, { ...fps30, upscaler: "bilinear" })
-      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
-      yield* actions.changeSettings(fps30, { ...fps30, sharpness: 1 })
-      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "metalfx", sharpness: 1, compare: false }))
-      yield* actions.changeSettings(fps30, { ...fps30, compare: true })
-      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "metalfx", sharpness: 0.3, compare: true }))
-      expect(core.service.setRenderParams).toHaveBeenCalledTimes(3)
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture())
+      yield* actions.changeSettings({ ...fps30, sharpness: 1 })
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ sharpness: 1 }))
     }).pipe(Effect.provide(layer))
   })
 })
@@ -241,6 +236,16 @@ describe("streaming", () => {
 })
 
 describe("reconnect", () => {
+  it.effect("waits a stable minute before forgiving drops", () =>
+    Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(actions.waitUntilStable)
+      yield* TestClock.adjust("59 seconds")
+      expect(fiber.pollUnsafe()).toBeUndefined()
+      yield* TestClock.adjust("1 second")
+      yield* Fiber.join(fiber)
+    }),
+  )
+
   const settings = { ...defaultSettings, height: 720 as const }
 
   /** Starts a reconnect in the background and lets it reach its first start_stream. */
@@ -256,8 +261,7 @@ describe("reconnect", () => {
       const fiber = yield* begin
       expect(core.counts.stopStream).toBe(0) // start replaces it, keeping the last frame up
       expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }))
-      core.emitStream({ type: "quit", reason: "Stopped", error: false }) // the old session: ignored
-      core.emitStream({ type: "loginPin", incorrect: false }) // not an answer either
+      core.emitStream({ type: "quit", reason: "Stopped", error: false, kind: "stopped" }) // the replaced session: ignored
       core.emitStream({ type: "connected" })
       expect((yield* Fiber.join(fiber))._tag).toBe("Success")
       expect(core.streamListeners()).toBe(0) // unsubscribed
@@ -299,6 +303,24 @@ describe("reconnect", () => {
       core.emitStream({ type: "quit", reason: "Version mismatch", error: true })
       const exit = yield* Fiber.join(fiber)
       expect(String(exit)).toContain("Reconnect failed: Version mismatch")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("counts a login PIN request as connected", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      core.emitStream({ type: "loginPin", incorrect: false })
+      expect((yield* Fiber.join(fiber))._tag).toBe("Success")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("fails fast when the console goes to rest instead", () => {
+    const { core, layer } = setup()
+    return Effect.gen(function* () {
+      const fiber = yield* begin
+      core.emitStream({ type: "quit", reason: "Server shutting down", error: false, kind: "final" })
+      expect(String(yield* Fiber.join(fiber))).toContain("Reconnect failed: Server shutting down")
     }).pipe(Effect.provide(layer))
   })
 

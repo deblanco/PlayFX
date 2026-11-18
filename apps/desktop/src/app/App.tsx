@@ -1,5 +1,5 @@
 import { Effect, Fiber, Option } from "effect"
-import { useCallback, useEffect, useEffectEvent, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 import {
@@ -28,7 +28,7 @@ interface Session {
   readonly connected: boolean
   /** Restarting the stream; quit events then belong to the reconnect. */
   readonly reconnecting: Reconnecting
-  /** Reconnects after a lost connection so far (capped, so a bad link doesn't loop forever). */
+  /** Automatic reconnects since the stream was last stable (capped, so a bad link doesn't loop forever). */
   readonly autoReconnects: number
 }
 
@@ -37,6 +37,11 @@ export const App = () => {
   const [settings, setSettings] = useState<Settings>(defaultSettings)
   const [capabilities, setCapabilities] = useState<Capabilities>({ metalfx: true, ml: false })
   const [session, setSession] = useState<Session | null>(null)
+  const runtime = useRuntime()
+  // Background work tied to the stream view: an in-flight reconnect, and the timer that forgives past
+  // drops once the stream has been stable. Both are cancelled when the stream view goes away.
+  const reconnectFiber = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
+  const stableTimer = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
 
   useEffect(() => {
     run(actions.startup, {
@@ -49,14 +54,27 @@ export const App = () => {
 
   const changeSettings = (next: Settings) => {
     setSettings(next)
-    run(actions.changeSettings(settings, next))
+    run(actions.changeSettings(next))
   }
 
+  /** Cancels the background work; a reconnect may have started a session, so that one is stopped. */
+  const cancelBackground = useCallback(() => {
+    const reconnecting = reconnectFiber.current
+    reconnectFiber.current = null
+    if (reconnecting) runtime.runFork(Effect.andThen(Fiber.interrupt(reconnecting), Effect.ignore(actions.stop)))
+    if (stableTimer.current) runtime.runFork(Fiber.interrupt(stableTimer.current))
+    stableTimer.current = null
+  }, [runtime])
+
   /** Back home, after the stream view stopped the stream itself. */
-  const leave = useCallback((error: Option.Option<string>) => {
-    setSession(null)
-    Option.map(error, (message) => toast.error(message))
-  }, [])
+  const leave = useCallback(
+    (error: Option.Option<string>) => {
+      cancelBackground()
+      setSession(null)
+      Option.map(error, (message) => toast.error(message))
+    },
+    [cancelBackground],
+  )
 
   /** Back home after the stream ended on its own: also brings back the idle picture behind the home
    * screen (after a quit the renderer keeps the last frame, in case the stream is reconnected). */
@@ -77,12 +95,25 @@ export const App = () => {
       reconnecting: why,
       autoReconnects: session.autoReconnects + (why === "dropped" ? 1 : 0),
     })
-    run(actions.reconnect(console, settings), {
-      onSuccess: () => {
-        setSession((s) => s && { ...s, connected: true, reconnecting: false, startedWith: streamOptions(settings) })
-      },
-      onFailure: () => { end(Option.none()) }, // run() already showed the error
-    })
+    cancelBackground()
+    reconnectFiber.current = runtime.runFork(
+      Effect.match(actions.reconnect(console, settings), {
+        onSuccess: () => {
+          reconnectFiber.current = null
+          setSession((s) => s && { ...s, connected: true, reconnecting: false, startedWith: streamOptions(settings) })
+          // Forgive past drops once the stream has stayed up for a while.
+          stableTimer.current = runtime.runFork(
+            Effect.andThen(actions.waitUntilStable, Effect.sync(() => {
+              setSession((s) => s && { ...s, autoReconnects: 0 })
+            })),
+          )
+        },
+        onFailure: (error) => {
+          reconnectFiber.current = null
+          end(Option.some(error.message))
+        },
+      }),
+    )
   }
 
   // A lost connection reconnects on its own; while reconnecting, quit events belong to the reconnect.
@@ -109,7 +140,6 @@ export const App = () => {
 
   // Subscribed for the app's lifetime: the console can ask for the login PIN or quit before
   // start_stream has even replied, and Tauri doesn't buffer events for late listeners.
-  const runtime = useRuntime()
   useEffect(() => {
     const subscription = actions.onStreamEvent((event) => { onStreamEvent(event) })
     const fiber = runtime.runFork(Effect.tapError(subscription, (error) => Effect.sync(() => toast.error(error.message))))

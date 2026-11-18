@@ -4,7 +4,6 @@ import { ValidationError, type CoreError, type StorageError } from "@/core/error
 import { Preferences } from "@/core/preferences"
 import {
   isAccountId,
-  sameRenderParams,
   type DiscoveredConsole,
   type ControllerState,
   type PairedConsole,
@@ -162,17 +161,14 @@ export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Pr
   return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported } }
 })
 
-/** Persists new settings, updating the renderer when a picture setting changed. */
-export const changeSettings = (
-  previous: Settings,
-  next: Settings,
-): Effect.Effect<Settings, CoreError | StorageError, Core | Preferences> =>
+/** Persists new settings and applies their picture part to the renderer (cheap, and always the latest
+ * state, so quick successive changes can't leave the renderer on a stale value). */
+export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreError | StorageError, Core | Preferences> =>
   Effect.gen(function* () {
     const core = yield* Core
     const prefs = yield* Preferences
     yield* prefs.saveSettings(next)
-    const params = renderParams(next)
-    if (!sameRenderParams(params, renderParams(previous))) yield* core.setRenderParams(params)
+    yield* core.setRenderParams(renderParams(next))
     return next
   })
 
@@ -189,10 +185,15 @@ export const reconnectRetryDelay = "1500 millis"
 export const reconnectGiveUpMs = 30_000
 export const reconnectAnswerTimeout = "15 seconds"
 
+/** After this long without a drop, a stream's earlier automatic reconnects are forgiven. */
+export const stableAfter = "60 seconds"
+export const waitUntilStable: Effect.Effect<void> = Effect.sleep(stableAfter)
+
 type Answer = "connected" | "busy"
 
-/** Starts a stream and waits for the console's answer. The previous session's normal quit can
- * arrive meanwhile; only connected, busy and error quits count. */
+/** Starts a stream and waits for the console's answer: connected (or asking for the login PIN), busy,
+ * or any other quit as a failure. The replaced session's own "stopped" quit can arrive meanwhile and
+ * is ignored. */
 const attemptStream = (
   console: PairedConsole,
   settings: Settings,
@@ -203,9 +204,9 @@ const attemptStream = (
       const answer = yield* Deferred.make<Answer, ReconnectFailed>()
       yield* Effect.acquireRelease(
         core.onStreamEvent((event) => {
-          if (event.type === "connected") Deferred.doneUnsafe(answer, Effect.succeed("connected"))
+          if (event.type === "connected" || event.type === "loginPin") Deferred.doneUnsafe(answer, Effect.succeed("connected"))
           else if (event.type === "quit" && event.kind === "busy") Deferred.doneUnsafe(answer, Effect.succeed("busy"))
-          else if (event.type === "quit" && event.error)
+          else if (event.type === "quit" && event.kind !== "stopped")
             Deferred.doneUnsafe(answer, Effect.fail(new ReconnectFailed({ message: `Reconnect failed: ${event.reason}` })))
         }),
         (unsubscribe) => Effect.sync(unsubscribe),

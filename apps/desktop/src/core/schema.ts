@@ -85,7 +85,6 @@ export const RenderParams = Schema.Struct({
   accurateColor: Schema.Boolean,
 })
 export type RenderParams = typeof RenderParams.Type
-export const sameRenderParams = Schema.toEquivalence(RenderParams)
 
 export const Settings = Schema.Struct({
   height: Resolution,
@@ -159,8 +158,8 @@ export const StreamEvent = Schema.Union([
     reason: Schema.String,
     error: Schema.Boolean,
     /** final: don't retry · busy: Remote Play still in use (~9 s after a session ends), retry soon ·
-     * dropped: the connection was lost mid-stream, worth reconnecting. */
-    kind: Schema.optionalKey(Schema.Literals(["final", "busy", "dropped"])),
+     * dropped: the connection was lost mid-stream, worth reconnecting · stopped: this client stopped it. */
+    kind: Schema.optionalKey(Schema.Literals(["final", "busy", "dropped", "stopped"])),
   }),
   Schema.Struct({ type: Schema.Literal("loginPin"), incorrect: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("nickname"), name: Schema.String }),

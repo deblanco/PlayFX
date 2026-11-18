@@ -518,7 +518,7 @@ describe("streaming", () => {
     expect(core.counts.stopStream).toBe(0) // the new session replaces the old one
     // The old session's quit and a busy console don't end the stream view.
     act(() => {
-      core.emitStream({ type: "quit", reason: "Stopped", error: false })
+      core.emitStream({ type: "quit", reason: "Stopped", error: false, kind: "stopped" })
     })
     expect(screen.getByRole("banner")).toHaveTextContent("Reconnecting…")
     act(() => {
@@ -590,6 +590,28 @@ describe("streaming", () => {
     drop()
     expect(await screen.findByText("Disconnected: Stream Connection Unknown")).toBeInTheDocument()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
+  })
+
+  it("cancels a reconnect in progress when the user stops", async () => {
+    const { core } = await startStreaming()
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    vi.mocked(core.service.startStream).mockClear()
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+    })
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
+    act(() => {
+      core.emitStream({ type: "quit", reason: "in use", error: true, kind: "busy" }) // retry scheduled…
+    })
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 1800)) // …past the retry delay: nothing restarts
+    expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Reconnect failed/)).not.toBeInTheDocument()
   })
 
   it("doesn't retry a drop before the stream ever connected", async () => {
