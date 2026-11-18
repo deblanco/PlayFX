@@ -2,7 +2,7 @@ import { Option } from "effect"
 import { SlidersHorizontal } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import type { PairedConsole, Settings } from "@/core/schema"
 import * as actions from "./actions"
@@ -37,12 +37,14 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
   }, [run])
 
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
+    <main className="flex min-h-svh flex-col items-center justify-center gap-7 p-6">
+      <header className="flex flex-col items-center gap-2 text-center">
+        <h1 className="pl-[0.24em] font-display text-4xl tracking-[0.24em] text-white [text-shadow:0_0_28px_var(--color-ribbon)]">
+          PlayFX
+        </h1>
+        <p className="text-sm text-white/60">Stream your PlayStation at home or over the internet.</p>
+      </header>
       <Card className="w-full max-w-xl bg-card/70 shadow-2xl backdrop-blur-xl">
-        <CardHeader>
-          <CardTitle className="text-lg">PlayFX</CardTitle>
-          <CardDescription>Stream your PlayStation at home or over the internet.</CardDescription>
-        </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <AccountSection accountId={accountId} onChange={setAccountId} />
           <Separator />

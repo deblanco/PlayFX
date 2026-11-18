@@ -2,11 +2,14 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource/michroma/latin.css";
 
 @custom-variant dark (&:is(.dark *));
 
 /* The idle backdrop's light (StreamCore's ribbons), for the connecting screen's route map. */
 @theme {
+    /* The PlayFX wordmark: wide and geometric, like a console's logotype (Michroma, SIL OFL). */
+    --font-display: "Michroma", sans-serif;
     --color-ice: #a9c8ff;
     --color-ribbon: #1e5bff;
     /* A light pulse travelling a link while it's being set up. */
