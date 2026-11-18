@@ -87,7 +87,12 @@ typedef enum {
     PSRP_EVENT_RUMBLE = 4,            // a = left (low freq), b = right (high freq)
     PSRP_EVENT_NICKNAME = 5,          // message = console nickname
     PSRP_EVENT_REMOTE_PROGRESS = 6,   // a = PsrpRemoteStage (connecting over the internet)
+    PSRP_EVENT_KEYBOARD = 7,          // a = PsrpKeyboardChange; message = the field's text (open/change)
 } PsrpEventType;
+
+/// The console's text keyboard: a field was focused (open, with its text), the console changed the text,
+/// or it closed the keyboard itself.
+typedef enum { PSRP_KEYBOARD_OPEN = 0, PSRP_KEYBOARD_CHANGE = 1, PSRP_KEYBOARD_CLOSE = 2 } PsrpKeyboardChange;
 
 /// Steps of connecting over the internet, as they start.
 typedef enum {
@@ -186,6 +191,9 @@ void psrp_session_set_controller_state(PsrpSession *session, const PsrpControlle
 void psrp_session_set_login_pin(PsrpSession *session, const char *pin);
 /// Round trip to the console in microseconds, measured while connecting (0 until then).
 uint64_t psrp_session_rtt_us(PsrpSession *session);
+/// Typing into the console's focused text field: replace its text, then accept (Return) or reject (Esc).
+void psrp_session_keyboard_set_text(PsrpSession *session, const char *text);
+void psrp_session_keyboard_done(PsrpSession *session, bool accept);
 void psrp_session_request_idr(PsrpSession *session);
 /// Puts the console into rest mode.
 void psrp_session_goto_bed(PsrpSession *session);

@@ -87,6 +87,12 @@ impl NativeCore for FakeCore {
     fn set_controller(&self, state: crate::native::ControllerState) {
         self.log(format!("set_controller {}", state.buttons));
     }
+    fn keyboard_set_text(&self, text: &str) {
+        self.log(format!("keyboard_set_text {text}"));
+    }
+    fn keyboard_done(&self, accept: bool) {
+        self.log(format!("keyboard_done {accept}"));
+    }
     fn set_pointer_touch(&self, t: crate::native::PointerTouch) {
         self.log(format!("set_pointer_touch {} {} {} {}", t.down, t.x, t.y, t.pressed));
     }

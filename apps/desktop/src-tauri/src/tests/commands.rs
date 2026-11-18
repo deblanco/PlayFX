@@ -93,6 +93,8 @@ fn session_commands_reach_the_core() {
         Ok(())
     );
     assert!(set_pointer_touch(app.handle().clone(), json!({"down": "yes"})).is_err());
+    assert_eq!(keyboard_set_text(app.handle().clone(), "hello".into()), Ok(()));
+    assert_eq!(keyboard_done(app.handle().clone(), true), Ok(()));
     assert_eq!(set_render_params(app.handle().clone(), json!({"upscaler": "metalfx"})), Ok(()));
     assert_eq!(
         set_render_params(app.handle().clone(), json!({"upscaler": "fsr"})),
@@ -100,7 +102,7 @@ fn session_commands_reach_the_core() {
     );
     assert_eq!(
         core.calls(),
-        ["session_stop", "set_login_pin 1234", "set_controller 1", "set_pointer_touch true 0.5 0.25 false",
+        ["session_stop", "set_login_pin 1234", "set_controller 1", "set_pointer_touch true 0.5 0.25 false", "keyboard_set_text hello", "keyboard_done true",
          r#"set_render_params {"upscaler":"metalfx"}"#, r#"set_render_params {"upscaler":"fsr"}"#]
     );
 }

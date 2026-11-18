@@ -349,6 +349,14 @@ static void session_event_cb(ChiakiEvent *event, void *user) {
                     psrp_quit_kind(event->quit.reason), msg);
         break;
     }
+    case CHIAKI_EVENT_KEYBOARD_OPEN:
+    case CHIAKI_EVENT_KEYBOARD_TEXT_CHANGE:
+    case CHIAKI_EVENT_KEYBOARD_REMOTE_CLOSE:
+        s->cb.event(s->cb.user, PSRP_EVENT_KEYBOARD,
+                    event->type == CHIAKI_EVENT_KEYBOARD_OPEN ? PSRP_KEYBOARD_OPEN
+                    : event->type == CHIAKI_EVENT_KEYBOARD_TEXT_CHANGE ? PSRP_KEYBOARD_CHANGE : PSRP_KEYBOARD_CLOSE,
+                    0, event->keyboard.text_str ? event->keyboard.text_str : "");
+        break;
     case CHIAKI_EVENT_LOGIN_PIN_REQUEST:
         s->cb.event(s->cb.user, PSRP_EVENT_LOGIN_PIN_REQUEST, event->login_pin_request.pin_incorrect ? 1 : 0, 0, NULL);
         break;
@@ -491,7 +499,7 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
     if (config->bitrate > 0) info->video_profile.bitrate = (unsigned int)config->bitrate;
     info->video_profile.codec = config->ps5 ? (ChiakiCodec)config->codec : CHIAKI_CODEC_H264;
     info->video_profile_auto_downgrade = config->auto_downgrade;
-    info->enable_keyboard = false;
+    info->enable_keyboard = true; // the console sends KEYBOARD_* events; the host types for it
     info->enable_dualsense = config->ps5;
     info->audio_video_disabled = 0;
     info->auto_regist = false;
@@ -559,6 +567,16 @@ uint64_t psrp_session_rtt_us(PsrpSession *s) {
 void psrp_session_set_login_pin(PsrpSession *s, const char *pin) {
     if (!started(s) || !pin) return;
     chiaki_session_set_login_pin(&s->session, (const uint8_t *)pin, strlen(pin));
+}
+
+void psrp_session_keyboard_set_text(PsrpSession *s, const char *text) {
+    if (started(s) && text) chiaki_session_keyboard_set_text(&s->session, text);
+}
+
+void psrp_session_keyboard_done(PsrpSession *s, bool accept) {
+    if (!started(s)) return;
+    if (accept) chiaki_session_keyboard_accept(&s->session);
+    else chiaki_session_keyboard_reject(&s->session);
 }
 
 void psrp_session_request_idr(PsrpSession *s) {

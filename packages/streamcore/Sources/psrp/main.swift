@@ -18,7 +18,7 @@ import StreamCore
 //        --psn connects over the internet through PSN (PS5; run `psrp account-id` first)
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
-//          /hold?buttons=r2  /release  /keyframe  /sleep  /quit  /frameinfo (latest frame's colorimetry)
+//          /hold?buttons=r2  /release  /keyframe  /sleep  /quit  /type?text=hi&done=accept (console keyboard)  /frameinfo (latest frame's colorimetry)
 //          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&deblock=0&deband=0&chroma=bicubic&w=3840&h=2160   latest frame, on the GPU
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //          /grid.png?vary=sharpness&values=0,0.3,1&crop=2400,500,600,600   one frame, one tile per value
@@ -228,6 +228,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         case .rumble, .triggerEffects: return
         case .nickname(let n): text = "nickname: \(n)"
         case .remoteProgress(let stage): text = "over the internet: \(stage.rawValue)"
+        case .keyboard(let change, let field): text = "keyboard \(change.rawValue): \"\(field)\""
         }
         log("[event] \(text)")
         ctl.queue.async { ctl.events.append(text) }
@@ -388,6 +389,11 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
             return ok()
         case "/keyframe":
             ctl.session.requestKeyframe()
+            return ok()
+        case "/type":
+            // /type?text=hello&done=accept|reject — types into the console's open text field.
+            if let text = query["text"] { ctl.session.setKeyboardText(text) }
+            if let done = query["done"] { ctl.session.finishKeyboard(accept: done == "accept") }
             return ok()
         case "/sleep":
             ctl.session.sleepConsole()

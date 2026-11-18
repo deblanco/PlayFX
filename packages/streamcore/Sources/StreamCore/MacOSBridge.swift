@@ -285,6 +285,7 @@ func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
     case .quit(let reason, let isError, let kind): return ["type": "quit", "reason": reason, "error": isError, "kind": kind.rawValue]
     case .loginPinRequested(let incorrect): return ["type": "loginPin", "incorrect": incorrect]
     case .nickname(let name): return ["type": "nickname", "name": name]
+    case .keyboard(let change, let text): return ["type": "keyboard", "change": change.rawValue, "text": text]
     case .rumble, .triggerEffects: return nil
     }
 }
@@ -317,6 +318,16 @@ private func endSession(idle: Bool) {
     networkWatch = nil
     keepAwake(false)
     if idle { renderer?.showsTestPattern = true }
+}
+
+@_cdecl("sc_session_keyboard_set_text")
+public func sc_session_keyboard_set_text(_ text: UnsafePointer<CChar>) {
+    session?.setKeyboardText(String(cString: text))
+}
+
+@_cdecl("sc_session_keyboard_done")
+public func sc_session_keyboard_done(_ accept: Bool) {
+    session?.finishKeyboard(accept: accept)
 }
 
 @_cdecl("sc_session_set_login_pin")

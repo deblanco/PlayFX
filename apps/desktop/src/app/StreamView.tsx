@@ -9,6 +9,7 @@ import { idleController, type Settings } from "@/core/schema"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
 import { ConnectingOverlay } from "./ConnectingOverlay"
+import { ConsoleKeyboard } from "./ConsoleKeyboard"
 import { TouchpadPointer } from "./TouchpadPointer"
 import type { Capabilities, Route, StatRow } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
@@ -90,6 +91,9 @@ interface StreamViewProps {
   readonly title: string
   /** Set while the console waits for its login PIN. */
   readonly loginPin: Option.Option<{ readonly incorrect: boolean }>
+  /** Set while the console's text keyboard is open, with the field's text. */
+  readonly keyboard?: Option.Option<string>
+  readonly onKeyboardDone?: () => void
   readonly settings: Settings
   readonly capabilities: Capabilities
   readonly onSettingsChange: (next: Settings) => void
@@ -108,6 +112,8 @@ interface StreamViewProps {
 export const StreamView = ({
   title,
   loginPin,
+  keyboard = Option.none(),
+  onKeyboardDone = () => undefined,
   settings,
   capabilities,
   onSettingsChange,
@@ -144,7 +150,7 @@ export const StreamView = ({
 
   useFork(useMemo(() => actions.pollStats(setStats), []))
   // Off while the login-PIN dialog or the settings are open, so typing there isn't read as gameplay.
-  useKeyboardController(Option.isNone(loginPin) && !settingsOpen)
+  useKeyboardController(Option.isNone(loginPin) && !settingsOpen && Option.isNone(keyboard))
 
   const hudHidden = idle && !settingsOpen
   const fade = cn("transition-opacity duration-500", hudHidden && "opacity-0")
@@ -248,6 +254,9 @@ export const StreamView = ({
         onChange={onSettingsChange}
         reconnect={reconnect}
       />
+      {Option.isSome(keyboard) && (
+        <ConsoleKeyboard consoleName={title} text={keyboard.value} onDone={onKeyboardDone} />
+      )}
       {Option.isSome(loginPin) && (
         <LoginPinPrompt incorrect={loginPin.value.incorrect} onSubmitted={onLoginPinSubmitted} onCancel={stop} />
       )}

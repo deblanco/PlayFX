@@ -217,6 +217,8 @@ export const describeEvent = (event: StreamEvent): { readonly line: string; read
       return { line: `Over the internet: ${event.stage}`, warn: false }
     case "loginPin":
       return { line: event.incorrect ? "Console asks for its login PIN again (wrong PIN)" : "Console asks for its login PIN", warn: false }
+    case "keyboard":
+      return { line: `Console keyboard: ${event.change}`, warn: false }
     case "network":
       return { line: event.online ? "The Mac's network changed" : "The Mac went offline", warn: !event.online }
     case "nickname":

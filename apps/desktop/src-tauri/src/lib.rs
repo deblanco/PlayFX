@@ -172,6 +172,18 @@ fn set_controller<R: Runtime>(app: AppHandle<R>, state: Value) -> Result<(), Str
 }
 
 #[tauri::command(async)]
+fn keyboard_set_text<R: Runtime>(app: AppHandle<R>, text: String) -> Result<(), String> {
+    let core = core(&app);
+    on_main(&app, move || core.keyboard_set_text(&text))
+}
+
+#[tauri::command(async)]
+fn keyboard_done<R: Runtime>(app: AppHandle<R>, accept: bool) -> Result<(), String> {
+    let core = core(&app);
+    on_main(&app, move || core.keyboard_done(accept))
+}
+
+#[tauri::command(async)]
 fn set_pointer_touch<R: Runtime>(app: AppHandle<R>, touch: Value) -> Result<(), String> {
     let touch: PointerTouch = serde_json::from_value(touch).map_err(error_text)?;
     let core = core(&app);
@@ -275,6 +287,8 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_login_pin,
         set_controller,
         set_pointer_touch,
+        keyboard_set_text,
+        keyboard_done,
         set_render_params,
         toggle_fullscreen,
         psn_signed_in,

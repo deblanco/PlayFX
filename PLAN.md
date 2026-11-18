@@ -216,8 +216,12 @@ Work items:
   opt-in mic path.
 - ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch
   pad overlay, remappable keys.
-- ❌ **Keyboard text passthrough** to the console (`enable_keyboard`) and the on-screen keyboard
-  events (`KEYBOARD_*`) → let the user type into PS text fields (distinct from the above).
+- 🔶 **Keyboard text passthrough** (built; live check pending): sessions enable the console keyboard
+  (`enable_keyboard`); when a text field is focused the console's `KEYBOARD_*` events open a bar at the
+  bottom of the video to type into from the Mac — every change mirrors into the console's field, Return
+  sends, Esc cancels, the console can close it; the keyboard controller pauses meanwhile. `psrp`'s control
+  API has `/type?text=…&done=accept`. Not yet seen on the PS5: the console refused the stream's data
+  connection on every attempt for a while (also with the keyboard flag off — not caused by it).
 - ❌ **HDR.** `CHIAKI_CODEC_H265_HDR` isn't selectable; add HDR decode + display tone-mapping.
 - 🔶 **Login PIN (console passcode) flow.** Plumbed end to end but not verified on a console that
   requires it; confirm and polish the dialog.

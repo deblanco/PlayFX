@@ -928,6 +928,39 @@ describe("streaming", () => {
     })
   })
 
+  it("types into the console's text field from the Mac", async () => {
+    const { core } = await startStreaming()
+    act(() => {
+      core.emitStream({ type: "keyboard", change: "open", text: "" })
+    })
+    const field = await screen.findByRole("textbox", { name: "Text for Living Room" })
+    expect(field).toHaveFocus()
+    vi.mocked(core.service.setController).mockClear()
+    await userEvent.type(field, "kiryu") // "k", "i" and "l" also drive the keyboard controller, but not now
+    expect(core.service.keyboardSetText).toHaveBeenLastCalledWith("kiryu")
+    expect(core.service.setController).not.toHaveBeenCalledWith(expect.objectContaining({ rightX: expect.anything() as number }))
+    await userEvent.type(field, "{Enter}")
+    expect(core.service.keyboardDone).toHaveBeenLastCalledWith(true)
+    expect(screen.queryByRole("textbox", { name: "Text for Living Room" })).not.toBeInTheDocument()
+
+    // Esc cancels; the console can also close it on its own.
+    act(() => {
+      core.emitStream({ type: "keyboard", change: "open", text: "majima" })
+    })
+    const again = await screen.findByRole("textbox", { name: "Text for Living Room" })
+    expect(again).toHaveValue("majima")
+    await userEvent.type(again, "{Escape}")
+    expect(core.service.keyboardDone).toHaveBeenLastCalledWith(false)
+    act(() => {
+      core.emitStream({ type: "keyboard", change: "open", text: "" })
+    })
+    await screen.findByRole("textbox", { name: "Text for Living Room" })
+    act(() => {
+      core.emitStream({ type: "keyboard", change: "close", text: "" })
+    })
+    expect(screen.queryByRole("textbox", { name: "Text for Living Room" })).not.toBeInTheDocument()
+  })
+
   it("can cancel while connecting", async () => {
     const { core } = await startStreaming(fakeCore(), { connected: false })
     const connecting = screen.getByRole("region", { name: "Connecting to Living Room" })

@@ -444,6 +444,17 @@ export const setController = (state: ControllerState): Effect.Effect<void, CoreE
 export const setPointerTouch = (touch: PointerTouch): Effect.Effect<void, CoreError, Core> =>
   Effect.flatMap(Core, (core) => core.setPointerTouch(touch))
 
+export const keyboardSetText = (text: string): Effect.Effect<void, CoreError, Core> =>
+  Effect.flatMap(Core, (core) => core.keyboardSetText(text))
+
+/** Sends the typed text (Return) or cancels it (Esc). */
+export const keyboardDone = (accept: boolean): Effect.Effect<void, CoreError, Core> =>
+  Effect.gen(function* () {
+    const core = yield* Core
+    yield* core.keyboardDone(accept)
+    yield* Effect.logInfo(accept ? "Sent text to the console" : "Cancelled typing on the console")
+  })
+
 /** Sends the console's login PIN (asked for when the PS5 user has a passcode). */
 export const submitLoginPin = (raw: string): Effect.Effect<void, CoreError | ValidationError, Core> =>
   Effect.gen(function* () {

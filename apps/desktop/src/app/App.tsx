@@ -22,6 +22,8 @@ interface Session {
   readonly started: boolean
   readonly title: string
   readonly loginPin: Option.Option<{ readonly incorrect: boolean }>
+  /** The console's text keyboard is open, with the field's text. */
+  readonly keyboard: Option.Option<string>
   /** The stream options the running session was started with. */
   readonly startedWith: StreamOptions
   /** The console accepted the stream (as opposed to still connecting). */
@@ -99,6 +101,7 @@ export const App = () => {
       started: false,
       title: console.name,
       loginPin: Option.none(),
+      keyboard: Option.none(),
       startedWith: streamOptions(settings),
       connected: false,
       reconnecting: false,
@@ -191,6 +194,9 @@ export const App = () => {
       case "nickname":
         setSession((s) => s && { ...s, title: event.name })
         break
+      case "keyboard":
+        setSession((s) => s && { ...s, keyboard: event.change === "close" ? Option.none() : Option.some(event.text) })
+        break
       case "network":
         // The stream's sockets belong to the old network: reconnect at once rather than waiting for it
         // to time out. While offline there's nothing to do; the change back online triggers this.
@@ -226,6 +232,8 @@ export const App = () => {
         <StreamView
           title={session.title}
           loginPin={session.loginPin}
+          keyboard={session.keyboard}
+          onKeyboardDone={() => { setSession((s) => s && { ...s, keyboard: Option.none() }) }}
           settings={settings}
           capabilities={capabilities}
           onSettingsChange={changeSettings}

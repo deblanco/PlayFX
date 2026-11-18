@@ -48,6 +48,9 @@ export class Core extends Context.Service<
     readonly stopStream: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
     readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
+    /** Types into the console's open text field (replacing its text); `keyboardDone` sends or cancels. */
+    readonly keyboardSetText: (text: string) => Effect.Effect<void, CoreError>
+    readonly keyboardDone: (accept: boolean) => Effect.Effect<void, CoreError>
     /** The Mac's pointer as a touchpad finger (merged natively with the pad's state). */
     readonly setPointerTouch: (touch: PointerTouch) => Effect.Effect<void, CoreError>
     readonly setRenderParams: (params: RenderParams) => Effect.Effect<void, CoreError>
@@ -121,6 +124,8 @@ export const CoreLive = Layer.effect(
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
       setPointerTouch: (touch) => Effect.asVoid(call(unit, "set_pointer_touch", { touch })),
+      keyboardSetText: (text) => Effect.asVoid(call(unit, "keyboard_set_text", { text })),
+      keyboardDone: (accept) => Effect.asVoid(call(unit, "keyboard_done", { accept })),
       setRenderParams: (params) =>
         Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
       toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),

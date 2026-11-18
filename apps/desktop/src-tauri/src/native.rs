@@ -58,6 +58,9 @@ pub trait NativeCore: Send + Sync {
     fn session_stop(&self);
     fn set_login_pin(&self, pin: &str);
     fn set_controller(&self, state: ControllerState);
+    /// Types into the console's open text field (replacing its text), then sends or cancels it.
+    fn keyboard_set_text(&self, text: &str);
+    fn keyboard_done(&self, accept: bool);
     /// The Mac's pointer as a touchpad finger, merged with the pad's state.
     fn set_pointer_touch(&self, touch: PointerTouch);
     /// Picture settings as JSON (see StreamCore's RenderParams); false if StreamCore rejects them.

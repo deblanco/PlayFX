@@ -70,6 +70,13 @@ public final class StreamSession {
         /// DualSense adaptive-trigger effects for the left (L2) and right (R2) triggers.
         case triggerEffects(left: TriggerEffect, right: TriggerEffect)
         case nickname(String)
+        /// The console's text keyboard: a field was focused (with its text), its text changed, or the
+        /// console closed it.
+        case keyboard(KeyboardChange, text: String)
+    }
+
+    public enum KeyboardChange: String, Sendable {
+        case open, change, close
     }
 
     public struct Stats: Codable, Sendable {
@@ -238,6 +245,9 @@ public final class StreamSession {
     }
 
     public func setLoginPin(_ pin: String) { psrp_session_set_login_pin(handle, pin) }
+    /// Replaces the text of the console's focused field, then `finishKeyboard` sends (true) or cancels it.
+    public func setKeyboardText(_ text: String) { psrp_session_keyboard_set_text(handle, text) }
+    public func finishKeyboard(accept: Bool) { psrp_session_keyboard_done(handle, accept) }
     public func requestKeyframe() { psrp_session_request_idr(handle) }
     public func sleepConsole() { psrp_session_goto_bed(handle) }
 
@@ -287,6 +297,13 @@ extension StreamSession.Event {
         case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: self = .loginPinRequested(incorrect: a != 0)
         case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
         case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)
+        case PSRP_EVENT_KEYBOARD.rawValue:
+            let change: StreamSession.KeyboardChange = switch UInt32(a) {
+            case PSRP_KEYBOARD_OPEN.rawValue: .open
+            case PSRP_KEYBOARD_CHANGE.rawValue: .change
+            default: .close
+            }
+            self = .keyboard(change, text: text)
         case PSRP_EVENT_REMOTE_PROGRESS.rawValue:
             switch UInt32(a) {
             case PSRP_REMOTE_DATA.rawValue: self = .remoteProgress(.data)
