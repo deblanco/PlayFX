@@ -228,21 +228,11 @@ Work items:
   **Keychain** (and Keychain/Keystore on mobile).
 - ❌ **First-run / onboarding** and clearer pairing guidance.
 
-### P3 — reach: cross-platform and mobile
+### Out of scope: other platforms
 
-- ❌ **iOS app (Expo).** `apps/mobile` doesn't exist yet. Plan: an Expo native module wrapping
-  `StreamCore` (the renderer/session are already platform-neutral; only `MacOSBridge.swift` is
-  Mac-specific). Needs **full Xcode + an iOS SDK** (only Command Line Tools are installed now).
-  Add an on-screen touch controller overlay and iOS lifecycle handling.
-- ❌ **Windows / Linux.** Tauri is cross-platform, but `StreamCore` is Apple-only (VideoToolbox,
-  Metal, MetalFX, GameController). A non-Apple target needs a different decode/render/input layer:
-  - **FSR** (AMD FidelityFX Super Resolution 1, MIT) as the upscaler, e.g. as WGSL/WebGPU or a
-    native shader — the cross-platform analogue of MetalFX spatial. (MetalFX *temporal* and frame
-    interpolation need motion vectors a video stream lacks, so they don't apply here.)
-  - Hardware decode via the platform API (D3D11VA/NVDEC, VAAPI) or a portable decoder.
-- ❌ **Browser build** (the original ask). Not possible in a normal tab (no raw UDP/TCP). Revisit
-  only if Chrome Direct Sockets / Isolated Web Apps become broadly available, or ship the
-  "browser client + tiny local relay" design documented earlier. Keep the socket layer swappable.
+The project focuses on **macOS only** (decided 2026-11-18). Not planned: an iOS app (Expo), Windows /
+Linux (would need a non-Apple decode/render/input layer, e.g. FSR), or a browser build (no raw UDP/TCP
+in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothing depends on it.
 
 ### P4 — build, distribution, compliance
 
@@ -322,4 +312,3 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 4. Rumble + adaptive triggers + touchpad/motion. *(P1)*
 5. Keychain credential storage. *(P2)* (sleep-prevention, fullscreen and cursor: done)
 6. Packaging + AGPL/licensing + CI. *(P4, before any release)*
-7. iOS (Expo) once Xcode is installed; then Windows/Linux via an FSR path. *(P3)*

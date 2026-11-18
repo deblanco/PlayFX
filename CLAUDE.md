@@ -6,7 +6,7 @@ PS5/PS4 Remote Play client. Bun monorepo:
 - `packages/streamcore` — shared Swift package (macOS + iOS): libchiaki session, VideoToolbox decode,
   Metal + MetalFX upscaling, audio, controller input. `psrp` CLI for headless debugging.
 - `third_party/chiaki-ng` — git submodule (AGPL-3.0); the Remote Play protocol implementation.
-- Future: `apps/mobile` (Expo) reusing StreamCore on iOS.
+- Scope: macOS only. No iOS/Expo, Windows/Linux or browser builds are planned.
 
 ## Rules
 
