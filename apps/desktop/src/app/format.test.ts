@@ -199,6 +199,14 @@ describe("quitMessage", () => {
     expect(quitMessage({ type: "quit", reason: "Timeout", error: true })).toEqual(Option.some("Disconnected: Timeout"))
     expect(quitMessage({ type: "quit", reason: "Stopped", error: false })).toEqual(Option.none())
   })
+
+  it("says what went wrong and what to do for known reasons", () => {
+    expect(quitMessage({ type: "quit", reason: "Unknown Session Request Error", error: true })).toEqual(
+      Option.some(
+        "Couldn't reach the console on this network. Check that the Mac and the console are on the same network, or play over the internet.",
+      ),
+    )
+  })
 })
 
 describe("ML super-resolution", () => {

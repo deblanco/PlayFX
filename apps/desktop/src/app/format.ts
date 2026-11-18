@@ -172,9 +172,20 @@ export const describeEvent = (event: StreamEvent): { readonly line: string; read
   }
 }
 
+/** libchiaki's quit reasons in plain words, with what to do about them. */
+const quitReasons: Readonly<Record<string, string>> = {
+  "Unknown Session Request Error":
+    "Couldn't reach the console on this network. Check that the Mac and the console are on the same network, or play over the internet.",
+  "Connection Refused in Session Request": "The console refused the connection. Check that Remote Play is turned on in its settings.",
+  "Remote Play on Console has crashed": "Remote Play stopped on the console. Try again in a moment.",
+  "RP-Version mismatch": "The console's Remote Play version isn't supported. Update the console's system software.",
+  "Ctrl failed to connect": "The console stopped answering while connecting. Try again.",
+  "The Console Registration using PSN has failed": "PSN couldn't set up the connection to the console. Try again, or sign in to PSN again.",
+}
+
 /** Toast text for a `quit` event, if the stream ended because of an error. */
 export const quitMessage = (event: Extract<StreamEvent, { type: "quit" }>): Option.Option<string> =>
-  event.error ? Option.some(`Disconnected: ${event.reason}`) : Option.none()
+  event.error ? Option.some(quitReasons[event.reason] ?? `Disconnected: ${event.reason}`) : Option.none()
 
 export type SettingKey = keyof Settings
 
