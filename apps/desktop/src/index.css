@@ -121,8 +121,14 @@
   * {
     @apply border-border outline-ring/50;
     }
+  /* Transparent all the way down: the native Metal video renders behind the webview. */
+  html,
+  body,
+  #root {
+    @apply bg-transparent;
+    }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     }
   html {
     @apply font-sans;

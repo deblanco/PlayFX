@@ -31,7 +31,7 @@ public final class VideoDecoder {
         var params: [Data] = []
         var payload = Data()
         for nalu in nalus where !nalu.isEmpty {
-            if isParameterSet(nalu[nalu.startIndex]) {
+            if Self.isParameterSet(nalu[nalu.startIndex], codec: codec) {
                 params.append(Data(nalu))
             } else {
                 var len = UInt32(nalu.count).bigEndian
@@ -61,7 +61,8 @@ public final class VideoDecoder {
 
     // MARK: Private
 
-    private func isParameterSet(_ header: UInt8) -> Bool {
+    /// Whether a NAL unit (by its first header byte) is a parameter set for `codec`.
+    static func isParameterSet(_ header: UInt8, codec: Codec) -> Bool {
         switch codec {
         case .h264: return [7, 8].contains(header & 0x1F)              // SPS, PPS
         case .hevc: return [32, 33, 34].contains((header >> 1) & 0x3F) // VPS, SPS, PPS

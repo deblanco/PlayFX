@@ -73,7 +73,20 @@ func log(_ s: String) { FileHandle.standardError.write(Data("\(s)\n".utf8)) }
 
 // MARK: - Commands
 
-func run() async throws {
+/// Blocks the calling thread until an async effect finishes (the CLI is otherwise synchronous so
+/// `stream` can own the main run loop via dispatchMain).
+func blocking<T>(_ work: @escaping () async throws -> T) throws -> T {
+    let done = DispatchSemaphore(value: 0)
+    var result: Result<T, Error>!
+    Task.detached {
+        do { result = .success(try await work()) } catch { result = .failure(error) }
+        done.signal()
+    }
+    done.wait()
+    return try result.get()
+}
+
+func run() throws {
     var argv = Array(CommandLine.arguments.dropFirst())
     guard !argv.isEmpty else { throw fail("usage: psrp <discover|login-url|account-id|register|consoles|wake|stream> ...") }
     let command = argv.removeFirst()
@@ -93,7 +106,7 @@ func run() async throws {
         guard let input = args.positional.first, let code = PSNAuth.code(fromRedirect: input) else {
             throw fail("usage: psrp account-id <redirect URL containing ?code=...>")
         }
-        let id = try await PSNAuth.accountId(code: code)
+        let id = try blocking { try await PSNAuth.accountId(code: code) }
         config.accountId = id
         try config.save()
         print(id)
@@ -281,7 +294,7 @@ var servers: [NWListener] = []
 // MARK: - Entry
 
 do {
-    try await run()
+    try run()
 } catch {
     log("error: \(error.localizedDescription)")
     exit(1)

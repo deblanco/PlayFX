@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { StorageError } from "./errors"
-import { defaultSettings, PairedConsoles, Settings, type PairedConsole } from "./schema"
+import { defaultSettings, isAccountId, PairedConsoles, Settings, type PairedConsole } from "./schema"
 
 /** String key/value storage (localStorage in the app, a Map in tests). */
 export class KeyValueStore extends Context.Service<
@@ -18,14 +18,26 @@ const storageError = (key: string) => (error: unknown) =>
 export const LocalStorageLive = Layer.sync(KeyValueStore, () => ({
   get: (key) =>
     Effect.try({ try: () => Option.fromNullishOr(localStorage.getItem(key)), catch: storageError(key) }),
-  set: (key, value) => Effect.try({ try: () => localStorage.setItem(key, value), catch: storageError(key) }),
-  remove: (key) => Effect.try({ try: () => localStorage.removeItem(key), catch: storageError(key) }),
+  set: (key, value) =>
+    Effect.try({
+      try: () => {
+        localStorage.setItem(key, value)
+      },
+      catch: storageError(key),
+    }),
+  remove: (key) =>
+    Effect.try({
+      try: () => {
+        localStorage.removeItem(key)
+      },
+      catch: storageError(key),
+    }),
 }))
 
 export const memoryStore = (initial: Record<string, string> = {}) => {
   const data = new Map(Object.entries(initial))
   return Layer.succeed(KeyValueStore, {
-    get: (key) => Effect.succeed(Option.fromNullishOr(data.get(key))),
+    get: (key) => Effect.sync(() => Option.fromNullishOr(data.get(key))),
     set: (key, value) => Effect.sync(() => void data.set(key, value)),
     remove: (key) => Effect.sync(() => void data.delete(key)),
   })
@@ -43,7 +55,7 @@ export class Preferences extends Context.Service<
     readonly savePaired: (console: PairedConsole) => Effect.Effect<void, StorageError>
     readonly forget: (hostId: string) => Effect.Effect<void, StorageError>
     /** Updates saved addresses when a paired console shows up at a new IP. */
-    readonly refreshAddresses: (seen: ReadonlyArray<{ hostId: string; address: string }>) => Effect.Effect<void, StorageError>
+    readonly refreshAddresses: (seen: readonly { hostId: string; address: string }[]) => Effect.Effect<void, StorageError>
     readonly settings: Effect.Effect<Settings, StorageError>
     readonly saveSettings: (settings: Settings) => Effect.Effect<void, StorageError>
   }
@@ -66,12 +78,15 @@ export const PreferencesLive = Layer.effect(
         ),
       )
 
-    const write = <A>(key: string, value: A) => store.set(key, JSON.stringify(value))
+    const write = (key: string, value: unknown) => store.set(key, JSON.stringify(value))
 
     const paired = read(PairedConsoles, keys.consoles, {})
 
+    /** A stored account ID that isn't a valid one (corrupt or hand-edited) reads as signed out. */
+    const decodeAccountId = Schema.decodeUnknownOption(Schema.String.check(Schema.makeFilter((id: string) => isAccountId(id))))
+
     return {
-      accountId: store.get(keys.accountId),
+      accountId: Effect.map(store.get(keys.accountId), Option.flatMap(decodeAccountId)),
       setAccountId: (id) =>
         Option.match(id, { onNone: () => store.remove(keys.accountId), onSome: (v) => store.set(keys.accountId, v) }),
       paired,

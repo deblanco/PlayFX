@@ -23,7 +23,9 @@ export const TauriBridgeLive = Layer.succeed(TauriBridge, {
     }),
   listen: (event, handler) =>
     Effect.tryPromise({
-      try: () => listen<unknown>(event, ({ payload }) => handler(payload)),
+      try: () => listen<unknown>(event, ({ payload }) => {
+          handler(payload)
+        }),
       catch: (error) => new CoreError({ command: `listen:${event}`, message: describe(error) }),
     }),
 })

@@ -101,14 +101,21 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         guard let drawable = view.currentDrawable,
               let pass = view.currentRenderPassDescriptor,
               let cb = queue.makeCommandBuffer() else { return }
+        encode(cb, pass: pass, drawableSize: view.drawableSize)
+        cb.present(drawable)
+        cb.commit()
+    }
 
+    /// Everything `draw` does short of presenting: pending frame (or test pattern) → input texture →
+    /// optional MetalFX upscale → letterboxed into `pass`.
+    func encode(_ cb: MTLCommandBuffer, pass: MTLRenderPassDescriptor, drawableSize: CGSize) {
         if let frame = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) {
             encodeVideoFrame(frame, cb)
         } else if showsTestPattern {
             encodeTestPattern(cb)
         }
 
-        let target = fittedRect(drawable: view.drawableSize)
+        let target = fittedRect(drawable: drawableSize)
         var source = inputTexture
         activeMode = .bilinear
         if mode == .metalFX, metalFXSupported,
@@ -131,9 +138,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
             enc.endEncoding()
         }
-        cb.present(drawable)
-        cb.commit()
     }
+
+    /// Command queue on the renderer's device (tests encode offscreen with it).
+    var commandQueue: MTLCommandQueue { queue }
+    var inputSize: (width: Int, height: Int) { (inputTexture.width, inputTexture.height) }
 
     // MARK: Private
 
@@ -181,7 +190,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
     /// Largest rect with the source aspect ratio that fits the drawable, centered (pixels).
     private func fittedRect(drawable: CGSize) -> CGRect {
-        let srcAspect = CGFloat(inputTexture.width) / CGFloat(inputTexture.height)
+        Self.fittedRect(source: CGSize(width: inputTexture.width, height: inputTexture.height), drawable: drawable)
+    }
+
+    static func fittedRect(source: CGSize, drawable: CGSize) -> CGRect {
+        let srcAspect = source.width / source.height
         var w = drawable.width
         var h = (w / srcAspect).rounded()
         if h > drawable.height {

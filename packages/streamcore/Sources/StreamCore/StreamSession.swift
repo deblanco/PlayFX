@@ -92,17 +92,9 @@ public final class StreamSession {
         }
         callbacks.event = { user, type, a, b, message in
             let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
-            let text = message.map { String(cString: $0) } ?? ""
-            let event: Event?
-            switch UInt32(type) {
-            case PSRP_EVENT_CONNECTED.rawValue: event = .connected
-            case PSRP_EVENT_QUIT.rawValue: event = .quit(reason: text, error: a != 0)
-            case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: event = .loginPinRequested(incorrect: a != 0)
-            case PSRP_EVENT_RUMBLE.rawValue: event = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
-            case PSRP_EVENT_NICKNAME.rawValue: event = .nickname(text)
-            default: event = nil
+            if let event = Event(type: type, a: a, b: b, message: message.map { String(cString: $0) } ?? "") {
+                s.onEvent?(event)
             }
-            if let event { s.onEvent?(event) }
         }
 
         var error = [CChar](repeating: 0, count: 512)
@@ -132,10 +124,24 @@ public final class StreamSession {
         audio?.stop()
     }
 
-    private func handleVideo(_ data: UnsafeRawBufferPointer, framesLost: Int) -> Bool {
+    func handleVideo(_ data: UnsafeRawBufferPointer, framesLost: Int) -> Bool {
         if framesLost > 0 { lock.withLock { _stats.framesLost += framesLost } }
         let ok = decoder.decode(data)
         if !ok { lock.withLock { _stats.decodeErrors += 1 } }
         return ok
+    }
+}
+
+extension StreamSession.Event {
+    /// Maps a PsrpEventType callback to an Event (nil for unknown types).
+    init?(type: Int32, a: Int32, b: Int32, message text: String) {
+        switch UInt32(type) {
+        case PSRP_EVENT_CONNECTED.rawValue: self = .connected
+        case PSRP_EVENT_QUIT.rawValue: self = .quit(reason: text, error: a != 0)
+        case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: self = .loginPinRequested(incorrect: a != 0)
+        case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
+        case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)
+        default: return nil
+        }
     }
 }

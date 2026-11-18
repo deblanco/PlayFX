@@ -12,6 +12,13 @@ let chiakiLinkerSettings: [LinkerSetting] = [
     .linkedFramework("CoreServices"), .linkedFramework("SystemConfiguration"), .linkedFramework("Security"),
 ]
 
+let cltFrameworks = "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
+
+// SwiftPM only instruments Swift for coverage; scripts/coverage.sh sets this to measure the C shim too.
+// Never set for builds that are linked elsewhere (the instrumented objects need the profile runtime).
+let cCoverage: [CSetting] = Context.environment["STREAMCORE_C_COVERAGE"] == "1"
+    ? [.unsafeFlags(["-fprofile-instr-generate", "-fcoverage-mapping"])] : []
+
 let package = Package(
     name: "StreamCore",
     platforms: [.macOS(.v13), .iOS(.v16)],
@@ -23,8 +30,14 @@ let package = Package(
     ],
     targets: [
         // Thin C API over libchiaki (PS Remote Play protocol).
-        .target(name: "CChiaki", linkerSettings: chiakiLinkerSettings),
+        .target(name: "CChiaki", cSettings: cCoverage, linkerSettings: chiakiLinkerSettings),
         .target(name: "StreamCore", dependencies: ["CChiaki"]),
         .executableTarget(name: "psrp", dependencies: ["StreamCore"]),
+        // swift-testing ships with the Command Line Tools as a framework outside the default search
+        // paths, and its Foundation cross-import overlay has no module there, so overlays are off.
+        .testTarget(
+            name: "StreamCoreTests", dependencies: ["StreamCore", "CChiaki"],
+            swiftSettings: [.unsafeFlags(["-F", cltFrameworks, "-Xfrontend", "-disable-cross-import-overlays"])],
+            linkerSettings: [.unsafeFlags(["-F", cltFrameworks, "-Xlinker", "-rpath", "-Xlinker", cltFrameworks])]),
     ]
 )

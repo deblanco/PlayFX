@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "description": "Shared Swift core (Metal rendering + MetalFX upscaling) for macOS and iOS",
   "scripts": {
-    "build": "swift build -c release"
+    "build": "swift build -c release",
+    "test": "./scripts/test.sh",
+    "coverage": "./scripts/coverage.sh"
   }
 }

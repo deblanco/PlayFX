@@ -50,14 +50,14 @@ public final class ControllerInput {
 
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
 
-    private func attach(_ controller: GCController) {
+    func attach(_ controller: GCController) {
         controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
             self?.padState = Self.state(from: pad)
             self?.emit()
         }
     }
 
-    private func attach(_ keyboard: GCKeyboard) {
+    func attach(_ keyboard: GCKeyboard) {
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] input, _, _, _ in
             self?.keyState = Self.state(from: input)
             self?.emit()
@@ -65,17 +65,23 @@ public final class ControllerInput {
     }
 
     private func emit() {
-        var s = padState
-        s.buttons |= keyState.buttons
-        s.l2 = max(s.l2, keyState.l2)
-        s.r2 = max(s.r2, keyState.r2)
-        if keyState.leftX != 0 || keyState.leftY != 0 { s.leftX = keyState.leftX; s.leftY = keyState.leftY }
+        let s = Self.merge(pad: padState, keys: keyState)
         guard s != last else { return }
         last = s
         onChange?(s)
     }
 
-    private static func state(from pad: GCExtendedGamepad) -> ControllerState {
+    /// Gamepad and keyboard combined: buttons OR'd, triggers maxed, keyboard WASD overrides the left stick.
+    static func merge(pad: ControllerState, keys: ControllerState) -> ControllerState {
+        var s = pad
+        s.buttons |= keys.buttons
+        s.l2 = max(s.l2, keys.l2)
+        s.r2 = max(s.r2, keys.r2)
+        if keys.leftX != 0 || keys.leftY != 0 { s.leftX = keys.leftX; s.leftY = keys.leftY }
+        return s
+    }
+
+    static func state(from pad: GCExtendedGamepad) -> ControllerState {
         var s = ControllerState()
         func set(_ pressed: Bool, _ button: PsrpButton) { if pressed { s.buttons |= UInt32(button.rawValue) } }
         set(pad.buttonA.isPressed, PSRP_BTN_CROSS)
@@ -108,8 +114,11 @@ public final class ControllerInput {
     /// Keyboard fallback: arrows = D-pad, WASD = left stick, Enter/Space = ✕, Backspace/Esc = ○,
     /// Q = □, E = △, 1/2 = L1/R1, 3/4 = L2/R2, Tab = Options, H = PS, T = touchpad.
     private static func state(from kb: GCKeyboardInput) -> ControllerState {
+        state(isKeyDown: { kb.button(forKeyCode: $0)?.isPressed ?? false })
+    }
+
+    static func state(isKeyDown down: (GCKeyCode) -> Bool) -> ControllerState {
         var s = ControllerState()
-        func down(_ key: GCKeyCode) -> Bool { kb.button(forKeyCode: key)?.isPressed ?? false }
         func set(_ pressed: Bool, _ button: PsrpButton) { if pressed { s.buttons |= UInt32(button.rawValue) } }
         set(down(.returnOrEnter) || down(.spacebar), PSRP_BTN_CROSS)
         set(down(.deleteOrBackspace) || down(.escape), PSRP_BTN_CIRCLE)
@@ -131,7 +140,7 @@ public final class ControllerInput {
         return s
     }
 
-    private static func axis(_ v: Float) -> Int16 {
+    static func axis(_ v: Float) -> Int16 {
         Int16(max(-1, min(1, v)) * Float(Int16.max))
     }
 }

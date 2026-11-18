@@ -25,7 +25,7 @@ export interface PairRequest {
 export class Core extends Context.Service<
   Core,
   {
-    readonly discover: Effect.Effect<ReadonlyArray<DiscoveredConsole>, CoreError>
+    readonly discover: Effect.Effect<readonly DiscoveredConsole[], CoreError>
     readonly pair: (request: PairRequest) => Effect.Effect<Credentials, CoreError | ValidationError>
     readonly wakeup: (credentials: Credentials) => Effect.Effect<boolean, CoreError>
     /** Opens Sony's sign-in window; the result arrives through `onPsnAccount`. */

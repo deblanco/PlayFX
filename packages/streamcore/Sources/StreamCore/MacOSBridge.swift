@@ -134,15 +134,8 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options())
         s.onFrame = { frame in renderer?.display(frame) }
         s.onEvent = { event in
-            switch event {
-            case .connected: emit(["type": "connected"])
-            case .quit(let reason, let isError):
-                emit(["type": "quit", "reason": reason, "error": isError])
-                DispatchQueue.main.async { sc_session_stop() }
-            case .loginPinRequested(let incorrect): emit(["type": "loginPin", "incorrect": incorrect])
-            case .nickname(let name): emit(["type": "nickname", "name": name])
-            case .rumble: break
-            }
+            if let payload = eventPayload(event) { emit(payload) }
+            if case .quit = event { DispatchQueue.main.async { sc_session_stop() } }
         }
         let i = ControllerInput()
         i.onChange = { [weak s] state in s?.setController(state) }
@@ -151,6 +144,17 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         renderer?.showsTestPattern = false
         return json(["ok": true])
     } catch { return failure(error.localizedDescription) }
+}
+
+/// JSON sent to the host for a session event (nil for events the host doesn't get).
+func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
+    switch event {
+    case .connected: return ["type": "connected"]
+    case .quit(let reason, let isError): return ["type": "quit", "reason": reason, "error": isError]
+    case .loginPinRequested(let incorrect): return ["type": "loginPin", "incorrect": incorrect]
+    case .nickname(let name): return ["type": "nickname", "name": name]
+    case .rumble: return nil
+    }
 }
 
 @_cdecl("sc_session_stop")

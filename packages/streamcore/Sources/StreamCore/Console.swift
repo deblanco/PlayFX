@@ -56,15 +56,17 @@ public enum Console {
             psrp_discover(host, Int32(timeout * 1000), buf.baseAddress, Int32(buf.count))
         }
         guard n > 0 else { return [] }
-        return hosts[0..<Int(n)].map { h in
-            var h = h
-            let app = string(&h.running_app_name)
-            return DiscoveredConsole(
-                address: string(&h.address), name: string(&h.name), hostId: string(&h.host_id),
-                systemVersion: string(&h.system_version), runningApp: app.isEmpty ? nil : app, ps5: h.ps5,
-                state: h.state == Int32(PSRP_HOST_READY.rawValue) ? .ready
-                    : h.state == Int32(PSRP_HOST_STANDBY.rawValue) ? .standby : .unknown)
-        }
+        return hosts[0..<Int(n)].map(console(from:))
+    }
+
+    static func console(from host: PsrpHost) -> DiscoveredConsole {
+        var h = host
+        let app = string(&h.running_app_name)
+        return DiscoveredConsole(
+            address: string(&h.address), name: string(&h.name), hostId: string(&h.host_id),
+            systemVersion: string(&h.system_version), runningApp: app.isEmpty ? nil : app, ps5: h.ps5,
+            state: h.state == Int32(PSRP_HOST_READY.rawValue) ? .ready
+                : h.state == Int32(PSRP_HOST_STANDBY.rawValue) ? .standby : .unknown)
     }
 
     /// Blocking pairing with the 8-digit PIN shown on the console.
@@ -82,6 +84,12 @@ public enum Console {
             psrp_register(address, ps5, acc.bindMemory(to: UInt8.self).baseAddress, pinValue, &out, &error, error.count)
         }
         guard ok else { throw ConsoleError.message(String(cString: error)) }
+        return credentials(from: out, address: address, ps5: ps5, accountId: accountId)
+    }
+
+    static func credentials(from registration: PsrpRegistration, address: String, ps5: Bool,
+                            accountId: String) -> ConsoleCredentials {
+        var out = registration
         let registKey = withUnsafeBytes(of: out.regist_key) { Data($0) }
         let rpKey = withUnsafeBytes(of: out.rp_key) { Data($0) }
         let mac = withUnsafeBytes(of: out.mac) { $0.map { String(format: "%02x", $0) }.joined(separator: ":") }

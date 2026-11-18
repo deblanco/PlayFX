@@ -34,3 +34,7 @@ ios/Pods/
 packages/streamcore/.build-chiaki/
 packages/streamcore/vendor/
 packages/streamcore/Sources/CChiaki/include/chiaki/
+
+# Coverage artifacts
+*.profraw
+*.profdata

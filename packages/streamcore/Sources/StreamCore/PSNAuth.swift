@@ -38,9 +38,33 @@ public enum PSNAuth {
         return trimmed.isEmpty || trimmed.contains("/") ? nil : trimmed
     }
 
+    /// Session used for the token exchange (tests inject a stubbed one).
+    static var urlSession = URLSession.shared
+    static var basicAuth: String { "Basic " + Data("\(clientId):\(clientSecret)".utf8).base64EncodedString() }
+
     /// Exchanges the authorization code for the PSN account ID (8 bytes little-endian, base64).
     public static func accountId(code: String) async throws -> String {
-        let auth = Data("\(clientId):\(clientSecret)".utf8).base64EncodedString()
+        let token = try await json(tokenRequest(code: code))
+        guard let accessToken = token["access_token"] as? String else {
+            throw ConsoleError.message("PSN sign-in failed: \(token["error_description"] ?? token["error"] ?? "no access token")")
+        }
+
+        var info = URLRequest(url: tokenURL.appendingPathComponent(accessToken))
+        info.setValue(basicAuth, forHTTPHeaderField: "Authorization")
+        let user = try await json(info)
+        guard let userId = (user["user_id"] as? String).flatMap(UInt64.init) else {
+            throw ConsoleError.message("PSN sign-in failed: no user_id in token info")
+        }
+        return accountId(userId: userId)
+    }
+
+    /// The account ID as the console expects it: 8 bytes little-endian, base64.
+    static func accountId(userId: UInt64) -> String {
+        withUnsafeBytes(of: userId.littleEndian) { Data($0) }.base64EncodedString()
+    }
+
+    /// POST that trades the authorization code for an access token.
+    static func tokenRequest(code: String) -> URLRequest {
         var form = URLComponents()
         form.queryItems = [
             .init(name: "grant_type", value: "authorization_code"),
@@ -50,28 +74,15 @@ public enum PSNAuth {
         ]
         var req = URLRequest(url: tokenURL)
         req.httpMethod = "POST"
-        req.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
+        req.setValue(basicAuth, forHTTPHeaderField: "Authorization")
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         // URLComponents leaves '+' unescaped, which form decoding would read as a space.
         req.httpBody = Data((form.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").utf8)
-
-        let token = try await json(req)
-        guard let accessToken = token["access_token"] as? String else {
-            throw ConsoleError.message("PSN sign-in failed: \(token["error_description"] ?? token["error"] ?? "no access token")")
-        }
-
-        var info = URLRequest(url: tokenURL.appendingPathComponent(accessToken))
-        info.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
-        let user = try await json(info)
-        guard let userId = (user["user_id"] as? String).flatMap(UInt64.init) else {
-            throw ConsoleError.message("PSN sign-in failed: no user_id in token info")
-        }
-        let bytes = withUnsafeBytes(of: userId.littleEndian) { Data($0) }
-        return bytes.base64EncodedString()
+        return req
     }
 
     private static func json(_ req: URLRequest) async throws -> [String: Any] {
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, _) = try await urlSession.data(for: req)
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ConsoleError.message("Unexpected PSN response: \(String(decoding: data, as: UTF8.self))")
         }
