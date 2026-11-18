@@ -102,8 +102,8 @@ export const AccountSection = ({ accountId, onChange }: AccountSectionProps) => 
           </form>
         </div>
         <p className="text-xs text-muted-foreground">
-          Needed once to pair with a console. The account ID is kept in this app&apos;s storage; the PlayStation
-          sign-in, used to play over the internet, in your Mac&apos;s Keychain.
+          Needed once to pair with a console, and to play over the internet. Your account ID and PlayStation
+          sign-in stay on this Mac, in its Keychain.
         </p>
       </section>
     ),

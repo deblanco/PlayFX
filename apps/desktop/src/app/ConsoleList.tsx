@@ -18,9 +18,11 @@ interface ConsoleListProps {
   /** How Play reaches a console (Automatic, home network only, or internet only). */
   readonly connection?: Settings["connection"]
   readonly onPlay: (console: PairedConsole, psnDuid?: string, psnFallback?: string) => void
+  /** Whether any console is paired, once the pairings have loaded. */
+  readonly onPairedChange?: (paired: boolean) => void
 }
 
-export const ConsoleList = ({ accountId, connection = "auto", onPlay }: ConsoleListProps) => {
+export const ConsoleList = ({ accountId, connection = "auto", onPlay, onPairedChange }: ConsoleListProps) => {
   const run = useRun()
   const [discovered, setDiscovered] = useState<readonly DiscoveredConsole[]>([])
   const [paired, setPaired] = useState<PairedConsoles>({})
@@ -75,9 +77,19 @@ export const ConsoleList = ({ accountId, connection = "auto", onPlay }: ConsoleL
     )
   }
 
+  const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    run(actions.loadPaired, { onSuccess: setPaired })
+    run(actions.loadPaired, {
+      onSuccess: (saved) => {
+        setPaired(saved)
+        setLoaded(true)
+      },
+    })
   }, [run])
+  const anyPaired = Object.keys(paired).length > 0
+  useEffect(() => {
+    if (loaded) onPairedChange?.(anyPaired)
+  }, [loaded, anyPaired, onPairedChange])
 
   useFork(
     useMemo(
@@ -88,7 +100,9 @@ export const ConsoleList = ({ accountId, connection = "auto", onPlay }: ConsoleL
             // Discovery hands a fresh object every scan; keeping the old one when nothing changed stops
             // the PSN poll below from restarting (and asking Sony) every few seconds.
             setPaired((current) => (samePaired(current, outcome.paired) ? current : outcome.paired))
-            setScanMessage(outcome.discovered.length > 0 ? "" : "No consoles found on this network")
+            setScanMessage(
+              outcome.discovered.length > 0 ? "" : "No consoles found. Check that your PS5 is on or in rest mode, on this Mac's network.",
+            )
           } else {
             setScanMessage(outcome.message)
           }

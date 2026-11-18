@@ -8,6 +8,7 @@ import type { PairedConsole, Settings } from "@/core/schema"
 import * as actions from "./actions"
 import { AccountSection } from "./AccountSection"
 import { ConsoleList } from "./ConsoleList"
+import { GetStarted } from "./GetStarted"
 import { useRun } from "./runtime"
 import { streamSummary, type Capabilities } from "./format"
 import { Segmented, SettingsSheet, type SettingsTab } from "./SettingsSheet"
@@ -30,6 +31,8 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
   const run = useRun()
   const [accountId, setAccountId] = useState<Option.Option<string>>(Option.none())
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Unknown until the console list has loaded the pairings, so the guide never flashes for set-up users.
+  const [hasPaired, setHasPaired] = useState<boolean | undefined>(undefined)
   const [tab, setTab] = useState<SettingsTab>("stream")
 
   useEffect(() => {
@@ -45,9 +48,15 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
       </header>
       <Card className="w-full max-w-xl bg-card/70 shadow-2xl backdrop-blur-xl">
         <CardContent className="flex flex-col gap-4">
+          {hasPaired === false && (
+            <>
+              <GetStarted signedIn={Option.isSome(accountId)} paired={false} />
+              <Separator />
+            </>
+          )}
           <AccountSection accountId={accountId} onChange={setAccountId} />
           <Separator />
-          <ConsoleList accountId={accountId} connection={settings.connection} onPlay={onPlay} />
+          <ConsoleList accountId={accountId} connection={settings.connection} onPlay={onPlay} onPairedChange={setHasPaired} />
           <div className="flex flex-col gap-1.5">
             <Segmented
               label="Connect"

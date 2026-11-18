@@ -69,7 +69,7 @@ describe("home: discovery", () => {
     const core = fakeCore()
     core.state.discovered = []
     renderApp(core)
-    expect(await screen.findByText("No consoles found on this network")).toBeInTheDocument()
+    expect(await screen.findByText("No consoles found. Check that your PS5 is on or in rest mode, on this Mac's network.")).toBeInTheDocument()
   })
 
   it("reports discovery failures but still lists paired consoles as offline", async () => {
@@ -565,6 +565,24 @@ describe("settings", () => {
     await userEvent.click(sheet.getByRole("radio", { name: "H.264" }))
     expect(sheet.getByRole("switch", { name: /HDR/ })).toBeDisabled()
     expect(sheet.getByText("Needs the HEVC codec.")).toBeInTheDocument()
+  })
+
+  it("guides a first run step by step, and steps aside once a console is paired", async () => {
+    renderApp(fakeCore()) // signed out, nothing paired
+    const guide = await screen.findByRole("region", { name: "Get started" })
+    expect(within(guide).getByText("Sign in with PlayStation").closest("li")).toHaveAttribute("aria-current", "step")
+    expect(within(guide).getByText(/Settings › System › Remote Play › Pair Device/)).toBeInTheDocument()
+  })
+
+  it("shows the next step once signed in, and no guide for a paired console", async () => {
+    const { unmount } = renderApp(fakeCore(), { accountId })
+    const guide = await screen.findByRole("region", { name: "Get started" })
+    expect(within(guide).getByText("Pair your PS5").closest("li")).toHaveAttribute("aria-current", "step")
+    expect(within(guide).getByLabelText("Done")).toBeInTheDocument()
+    unmount()
+    renderApp(fakeCore(), { accountId, paired: [pairedPs5] })
+    await consoleItem()
+    expect(screen.queryByRole("region", { name: "Get started" })).not.toBeInTheDocument()
   })
 
   it("toasts startup failures", async () => {

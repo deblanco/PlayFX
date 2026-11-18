@@ -282,7 +282,13 @@ Work items:
   on first read and are deleted there; settings stay in localStorage. Verified on the user's real data:
   the file is created 0600 with the pairing and account ID, both gone from localStorage, the console still
   listed as paired.
-- ❌ **First-run / onboarding** and clearer pairing guidance.
+- ✅ **First-run / onboarding**: until a console is paired, the home card opens with a "Get started"
+  guide — 1 Sign in with PlayStation, 2 Pair your PS5 (where the code is: Settings › System › Remote
+  Play › Pair Device), 3 Play — marking each step done / current / waiting as the user goes; it never
+  shows (or flashes) once a console is paired. Clearer copy: "No consoles found. Check that your PS5 is
+  on or in rest mode, on this Mac's network."; the account note now says the ID and sign-in stay in the
+  Mac's Keychain. Checked by unit tests (the dev seed refills the webview's storage, so a clean first run
+  couldn't be shown live).
 
 ### Out of scope: other platforms
 
