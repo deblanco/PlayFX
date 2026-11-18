@@ -1,66 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="/src/styles.css" />
     <title>Remote Play</title>
-    <script type="module" src="/src/main.ts" defer></script>
+    <script type="module" src="/src/main.tsx"></script>
   </head>
   <body>
     <!-- The video is drawn natively (Metal) behind this transparent webview. -->
-
-    <section id="home" class="panel">
-      <h1>Remote Play</h1>
-
-      <div class="block" id="account"></div>
-
-      <div class="block">
-        <div class="block-head">
-          <h2>Consoles</h2>
-          <span id="scan" class="muted">Searching…</span>
-        </div>
-        <ul id="consoles" class="consoles"></ul>
-      </div>
-
-      <div class="block settings">
-        <label>Resolution
-          <select id="res">
-            <option value="1080" selected>1080p</option>
-            <option value="720">720p</option>
-            <option value="540">540p</option>
-          </select>
-        </label>
-        <label>FPS
-          <select id="fps">
-            <option value="60" selected>60</option>
-            <option value="30">30</option>
-          </select>
-        </label>
-        <label>Codec
-          <select id="codec">
-            <option value="hevc" selected>HEVC</option>
-            <option value="h264">H.264</option>
-          </select>
-        </label>
-        <label>Upscaler
-          <select class="upscaler">
-            <option value="metalfx">MetalFX</option>
-            <option value="bilinear">Bilinear</option>
-          </select>
-        </label>
-      </div>
-      <p id="message" class="message" hidden></p>
-    </section>
-
-    <header id="hud" class="hud" hidden>
-      <span id="hud-title"></span>
-      <span id="hud-stats" class="stats"></span>
-      <select class="upscaler">
-        <option value="metalfx">MetalFX</option>
-        <option value="bilinear">Bilinear</option>
-      </select>
-      <button id="stop" class="danger">Stop</button>
-    </header>
+    <div id="root"></div>
   </body>
 </html>
