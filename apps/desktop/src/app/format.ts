@@ -114,6 +114,22 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
     .join(" · ")
 }
 
+/** Why a stream is being restarted: new stream settings, or a lost connection. */
+export type Reconnecting = false | "apply" | "dropped"
+
+/** How many times a session reconnects on its own after losing the connection before giving up. */
+export const maxAutoReconnects = 3
+
+/** What a quit means for the running stream. */
+export const afterQuit = (
+  session: { readonly connected: boolean; readonly reconnecting: Reconnecting; readonly autoReconnects: number },
+  event: Extract<StreamEvent, { type: "quit" }>,
+): "ignore" | "reconnect" | "end" => {
+  if (session.reconnecting !== false) return "ignore" // the old session ending, or a busy console: the reconnect handles it
+  if (session.connected && event.kind === "dropped" && session.autoReconnects < maxAutoReconnects) return "reconnect"
+  return "end"
+}
+
 /** Toast text for a `quit` event, if the stream ended because of an error. */
 export const quitMessage = (event: Extract<StreamEvent, { type: "quit" }>): Option.Option<string> =>
   event.error ? Option.some(`Disconnected: ${event.reason}`) : Option.none()

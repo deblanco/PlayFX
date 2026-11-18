@@ -62,8 +62,13 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   the UI. This is the single highest-value feature (it's the reason LAN-only blocked real use).
 - ❌ **Auto-wake on Play.** If the console is in standby when the user hits Play, wake it and poll
   until `ready` instead of failing. The console dropped to standby repeatedly in testing.
-- ❌ **Reconnect & resilience.** Handle mid-stream drops, Wi-Fi/network changes, and the
-  `RP_IN_USE` / version-mismatch quit reasons with clear UI and optional auto-retry/backoff.
+- 🔶 **Reconnect & resilience.** *(done: StreamCore classifies quits as final / busy / dropped; a connected
+  stream that drops (stream/control connection lost) reconnects on its own — HUD "Connection lost.
+  Reconnecting…", last frame held — up to 3 times per session, retrying while the console is busy; final
+  quits (console asleep, version mismatch…) go home with the reason. Not yet: Wi-Fi/network-change
+  detection, a manual "Try again" on the error, and verifying a real drop on hardware — it needs pulling
+  the network for a few seconds, which this session couldn't do without root.)*
+
 
 ### P1 — Picture quality & full stream configuration (next up)
 

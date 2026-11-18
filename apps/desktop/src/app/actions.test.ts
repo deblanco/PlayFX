@@ -268,7 +268,7 @@ describe("reconnect", () => {
     const { core, layer } = setup()
     return Effect.gen(function* () {
       const fiber = yield* begin
-      core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, busy: true })
+      core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, kind: "busy" })
       yield* Effect.yieldNow
       expect(core.service.startStream).toHaveBeenCalledTimes(1)
       yield* TestClock.adjust(actions.reconnectRetryDelay)
@@ -283,7 +283,7 @@ describe("reconnect", () => {
     return Effect.gen(function* () {
       const fiber = yield* begin
       for (let i = 0; i < 30; i++) {
-        core.emitStream({ type: "quit", reason: "in use", error: true, busy: true })
+        core.emitStream({ type: "quit", reason: "in use", error: true, kind: "busy" })
         yield* TestClock.adjust(actions.reconnectRetryDelay)
       }
       const exit = yield* Fiber.join(fiber)

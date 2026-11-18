@@ -63,9 +63,9 @@ extension Serial {
 
         @Test func eventPayloads() {
             #expect(eventPayload(.connected) as? [String: String] == ["type": "connected"])
-            let quit = eventPayload(.quit(reason: "Bye", error: true, busy: true))
+            let quit = eventPayload(.quit(reason: "Bye", error: true, kind: .busy))
             #expect(quit?["type"] as? String == "quit" && quit?["reason"] as? String == "Bye" && quit?["error"] as? Bool == true)
-            #expect(quit?["busy"] as? Bool == true)
+            #expect(quit?["kind"] as? String == "busy")
             let pin = eventPayload(.loginPinRequested(incorrect: false))
             #expect(pin?["type"] as? String == "loginPin" && pin?["incorrect"] as? Bool == false)
             let nick = eventPayload(.nickname("PS5"))

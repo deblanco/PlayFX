@@ -269,6 +269,16 @@ static void session_audio_frame_cb(int16_t *buf, size_t samples_count, void *use
     if (s->cb.audio) s->cb.audio(s->cb.user, buf, samples_count);
 }
 
+PsrpQuitKind psrp_quit_kind(int reason) {
+    switch ((ChiakiQuitReason)reason) {
+    case CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE: return PSRP_QUIT_BUSY;
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN:
+    case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED:
+    case CHIAKI_QUIT_REASON_CTRL_UNKNOWN: return PSRP_QUIT_DROPPED;
+    default: return PSRP_QUIT_FINAL;
+    }
+}
+
 static void session_event_cb(ChiakiEvent *event, void *user) {
     PsrpSession *s = user;
     if (!s->cb.event) return;
@@ -280,9 +290,8 @@ static void session_event_cb(ChiakiEvent *event, void *user) {
         char msg[512];
         snprintf(msg, sizeof(msg), "%s%s%s", chiaki_quit_reason_string(event->quit.reason),
                  event->quit.reason_str ? ": " : "", event->quit.reason_str ? event->quit.reason_str : "");
-        // "Busy": Remote Play is still in use on the console, e.g. for a few seconds after a session ends.
-        bool busy = event->quit.reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE;
-        s->cb.event(s->cb.user, PSRP_EVENT_QUIT, chiaki_quit_reason_is_error(event->quit.reason) ? 1 : 0, busy ? 1 : 0, msg);
+        s->cb.event(s->cb.user, PSRP_EVENT_QUIT, chiaki_quit_reason_is_error(event->quit.reason) ? 1 : 0,
+                    psrp_quit_kind(event->quit.reason), msg);
         break;
     }
     case CHIAKI_EVENT_LOGIN_PIN_REQUEST:

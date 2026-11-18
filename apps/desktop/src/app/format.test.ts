@@ -5,6 +5,8 @@ import {
   consoleRows,
   bitrateLabel,
   framesPerSecond,
+  afterQuit,
+  maxAutoReconnects,
   megabitsPerSecond,
   mlApplies,
   pipelineStages,
@@ -126,6 +128,25 @@ describe("upscalerLabel", () => {
   it("names each mode", () => {
     expect(upscalerLabel("none")).toBe("No upscaling")
     expect(upscalerLabel("metalfx")).toBe("MetalFX")
+  })
+})
+
+describe("afterQuit", () => {
+  const live = { connected: true, reconnecting: false, autoReconnects: 0 } as const
+  const dropped = { type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" } as const
+  it("reconnects a connected stream that lost its connection, a few times", () => {
+    expect(afterQuit(live, dropped)).toBe("reconnect")
+    expect(afterQuit({ ...live, autoReconnects: maxAutoReconnects - 1 }, dropped)).toBe("reconnect")
+    expect(afterQuit({ ...live, autoReconnects: maxAutoReconnects }, dropped)).toBe("end")
+  })
+  it("ends on final quits and on drops before the stream ever connected", () => {
+    expect(afterQuit(live, { ...dropped, kind: "final" })).toBe("end")
+    expect(afterQuit(live, { type: "quit", reason: "Stopped", error: false })).toBe("end")
+    expect(afterQuit({ ...live, connected: false }, dropped)).toBe("end")
+  })
+  it("leaves quits to a reconnect in progress", () => {
+    expect(afterQuit({ ...live, reconnecting: "apply" }, dropped)).toBe("ignore")
+    expect(afterQuit({ ...live, reconnecting: "dropped" }, { ...dropped, kind: "busy" })).toBe("ignore")
   })
 })
 

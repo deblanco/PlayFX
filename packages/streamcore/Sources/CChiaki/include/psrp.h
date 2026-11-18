@@ -68,11 +68,21 @@ bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACC
 
 typedef enum {
     PSRP_EVENT_CONNECTED = 1,
-    PSRP_EVENT_QUIT = 2,              // message = reason; a = 1 if it was an error; b = 1 if the console was busy
+    PSRP_EVENT_QUIT = 2,              // message = reason; a = 1 if it was an error; b = PsrpQuitKind
     PSRP_EVENT_LOGIN_PIN_REQUEST = 3, // a = 1 if the previous PIN was wrong
     PSRP_EVENT_RUMBLE = 4,            // a = left (low freq), b = right (high freq)
     PSRP_EVENT_NICKNAME = 5,          // message = console nickname
 } PsrpEventType;
+
+/// Why a session ended, as far as what to do next is concerned.
+typedef enum {
+    PSRP_QUIT_FINAL = 0,   // stopped, console asleep, incompatible…: don't retry
+    PSRP_QUIT_BUSY = 1,    // Remote Play still in use on the console (~9 s after a session ends): retry soon
+    PSRP_QUIT_DROPPED = 2, // the connection was lost mid-stream: worth reconnecting
+} PsrpQuitKind;
+
+/// Classifies a libchiaki `ChiakiQuitReason` value.
+PsrpQuitKind psrp_quit_kind(int reason);
 
 typedef enum { PSRP_CODEC_H264 = 0, PSRP_CODEC_H265 = 1, PSRP_CODEC_H265_HDR = 2 } PsrpCodec;
 

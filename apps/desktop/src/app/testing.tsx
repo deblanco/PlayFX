@@ -105,8 +105,9 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     layer: Layer.succeed(Core, service),
     streamListeners: () => streamHandlers.size,
     psnListeners: () => psnHandlers.size,
+    // Like Tauri, a listener added while an event is being delivered doesn't receive that event.
     emitStream: (event: StreamEvent) => {
-      for (const handler of streamHandlers) handler(event)
+      for (const handler of [...streamHandlers]) handler(event)
     },
     emitPsn: (event: PsnAccountEvent) => {
       for (const handler of psnHandlers) handler(event)

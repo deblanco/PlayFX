@@ -204,7 +204,7 @@ const attemptStream = (
       yield* Effect.acquireRelease(
         core.onStreamEvent((event) => {
           if (event.type === "connected") Deferred.doneUnsafe(answer, Effect.succeed("connected"))
-          else if (event.type === "quit" && event.busy === true) Deferred.doneUnsafe(answer, Effect.succeed("busy"))
+          else if (event.type === "quit" && event.kind === "busy") Deferred.doneUnsafe(answer, Effect.succeed("busy"))
           else if (event.type === "quit" && event.error)
             Deferred.doneUnsafe(answer, Effect.fail(new ReconnectFailed({ message: `Reconnect failed: ${event.reason}` })))
         }),

@@ -11,7 +11,7 @@ import {
   type StreamOptions,
 } from "@/core/schema"
 import * as actions from "./actions"
-import { quitMessage, streamOptions, type Capabilities } from "./format"
+import { afterQuit, quitMessage, streamOptions, type Capabilities, type Reconnecting } from "./format"
 import { Home } from "./Home"
 import { useRun, useRuntime } from "./runtime"
 import { StreamView } from "./StreamView"
@@ -24,8 +24,12 @@ interface Session {
   readonly loginPin: Option.Option<{ readonly incorrect: boolean }>
   /** The stream options the running session was started with. */
   readonly startedWith: StreamOptions
-  /** Restarting with new stream settings; quit events then belong to the reconnect. */
-  readonly reconnecting: boolean
+  /** The console accepted the stream (as opposed to still connecting). */
+  readonly connected: boolean
+  /** Restarting the stream; quit events then belong to the reconnect. */
+  readonly reconnecting: Reconnecting
+  /** Reconnects after a lost connection so far (capped, so a bad link doesn't loop forever). */
+  readonly autoReconnects: number
 }
 
 export const App = () => {
@@ -64,13 +68,33 @@ export const App = () => {
     [leave, run],
   )
 
-  // While reconnecting, quit events belong to the reconnect (the old session ending, or the console
-  // still busy), not to the user. An effect event sees the latest session without re-subscribing.
+  /** Restarts the stream: to apply new stream settings, or after the connection dropped. */
+  const reconnect = (why: "apply" | "dropped") => {
+    if (!session) return
+    const { console } = session
+    setSession({
+      ...session,
+      reconnecting: why,
+      autoReconnects: session.autoReconnects + (why === "dropped" ? 1 : 0),
+    })
+    run(actions.reconnect(console, settings), {
+      onSuccess: () => {
+        setSession((s) => s && { ...s, connected: true, reconnecting: false, startedWith: streamOptions(settings) })
+      },
+      onFailure: () => { end(Option.none()) }, // run() already showed the error
+    })
+  }
+
+  // A lost connection reconnects on its own; while reconnecting, quit events belong to the reconnect.
+  // An effect event sees the latest session without re-subscribing.
   const onStreamEvent = useEffectEvent((event: StreamEvent) => {
     switch (event.type) {
-      case "quit":
-        if (session?.reconnecting !== true) end(quitMessage(event))
+      case "quit": {
+        const next = session ? afterQuit(session, event) : "end"
+        if (next === "reconnect") reconnect("dropped")
+        else if (next === "end") end(quitMessage(event))
         break
+      }
       case "loginPin":
         setSession((s) => s && { ...s, loginPin: Option.some({ incorrect: event.incorrect }) })
         break
@@ -78,6 +102,7 @@ export const App = () => {
         setSession((s) => s && { ...s, title: event.name })
         break
       case "connected":
+        setSession((s) => s && { ...s, connected: true })
         break
     }
   })
@@ -100,25 +125,15 @@ export const App = () => {
       title: console.name,
       loginPin: Option.none(),
       startedWith: streamOptions(settings),
+      connected: false,
       reconnecting: false,
+      autoReconnects: 0,
     }
     setSession(starting)
     run(actions.play(console, settings), {
       // A quit that arrived while starting already cleared (or replaced) the session.
       onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },
       onFailure: () => { setSession((s) => (s?.console === console ? null : s)); },
-    })
-  }
-
-  const reconnect = () => {
-    if (!session) return
-    const { console } = session
-    setSession({ ...session, reconnecting: true })
-    run(actions.reconnect(console, settings), {
-      onSuccess: () => {
-        setSession((s) => s && { ...s, reconnecting: false, startedWith: streamOptions(settings) })
-      },
-      onFailure: () => { end(Option.none()) }, // run() already showed the error
     })
   }
 
@@ -138,7 +153,7 @@ export const App = () => {
           reconnect={{
             pending: !sameStreamOptions(session.startedWith, streamOptions(settings)),
             reconnecting: session.reconnecting,
-            onReconnect: reconnect,
+            onReconnect: () => { reconnect("apply") },
           }}
           onLoginPinSubmitted={clearLoginPin}
           onEnd={leave}

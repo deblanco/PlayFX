@@ -14,6 +14,7 @@ import {
   pipelineStages,
   strengthLabel,
   type Capabilities,
+  type Reconnecting,
   type SettingKey,
   type Stage,
   type StageId,
@@ -25,7 +26,8 @@ export type SettingsTab = "picture" | "stream"
 export interface ReconnectState {
   /** Stream settings differ from the running session's. */
   readonly pending: boolean
-  readonly reconnecting: boolean
+  /** Restarting: to apply settings, or after the connection dropped. */
+  readonly reconnecting: Reconnecting
   readonly onReconnect: () => void
 }
 
@@ -326,9 +328,9 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
 const ReconnectNotice = ({ reconnecting, onReconnect }: ReconnectState) => (
   <div role="status" className="flex items-center justify-between gap-3 rounded-lg border border-signal/40 bg-signal/10 px-3 py-2.5">
     <p className="text-xs text-foreground">
-      {reconnecting ? "Reconnecting… the console needs a few seconds." : "Reconnect to use the new stream settings."}
+      {reconnecting !== false ? "Reconnecting… the console needs a few seconds." : "Reconnect to use the new stream settings."}
     </p>
-    <Button size="sm" onClick={onReconnect} disabled={reconnecting} className="bg-signal text-black hover:bg-signal/90">
+    <Button size="sm" onClick={onReconnect} disabled={reconnecting !== false} className="bg-signal text-black hover:bg-signal/90">
       Reconnect
     </Button>
   </div>

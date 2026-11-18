@@ -125,7 +125,11 @@ export const StreamView = ({
       >
         <span className="font-medium">{title}</span>
         <span className="flex-1 truncate text-xs text-muted-foreground tabular-nums">
-          {reconnect.reconnecting ? "Reconnecting…" : stats}
+          {reconnect.reconnecting === "dropped"
+            ? "Connection lost. Reconnecting…"
+            : reconnect.reconnecting === "apply"
+              ? "Reconnecting…"
+              : stats}
         </span>
         <details className="group relative text-xs">
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">

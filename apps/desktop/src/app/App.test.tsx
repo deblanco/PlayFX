@@ -522,7 +522,7 @@ describe("streaming", () => {
     })
     expect(screen.getByRole("banner")).toHaveTextContent("Reconnecting…")
     act(() => {
-      core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, busy: true })
+      core.emitStream({ type: "quit", reason: "Remote Play on Console is already in use", error: true, kind: "busy" })
     })
     expect(screen.getByRole("banner")).toHaveTextContent("Reconnecting…")
     await waitFor(
@@ -540,6 +540,65 @@ describe("streaming", () => {
     expect(screen.queryByText(/Disconnected/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Reconnect to apply")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument()
+  })
+
+  it("reconnects on its own when the connection drops, keeping the stream view", async () => {
+    const { core } = await startStreaming()
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    vi.mocked(core.service.startStream).mockClear()
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+    })
+    expect(screen.getByRole("banner")).toHaveTextContent("Connection lost. Reconnecting…")
+    expect(screen.queryByText(/Disconnected/)).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await waitFor(() => {
+      expect(screen.getByRole("banner")).not.toHaveTextContent("Reconnecting")
+    })
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument()
+  })
+
+  it("gives up after repeated drops and goes home with the reason", async () => {
+    const { core } = await startStreaming()
+    const drop = () => {
+      act(() => {
+        core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      })
+    }
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    for (let i = 1; i <= 3; i++) {
+      drop()
+      await waitFor(() => {
+        expect(core.service.startStream).toHaveBeenCalledTimes(1 + i)
+      })
+      act(() => {
+        core.emitStream({ type: "connected" })
+      })
+      await waitFor(() => {
+        expect(screen.getByRole("banner")).not.toHaveTextContent("Reconnecting")
+      })
+    }
+    drop()
+    expect(await screen.findByText("Disconnected: Stream Connection Unknown")).toBeInTheDocument()
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
+  })
+
+  it("doesn't retry a drop before the stream ever connected", async () => {
+    const { core } = await startStreaming()
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+    })
+    expect(await screen.findByText("Disconnected: Stream Connection Unknown")).toBeInTheDocument()
+    expect(core.service.startStream).toHaveBeenCalledTimes(1)
   })
 
   it("goes home with the error when a reconnect fails", async () => {

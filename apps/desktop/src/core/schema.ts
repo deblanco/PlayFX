@@ -158,8 +158,9 @@ export const StreamEvent = Schema.Union([
     type: Schema.Literal("quit"),
     reason: Schema.String,
     error: Schema.Boolean,
-    /** The console refused because Remote Play is still in use (it is for ~9 s after a session ends). */
-    busy: Schema.optionalKey(Schema.Boolean),
+    /** final: don't retry · busy: Remote Play still in use (~9 s after a session ends), retry soon ·
+     * dropped: the connection was lost mid-stream, worth reconnecting. */
+    kind: Schema.optionalKey(Schema.Literals(["final", "busy", "dropped"])),
   }),
   Schema.Struct({ type: Schema.Literal("loginPin"), incorrect: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("nickname"), name: Schema.String }),

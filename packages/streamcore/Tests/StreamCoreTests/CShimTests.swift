@@ -1,3 +1,4 @@
+import CChiaki
 import Darwin
 import Testing
 
@@ -33,6 +34,18 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
         for fd in [r, w] {
             #expect(fcntl(fd, F_GETFD) & FD_CLOEXEC == 0)
             #expect(fcntl(fd, F_GETFL) & O_NONBLOCK == 0)
+        }
+    }
+
+    /// libchiaki's ChiakiQuitReason values (session.h; "values must not change" upstream).
+    @Test func classifiesQuitReasons() {
+        let (stopped, inUse, ctrlUnknown, streamUnknown, remoteDisconnected, remoteShutdown) = (1, 4, 7, 10, 11, 12)
+        #expect(psrp_quit_kind(Int32(inUse)) == PSRP_QUIT_BUSY)
+        for dropped in [ctrlUnknown, streamUnknown, remoteDisconnected] {
+            #expect(psrp_quit_kind(Int32(dropped)) == PSRP_QUIT_DROPPED)
+        }
+        for final in [0, stopped, 2, 3, 5, 6, 8, 9, remoteShutdown, 13] {
+            #expect(psrp_quit_kind(Int32(final)) == PSRP_QUIT_FINAL)
         }
     }
 }
