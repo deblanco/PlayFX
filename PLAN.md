@@ -222,12 +222,12 @@ Work items:
   refuses instead when it's missing). No echo cancellation yet (chiaki-ng's speex path) — use headphones.
 - ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch
   pad overlay, remappable keys.
-- 🔶 **Keyboard text passthrough** (built; live check pending): sessions enable the console keyboard
-  (`enable_keyboard`); when a text field is focused the console's `KEYBOARD_*` events open a bar at the
-  bottom of the video to type into from the Mac — every change mirrors into the console's field, Return
-  sends, Esc cancels, the console can close it; the keyboard controller pauses meanwhile. `psrp`'s control
-  API has `/type?text=…&done=accept`. Not yet seen on the PS5: the console refused the stream's data
-  connection on every attempt for a while (also with the keyboard flag off — not caused by it).
+- ⛔ **Keyboard text passthrough** (built, but switched off — blocked by the console): the UI and plumbing
+  exist (console `KEYBOARD_*` events → a bar at the bottom of the video, every change mirrored into the
+  field, Return sends, Esc cancels; `psrp /type`). But enabling it (`enable_keyboard`) makes the PS5 shut
+  the stream down right after "Enabling Keyboard" — A/B tested back to back: flag off streams, flag on is
+  closed with "Server shutting down". chiaki-ng ships it off too. Left off; revisit if libchiaki learns
+  the right handshake.
 - ❌ **HDR.** `CHIAKI_CODEC_H265_HDR` isn't selectable; add HDR decode + display tone-mapping.
 - 🔶 **Login PIN (console passcode) flow.** Plumbed end to end but not verified on a console that
   requires it; confirm and polish the dialog.

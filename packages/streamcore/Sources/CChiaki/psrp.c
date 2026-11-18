@@ -508,7 +508,7 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
     if (config->bitrate > 0) info->video_profile.bitrate = (unsigned int)config->bitrate;
     info->video_profile.codec = config->ps5 ? (ChiakiCodec)config->codec : CHIAKI_CODEC_H264;
     info->video_profile_auto_downgrade = config->auto_downgrade;
-    info->enable_keyboard = true; // the console sends KEYBOARD_* events; the host types for it
+    info->enable_keyboard = false; // the PS5 shuts the stream down when a client enables it (seen live)
     info->enable_dualsense = config->ps5;
     info->audio_video_disabled = 0;
     info->auto_regist = false;
