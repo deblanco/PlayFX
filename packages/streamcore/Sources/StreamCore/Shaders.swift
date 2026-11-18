@@ -4,26 +4,69 @@ let shaderSource = """
 #include <metal_stdlib>
 using namespace metal;
 
-// Placeholder video source until the PS5 stream is wired in: a moving zone plate with
-// spokes and a 1px grid — fine detail that makes upscaling quality easy to judge.
+// The idle backdrop between streams: slow light ribbons over a deep blue field. A fine grid lies
+// underneath and only shows where a ribbon's glow passes over it (and in a few drifting patches),
+// so the grid is always partly revealed and moves with the waves.
+static float ribbonY(float x, float t, float base, float amp, float freq, float speed, float phase) {
+    return base + amp * sin(x * freq + t * speed + phase) + amp * 0.45 * sin(x * freq * 2.1 - t * speed * 0.7 + phase * 1.7);
+}
+
+static float ribbonSlope(float x, float t, float amp, float freq, float speed, float phase) {
+    return amp * freq * cos(x * freq + t * speed + phase)
+         + amp * 0.45 * freq * 2.1 * cos(x * freq * 2.1 - t * speed * 0.7 + phase * 1.7);
+}
+
 kernel void testPattern(texture2d<float, access::write> out [[texture(0)]],
                         constant float &t [[buffer(0)]],
                         uint2 gid [[thread_position_in_grid]]) {
     uint w = out.get_width(), h = out.get_height();
     if (gid.x >= w || gid.y >= h) return;
     float2 uv = (float2(gid) + 0.5) / float2(w, h);
-    float2 p = (uv - 0.5) * float2(float(w) / float(h), 1.0);
-    float r = length(p);
+    float aspect = float(w) / float(h);
+    float2 p = float2(uv.x * aspect, uv.y);          // height-normalized, y down
 
-    float zone = 0.5 + 0.5 * cos(180.0 * r * r - t * 2.0);
-    float3 col = mix(float3(0.04, 0.06, 0.12), float3(0.15, 0.5, 1.0), zone);
+    // Field: abyss at the top, indigo rising from the bottom, a soft bloom low on the right.
+    float3 abyss = float3(0.012, 0.024, 0.102);
+    float3 indigo = float3(0.031, 0.102, 0.310);
+    float3 col = mix(abyss, indigo, smoothstep(0.15, 1.1, uv.y) * 0.85);
+    col += float3(0.06, 0.16, 0.55) * 0.35 * exp(-3.0 * length(p - float2(aspect * 0.78, 0.92)));
 
-    float spokes = step(0.0, sin(atan2(p.y, p.x) * 24.0 + t * 0.5));
-    col = mix(col, float3(1.0), spokes * step(0.25, r) * step(r, 0.42));
+    // Three ribbons: shape (base, amplitude, frequency, speed), look (core width, glow width, brightness).
+    const float4 shape[3] = { float4(0.52, 0.11, 1.9, 0.21), float4(0.68, 0.07, 1.4, -0.16),
+                              float4(0.82, 0.12, 0.9, 0.12) };
+    const float3 look[3] = { float3(0.0022, 0.05, 1.0), float3(0.0016, 0.035, 0.7), float3(0.0028, 0.07, 0.55) };
+    float3 ribbonBlue = float3(0.118, 0.357, 1.0);
+    float3 crest = float3(0.66, 0.78, 1.0);
+    float reveal = 0.0;
+    for (int i = 0; i < 3; i++) {
+        float4 s = shape[i];
+        float y = ribbonY(p.x, t, s.x, s.y, s.z, s.w, float(i) * 2.1);
+        float slope = ribbonSlope(p.x, t, s.y, s.z, s.w, float(i) * 2.1);
+        float d = (p.y - y) / sqrt(1.0 + slope * slope);   // ≈ perpendicular distance
+        float core = exp(-(d * d) / (look[i].x * look[i].x));
+        float glow = exp(-(d * d) / (look[i].y * look[i].y));
+        // A faint sheet trailing below each ribbon gives it body.
+        float sheet = smoothstep(0.0, 0.02, d) * exp(-d * 9.0) * 0.18;
+        col += ribbonBlue * (glow * 0.32 + sheet) * look[i].z + crest * core * 0.85 * look[i].z;
+        // The grid surfaces just above each ribbon, where its light falls.
+        reveal = max(reveal, exp(-(d * d) / 0.0035) * look[i].z);
+    }
 
-    bool grid = (gid.x % 32 == 0) || (gid.y % 32 == 0);
-    col = max(col, grid ? float3(0.6) : float3(0.0));
-    out.write(float4(col, 1.0), gid);
+    // Drifting patches where the grid surfaces on its own.
+    float patches = smoothstep(0.82, 1.0, (0.5 + 0.5 * sin(p.x * 3.1 + t * 0.11)) * (0.5 + 0.5 * sin(p.y * 4.3 - t * 0.08 + 1.3)) * 1.25);
+    reveal = max(reveal, patches * 0.6);
+
+    // The grid: 1px anti-aliased lines, 18 cells per screen height.
+    float cell = float(h) / 18.0;
+    float2 g = abs(fract(float2(gid) / cell + 0.5) - 0.5) * cell;
+    float line = 1.0 - smoothstep(0.4, 1.3, min(g.x, g.y));
+    col += float3(0.43, 0.545, 1.0) * line * reveal * 0.3;
+
+    // Vignette, then a little noise so 8-bit gradients don't band.
+    col *= 1.0 - 0.35 * smoothstep(0.45, 1.25, length((uv - 0.5) * float2(1.3, 1.0)) * 1.4);
+    float n = fract(sin(dot(float2(gid), float2(12.9898, 78.233))) * 43758.5453);
+    col += (n - 0.5) / 255.0;
+    out.write(float4(saturate(col), 1.0), gid);
 }
 
 // YCbCrConversion in Color.swift: range = (luma offset, luma scale, chroma offset, chroma scale),

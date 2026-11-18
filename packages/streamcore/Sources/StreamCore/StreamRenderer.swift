@@ -401,12 +401,21 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
     private func encodeTestPattern(_ cb: MTLCommandBuffer) {
         guard let enc = cb.makeComputeCommandEncoder() else { return }
-        var t = Float(CACurrentMediaTime() - startTime)
+        // With Reduce motion on, the backdrop holds still.
+        var t = Self.reduceMotion ? 14 : Float(CACurrentMediaTime() - startTime)
         enc.setComputePipelineState(patternPipeline)
         enc.setTexture(inputTexture, index: 0)
         enc.setBytes(&t, length: MemoryLayout<Float>.size, index: 0)
         dispatch(enc, inputTexture)
         enc.endEncoding()
+    }
+
+    private static var reduceMotion: Bool {
+        #if canImport(AppKit)
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        #else
+        UIAccessibility.isReduceMotionEnabled
+        #endif
     }
 
     /// Largest rect with the source aspect ratio that fits the drawable, centered (pixels).
