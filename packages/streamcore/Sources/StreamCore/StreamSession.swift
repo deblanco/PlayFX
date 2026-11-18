@@ -145,7 +145,8 @@ public final class StreamSession {
     deinit { stop() }
 
     public func setController(_ s: ControllerState) {
-        psrp_session_set_controller(handle, s.buttons, s.l2, s.r2, s.leftX, s.leftY, s.rightX, s.rightY)
+        var state = s.psrp
+        psrp_session_set_controller_state(handle, &state)
     }
 
     public func setLoginPin(_ pin: String) { psrp_session_set_login_pin(handle, pin) }

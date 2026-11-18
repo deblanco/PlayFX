@@ -166,8 +166,11 @@ Work items:
   ends. To verify: a DualSense and a game that uses the triggers, e.g. Astro's Playroom.)*
 - ❌ **DualSense haptics audio channel.** chiaki exposes a separate haptics sink; route it to the
   controller's haptic engine.
-- ❌ **Touchpad + motion.** Map mouse/trackpad (and touch on mobile) to the PS touchpad; forward
-  gyro/accel for motion-aware games.
+- 🔶 **Touchpad + motion.** *(touchpad built, **unverified on hardware**: the shim takes a struct-based
+  controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
+  DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new
+  id per touch, 7 bits). Limitation: GameController reports a lifted finger as (0, 0), so a finger exactly
+  at the center reads as lifted. Not yet: mouse/trackpad → touchpad from the Mac; motion — next.)*
 - ❌ **Microphone.** chiaki supports mic capture/echo-cancel (speex, currently disabled); wire an
   opt-in mic path.
 - ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch

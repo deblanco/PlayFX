@@ -375,18 +375,22 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
     return s;
 }
 
-void psrp_session_set_controller(PsrpSession *s, uint32_t buttons, uint8_t l2, uint8_t r2, int16_t left_x,
-                                 int16_t left_y, int16_t right_x, int16_t right_y) {
-    if (!s) return;
+void psrp_session_set_controller_state(PsrpSession *s, const PsrpControllerState *c) {
+    if (!s || !c) return;
     ChiakiControllerState state;
     chiaki_controller_state_set_idle(&state);
-    state.buttons = buttons;
-    state.l2_state = l2;
-    state.r2_state = r2;
-    state.left_x = left_x;
-    state.left_y = left_y;
-    state.right_x = right_x;
-    state.right_y = right_y;
+    state.buttons = c->buttons;
+    state.l2_state = c->l2;
+    state.r2_state = c->r2;
+    state.left_x = c->left_x;
+    state.left_y = c->left_y;
+    state.right_x = c->right_x;
+    state.right_y = c->right_y;
+    for (int i = 0; i < PSRP_TOUCHES_MAX && i < CHIAKI_CONTROLLER_TOUCHES_MAX; i++) {
+        state.touches[i].id = c->touches[i].id;
+        state.touches[i].x = c->touches[i].x;
+        state.touches[i].y = c->touches[i].y;
+    }
     chiaki_session_set_controller_state(&s->session, &state);
 }
 

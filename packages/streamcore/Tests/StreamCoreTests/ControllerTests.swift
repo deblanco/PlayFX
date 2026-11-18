@@ -135,3 +135,48 @@ import Testing
         #expect(await waitUntil(timeout: 2) { states.last?.buttons == UInt32(PSRP_BTN_CIRCLE.rawValue) })
     }
 }
+
+@Suite struct TouchpadTests {
+    @Test func fingerReadingsBecomeTopLeftCoordinates() {
+        #expect(ControllerInput.finger(0, 0) == nil) // GameController's "no finger"
+        #expect(ControllerInput.finger(-1, 1) == [0, 0]) // top-left
+        #expect(ControllerInput.finger(1, -1) == [1, 1]) // bottom-right
+        #expect(ControllerInput.finger(0.5, 0) == [0.75, 0.5])
+    }
+
+    @Test func aFingerKeepsItsIDWhileDownAndNewTouchesGetNewOnes() {
+        var ids = TouchIDs()
+        let first = ids.touches([[0.1, 0.2], nil])
+        #expect(first == [ControllerState.Touch(id: 0, x: 0.1, y: 0.2)])
+        #expect(ids.touches([[0.3, 0.2], nil]).map(\.id) == [0]) // same finger moving: same id
+        #expect(ids.touches([[0.3, 0.2], [0.8, 0.8]]).map(\.id) == [0, 1]) // a second finger joins
+        #expect(ids.touches([nil, [0.8, 0.9]]).map(\.id) == [1]) // the first lifts
+        #expect(ids.touches([[0.5, 0.5], nil]).map(\.id) == [2]) // a new touch: a new id
+        #expect(ids.touches([]).isEmpty)
+    }
+
+    @Test func idsWrapWithinSevenBits() {
+        var ids = TouchIDs()
+        for _ in 0..<128 { _ = ids.touches([[0.5, 0.5]]); _ = ids.touches([nil]) }
+        #expect(ids.touches([[0.5, 0.5]]).first?.id == 0)
+    }
+
+    @Test func convertsToTheShimsState() {
+        var s = ControllerState()
+        s.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue)
+        s.l2 = 10
+        s.rightY = -5
+        s.touches = [ControllerState.Touch(id: 3, x: 0.5, y: 1), ControllerState.Touch(id: 200, x: 2, y: -1)]
+        let c = s.psrp
+        #expect(c.buttons == UInt32(PSRP_BTN_TOUCHPAD.rawValue) && c.l2 == 10 && c.right_y == -5)
+        #expect(c.touches.0.id == 3 && c.touches.0.x == 960 && c.touches.0.y == UInt16(PSRP_TOUCHPAD_HEIGHT))
+        #expect(c.touches.1.id == 200 & 0x7F && c.touches.1.x == UInt16(PSRP_TOUCHPAD_WIDTH) && c.touches.1.y == 0) // clamped
+        #expect(ControllerState().psrp.touches.0.id == -1 && ControllerState().psrp.touches.1.id == -1) // no fingers
+    }
+
+    @Test func mergingKeepsThePadsTouches() {
+        var pad = ControllerState()
+        pad.touches = [ControllerState.Touch(id: 1, x: 0.2, y: 0.2)]
+        #expect(ControllerInput.merge(pad: pad, keys: ControllerState()).touches == pad.touches)
+    }
+}

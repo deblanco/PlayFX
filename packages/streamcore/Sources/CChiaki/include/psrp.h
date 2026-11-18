@@ -127,8 +127,24 @@ typedef enum {
     PSRP_BTN_OPTIONS = 1 << 12, PSRP_BTN_SHARE = 1 << 13, PSRP_BTN_TOUCHPAD = 1 << 14, PSRP_BTN_PS = 1 << 15,
 } PsrpButton;
 
-void psrp_session_set_controller(PsrpSession *session, uint32_t buttons, uint8_t l2, uint8_t r2,
-                                 int16_t left_x, int16_t left_y, int16_t right_x, int16_t right_y);
+#define PSRP_TOUCHES_MAX 2
+#define PSRP_TOUCHPAD_WIDTH 1920
+#define PSRP_TOUCHPAD_HEIGHT 1079
+
+/// A finger on the touchpad. `id` stays the same while the finger is down (0–127); -1 = no finger.
+typedef struct {
+    int8_t id;
+    uint16_t x, y; // 0…PSRP_TOUCHPAD_WIDTH, 0…PSRP_TOUCHPAD_HEIGHT
+} PsrpTouch;
+
+typedef struct {
+    uint32_t buttons; // PsrpButton bits
+    uint8_t l2, r2;
+    int16_t left_x, left_y, right_x, right_y;
+    PsrpTouch touches[PSRP_TOUCHES_MAX];
+} PsrpControllerState;
+
+void psrp_session_set_controller_state(PsrpSession *session, const PsrpControllerState *state);
 void psrp_session_set_login_pin(PsrpSession *session, const char *pin);
 void psrp_session_request_idr(PsrpSession *session);
 /// Puts the console into rest mode.

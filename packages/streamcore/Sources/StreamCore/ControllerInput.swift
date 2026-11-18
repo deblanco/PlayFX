@@ -9,7 +9,41 @@ public struct ControllerState: Equatable, Sendable {
     public var r2: UInt8 = 0
     public var leftX: Int16 = 0, leftY: Int16 = 0
     public var rightX: Int16 = 0, rightY: Int16 = 0
+    /// Fingers on the touchpad (at most 2).
+    public var touches: [Touch] = []
     public init() {}
+
+    /// A finger on the touchpad: `id` stays the same while it's down (0–127); x/y from the top-left, 0–1.
+    public struct Touch: Equatable, Sendable {
+        public var id: UInt8
+        public var x: Float
+        public var y: Float
+        public init(id: UInt8, x: Float, y: Float) {
+            self.id = id
+            self.x = x
+            self.y = y
+        }
+    }
+
+    /// The C shim's form of this state.
+    var psrp: PsrpControllerState {
+        var c = PsrpControllerState()
+        c.buttons = buttons
+        c.l2 = l2
+        c.r2 = r2
+        c.left_x = leftX
+        c.left_y = leftY
+        c.right_x = rightX
+        c.right_y = rightY
+        func touch(_ i: Int) -> PsrpTouch {
+            guard i < touches.count else { return PsrpTouch(id: -1, x: 0, y: 0) }
+            let t = touches[i]
+            func scale(_ v: Float, _ max: Int32) -> UInt16 { UInt16((min(1, Swift.max(0, v)) * Float(max)).rounded()) }
+            return PsrpTouch(id: Int8(t.id & 0x7F), x: scale(t.x, PSRP_TOUCHPAD_WIDTH), y: scale(t.y, PSRP_TOUCHPAD_HEIGHT))
+        }
+        c.touches = (touch(0), touch(1))
+        return c
+    }
 
     public static let buttonNames: [String: UInt32] = [
         "cross": UInt32(PSRP_BTN_CROSS.rawValue), "circle": UInt32(PSRP_BTN_CIRCLE.rawValue),
@@ -29,6 +63,7 @@ public final class ControllerInput {
     /// Called on the main queue whenever the merged state changes.
     public var onChange: ((ControllerState) -> Void)?
     private var padState = ControllerState()
+    private var touchIDs = TouchIDs()
     private var keyState = ControllerState()
     private var last = ControllerState()
     private var observers: [NSObjectProtocol] = []
@@ -52,8 +87,11 @@ public final class ControllerInput {
 
     func attach(_ controller: GCController) {
         controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
-            self?.padState = Self.state(from: pad)
-            self?.emit()
+            guard let self else { return }
+            var state = Self.state(from: pad)
+            state.touches = touchIDs.touches(Self.fingers(on: pad))
+            padState = state
+            emit()
         }
     }
 
@@ -140,7 +178,42 @@ public final class ControllerInput {
         return s
     }
 
+    /// Finger positions on a PlayStation pad's touchpad (top-left origin, 0–1), primary first.
+    /// GameController reports a lifted finger as (0, 0), so a finger exactly at the center reads as lifted.
+    static func fingers(on pad: GCExtendedGamepad) -> [SIMD2<Float>?] {
+        let pads: [GCControllerDirectionPad]
+        if let ds = pad as? GCDualSenseGamepad { pads = [ds.touchpadPrimary, ds.touchpadSecondary] }
+        else if let ds4 = pad as? GCDualShockGamepad { pads = [ds4.touchpadPrimary, ds4.touchpadSecondary] }
+        else { return [] }
+        return pads.map { finger($0.xAxis.value, $0.yAxis.value) }
+    }
+
+    /// One touchpad reading (-1…1, +y up) → top-left based 0–1, or nil when no finger.
+    static func finger(_ x: Float, _ y: Float) -> SIMD2<Float>? {
+        x == 0 && y == 0 ? nil : [(x + 1) / 2, (1 - y) / 2]
+    }
+
     static func axis(_ v: Float) -> Int16 {
         Int16(max(-1, min(1, v)) * Float(Int16.max))
     }
 }
+
+/// Gives each finger on the touchpad an id that stays the same while it's down and changes for every
+/// new touch — how the console tells a swipe from two taps.
+struct TouchIDs {
+    private var ids: [UInt8?] = [nil, nil]
+    private var next: UInt8 = 0
+
+    /// Touches for this reading: `fingers[i]` is slot i (primary, secondary), nil when lifted.
+    mutating func touches(_ fingers: [SIMD2<Float>?]) -> [ControllerState.Touch] {
+        var out: [ControllerState.Touch] = []
+        for slot in 0..<ids.count {
+            guard slot < fingers.count, let p = fingers[slot] else { ids[slot] = nil; continue }
+            let id = ids[slot] ?? { defer { next = (next + 1) & 0x7F }; return next }()
+            ids[slot] = id
+            out.append(ControllerState.Touch(id: id, x: p.x, y: p.y))
+        }
+        return out
+    }
+}
+
