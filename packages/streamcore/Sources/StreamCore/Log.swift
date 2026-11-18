@@ -43,7 +43,8 @@ public enum Log {
         let mask = detailed ? UInt32(0x1f)
             : UInt32(PSRP_LOG_INFO.rawValue) | UInt32(PSRP_LOG_WARNING.rawValue) | UInt32(PSRP_LOG_ERROR.rawValue)
         psrp_init({ level, message, _ in
-            Log.write(Log.level(chiaki: level), .chiaki, message.map { String(cString: $0) } ?? "")
+            let text = message.map { String(cString: $0) } ?? ""
+            Log.write(Log.level(chiaki: level, text), .chiaki, text)
         }, nil, mask)
     }
 
@@ -65,7 +66,16 @@ public enum Log {
         sink?(entry)
     }
 
-    /// libchiaki's level bits (PsrpLogLevel) → ours.
+    /// libchiaki's level (PsrpLogLevel bits) → ours. Discovery pings every IPv4 broadcast address every
+    /// few seconds, and libchiaki reports each one it can't reach (VM/container bridges, VPNs) as an
+    /// error; those are expected, so they're debug entries rather than burying real errors.
+    static func level(chiaki: Int32, _ message: String) -> Level {
+        if message.hasPrefix("Discovery failed to send") || message.hasPrefix("Discovery Service failed to send ping") {
+            return .debug
+        }
+        return level(chiaki: chiaki)
+    }
+
     static func level(chiaki: Int32) -> Level {
         switch UInt32(chiaki) {
         case PSRP_LOG_ERROR.rawValue: .error

@@ -27,6 +27,11 @@ import Testing
         #expect(Log.level(chiaki: Int32(PSRP_LOG_VERBOSE.rawValue)) == .debug)
         #expect(Log.level(chiaki: Int32(PSRP_LOG_DEBUG.rawValue)) == .debug)
         #expect(Log.Level.debug < .error && Log.Level.warning.name == "warning")
+        // Expected discovery failures (unreachable broadcast addresses) don't count as errors.
+        let error = Int32(PSRP_LOG_ERROR.rawValue)
+        #expect(Log.level(chiaki: error, "Discovery failed to send: No route to host") == .debug)
+        #expect(Log.level(chiaki: error, "Discovery Service failed to send ping for PS5") == .debug)
+        #expect(Log.level(chiaki: error, "Session request connect failed") == .error)
     }
 }
 
