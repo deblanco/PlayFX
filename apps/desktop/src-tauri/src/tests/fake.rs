@@ -66,8 +66,9 @@ impl NativeCore for FakeCore {
     fn set_controller(&self, state: crate::native::ControllerState) {
         self.log(format!("set_controller {}", state.buttons));
     }
-    fn set_upscale_mode(&self, mode: i32) {
-        self.log(format!("set_upscale_mode {mode}"));
+    fn set_render_params(&self, params: &str) -> bool {
+        self.log(format!("set_render_params {params}"));
+        !params.contains("fsr")
     }
     fn metalfx_supported(&self) -> bool {
         self.metalfx

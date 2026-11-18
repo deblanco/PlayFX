@@ -5,6 +5,7 @@ import {
   consoleRows,
   framesPerSecond,
   megabitsPerSecond,
+  renderParams,
   hudStats,
   quitMessage,
   settingValue,
@@ -59,6 +60,16 @@ describe("framesPerSecond", () => {
   })
 })
 
+describe("renderParams", () => {
+  it("picks the picture settings", () => {
+    expect(renderParams({ ...defaultSettings, upscaler: "bilinear", sharpness: 0, compare: true })).toEqual({
+      upscaler: "bilinear",
+      sharpness: 0,
+      compare: true,
+    })
+  })
+})
+
 describe("megabitsPerSecond", () => {
   it("computes the received bitrate between samples", () => {
     expect(megabitsPerSecond({ frames: 0, bytes: 0, time: 0 }, { frames: 0, bytes: 1_875_000, time: 1000 })).toBe(15)
@@ -87,7 +98,7 @@ describe("hudStats", () => {
 describe("upscalerLabel", () => {
   it("names each mode", () => {
     expect(upscalerLabel("none")).toBe("No upscaling")
-    expect(upscalerLabel("compare")).toBe("Bilinear | MetalFX")
+    expect(upscalerLabel("metalfx")).toBe("MetalFX")
   })
 })
 
@@ -107,10 +118,13 @@ describe("withSetting / settingValue", () => {
     expect(withSetting(defaultSettings, "bitrate", "30000").bitrate).toBe(30000)
     expect(withSetting(defaultSettings, "autoDowngrade", "off").autoDowngrade).toBe(false)
     expect(withSetting(defaultSettings, "audio", "off").audio).toBe(false)
+    expect(withSetting(defaultSettings, "sharpness", "0.6").sharpness).toBe(0.6)
+    expect(withSetting(defaultSettings, "compare", "on").compare).toBe(true)
   })
   it("ignores invalid values", () => {
     expect(withSetting(defaultSettings, "height", "999")).toBe(defaultSettings)
     expect(withSetting(defaultSettings, "bitrate", "12345")).toBe(defaultSettings)
+    expect(withSetting(defaultSettings, "sharpness", "1.5")).toBe(defaultSettings)
   })
   it("renders select values", () => {
     expect(settingValue(defaultSettings, "height")).toBe("1080")

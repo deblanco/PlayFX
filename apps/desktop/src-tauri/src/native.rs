@@ -39,7 +39,8 @@ pub trait NativeCore: Send + Sync {
     fn session_stop(&self);
     fn set_login_pin(&self, pin: &str);
     fn set_controller(&self, state: ControllerState);
-    fn set_upscale_mode(&self, mode: i32);
+    /// Picture settings as JSON (see StreamCore's RenderParams); false if StreamCore rejects them.
+    fn set_render_params(&self, params: &str) -> bool;
     fn metalfx_supported(&self) -> bool;
     fn active_mode(&self) -> i32;
     fn session_stats(&self) -> String;
@@ -57,22 +58,11 @@ pub fn reply(text: &str) -> Result<Value, String> {
     }
 }
 
-/// Upscaler name from the UI → StreamCore mode number.
-pub fn upscale_mode(name: &str) -> Result<i32, String> {
-    match name {
-        "bilinear" => Ok(0),
-        "metalfx" => Ok(1),
-        "compare" => Ok(2),
-        other => Err(format!("unknown upscaler: {other}")),
-    }
-}
-
 /// StreamCore mode number → upscaler name for the UI.
 pub fn mode_name(mode: i32) -> &'static str {
     match mode {
         0 => "bilinear",
         1 => "metalfx",
-        2 => "compare",
         _ => "none",
     }
 }

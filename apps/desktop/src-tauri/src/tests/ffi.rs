@@ -50,7 +50,8 @@ fn mac_core_without_session_or_renderer() {
     assert!(!core.wakeup("{}"));
     assert!(reply(&core.session_start("{}")).is_err());
     core.set_login_pin("1234");
-    core.set_upscale_mode(1);
+    assert!(core.set_render_params(r#"{"upscaler":"metalfx"}"#)); // no renderer: accepted, no-op
+    assert!(!core.set_render_params(r#"{"upscaler":"fsr"}"#));
     assert!(!core.metalfx_supported());
     assert_eq!(core.active_mode(), -1);
     assert_eq!(reply(&core.session_stats()), Ok(json!({"active": false})));

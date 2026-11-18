@@ -5,7 +5,7 @@ mod native;
 mod tests;
 
 use native::{
-    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, upscale_mode, CoreHandle,
+    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, CoreHandle,
     NativeCore,
 };
 use serde_json::Value;
@@ -133,10 +133,14 @@ fn set_controller<R: Runtime>(app: AppHandle<R>, state: Value) -> Result<(), Str
 }
 
 #[tauri::command(async)]
-fn set_upscaler<R: Runtime>(app: AppHandle<R>, mode: String) -> Result<(), String> {
-    let mode = upscale_mode(&mode)?;
+fn set_render_params<R: Runtime>(app: AppHandle<R>, params: Value) -> Result<(), String> {
     let core = core(&app);
-    on_main(&app, move || core.set_upscale_mode(mode))
+    let json = params.to_string();
+    if on_main(&app, move || core.set_render_params(&json))? {
+        Ok(())
+    } else {
+        Err(format!("invalid picture settings: {params}"))
+    }
 }
 
 #[tauri::command(async)]
@@ -158,7 +162,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         stop_stream,
         set_login_pin,
         set_controller,
-        set_upscaler,
+        set_render_params,
         renderer_status
     ])
 }

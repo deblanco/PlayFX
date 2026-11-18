@@ -60,9 +60,13 @@ public func sc_attach_macos_window(_ nsWindow: UnsafeMutableRawPointer) -> Bool 
     return true
 }
 
-@_cdecl("sc_set_upscale_mode")
-public func sc_set_upscale_mode(_ mode: Int32) {
-    renderer?.mode = UpscaleMode(rawValue: mode) ?? .bilinear
+/// `params`: RenderParams JSON ({"upscaler":"metalfx","sharpness":0.3,"compare":false}; missing keys
+/// keep their defaults). Returns false (and changes nothing) when it doesn't decode.
+@_cdecl("sc_set_render_params")
+public func sc_set_render_params(_ params: UnsafePointer<CChar>) -> Bool {
+    guard let p = try? decode(RenderParams.self, params) else { return false }
+    renderer?.params = p
+    return true
 }
 
 @_cdecl("sc_metalfx_supported")
@@ -70,7 +74,7 @@ public func sc_metalfx_supported() -> Bool {
     renderer?.metalFXSupported ?? false
 }
 
-/// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, 2 = compare (split), -1 = no renderer.
+/// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, -1 = no renderer.
 @_cdecl("sc_active_mode")
 public func sc_active_mode() -> Int32 {
     renderer?.activeMode.rawValue ?? -1

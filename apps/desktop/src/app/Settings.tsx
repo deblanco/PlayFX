@@ -50,9 +50,36 @@ export const UpscalerSelect = ({ settings, metalfxSupported, onChange }: Setting
     options={[
       { value: "metalfx", label: "MetalFX", disabled: !metalfxSupported },
       { value: "bilinear", label: "Bilinear" },
-      { value: "compare", label: "Compare (split)", disabled: !metalfxSupported },
     ]}
   />
+)
+
+export const PictureSelects = ({ settings, onChange }: Omit<SettingsProps, "metalfxSupported">) => (
+  <>
+    <SettingSelect
+      label="Sharpness"
+      setting="sharpness"
+      settings={settings}
+      onChange={onChange}
+      options={[
+        { value: "0", label: "Off" },
+        { value: "0.15", label: "Low" },
+        { value: "0.3", label: "Medium" },
+        { value: "0.6", label: "High" },
+        { value: "1", label: "Max" },
+      ]}
+    />
+    <SettingSelect
+      label="Compare"
+      setting="compare"
+      settings={settings}
+      onChange={onChange}
+      options={[
+        { value: "off", label: "Off" },
+        { value: "on", label: "Split screen" },
+      ]}
+    />
+  </>
 )
 
 export const SettingsRow = (props: SettingsProps) => (
@@ -119,5 +146,6 @@ export const SettingsRow = (props: SettingsProps) => (
       ]}
     />
     <UpscalerSelect {...props} />
+    <PictureSelects settings={props.settings} onChange={props.onChange} />
   </section>
 )

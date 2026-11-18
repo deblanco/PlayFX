@@ -43,7 +43,7 @@ export type PairedConsoles = typeof PairedConsoles.Type
 
 export const Resolution = Schema.Literals([540, 720, 1080])
 export const Fps = Schema.Literals([30, 60])
-export const Upscaler = Schema.Literals(["metalfx", "bilinear", "compare"])
+export const Upscaler = Schema.Literals(["metalfx", "bilinear"])
 export type Upscaler = typeof Upscaler.Type
 
 /** Video bitrate in kbps; 0 lets the console pick its default for the resolution. */
@@ -54,6 +54,19 @@ export type Bitrate = typeof Bitrate.Type
 const since = <S extends Schema.Top>(schema: S, value: S["Encoded"]) =>
   schema.pipe(Schema.withDecodingDefaultKey(Effect.succeed(value)))
 
+/** Sharpening after the upscale: 0 = off … 1 = strongest. */
+export const Sharpness = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }))
+
+/** Picture settings, applied to every frame without reconnecting (StreamCore's RenderParams). */
+export const RenderParams = Schema.Struct({
+  upscaler: Upscaler,
+  sharpness: Sharpness,
+  /** Split screen: left half is the unprocessed baseline, right half these settings. */
+  compare: Schema.Boolean,
+})
+export type RenderParams = typeof RenderParams.Type
+export const sameRenderParams = Schema.toEquivalence(RenderParams)
+
 export const Settings = Schema.Struct({
   height: Resolution,
   fps: Fps,
@@ -62,6 +75,8 @@ export const Settings = Schema.Struct({
   autoDowngrade: since(Schema.Boolean, true),
   audio: since(Schema.Boolean, true),
   upscaler: Upscaler,
+  sharpness: since(Sharpness, 0.3),
+  compare: since(Schema.Boolean, false),
 })
 export type Settings = typeof Settings.Type
 
@@ -73,6 +88,8 @@ export const defaultSettings: Settings = {
   autoDowngrade: true,
   audio: true,
   upscaler: "metalfx",
+  sharpness: 0.3,
+  compare: false,
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).
@@ -127,7 +144,7 @@ export type StreamStats = typeof StreamStats.Type
 
 export const RendererStatus = Schema.Struct({
   metalfxSupported: Schema.Boolean,
-  activeMode: Schema.Literals(["bilinear", "metalfx", "compare", "none"]),
+  activeMode: Schema.Literals(["bilinear", "metalfx", "none"]),
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

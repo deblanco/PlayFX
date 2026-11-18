@@ -72,7 +72,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     }),
     setLoginPin: vi.fn<CoreService["setLoginPin"]>(() => Effect.void),
     setController: vi.fn<CoreService["setController"]>(() => Effect.void),
-    setUpscaler: vi.fn<CoreService["setUpscaler"]>(() => Effect.void),
+    setRenderParams: vi.fn<CoreService["setRenderParams"]>(() => Effect.void),
     rendererStatus: Effect.sync(() => state.status),
     onStreamEvent: (handler) =>
       Effect.sync(() => {

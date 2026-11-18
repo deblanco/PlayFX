@@ -48,7 +48,8 @@ import Testing
 
     @Test func initialState() throws {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 32))
-        #expect(r.mode == .metalFX)
+        #expect(r.params == RenderParams())
+        #expect(r.params.upscaler == .metalFX && r.params.sharpness == 0.3 && !r.params.compare)
         #expect(r.activeMode == .bilinear)
         #expect(r.showsTestPattern)
         #expect(r.inputSize == (64, 32))
@@ -65,7 +66,8 @@ import Testing
 
     @Test func drawsTestPatternOrBlack() throws {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
-        r.mode = .bilinear
+        r.params.upscaler = .bilinear
+        r.params.sharpness = 0
         let pattern = try render(r, size: (64, 64))
         #expect(pixel(pattern, width: 64, x: 0, y: 0).a == 255)
         #expect(pattern.enumerated().contains { $0.offset % 4 != 3 && $0.element > 20 }) // something lit
@@ -84,7 +86,8 @@ import Testing
     ])
     func convertsNV12Frames(y: UInt8, cb: UInt8, cr: UInt8, rgb: (Int, Int, Int)) throws {
         let r = try #require(StreamRenderer(inputWidth: 16, inputHeight: 16))
-        r.mode = .bilinear
+        r.params.upscaler = .bilinear
+        r.params.sharpness = 0
         r.display(try makeNV12(width: 32, height: 32, y: y, cb: cb, cr: cr))
         let out = try render(r, size: (32, 32))
         #expect(r.inputSize == (32, 32)) // resized to the frame
@@ -112,7 +115,8 @@ import Testing
     @Test func noTestPatternWithoutFrames() throws {
         let r = try #require(StreamRenderer(inputWidth: 8, inputHeight: 8))
         r.showsTestPattern = false
-        r.mode = .bilinear
+        r.params.upscaler = .bilinear
+        r.params.sharpness = 0
         _ = try render(r, size: (8, 8))
         #expect(r.activeMode == .bilinear)
     }
@@ -125,28 +129,84 @@ import Testing
         #expect(StreamRenderer.compareRects(CGRect(x: 0, y: 0, width: 64, height: 64)).divider.width == 2)
     }
 
-    @Test func compareSplitsBilinearAndMetalFX() throws {
+    @Test func compareSplitsBaselineAndProcessed() throws {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
-        r.mode = .compare
+        r.params.compare = true
         r.showsTestPattern = false
         r.display(try makeNV12(width: 64, height: 64, y: 16, cb: 128, cr: 128)) // black
         let out = try render(r, size: (128, 128))
-        #expect(r.activeMode == (r.metalFXSupported ? .compare : .bilinear))
-        if r.metalFXSupported {
-            #expect(pixel(out, width: 128, x: 64, y: 64) == (255, 255, 255, 255)) // divider
-            #expect(pixel(out, width: 128, x: 20, y: 64).r < 10)  // bilinear half
-            #expect(pixel(out, width: 128, x: 108, y: 64).r < 10) // MetalFX half
-        }
-        // Not upscaling: falls back to plain bilinear, no divider.
+        #expect(r.activeMode == (r.metalFXSupported ? .metalFX : .bilinear))
+        #expect(pixel(out, width: 128, x: 64, y: 64) == (255, 255, 255, 255)) // divider
+        #expect(pixel(out, width: 128, x: 20, y: 64).r < 10)  // baseline half
+        #expect(pixel(out, width: 128, x: 108, y: 64).r < 10) // processed half
+        // Not upscaling still splits (baseline vs sharpened).
         let same = try render(r, size: (64, 64))
         #expect(r.activeMode == .bilinear)
-        #expect(pixel(same, width: 64, x: 32, y: 32).r < 10)
+        #expect(pixel(same, width: 64, x: 32, y: 32) == (255, 255, 255, 255))
+        #expect(pixel(same, width: 64, x: 10, y: 32).r < 10)
+    }
+
+    /// A 64×64 frame: left half dark gray, right half light gray (a vertical edge at x = 32).
+    func edgeFrame() throws -> CVPixelBuffer {
+        try makeNV12(width: 64, height: 64, cb: 128, cr: 128) { x, _ in x < 32 ? 80 : 170 }
+    }
+
+    @Test func sharpnessZeroIsIdentity() throws {
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
+        r.showsTestPattern = false
+        r.params = RenderParams()
+        r.params.upscaler = .bilinear
+        r.params.sharpness = 0
+        r.display(try edgeFrame())
+        let plain = try render(r, size: (64, 64))
+        r.params.sharpness = 0.000_1 // tiny but on: same pixels away from the edge
+        let barely = try render(r, size: (64, 64))
+        #expect(pixel(plain, width: 64, x: 8, y: 32) == pixel(barely, width: 64, x: 8, y: 32))
+        #expect(pixel(plain, width: 64, x: 56, y: 32) == pixel(barely, width: 64, x: 56, y: 32))
+    }
+
+    @Test(arguments: [UpscaleMode.bilinear, .metalFX])
+    func sharpeningIncreasesEdgeContrast(upscaler: UpscaleMode) throws {
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
+        r.showsTestPattern = false
+        r.params.upscaler = upscaler
+        func edgeContrast(_ sharpness: Float) throws -> (dark: Int, light: Int, flat: Int) {
+            r.params.sharpness = sharpness
+            r.display(try edgeFrame())
+            let p = try render(r, size: (128, 128))
+            // Darkest pixel just left of the edge, lightest just right, and a flat area.
+            let dark = (56..<64).map { pixel(p, width: 128, x: $0, y: 64).g }.min()!
+            let light = (64..<72).map { pixel(p, width: 128, x: $0, y: 64).g }.max()!
+            return (dark, light, pixel(p, width: 128, x: 16, y: 64).g)
+        }
+        let soft = try edgeContrast(0), sharp = try edgeContrast(1)
+        #expect(sharp.dark < soft.dark, "dark side: \(sharp.dark) vs \(soft.dark)")
+        #expect(sharp.light > soft.light, "light side: \(sharp.light) vs \(soft.light)")
+        #expect(abs(sharp.flat - soft.flat) <= 1) // flat areas untouched
+        #expect(sharp.dark > 0 && sharp.light < 255) // no clipping halos
+    }
+
+    @Test func casPeakFollowsSharpness() {
+        #expect(abs(StreamRenderer.casPeak(sharpness: 0) - -1.0 / 8) < 1e-6)
+        #expect(abs(StreamRenderer.casPeak(sharpness: 1) - -1.0 / 5) < 1e-6)
+        #expect(abs(StreamRenderer.casPeak(sharpness: 7) - -1.0 / 5) < 1e-6) // clamped
+    }
+
+    @Test func renderParamsJSON() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(RenderParams.self, from: Data(json.utf8)) }
+        #expect(try decode("{}") == RenderParams())
+        let p = try decode(#"{"upscaler":"bilinear","sharpness":2,"compare":true}"#)
+        #expect(p.upscaler == .bilinear && p.sharpness == 1 && p.compare)
+        #expect(try decode(#"{"sharpness":-1}"#).sharpness == 0)
+        #expect(throws: DecodingError.self) { try decode(#"{"upscaler":"fsr"}"#) }
+        let roundTrip = try decode(String(decoding: JSONEncoder().encode(p), as: UTF8.self))
+        #expect(roundTrip == p)
     }
 
     @Test func snapshotsTheLastFrame() throws {
         let r = try #require(StreamRenderer(inputWidth: 32, inputHeight: 32))
         r.showsTestPattern = false
-        r.mode = .metalFX
+        r.params.upscaler = .metalFX
         r.display(try makeNV12(width: 32, height: 32, y: 63, cb: 102, cr: 240)) // red
         let image = try #require(r.snapshot(width: 96, height: 64))
         #expect(image.width == 96 && image.height == 64)
@@ -155,7 +215,8 @@ import Testing
         #expect(data[center + 2] > 240 && data[center + 1] < 15 && data[center] < 15)
         #expect(data[(32 * 96 + 2) * 4 + 2] == 0) // pillarbox stays black
         // The frame was consumed; later snapshots keep re-rendering the last one.
-        r.mode = .bilinear
+        r.params.upscaler = .bilinear
+        r.params.sharpness = 0
         let again = try #require(r.snapshot(width: 32, height: 32)?.dataProvider?.data as Data?)
         #expect(again[(16 * 32 + 16) * 4 + 2] > 240)
         #expect(r.snapshot(width: 0, height: 10) == nil)

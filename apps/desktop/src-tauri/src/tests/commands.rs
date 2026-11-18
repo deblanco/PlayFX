@@ -88,12 +88,15 @@ fn session_commands_reach_the_core() {
     assert_eq!(set_login_pin(app.handle().clone(), "1234".into()), Ok(()));
     assert_eq!(set_controller(app.handle().clone(), json!({"buttons": 1, "l2": 0, "r2": 0, "leftX": 0, "leftY": 0, "rightX": 0, "rightY": 0})), Ok(()));
     assert!(set_controller(app.handle().clone(), json!({"buttons": "x"})).is_err());
-    assert_eq!(set_upscaler(app.handle().clone(), "metalfx".into()), Ok(()));
-    assert_eq!(set_upscaler(app.handle().clone(), "bilinear".into()), Ok(()));
-    assert_eq!(set_upscaler(app.handle().clone(), "fsr".into()), Err("unknown upscaler: fsr".into()));
+    assert_eq!(set_render_params(app.handle().clone(), json!({"upscaler": "metalfx"})), Ok(()));
+    assert_eq!(
+        set_render_params(app.handle().clone(), json!({"upscaler": "fsr"})),
+        Err(r#"invalid picture settings: {"upscaler":"fsr"}"#.into())
+    );
     assert_eq!(
         core.calls(),
-        ["session_stop", "set_login_pin 1234", "set_controller 1", "set_upscale_mode 1", "set_upscale_mode 0"]
+        ["session_stop", "set_login_pin 1234", "set_controller 1",
+         r#"set_render_params {"upscaler":"metalfx"}"#, r#"set_render_params {"upscaler":"fsr"}"#]
     );
 }
 
@@ -210,8 +213,11 @@ fn ipc_contract_matches_the_ui() {
         invoke(&app, "set_controller", json!({"state": {"buttons": 3, "l2": 0, "r2": 0, "leftX": 0, "leftY": 0, "rightX": 0, "rightY": 0}})),
         Ok(Value::Null)
     );
-    assert_eq!(invoke(&app, "set_upscaler", json!({"mode": "metalfx"})), Ok(Value::Null));
-    assert_eq!(invoke(&app, "set_upscaler", json!({"mode": "x"})), Err(json!("unknown upscaler: x")));
+    assert_eq!(invoke(&app, "set_render_params", json!({"params": {"sharpness": 0.5}})), Ok(Value::Null));
+    assert_eq!(
+        invoke(&app, "set_render_params", json!({"params": {"upscaler": "fsr"}})),
+        Err(json!(r#"invalid picture settings: {"upscaler":"fsr"}"#))
+    );
     assert_eq!(
         invoke(&app, "renderer_status", json!({})),
         Ok(json!({"metalfxSupported": false, "activeMode": "none", "stream": {"active": false}}))
@@ -221,7 +227,7 @@ fn ipc_contract_matches_the_ui() {
 #[test]
 fn ipc_rejects_missing_arguments() {
     let app = mock(FakeCore::default().leak());
-    for cmd in ["register_console", "wakeup", "start_stream", "set_login_pin", "set_upscaler"] {
+    for cmd in ["register_console", "wakeup", "start_stream", "set_login_pin", "set_render_params"] {
         let err = invoke(&app, cmd, json!({})).expect_err(cmd);
         assert!(err.as_str().is_some_and(|e| e.contains("missing required key")), "{cmd}: {err}");
     }

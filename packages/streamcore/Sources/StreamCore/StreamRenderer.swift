@@ -5,11 +5,46 @@ import MetalKit
 import QuartzCore
 import os
 
-public enum UpscaleMode: Int32 {
+public enum UpscaleMode: Int32, Sendable {
     case bilinear = 0
     case metalFX = 1
-    /// Split screen for A/B: left half bilinear, right half MetalFX (falls back to bilinear).
-    case compare = 2
+}
+
+extension UpscaleMode: Codable {
+    public init(from decoder: Decoder) throws {
+        let name = try decoder.singleValueContainer().decode(String.self)
+        switch name {
+        case "bilinear": self = .bilinear
+        case "metalfx": self = .metalFX
+        default: throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                         debugDescription: "unknown upscaler \(name)"))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(self == .metalFX ? "metalfx" : "bilinear")
+    }
+}
+
+/// Picture settings, applied to every frame (no reconnect). Hosts send them as JSON; missing
+/// keys keep their defaults.
+public struct RenderParams: Codable, Equatable, Sendable {
+    public var upscaler: UpscaleMode = .metalFX
+    /// Contrast-adaptive sharpening after the upscale: 0 = off … 1 = strongest.
+    public var sharpness: Float = 0.3
+    /// Split screen: left half is the baseline (bilinear, no processing), right half these params.
+    public var compare = false
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = RenderParams()
+        upscaler = try c.decodeIfPresent(UpscaleMode.self, forKey: .upscaler) ?? d.upscaler
+        sharpness = min(1, max(0, try c.decodeIfPresent(Float.self, forKey: .sharpness) ?? d.sharpness))
+        compare = try c.decodeIfPresent(Bool.self, forKey: .compare) ?? d.compare
+    }
 }
 
 /// Renders the stream into an MTKView: video frame (NV12) → RGB → optional MetalFX spatial
@@ -18,7 +53,7 @@ public enum UpscaleMode: Int32 {
 public final class StreamRenderer: NSObject, MTKViewDelegate {
     public let view: MTKView
     public let metalFXSupported: Bool
-    public var mode: UpscaleMode = .metalFX
+    public var params = RenderParams()
     /// Upscaler actually used for the last frame (MetalFX is skipped when not upscaling).
     public private(set) var activeMode: UpscaleMode = .bilinear
     /// Shows the animated test pattern when no video frames are arriving.
@@ -32,6 +67,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private let frameLock = OSAllocatedUnfairLock<CVPixelBuffer?>(initialState: nil)
     private let presentPipeline: MTLRenderPipelineState
     private let dividerPipeline: MTLRenderPipelineState
+    private let sharpenPipeline: MTLRenderPipelineState
     private let sampler: MTLSamplerState
     private let startTime = CACurrentMediaTime()
 
@@ -63,6 +99,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         guard let presentPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
         pd.fragmentFunction = library.makeFunction(name: "dividerFragment")
         guard let dividerPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
+        pd.fragmentFunction = library.makeFunction(name: "sharpenFragment")
+        guard let sharpenPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
 
         let sd = MTLSamplerDescriptor()
         sd.minFilter = .linear
@@ -78,6 +116,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.textureCache = textureCache
         self.presentPipeline = presentPipeline
         self.dividerPipeline = dividerPipeline
+        self.sharpenPipeline = sharpenPipeline
         self.sampler = sampler
         self.inputTexture = input
         self.view = view
@@ -122,15 +161,16 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         }
 
         let target = fittedRect(drawable: drawableSize)
+        let params = self.params
         var upscaled: MTLTexture?
-        if mode != .bilinear, metalFXSupported,
+        if params.upscaler == .metalFX, metalFXSupported,
            let (scaler, output) = scaler(outputWidth: Int(target.width), outputHeight: Int(target.height)) {
             scaler.colorTexture = inputTexture
             scaler.outputTexture = output
             scaler.encode(commandBuffer: cb)
             upscaled = output
         }
-        activeMode = upscaled == nil ? .bilinear : mode
+        activeMode = upscaled == nil ? .bilinear : .metalFX
 
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
@@ -138,22 +178,42 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         enc.setViewport(MTLViewport(originX: target.minX, originY: target.minY,
                                     width: target.width, height: target.height, znear: 0, zfar: 1))
         enc.setFragmentSamplerState(sampler, index: 0)
-        enc.setRenderPipelineState(presentPipeline)
-        if activeMode == .compare, let upscaled {
-            let split = Self.compareRects(target)
-            for (rect, texture) in [(split.left, inputTexture), (split.right, upscaled)] {
-                enc.setScissorRect(Self.scissor(rect))
-                enc.setFragmentTexture(texture, index: 0)
-                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+
+        /// The processed picture: upscaled (or the input, sampled bilinearly) plus sharpening.
+        func drawProcessed() {
+            if params.sharpness > 0 {
+                var step = SIMD2<Float>(1 / Float(target.width), 1 / Float(target.height))
+                var peak = Self.casPeak(sharpness: params.sharpness)
+                enc.setRenderPipelineState(sharpenPipeline)
+                enc.setFragmentBytes(&step, length: MemoryLayout<SIMD2<Float>>.size, index: 0)
+                enc.setFragmentBytes(&peak, length: MemoryLayout<Float>.size, index: 1)
+            } else {
+                enc.setRenderPipelineState(presentPipeline)
             }
+            enc.setFragmentTexture(upscaled ?? inputTexture, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        }
+
+        if params.compare {
+            let split = Self.compareRects(target)
+            enc.setScissorRect(Self.scissor(split.left))
+            enc.setRenderPipelineState(presentPipeline)
+            enc.setFragmentTexture(inputTexture, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            enc.setScissorRect(Self.scissor(split.right))
+            drawProcessed()
             enc.setScissorRect(Self.scissor(split.divider))
             enc.setRenderPipelineState(dividerPipeline)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         } else {
-            enc.setFragmentTexture(upscaled ?? inputTexture, index: 0)
-            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            drawProcessed()
         }
         enc.endEncoding()
+    }
+
+    /// CAS's negative lobe weight for a 0–1 sharpness (AMD FidelityFX CAS: -1 / lerp(8, 5, s)).
+    static func casPeak(sharpness: Float) -> Float {
+        -1 / (8 - 3 * min(1, max(0, sharpness)))
     }
 
     /// Splits the video rect into a bilinear left half, a MetalFX right half and a thin divider

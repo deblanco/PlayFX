@@ -196,30 +196,30 @@ describe("CoreLive", () => {
         psn_login: Effect.succeed(null),
         stop_stream: Effect.succeed(null),
         set_login_pin: Effect.succeed(null),
-        set_upscaler: Effect.succeed(null),
+        set_render_params: Effect.succeed(null),
       })
       return Effect.gen(function* () {
         const core = yield* Core
         yield* core.psnLogin
         yield* core.stopStream
         yield* core.setLoginPin("1234")
-        yield* core.setUpscaler("bilinear")
+        yield* core.setRenderParams({ upscaler: "bilinear", sharpness: 0, compare: true })
         expect(fake.calls).toEqual([
           { command: "psn_login", args: undefined },
           { command: "stop_stream", args: undefined },
           { command: "set_login_pin", args: { pin: "1234" } },
-          { command: "set_upscaler", args: { mode: "bilinear" } },
+          { command: "set_render_params", args: { params: { upscaler: "bilinear", sharpness: 0, compare: true } } },
         ])
       }).pipe(Effect.provide(fake.layer))
     })
 
     it.effect("void commands still surface invoke failures", () => {
       const fake = fakeBridge({
-        set_upscaler: Effect.fail(new CoreError({ command: "set_upscaler", message: "unknown upscaler: x" })),
+        set_render_params: Effect.fail(new CoreError({ command: "set_render_params", message: "invalid picture settings" })),
       })
       return Effect.gen(function* () {
         const core = yield* Core
-        const exit = yield* Effect.exit(core.setUpscaler("metalfx"))
+        const exit = yield* Effect.exit(core.setRenderParams({ upscaler: "metalfx", sharpness: 0.3, compare: false }))
         expect(Exit.isFailure(exit)).toBe(true)
         // psn_login isn't stubbed: the fake fails it.
         expect((yield* Effect.flip(core.psnLogin)).command).toBe("psn_login")

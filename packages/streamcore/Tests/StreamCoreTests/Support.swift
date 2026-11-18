@@ -13,6 +13,11 @@ import VideoToolbox
 
 /// NV12 (video range) buffer, IOSurface-backed and Metal-compatible, filled with one YCbCr color.
 func makeNV12(width: Int, height: Int, y: UInt8, cb: UInt8, cr: UInt8) throws -> CVPixelBuffer {
+    try makeNV12(width: width, height: height, cb: cb, cr: cr) { _, _ in y }
+}
+
+/// An NV12 frame with uniform chroma and per-pixel luma.
+func makeNV12(width: Int, height: Int, cb: UInt8, cr: UInt8, luma y: (Int, Int) -> UInt8) throws -> CVPixelBuffer {
     let attrs: [CFString: Any] = [
         kCVPixelBufferMetalCompatibilityKey: true,
         kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
@@ -25,7 +30,8 @@ func makeNV12(width: Int, height: Int, y: UInt8, cb: UInt8, cr: UInt8) throws ->
     defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
     let luma = CVPixelBufferGetBaseAddressOfPlane(buffer, 0)!.assumingMemoryBound(to: UInt8.self)
     for row in 0..<height {
-        memset(luma + row * CVPixelBufferGetBytesPerRowOfPlane(buffer, 0), Int32(y), width)
+        let line = luma + row * CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        for x in 0..<width { line[x] = y(x, row) }
     }
     let chroma = CVPixelBufferGetBaseAddressOfPlane(buffer, 1)!.assumingMemoryBound(to: UInt8.self)
     for row in 0..<CVPixelBufferGetHeightOfPlane(buffer, 1) {

@@ -16,7 +16,8 @@ import StreamCore
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
 //          /hold?buttons=r2  /release  /keyframe  /sleep  /quit
-//          /render.png?mode=metalfx|bilinear|compare&w=3840&h=2160   latest frame, upscaled on the GPU
+//          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&w=3840&h=2160   latest frame, on the GPU
+//                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //
 // Saved state: ~/.config/psrp/config.json (contains pairing keys — keep it private).
 
@@ -221,11 +222,11 @@ let ciContext = CIContext()
 /// Offscreen renderer for /render.png (created lazily; GPU access serialized by the lock).
 let offscreen = OSAllocatedUnfairLock<StreamRenderer?>(initialState: nil)
 
-func render(_ frame: CVPixelBuffer, mode: UpscaleMode, width: Int, height: Int) -> CGImage? {
+func render(_ frame: CVPixelBuffer, params: RenderParams, width: Int, height: Int) -> CGImage? {
     offscreen.withLock { r in
         if r == nil { r = StreamRenderer(); r?.showsTestPattern = false }
         guard let r else { return nil }
-        r.mode = mode
+        r.params = params
         r.display(frame)
         return r.snapshot(width: width, height: height)
     }
@@ -247,10 +248,16 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
             return (200, "image/png", png)
         case "/render.png":
             guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }
-            let modes: [String: UpscaleMode] = ["bilinear": .bilinear, "metalfx": .metalFX, "compare": .compare]
-            guard let mode = modes[query["mode"] ?? "metalfx"] else { throw fail("mode must be bilinear, metalfx or compare") }
+            var params = RenderParams()
+            switch query["mode"] ?? "metalfx" {
+            case "bilinear": params.upscaler = .bilinear
+            case "metalfx": params.upscaler = .metalFX
+            case "compare": params.compare = true
+            default: throw fail("mode must be bilinear, metalfx or compare")
+            }
+            params.sharpness = query["sharpness"].flatMap(Float.init) ?? (params.upscaler == .bilinear ? 0 : 0.3)
             let w = Int(query["w"] ?? "") ?? 3840, h = Int(query["h"] ?? "") ?? 2160
-            guard let image = render(frame, mode: mode, width: w, height: h),
+            guard let image = render(frame, params: params, width: w, height: h),
                   let png = ciContext.pngRepresentation(of: CIImage(cgImage: image), format: .RGBA8,
                                                         colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
             else { return (500, "text/plain", Data("render failed\n".utf8)) }

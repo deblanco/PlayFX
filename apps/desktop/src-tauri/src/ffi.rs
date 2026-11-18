@@ -7,7 +7,7 @@ use crate::native::{ControllerState, NativeCore};
 unsafe extern "C" {
     // main thread
     pub fn sc_attach_macos_window(ns_window: *mut c_void) -> bool;
-    pub fn sc_set_upscale_mode(mode: i32);
+    pub fn sc_set_render_params(params: *const c_char) -> bool;
     pub fn sc_metalfx_supported() -> bool;
     pub fn sc_active_mode() -> i32;
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
@@ -82,8 +82,8 @@ impl NativeCore for MacCore {
     fn set_controller(&self, s: ControllerState) {
         unsafe { sc_session_set_controller(s.buttons, s.l2, s.r2, s.left_x, s.left_y, s.right_x, s.right_y) }
     }
-    fn set_upscale_mode(&self, mode: i32) {
-        unsafe { sc_set_upscale_mode(mode) }
+    fn set_render_params(&self, params: &str) -> bool {
+        unsafe { sc_set_render_params(cstr(params).as_ptr()) }
     }
     fn metalfx_supported(&self) -> bool {
         unsafe { sc_metalfx_supported() }

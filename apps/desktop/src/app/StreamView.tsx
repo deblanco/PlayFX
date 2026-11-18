@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import * as actions from "./actions"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
-import { UpscalerSelect } from "./Settings"
+import { PictureSelects, UpscalerSelect } from "./Settings"
 
 export const hudIdleMs = 2500
 
@@ -134,11 +134,12 @@ export const StreamView = ({
           </div>
         </details>
         <UpscalerSelect settings={settings} metalfxSupported={metalfxSupported} onChange={onSettingsChange} />
+        <PictureSelects settings={settings} onChange={onSettingsChange} />
         <Button variant="destructive" size="sm" onClick={stop}>
           Stop
         </Button>
       </header>
-      {settings.upscaler === "compare" && <CompareLabels />}
+      {settings.compare && <CompareLabels />}
       {Option.isSome(loginPin) && (
         <LoginPinPrompt incorrect={loginPin.value.incorrect} onSubmitted={onLoginPinSubmitted} onCancel={stop} />
       )}
@@ -146,10 +147,10 @@ export const StreamView = ({
   )
 }
 
-/** Names the two halves of the split-screen upscaler comparison. */
+/** Names the two halves of the split-screen comparison. */
 const CompareLabels = () => (
-  <div aria-label="Upscaler comparison" className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-between p-4">
-    {["Bilinear", "MetalFX"].map((name) => (
+  <div aria-label="Split-screen comparison" className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-between p-4">
+    {["Original", "Enhanced"].map((name) => (
       <span key={name} className="rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur">
         {name}
       </span>

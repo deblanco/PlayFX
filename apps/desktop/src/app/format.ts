@@ -4,6 +4,7 @@ import {
   type DiscoveredConsole,
   type PairedConsole,
   type PairedConsoles,
+  type RenderParams,
   type RendererStatus,
   type StreamEvent,
   type StreamOptions,
@@ -50,6 +51,12 @@ export const streamOptions = (settings: Settings): StreamOptions => ({
   autoDowngrade: settings.autoDowngrade,
 })
 
+export const renderParams = (settings: Settings): RenderParams => ({
+  upscaler: settings.upscaler,
+  sharpness: settings.sharpness,
+  compare: settings.compare,
+})
+
 /** The decoder's counters at one moment, for computing rates between polls. */
 export interface FrameSample {
   readonly frames: number
@@ -67,7 +74,6 @@ export const framesPerSecond = (previous: FrameSample, current: FrameSample): nu
 const upscalerLabels: Readonly<Record<RendererStatus["activeMode"], string>> = {
   metalfx: "MetalFX",
   bilinear: "Bilinear",
-  compare: "Bilinear | MetalFX",
   none: "No upscaling",
 }
 
@@ -106,6 +112,8 @@ const parsers: Readonly<Record<SettingKey, (raw: string) => unknown>> = {
   autoDowngrade: (raw) => raw === "on",
   audio: (raw) => raw === "on",
   upscaler: (raw) => raw,
+  sharpness: Number,
+  compare: (raw) => raw === "on",
 }
 
 /** Applies a raw `<select>` value to the settings; values the schema rejects leave them unchanged. */

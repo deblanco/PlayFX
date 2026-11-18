@@ -93,7 +93,10 @@ Work items:
   bitrate from streaminfo) and show it in the HUD. Shim: pass `video_profile_auto_downgrade`
   through `PsrpSessionConfig`. Schema: extend `Settings` (Effect `Schema`) with migration of
   saved settings.
-- ❌ **Q2. Sharpening pass (CAS/RCAS).** Compute pass after the upscaler (MetalFX *and* bilinear),
+- ✅ **Q2. Sharpening pass (CAS/RCAS).** *(done: CAS in the present shader, neighbors one output pixel
+  apart; picture settings now travel as one `RenderParams` JSON via `sc_set_render_params`; "compare"
+  became a toggle: left = unprocessed baseline, right = current picture settings. On PS5 frames 0.3
+  is subtle, 0.6 clearly crisper, 1.0 still halo-free.)* Compute pass after the upscaler (MetalFX *and* bilinear),
   `sharpness` 0–1 (0 = off). Port AMD FidelityFX CAS (MIT). Unit-test on synthetic edges
   (sharpness 0 = identity; >0 increases edge contrast without clipping).
 - ❌ **Q3. Pre-upscale cleanup.** Optional deblock + deband pass on the source-resolution

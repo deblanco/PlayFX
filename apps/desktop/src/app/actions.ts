@@ -4,6 +4,7 @@ import { ValidationError, type CoreError, type StorageError } from "@/core/error
 import { Preferences } from "@/core/preferences"
 import {
   isAccountId,
+  sameRenderParams,
   type DiscoveredConsole,
   type ControllerState,
   type PairedConsole,
@@ -12,7 +13,7 @@ import {
   type Settings,
   type StreamEvent,
 } from "@/core/schema"
-import { framesPerSecond, hudStats, megabitsPerSecond, streamOptions, type FrameSample } from "./format"
+import { framesPerSecond, hudStats, megabitsPerSecond, renderParams, streamOptions, type FrameSample } from "./format"
 
 // Every side effect the UI triggers lives here, as an Effect over the Core and Preferences services.
 
@@ -146,17 +147,17 @@ export interface Startup {
   readonly metalfxSupported: boolean
 }
 
-/** Loads saved settings and applies the saved upscaler to the renderer. */
+/** Loads saved settings and applies the saved picture settings to the renderer. */
 export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Preferences> = Effect.gen(function* () {
   const core = yield* Core
   const prefs = yield* Preferences
   const settings = yield* prefs.settings
   const status = yield* core.rendererStatus
-  yield* core.setUpscaler(settings.upscaler)
+  yield* core.setRenderParams(renderParams(settings))
   return { settings, metalfxSupported: status.metalfxSupported }
 })
 
-/** Persists new settings, switching the renderer's upscaler when it changed. */
+/** Persists new settings, updating the renderer when a picture setting changed. */
 export const changeSettings = (
   previous: Settings,
   next: Settings,
@@ -165,7 +166,8 @@ export const changeSettings = (
     const core = yield* Core
     const prefs = yield* Preferences
     yield* prefs.saveSettings(next)
-    if (next.upscaler !== previous.upscaler) yield* core.setUpscaler(next.upscaler)
+    const params = renderParams(next)
+    if (!sameRenderParams(params, renderParams(previous))) yield* core.setRenderParams(params)
     return next
   })
 

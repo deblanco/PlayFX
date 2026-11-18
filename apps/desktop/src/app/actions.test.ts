@@ -136,27 +136,32 @@ describe("consoles", () => {
 })
 
 describe("settings", () => {
-  it.effect("loads settings and applies the upscaler at startup", () => {
+  it.effect("loads settings and applies the picture settings at startup", () => {
     const core = fakeCore()
     core.state.status = status({}, false)
     const saved = { ...defaultSettings, upscaler: "bilinear" as const }
     const { layer } = setup(core, { settings: saved })
     return Effect.gen(function* () {
       expect(yield* actions.startup).toEqual({ settings: saved, metalfxSupported: false })
-      expect(core.service.setUpscaler).toHaveBeenCalledWith("bilinear")
+      expect(core.service.setRenderParams).toHaveBeenCalledWith({ upscaler: "bilinear", sharpness: 0.3, compare: false })
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect("persists changes and only switches the upscaler when it changed", () => {
+  it.effect("persists changes and only updates the renderer when a picture setting changed", () => {
     const { core, layer } = setup()
     return Effect.gen(function* () {
       const fps30 = { ...defaultSettings, fps: 30 as const }
       yield* actions.changeSettings(defaultSettings, fps30)
-      expect(core.service.setUpscaler).not.toHaveBeenCalled()
+      expect(core.service.setRenderParams).not.toHaveBeenCalled()
       const prefs = yield* Preferences
       expect(yield* prefs.settings).toEqual(fps30)
       yield* actions.changeSettings(fps30, { ...fps30, upscaler: "bilinear" })
-      expect(core.service.setUpscaler).toHaveBeenCalledWith("bilinear")
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "bilinear", sharpness: 0.3, compare: false })
+      yield* actions.changeSettings(fps30, { ...fps30, sharpness: 1 })
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "metalfx", sharpness: 1, compare: false })
+      yield* actions.changeSettings(fps30, { ...fps30, compare: true })
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "metalfx", sharpness: 0.3, compare: true })
+      expect(core.service.setRenderParams).toHaveBeenCalledTimes(3)
     }).pipe(Effect.provide(layer))
   })
 })

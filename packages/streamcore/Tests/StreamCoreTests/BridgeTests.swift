@@ -76,7 +76,7 @@ extension Serial {
             // The bridge's renderer is process-wide; this only holds until a window is attached.
             if sc_active_mode() == -1 {
                 #expect(!sc_metalfx_supported())
-                sc_set_upscale_mode(1) // no renderer: no-op
+                #expect(sc_set_render_params(#"{"upscaler":"metalfx"}"#)) // no renderer: accepted, no-op
             }
         }
 
@@ -90,8 +90,9 @@ extension Serial {
                 #expect(!sc_attach_macos_window(Unmanaged.passUnretained(window).toOpaque())) // only once
             }
             #expect(sc_active_mode() == 0) // bilinear until a frame has gone through MetalFX
-            sc_set_upscale_mode(1)
-            sc_set_upscale_mode(42) // unknown → bilinear
+            #expect(sc_set_render_params(#"{"upscaler":"bilinear","sharpness":0.5,"compare":true}"#))
+            #expect(!sc_set_render_params(#"{"upscaler":"fsr"}"#)) // rejected, nothing changes
+            #expect(!sc_set_render_params("not json"))
             _ = sc_metalfx_supported()
 
             sc_set_event_callback { message in receivedEvents.append(String(cString: message)) }

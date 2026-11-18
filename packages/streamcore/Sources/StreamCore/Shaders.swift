@@ -59,6 +59,38 @@ fragment float4 presentFragment(VOut in [[stage_in]],
     return tex.sample(s, in.uv);
 }
 
+// Contrast-adaptive sharpening (AMD FidelityFX CAS, MIT), sharpen-only variant, on the
+// presented image: neighbors are one output pixel apart, so it works the same after MetalFX
+// (texel-exact) or bilinear. `peak` = -1 / lerp(8, 5, sharpness).
+fragment float4 sharpenFragment(VOut in [[stage_in]],
+                                texture2d<float> tex [[texture(0)]],
+                                sampler s [[sampler(0)]],
+                                constant float2 &step [[buffer(0)]],
+                                constant float &peak [[buffer(1)]]) {
+    float2 uv = in.uv;
+    float3 a = tex.sample(s, uv + float2(-step.x, -step.y)).rgb;
+    float3 b = tex.sample(s, uv + float2(0.0, -step.y)).rgb;
+    float3 c = tex.sample(s, uv + float2(step.x, -step.y)).rgb;
+    float3 d = tex.sample(s, uv + float2(-step.x, 0.0)).rgb;
+    float3 e = tex.sample(s, uv).rgb;
+    float3 f = tex.sample(s, uv + float2(step.x, 0.0)).rgb;
+    float3 g = tex.sample(s, uv + float2(-step.x, step.y)).rgb;
+    float3 h = tex.sample(s, uv + float2(0.0, step.y)).rgb;
+    float3 i = tex.sample(s, uv + float2(step.x, step.y)).rgb;
+
+    // Soft min/max over the cross plus the corners.
+    float3 mn = min(min(min(d, e), min(f, b)), h);
+    mn += min(mn, min(min(a, c), min(g, i)));
+    float3 mx = max(max(max(d, e), max(f, b)), h);
+    mx += max(mx, max(max(a, c), max(g, i)));
+
+    // Less sharpening where the neighborhood already spans the full range (avoids ringing).
+    float3 amp = sqrt(saturate(min(mn, 2.0 - mx) / max(mx, float3(1e-5))));
+    float3 w = amp * peak;
+    float3 sharp = (b * w + d * w + f * w + h * w + e) / (1.0 + 4.0 * w);
+    return float4(saturate(sharp), 1.0);
+}
+
 // The line between the two halves of the compare view.
 fragment float4 dividerFragment(VOut in [[stage_in]]) {
     return float4(1.0, 1.0, 1.0, 1.0);
