@@ -153,8 +153,11 @@ Work items:
 
 ### P1 — making a stream feel complete
 
-- 🔶 **Rumble.** Rumble events are received (`StreamSession.Event.rumble`) but not applied to the
-  pad. Drive `GCDeviceHaptics` / `GCController` rumble from them.
+- 🔶 **Rumble.** *(built, **unverified on hardware** — no pad was connected: the console's two motor
+  levels play through GameController haptics, the heavy motor on the left handle and the light one on the
+  right (or the stronger one on single-actuator pads), as looping continuous haptics whose intensity
+  follows the console; stopped when the session ends. To verify: connect a DualSense, play a game that
+  rumbles.)*
 - ❌ **Adaptive triggers** (DualSense). `trigger_effects` events aren't surfaced by the shim yet;
   forward them and apply via `GCDualSenseAdaptiveTrigger`.
 - ❌ **DualSense haptics audio channel.** chiaki exposes a separate haptics sink; route it to the

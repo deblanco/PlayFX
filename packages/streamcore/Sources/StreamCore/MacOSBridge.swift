@@ -23,6 +23,7 @@ private func keepAwake(_ on: Bool) {
     }
 }
 private var input: ControllerInput?
+private var rumble: Rumble?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
 
 private func cString(_ s: String) -> UnsafeMutablePointer<CChar> { strdup(s)! }
@@ -168,7 +169,9 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         let r = try decode(Request.self, request)
         let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options())
         s.onFrame = { frame in renderer?.display(frame) }
+        let haptics = Rumble()
         s.onEvent = { [weak s] event in
+            if case .rumble(let left, let right) = event { haptics.apply(left: left, right: right) }
             if let payload = eventPayload(event) { emit(payload) }
             // Clean up after a quit, unless the host has already moved on to another session. The last
             // frame stays up: the host may reconnect (busy console, dropped stream) or go home.
@@ -182,6 +185,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         i.onChange = { [weak s] state in s?.setController(state) }
         session = s
         input = i
+        rumble = haptics
         renderer?.showsTestPattern = false
         keepAwake(true)
         return json(["ok": true])
@@ -215,6 +219,8 @@ private func endSession(idle: Bool) {
     input = nil
     session?.stop()
     session = nil
+    rumble?.stop()
+    rumble = nil
     keepAwake(false)
     if idle { renderer?.showsTestPattern = true }
 }
