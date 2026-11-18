@@ -224,6 +224,16 @@ fn psn_signed_in<R: Runtime>(app: AppHandle<R>) -> bool {
 }
 
 #[tauri::command(async)]
+fn audio_devices<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    reply(&core(&app).audio_devices())
+}
+
+#[tauri::command(async)]
+fn set_audio_output<R: Runtime>(app: AppHandle<R>, output: Value) -> Result<Value, String> {
+    reply(&core(&app).set_audio_output(&output.to_string()))
+}
+
+#[tauri::command(async)]
 fn secret_get<R: Runtime>(app: AppHandle<R>, key: String) -> Result<Value, String> {
     reply(&core(&app).secret_get(&key))
 }
@@ -315,6 +325,8 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         keyboard_done,
         set_microphone,
         secret_get,
+        audio_devices,
+        set_audio_output,
         secret_set,
         secret_remove,
         set_render_params,

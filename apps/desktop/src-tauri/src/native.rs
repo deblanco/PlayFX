@@ -54,6 +54,10 @@ pub trait NativeCore: Send + Sync {
     /// The app's secrets (pairing keys, account ID): Keychain in release builds, a 0600 file in dev.
     /// `secret_get` replies {"value": "…" | null}; `secret_set` {"ok"} or {"error"}.
     fn secret_get(&self, key: &str) -> String;
+    /// The Mac's sound outputs as [{"uid", "name"}].
+    fn audio_devices(&self) -> String;
+    /// Sound volume and output device ({"volume", "deviceUID"?}) for this stream and later ones.
+    fn set_audio_output(&self, request: &str) -> String;
     fn secret_set(&self, key: &str, value: &str) -> String;
     fn secret_remove(&self, key: &str);
     /// Blocking: a fresh PSN access token as {"token"} (or {"error"}). Stays native.

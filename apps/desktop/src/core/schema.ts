@@ -116,6 +116,10 @@ export const Settings = Schema.Struct({
   /** Keeps the stream's numbers (frame rate, bitrate, ping, GPU time…) on screen while playing. */
   showStats: since(Schema.Boolean, false),
   hdr: since(Schema.Boolean, false),
+  /** Sound volume, 0–1. */
+  volume: since(Strength, 1),
+  /** Output device's UID; "" = the system default. */
+  audioDevice: since(Schema.String, ""),
 })
 export type Settings = typeof Settings.Type
 
@@ -141,6 +145,8 @@ export const defaultSettings: Settings = {
   connection: "auto",
   showStats: false,
   hdr: false,
+  volume: 1,
+  audioDevice: "",
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).
@@ -175,6 +181,10 @@ export const Diagnostics = Schema.Struct({
   recentLog: Schema.String,
 })
 export type Diagnostics = typeof Diagnostics.Type
+
+/** A sound output on the Mac. */
+export const AudioDevice = Schema.Struct({ uid: Schema.String, name: Schema.String })
+export type AudioDevice = typeof AudioDevice.Type
 
 /** A console on the PSN account (internet play; PS5 only). */
 export const PsnConsole = Schema.Struct({

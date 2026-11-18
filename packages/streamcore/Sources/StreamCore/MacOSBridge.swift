@@ -309,6 +309,25 @@ func networkPayload(_ change: NetworkWatch.Change) -> [String: Any] {
 
 /// The app's secrets (pairing keys, account ID): Keychain in release builds, a 0600 file in development.
 /// Replies `{"value": "…"}` or `{"value": null}`.
+/// The Mac's sound outputs: [{"uid", "name"}].
+@_cdecl("sc_audio_devices")
+public func sc_audio_devices() -> UnsafeMutablePointer<CChar> {
+    let devices = AudioOutput.devices().map { ["uid": $0.uid, "name": $0.name] }
+    return json(devices)
+}
+
+/// Sound volume (0–1) and output device ({"volume", "deviceUID"?}; no UID = the system default), for the
+/// playing stream and later ones.
+@_cdecl("sc_set_audio_output")
+public func sc_set_audio_output(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
+    do {
+        let output = try decode(AudioOutput.self, request)
+        AudioOutput.current = AudioOutput(volume: output.volume, deviceUID: output.deviceUID)
+        session?.applyAudioOutput(AudioOutput.current)
+        return json(["ok": true])
+    } catch { return failure(error.localizedDescription) }
+}
+
 @_cdecl("sc_secret_get")
 public func sc_secret_get(_ key: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
     let value = SecretStores.shared.get(String(cString: key))

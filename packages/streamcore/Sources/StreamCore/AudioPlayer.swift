@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import os
 
 /// Plays interleaved Int16 PCM pushed from libchiaki's Opus decoder with low latency.
@@ -27,9 +28,39 @@ public final class AudioPlayer {
         source = node
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
+        apply(AudioOutput.current)
         do { try engine.start() } catch {
             FileHandle.standardError.write(Data("[audio] engine start failed: \(error)\n".utf8))
         }
+    }
+
+    /// The device set explicitly on the output (nil = the system default, followed automatically).
+    private var appliedDevice: AudioDeviceID?
+
+    /// Volume at once; a different output device restarts the engine briefly. A device that's no longer
+    /// connected falls back to the system default.
+    public func apply(_ output: AudioOutput) {
+        engine.mainMixerNode.outputVolume = output.volume
+        let wanted = output.deviceUID.flatMap(AudioOutput.deviceID(uid:))
+        guard wanted != appliedDevice, let unit = engine.outputNode.audioUnit else { return }
+        var device = wanted ?? Self.systemDefaultOutput()
+        let running = engine.isRunning
+        if running { engine.pause() }
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                          &device, UInt32(MemoryLayout<AudioDeviceID>.size))
+        if status == noErr { appliedDevice = wanted }
+        if running { try? engine.start() }
+        Log.info(.session, "Sound output: \(output.deviceUID == nil ? "system default" : "chosen device")\(status == noErr ? "" : " (failed: \(status))")")
+    }
+
+    private static func systemDefaultOutput() -> AudioDeviceID {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id)
+        return id
     }
 
     public func push(_ pcm: UnsafePointer<Int16>, frames: Int) {

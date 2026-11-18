@@ -531,6 +531,31 @@ describe("settings", () => {
     await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ })) // back off
   })
 
+  it("picks the sound output and volume, applied at once", async () => {
+    const core = fakeCore()
+    renderApp(core)
+    await waitFor(() => {
+      expect(core.service.setAudioOutput).toHaveBeenCalledWith(1, undefined) // saved settings applied at startup
+    })
+    const sheet = await openSettings("Stream")
+    const output = await sheet.findByRole("combobox", { name: "Output" })
+    await waitFor(() => {
+      expect(within(output).getByRole("option", { name: "AirPods Pro" })).toBeInTheDocument()
+    })
+    await userEvent.selectOptions(output, "AirPods")
+    expect(core.service.setAudioOutput).toHaveBeenLastCalledWith(1, "AirPods")
+    expect(sheet.getByText("Volume and output change right away.")).toBeInTheDocument()
+    sheet.getByRole("slider", { name: "Volume" }).focus()
+    await userEvent.keyboard("{ArrowLeft}")
+    expect(core.service.setAudioOutput).toHaveBeenLastCalledWith(0.95, "AirPods")
+  })
+
+  it("says when the chosen sound output isn't connected", async () => {
+    renderApp(fakeCore(), { settings: { ...defaultSettings, audioDevice: "Unplugged" } })
+    const sheet = await openSettings("Stream")
+    expect(await sheet.findByText(/isn't connected, so sound plays through the system default/)).toBeInTheDocument()
+  })
+
   it("asks for HDR only with HEVC", async () => {
     renderApp(fakeCore())
     const sheet = await openSettings("Stream")

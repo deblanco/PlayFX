@@ -98,6 +98,11 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     keyboardSetText: vi.fn<CoreService["keyboardSetText"]>(() => Effect.void),
     keyboardDone: vi.fn<CoreService["keyboardDone"]>(() => Effect.void),
     setMicrophone: vi.fn<CoreService["setMicrophone"]>(() => Effect.void),
+    audioDevices: Effect.succeed([
+      { uid: "BuiltInSpeakerDevice", name: "MacBook Pro Speakers" },
+      { uid: "AirPods", name: "AirPods Pro" },
+    ]),
+    setAudioOutput: vi.fn<CoreService["setAudioOutput"]>(() => Effect.void),
     secretGet: () => Effect.succeed(Option.none()),
     secretSet: () => Effect.void,
     secretRemove: () => Effect.void,

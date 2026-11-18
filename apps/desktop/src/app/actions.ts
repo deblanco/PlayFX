@@ -5,6 +5,7 @@ import { ValidationError, type CoreError, type StorageError } from "@/core/error
 import { Preferences } from "@/core/preferences"
 import {
   isAccountId,
+  type AudioDevice,
   type Diagnostics,
   type RendererStatus,
   type DiscoveredConsole,
@@ -253,6 +254,13 @@ export interface Startup {
   readonly capabilities: Capabilities
 }
 
+/** Where and how loud the stream plays; applied right away (the playing stream and later ones). */
+const applyAudio = (settings: Settings): Effect.Effect<void, CoreError, Core> =>
+  Effect.flatMap(Core, (core) => core.setAudioOutput(settings.volume, settings.audioDevice === "" ? undefined : settings.audioDevice))
+
+/** The Mac's sound outputs, for the Output choice. */
+export const audioDevices: Effect.Effect<readonly AudioDevice[], CoreError, Core> = Effect.flatMap(Core, (core) => core.audioDevices)
+
 /** Switches detailed logs (native and web UI) when the setting differs from what's applied. */
 const applyDetailedLogs = (on: boolean): Effect.Effect<void, CoreError, Core> =>
   Effect.gen(function* () {
@@ -302,6 +310,7 @@ export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Pr
   const status = yield* core.rendererStatus
   yield* core.setRenderParams(renderParams(settings))
   yield* applyDetailedLogs(settings.detailedLogs)
+  yield* Effect.ignore(applyAudio(settings))
   return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported, smooth: status.smoothSupported } }
 })
 
@@ -313,6 +322,7 @@ export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreErro
     const prefs = yield* Preferences
     yield* prefs.saveSettings(next)
     yield* applyDetailedLogs(next.detailedLogs)
+    yield* Effect.ignore(applyAudio(next))
     yield* Effect.logDebug(`Settings: ${JSON.stringify(next)}`)
     yield* core.setRenderParams(renderParams(next))
     return next

@@ -1,13 +1,14 @@
 import { ChevronRight, ClipboardCopy, FolderOpen, RotateCcw } from "lucide-react"
-import { useId, type ReactNode } from "react"
+import { useEffect, useId, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { bitrates, defaultSettings, type Settings } from "@/core/schema"
+import { bitrates, defaultSettings, type AudioDevice, type Settings } from "@/core/schema"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
@@ -373,7 +374,51 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
         onCheckedChange={(on) => { set("autoDowngrade", on) }}
       />
       <SwitchRow label="Sound" checked={settings.audio} onCheckedChange={(on) => { set("audio", on) }} />
+      <SoundOutput settings={settings} set={set} />
     </>
+  )
+}
+
+// ---------- Sound output ----------
+
+/** Volume and output device: unlike the rest of the Stream tab, these apply at once. */
+const SoundOutput = ({ settings, set }: { readonly settings: Settings; readonly set: Set }) => {
+  const run = useRun()
+  const id = useId()
+  const [devices, setDevices] = useState<readonly AudioDevice[]>([])
+  useEffect(() => {
+    run(actions.audioDevices, { onSuccess: setDevices })
+  }, [run])
+  // A device that's no longer connected plays through the system default; say so rather than hide it.
+  const missing = settings.audioDevice !== "" && devices.length > 0 && !devices.some((d) => d.uid === settings.audioDevice)
+  return (
+    <fieldset disabled={!settings.audio} className="flex flex-col gap-4 disabled:opacity-50">
+      <LabeledSlider
+        label="Volume"
+        valueLabel={`${String(Math.round(settings.volume * 100))}%`}
+        value={settings.volume}
+        max={1}
+        step={0.05}
+        onChange={(v) => { set("volume", v) }}
+      />
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={id} className="text-xs text-muted-foreground">Output</label>
+        <NativeSelect
+          id={id}
+          value={missing ? "" : settings.audioDevice}
+          onChange={(event) => { set("audioDevice", event.target.value) }}
+          className="w-full"
+        >
+          <NativeSelectOption value="">System default</NativeSelectOption>
+          {devices.map((device) => (
+            <NativeSelectOption key={device.uid} value={device.uid}>{device.name}</NativeSelectOption>
+          ))}
+        </NativeSelect>
+        <p className="text-xs text-muted-foreground">
+          {missing ? "The chosen output isn't connected, so sound plays through the system default." : "Volume and output change right away."}
+        </p>
+      </div>
+    </fieldset>
   )
 }
 

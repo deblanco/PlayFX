@@ -252,6 +252,8 @@ public final class StreamSession {
     }
 
     public func setLoginPin(_ pin: String) { psrp_session_set_login_pin(handle, pin) }
+    /// Where and how loud the sound plays (also kept in AudioOutput.current for later sessions).
+    public func applyAudioOutput(_ output: AudioOutput) { audio?.apply(output) }
 
     private var microphone: Microphone?
 

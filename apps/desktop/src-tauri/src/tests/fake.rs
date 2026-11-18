@@ -68,6 +68,13 @@ impl NativeCore for FakeCore {
     fn psn_signed_in(&self) -> bool {
         self.psn_signed_in
     }
+    fn audio_devices(&self) -> String {
+        r#"[{"uid":"BuiltInSpeakerDevice","name":"MacBook Pro Speakers"}]"#.into()
+    }
+    fn set_audio_output(&self, request: &str) -> String {
+        self.log(format!("set_audio_output {request}"));
+        r#"{"ok":true}"#.into()
+    }
     fn secret_get(&self, key: &str) -> String {
         self.log(format!("secret_get {key}"));
         self.secrets.lock().unwrap().get(key).map_or_else(|| r#"{"value":null}"#.into(), |v| format!(r#"{{"value":"{v}"}}"#))

@@ -9,6 +9,7 @@ import {
   RendererStatus,
   StartReply,
   StreamEvent,
+  AudioDevice,
   type ControllerState,
   type PointerTouch,
   type DiscoveredConsole,
@@ -51,6 +52,9 @@ export class Core extends Context.Service<
     /** Types into the console's open text field (replacing its text); `keyboardDone` sends or cancels. */
     readonly keyboardSetText: (text: string) => Effect.Effect<void, CoreError>
     readonly keyboardDone: (accept: boolean) => Effect.Effect<void, CoreError>
+    /** The Mac's sound outputs, and where and how loud the stream plays (applied at once). */
+    readonly audioDevices: Effect.Effect<readonly AudioDevice[], CoreError>
+    readonly setAudioOutput: (volume: number, deviceUID: string | undefined) => Effect.Effect<void, CoreError>
     /** The native secret store (Keychain in release builds, a 0600 file in development). */
     readonly secretGet: (key: string) => Effect.Effect<Option.Option<string>, CoreError>
     readonly secretSet: (key: string, value: string) => Effect.Effect<void, CoreError>
@@ -133,6 +137,13 @@ export const CoreLive = Layer.effect(
       keyboardSetText: (text) => Effect.asVoid(call(unit, "keyboard_set_text", { text })),
       keyboardDone: (accept) => Effect.asVoid(call(unit, "keyboard_done", { accept })),
       setMicrophone: (on) => Effect.asVoid(call(unit, "set_microphone", { on })),
+      audioDevices: call(Schema.Array(AudioDevice), "audio_devices"),
+      setAudioOutput: (volume, deviceUID) =>
+        Effect.asVoid(
+          call(Schema.Struct({ ok: Schema.Literal(true) }), "set_audio_output", {
+            output: deviceUID === undefined ? { volume } : { volume, deviceUID },
+          }),
+        ),
       secretGet: (key) =>
         Effect.map(call(Schema.Struct({ value: Schema.NullOr(Schema.String) }), "secret_get", { key }), (r) =>
           Option.fromNullishOr(r.value),

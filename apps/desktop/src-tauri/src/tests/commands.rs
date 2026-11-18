@@ -164,6 +164,18 @@ fn psn_consoles_replies_or_maps_errors() {
 }
 
 #[test]
+fn audio_output_commands() {
+    let core = FakeCore::default().leak();
+    let app = mock(core);
+    assert_eq!(
+        audio_devices(app.handle().clone()),
+        Ok(json!([{"uid": "BuiltInSpeakerDevice", "name": "MacBook Pro Speakers"}]))
+    );
+    assert_eq!(set_audio_output(app.handle().clone(), json!({"volume": 0.5})), Ok(json!({"ok": true})));
+    assert_eq!(core.calls(), [r#"set_audio_output {"volume":0.5}"#]);
+}
+
+#[test]
 fn secrets_go_through_the_native_store() {
     let core = FakeCore::default().leak();
     let app = mock(core);

@@ -29,6 +29,8 @@ unsafe extern "C" {
     pub fn sc_session_set_mic(on: bool);
     pub fn sc_session_stats() -> *mut c_char;
     pub fn sc_secret_get(key: *const c_char) -> *mut c_char;
+    pub fn sc_audio_devices() -> *mut c_char;
+    pub fn sc_set_audio_output(request: *const c_char) -> *mut c_char;
     pub fn sc_secret_set(key: *const c_char, value: *const c_char) -> *mut c_char;
     pub fn sc_secret_remove(key: *const c_char);
     // any thread (blocking ones must stay off the main thread)
@@ -95,6 +97,13 @@ impl NativeCore for MacCore {
     }
     fn psn_signed_in(&self) -> bool {
         unsafe { sc_psn_signed_in() }
+    }
+    fn audio_devices(&self) -> String {
+        take(unsafe { sc_audio_devices() })
+    }
+    fn set_audio_output(&self, request: &str) -> String {
+        let request = cstr(request);
+        take(unsafe { sc_set_audio_output(request.as_ptr()) })
     }
     fn secret_get(&self, key: &str) -> String {
         let key = cstr(key);

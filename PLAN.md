@@ -266,7 +266,10 @@ Work items:
   frames back for nothing). Measured on the PS5: 44 ms (3 drawables, Smooth motion wrongly on) → 33 ms
   (2 drawables; not a strict A/B). Not done: audio jitter-buffer tuning (no audio/video sync complaints
   so far).
-- ❌ **Audio controls**: output-device selection and volume.
+- ✅ **Audio controls**: Volume (0–100 %) and Output (System default or any of the Mac's outputs, by
+  CoreAudio UID) under Sound in Settings → Stream, applied at once to the playing stream and saved for
+  later ones (`sc_audio_devices`, `sc_set_audio_output`). A chosen device that's unplugged plays through
+  the system default and the setting says so. Not checked by ear (nobody at the Mac).
 - ✅ **Window UX.** *(done: the Mac and its display stay awake exactly while a session runs (a
   `ProcessInfo` user activity — `pmset -g assertions` shows "Streaming from a PlayStation"); a Fullscreen
   HUD button and double-click on the video toggle native fullscreen (Rust `toggle_fullscreen`, reading
