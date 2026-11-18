@@ -172,6 +172,8 @@ export const StreamEvent = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal("loginPin"), incorrect: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("nickname"), name: Schema.String }),
+  /** Connecting over the internet: linking (PSN, up to ~30 s per step) → data → connected. */
+  Schema.Struct({ type: Schema.Literal("remoteProgress"), stage: Schema.Literals(["linking", "data", "connected"]) }),
 ])
 export type StreamEvent = typeof StreamEvent.Type
 

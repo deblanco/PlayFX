@@ -27,7 +27,6 @@ extension Serial {
             // Each sign-in URL carries a new device ID; the rest is fixed.
             let withoutDUID = { (url: String) in url.replacingOccurrences(of: #"&duid=[0-9a-f]{48}"#, with: "", options: .regularExpression) }
             #expect(withoutDUID(take(sc_psn_login_url())) == withoutDUID(PSNAuth.loginURL.absoluteString))
-            _ = sc_psn_signed_in() // reads the real Keychain: no assumption about its content
             #expect(take(sc_psn_redirect_url()) == PSNAuth.redirectURL)
             sc_free(nil)
         }
@@ -69,6 +68,8 @@ extension Serial {
             let quit = eventPayload(.quit(reason: "Bye", error: true, kind: .busy))
             #expect(quit?["type"] as? String == "quit" && quit?["reason"] as? String == "Bye" && quit?["error"] as? Bool == true)
             #expect(quit?["kind"] as? String == "busy")
+            let progress = eventPayload(.remoteProgress(.data))
+            #expect(progress?["type"] as? String == "remoteProgress" && progress?["stage"] as? String == "data")
             let pin = eventPayload(.loginPinRequested(incorrect: false))
             #expect(pin?["type"] as? String == "loginPin" && pin?["incorrect"] as? Bool == false)
             let nick = eventPayload(.nickname("PS5"))

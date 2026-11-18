@@ -30,6 +30,7 @@ unsafe extern "C" {
     pub fn sc_psn_account_id(redirect: *const c_char) -> *mut c_char;
     pub fn sc_psn_signed_in() -> bool;
     pub fn sc_psn_consoles() -> *mut c_char;
+    pub fn sc_psn_access_token() -> *mut c_char;
     pub fn sc_psn_sign_out();
     fn sc_free(p: *mut c_char);
 }
@@ -81,6 +82,9 @@ impl NativeCore for MacCore {
     }
     fn psn_consoles(&self) -> String {
         take(unsafe { sc_psn_consoles() })
+    }
+    fn psn_access_token(&self) -> String {
+        take(unsafe { sc_psn_access_token() })
     }
     fn psn_sign_out(&self) {
         unsafe { sc_psn_sign_out() }

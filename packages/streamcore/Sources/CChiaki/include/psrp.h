@@ -86,7 +86,15 @@ typedef enum {
     PSRP_EVENT_LOGIN_PIN_REQUEST = 3, // a = 1 if the previous PIN was wrong
     PSRP_EVENT_RUMBLE = 4,            // a = left (low freq), b = right (high freq)
     PSRP_EVENT_NICKNAME = 5,          // message = console nickname
+    PSRP_EVENT_REMOTE_PROGRESS = 6,   // a = PsrpRemoteStage (connecting over the internet)
 } PsrpEventType;
+
+/// Steps of connecting over the internet, as they start.
+typedef enum {
+    PSRP_REMOTE_LINKING = 1,       // PSN session + reaching the console (up to ~30 s per step)
+    PSRP_REMOTE_DATA = 2,          // linked; opening the data connection
+    PSRP_REMOTE_CONNECTED = 3,     // data connection open
+} PsrpRemoteStage;
 
 /// Why a session ended, as far as what to do next is concerned.
 typedef enum {
@@ -95,6 +103,11 @@ typedef enum {
     PSRP_QUIT_DROPPED = 2, // the connection was lost mid-stream without a reason: worth reconnecting
     PSRP_QUIT_STOPPED = 3, // stopped by this client (e.g. replaced by a new session)
 } PsrpQuitKind;
+
+/// The user-facing message for a libchiaki error while connecting over the internet.
+const char *psrp_remote_error_message(int chiaki_error);
+/// Parses a 64-hex-char PSN device ID into 32 bytes.
+bool psrp_parse_duid(const char *hex, uint8_t out[32]);
 
 /// Classifies a libchiaki `ChiakiQuitReason` value.
 PsrpQuitKind psrp_quit_kind(int reason);
@@ -125,6 +138,11 @@ typedef struct {
     int codec;   // PsrpCodec (PS4 is always H.264)
     int bitrate; // kbps, 0 = preset default
     bool auto_downgrade; // let the console lower the resolution when the network can't keep up
+    /// Set both to connect over the internet (PS5): a valid PSN OAuth token and the console's PSN device
+    /// ID (64 hex chars). `host` is then ignored. Setup runs in the background; progress arrives as
+    /// PSRP_EVENT_REMOTE_PROGRESS, failures as PSRP_EVENT_QUIT.
+    const char *psn_token;
+    const char *psn_duid;
 } PsrpSessionConfig;
 
 typedef struct PsrpSession PsrpSession;

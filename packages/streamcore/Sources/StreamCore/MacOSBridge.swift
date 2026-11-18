@@ -52,7 +52,7 @@ private func emit(_ object: [String: Any]) {
 @_cdecl("sc_free")
 public func sc_free(_ p: UnsafeMutablePointer<CChar>?) { free(p) }
 
-/// Receives session events as JSON: {"type":"connected"} | {"type":"quit","reason":..,"error":bool,"kind":"final"|"busy"|"dropped"|"stopped"} |
+/// Receives session events as JSON: {"type":"connected"} | {"type":"remoteProgress","stage":"linking"|"data"|"connected"} | {"type":"quit","reason":..,"error":bool,"kind":"final"|"busy"|"dropped"|"stopped"} |
 /// {"type":"loginPin","incorrect":bool} | {"type":"nickname","name":..}. Called from any thread.
 @_cdecl("sc_set_event_callback")
 public func sc_set_event_callback(_ cb: (@convention(c) (UnsafePointer<CChar>) -> Void)?) {
@@ -180,6 +180,23 @@ public func sc_psn_consoles() -> UnsafeMutablePointer<CChar> {
     }
 }
 
+/// Blocking. A PSN access token valid for at least a minute (refreshed if needed) → {"token"} or {"error"}.
+/// For the host to hand straight back in sc_session_start's "remote"; never shown to the web UI.
+@_cdecl("sc_psn_access_token")
+public func sc_psn_access_token() -> UnsafeMutablePointer<CChar> {
+    let done = DispatchSemaphore(value: 0)
+    var result: Result<String, Error> = .failure(ConsoleError.message("PSN didn't answer"))
+    Task.detached {
+        do { result = .success(try await PSNAccount.shared.validAccessToken()) } catch { result = .failure(error) }
+        done.signal()
+    }
+    _ = done.wait(timeout: .now() + 30)
+    switch result {
+    case .success(let token): return json(["token": token])
+    case .failure(let e): return failure(e.localizedDescription)
+    }
+}
+
 /// Forgets the PSN tokens.
 @_cdecl("sc_psn_sign_out")
 public func sc_psn_sign_out() { PSNAccount.shared.signOut() }
@@ -189,11 +206,13 @@ public func sc_psn_sign_out() { PSNAccount.shared.signOut() }
 /// `request`: {"credentials": ConsoleCredentials, "options": StreamSession.Options} → {"ok":true} or {"error"}.
 @_cdecl("sc_session_start")
 public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
-    struct Request: Decodable { let credentials: ConsoleCredentials; let options: StreamSession.Options? }
+    struct Remote: Decodable { let token: String; let duid: String }
+    struct Request: Decodable { let credentials: ConsoleCredentials; let options: StreamSession.Options?; let remote: Remote? }
     endSession(idle: false) // the new session replaces it; no idle pattern in between
     do {
         let r = try decode(Request.self, request)
-        let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options())
+        let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options(),
+                                  remote: r.remote.map { StreamSession.Remote(token: $0.token, duid: $0.duid) })
         s.onFrame = { frame in renderer?.display(frame) }
         let haptics = Rumble()
         let adaptive = AdaptiveTriggers()
@@ -225,6 +244,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
 func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
     switch event {
     case .connected: return ["type": "connected"]
+    case .remoteProgress(let stage): return ["type": "remoteProgress", "stage": stage.rawValue]
     case .quit(let reason, let isError, let kind): return ["type": "quit", "reason": reason, "error": isError, "kind": kind.rawValue]
     case .loginPinRequested(let incorrect): return ["type": "loginPin", "incorrect": incorrect]
     case .nickname(let name): return ["type": "nickname", "name": name]

@@ -20,6 +20,9 @@ import Testing
         guard case .quit(_, true, .busy) = event(PSRP_EVENT_QUIT, 1, 1) else { Issue.record("quit busy"); return }
         guard case .quit(_, true, .dropped) = event(PSRP_EVENT_QUIT, 1, 2) else { Issue.record("quit dropped"); return }
         guard case .quit(_, false, .stopped) = event(PSRP_EVENT_QUIT, 0, 3) else { Issue.record("quit stopped"); return }
+        guard case .remoteProgress(.linking) = event(PSRP_EVENT_REMOTE_PROGRESS, 1) else { Issue.record("linking"); return }
+        guard case .remoteProgress(.data) = event(PSRP_EVENT_REMOTE_PROGRESS, 2) else { Issue.record("data"); return }
+        guard case .remoteProgress(.connected) = event(PSRP_EVENT_REMOTE_PROGRESS, 3) else { Issue.record("connected"); return }
         guard case .loginPinRequested(true) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 1) else { Issue.record("pin"); return }
         guard case .loginPinRequested(false) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 0) else { Issue.record("pin"); return }
         guard case .rumble(255, 0) = event(PSRP_EVENT_RUMBLE, 300, -5) else { Issue.record("rumble"); return }
@@ -48,6 +51,17 @@ extension Serial {
                 var c = fakeCredentials()
                 c[keyPath: broken] = "AAAA"
                 #expect(throws: ConsoleError.message("Invalid console credentials")) { try StreamSession(credentials: c) }
+            }
+        }
+
+        @Test func internetPlayNeedsAPS5AndADeviceID() {
+            #expect(throws: ConsoleError.message("Internet play needs a PS5 and its PSN device ID")) {
+                try StreamSession(credentials: fakeCredentials(), remote: StreamSession.Remote(token: "t", duid: "not-hex"))
+            }
+            var ps4 = fakeCredentials()
+            ps4.ps5 = false
+            #expect(throws: ConsoleError.message("Internet play needs a PS5 and its PSN device ID")) {
+                try StreamSession(credentials: ps4, remote: StreamSession.Remote(token: "t", duid: String(repeating: "ab", count: 32)))
             }
         }
 

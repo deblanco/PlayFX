@@ -37,7 +37,12 @@ export class Core extends Context.Service<
     readonly psnSignOut: Effect.Effect<void, CoreError>
     /** The PS5s on the PSN account (for playing over the internet). */
     readonly psnConsoles: Effect.Effect<readonly PsnConsole[], CoreError>
-    readonly startStream: (credentials: Credentials, options: StreamOptions) => Effect.Effect<void, CoreError>
+    /** Starts a stream; with `psnDuid` (the console's PSN device ID) it connects over the internet. */
+    readonly startStream: (
+      credentials: Credentials,
+      options: StreamOptions,
+      psnDuid?: string,
+    ) => Effect.Effect<void, CoreError>
     readonly stopStream: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
     readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
@@ -99,8 +104,12 @@ export const CoreLive = Layer.effect(
       psnSignedIn: call(Schema.Boolean, "psn_signed_in"),
       psnSignOut: Effect.asVoid(call(unit, "psn_sign_out")),
       psnConsoles: call(Schema.Array(PsnConsole), "psn_consoles"),
-      startStream: (credentials, options) =>
-        Effect.asVoid(call(StartReply, "start_stream", { request: { credentials, options } })),
+      startStream: (credentials, options, psnDuid) =>
+        Effect.asVoid(
+          call(StartReply, "start_stream", {
+            request: psnDuid === undefined ? { credentials, options } : { credentials, options, remote: { duid: psnDuid } },
+          }),
+        ),
       stopStream: Effect.asVoid(call(unit, "stop_stream")),
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),

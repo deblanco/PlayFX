@@ -14,7 +14,8 @@ import StreamCore
 //   psrp consoles                           list saved consoles
 //   psrp psn-consoles                       list the PS5s on the PSN account (after account-id)
 //   psrp wake [--host IP]
-//   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--port 7777]
+//   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--psn] [--port 7777]
+//        --psn connects over the internet through PSN (PS5; run `psrp account-id` first)
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
 //          /hold?buttons=r2  /release  /keyframe  /sleep  /quit  /frameinfo (latest frame's colorimetry)
@@ -198,7 +199,19 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
     options.autoDowngrade = !args.has("no-downgrade")
 
     log("Connecting to \(console.nickname) at \(console.address) (\(options.height)p\(options.fps), \(options.hevc ? "HEVC" : "H.264"))…")
-    let session = try StreamSession(credentials: console, options: options)
+    // --psn: reach the console over the internet through PSN (needs `psrp account-id` first).
+    var remote: StreamSession.Remote?
+    if args.has("psn") {
+        let (token, consoles) = try blocking {
+            (try await PSNAccount.shared.validAccessToken(), try await PSNAccount.shared.consoles())
+        }
+        guard let match = consoles.first(where: { $0.remotePlay && $0.name == console.nickname }) else {
+            throw fail("PSN doesn't list \(console.nickname) with Remote Play on (found: \(consoles.map(\.name)))")
+        }
+        remote = StreamSession.Remote(token: token, duid: match.duid)
+        log("Connecting over the internet via PSN…")
+    }
+    let session = try StreamSession(credentials: console, options: options, remote: remote)
     let ctl = Controller(session: session)
     session.onEvent = { event in
         let text: String
@@ -208,6 +221,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         case .loginPinRequested(let incorrect): text = "login PIN requested (incorrect: \(incorrect))"
         case .rumble, .triggerEffects: return
         case .nickname(let n): text = "nickname: \(n)"
+        case .remoteProgress(let stage): text = "over the internet: \(stage.rawValue)"
         }
         log("[event] \(text)")
         ctl.queue.async { ctl.events.append(text) }

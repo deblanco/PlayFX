@@ -41,8 +41,29 @@ public final class StreamSession {
         case dropped
     }
 
+    /// Reaching the console over the internet (PS5): a valid PSN token and its PSN device ID.
+    public struct Remote: Sendable {
+        public var token: String
+        public var duid: String
+        public init(token: String, duid: String) {
+            self.token = token
+            self.duid = duid
+        }
+    }
+
+    /// Steps of connecting over the internet, as they start.
+    public enum RemoteStage: String, Sendable {
+        /// PSN session and reaching the console (each step can take up to ~30 s).
+        case linking
+        /// Linked; opening the data connection.
+        case data
+        /// Data connection open.
+        case connected
+    }
+
     public enum Event: Sendable {
         case connected
+        case remoteProgress(RemoteStage)
         case quit(reason: String, error: Bool, kind: QuitKind)
         case loginPinRequested(incorrect: Bool)
         case rumble(left: UInt8, right: UInt8)
@@ -76,7 +97,7 @@ public final class StreamSession {
     private var _stats = Stats()
     private var _latestFrame: CVPixelBuffer?
 
-    public init(credentials: ConsoleCredentials, options: Options = Options()) throws {
+    public init(credentials: ConsoleCredentials, options: Options = Options(), remote: Remote? = nil) throws {
         guard let regist = Data(base64Encoded: credentials.registKey), regist.count == Int(PSRP_REGIST_KEY_SIZE),
               let rpKey = Data(base64Encoded: credentials.rpKey), rpKey.count == Int(PSRP_RP_KEY_SIZE),
               let account = Data(base64Encoded: credentials.accountId), account.count == Int(PSRP_ACCOUNT_ID_SIZE)
@@ -134,9 +155,17 @@ public final class StreamSession {
         }
 
         var error = [CChar](repeating: 0, count: 512)
+        // The C strings only need to live for this call; the shim copies what it keeps.
         let handle = credentials.address.withCString { host -> OpaquePointer? in
             config.host = host
-            return psrp_session_start(&config, &callbacks, &error, error.count)
+            guard let remote else { return psrp_session_start(&config, &callbacks, &error, error.count) }
+            return remote.token.withCString { token in
+                remote.duid.withCString { duid in
+                    config.psn_token = token
+                    config.psn_duid = duid
+                    return psrp_session_start(&config, &callbacks, &error, error.count)
+                }
+            }
         }
         guard let handle else { throw ConsoleError.message(String(cString: error)) }
         self.handle = handle
@@ -199,6 +228,12 @@ extension StreamSession.Event {
         case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: self = .loginPinRequested(incorrect: a != 0)
         case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
         case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)
+        case PSRP_EVENT_REMOTE_PROGRESS.rawValue:
+            switch UInt32(a) {
+            case PSRP_REMOTE_DATA.rawValue: self = .remoteProgress(.data)
+            case PSRP_REMOTE_CONNECTED.rawValue: self = .remoteProgress(.connected)
+            default: self = .remoteProgress(.linking)
+            }
         default: return nil
         }
     }

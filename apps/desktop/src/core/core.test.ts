@@ -192,6 +192,12 @@ describe("CoreLive", () => {
         const core = yield* Core
         yield* core.startStream(credentials, options)
         expect(fake.calls).toEqual([{ command: "start_stream", args: { request: { credentials, options } } }])
+        // Over the internet: only the console's PSN device ID; the native side adds the token.
+        yield* core.startStream(credentials, options, "abcd")
+        expect(fake.calls[1]).toEqual({
+          command: "start_stream",
+          args: { request: { credentials, options, remote: { duid: "abcd" } } },
+        })
       }).pipe(Effect.provide(fake.layer))
     })
 

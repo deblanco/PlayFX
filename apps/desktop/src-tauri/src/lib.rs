@@ -5,7 +5,7 @@ mod native;
 mod tests;
 
 use native::{
-    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, CoreHandle, RendererState,
+    controller_state, is_psn_redirect, psn_account, renderer_status_json, reply, with_psn_token, CoreHandle, RendererState,
     NativeCore,
 };
 use serde_json::Value;
@@ -108,7 +108,8 @@ fn finish_psn_login<R: Runtime>(app: &AppHandle<R>, url: &str) {
 #[tauri::command(async)]
 fn start_stream<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, String> {
     let core = core(&app);
-    let req = request.to_string();
+    // Off the main thread: fetching the PSN token may refresh it over the network.
+    let req = with_psn_token(core, request)?.to_string();
     let text = on_main(&app, move || core.session_start(&req))?;
     reply(&text)
 }

@@ -39,6 +39,8 @@ pub trait NativeCore: Send + Sync {
     fn psn_sign_out(&self);
     /// Blocking: the PS5s on the PSN account, as JSON (or {"error"}).
     fn psn_consoles(&self) -> String;
+    /// Blocking: a fresh PSN access token as {"token"} (or {"error"}). Stays native.
+    fn psn_access_token(&self) -> String;
     // main thread
     fn session_start(&self, request: &str) -> String;
     fn session_stop(&self);
@@ -57,6 +59,17 @@ pub trait NativeCore: Send + Sync {
 
 /// Managed state holding the core the commands use.
 pub struct CoreHandle(pub &'static dyn NativeCore);
+
+/// Internet play: the web UI only names the console's PSN device ID (`"remote": {"duid"}`); the PSN
+/// token is added here, natively, so it never passes through the web UI. Blocking (token refresh).
+pub fn with_psn_token(core: &dyn NativeCore, mut request: Value) -> Result<Value, String> {
+    if let Some(remote) = request.get_mut("remote").and_then(Value::as_object_mut) {
+        let reply = reply(&core.psn_access_token())?;
+        let token = reply.get("token").cloned().ok_or("no PSN token in reply")?;
+        remote.insert("token".into(), token);
+    }
+    Ok(request)
+}
 
 /// Turns a StreamCore JSON reply into Ok(value) / Err(message).
 pub fn reply(text: &str) -> Result<Value, String> {

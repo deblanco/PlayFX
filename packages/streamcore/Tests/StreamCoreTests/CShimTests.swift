@@ -50,4 +50,22 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
             #expect(psrp_quit_kind(Int32(final)) == PSRP_QUIT_FINAL)
         }
     }
+
+    @Test func parsesPSNDeviceIDs() {
+        var out = [UInt8](repeating: 0, count: 32)
+        #expect(psrp_parse_duid(String(repeating: "0a", count: 31) + "ff", &out))
+        #expect(out.first == 0x0a && out.last == 0xff)
+        #expect(!psrp_parse_duid("0a", &out)) // too short
+        #expect(!psrp_parse_duid(String(repeating: "zz", count: 32), &out)) // not hex
+        #expect(!psrp_parse_duid(nil, &out))
+    }
+
+    /// libchiaki's ChiakiErrorCode values (common.h).
+    @Test func explainsInternetPlayFailures() {
+        let (hostDown, hostUnreach, unknown) = (Int32(8), Int32(9), Int32(1))
+        #expect(String(cString: psrp_remote_error_message(hostDown)).contains("Stay connected to the internet"))
+        #expect(String(cString: psrp_remote_error_message(hostUnreach)).contains("Try another network"))
+        #expect(String(cString: psrp_remote_error_message(unknown)) == "Connecting over the internet failed.")
+    }
 }
+

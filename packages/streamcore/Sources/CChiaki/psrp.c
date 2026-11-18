@@ -274,6 +274,17 @@ struct PsrpSession {
     ChiakiOpusDecoder opus;
     PsrpCallbacks cb;
     char host[256];
+    ChiakiConnectInfo info;
+    /// The chiaki session exists (and was started); before that, controller input etc. are dropped.
+    bool started;
+    // Internet play: set up on `worker` before the chiaki session exists.
+    bool remote;
+    char *psn_token;
+    uint8_t console_duid[32];
+    pthread_t worker;
+    pthread_mutex_t lock;
+    bool stopping;
+    ChiakiHolepunchSession holepunch; // owned here until handed to chiaki_session_init
     /// Orientation from the controller's gyro + accelerometer (Madgwick), as chiaki-ng does it.
     ChiakiOrientationTracker orientation;
     ChiakiAccelNewZero accel_zero;
@@ -332,12 +343,112 @@ static void session_event_cb(ChiakiEvent *event, void *user) {
     case CHIAKI_EVENT_RUMBLE:
         s->cb.event(s->cb.user, PSRP_EVENT_RUMBLE, event->rumble.left, event->rumble.right, NULL);
         break;
+    case CHIAKI_EVENT_HOLEPUNCH:
+        s->cb.event(s->cb.user, PSRP_EVENT_REMOTE_PROGRESS,
+                    event->data_holepunch.finished ? PSRP_REMOTE_CONNECTED : PSRP_REMOTE_DATA, 0, NULL);
+        break;
     case CHIAKI_EVENT_NICKNAME_RECEIVED:
         s->cb.event(s->cb.user, PSRP_EVENT_NICKNAME, 0, 0, event->server_nickname);
         break;
     default:
         break;
     }
+}
+
+/// Creates and starts the chiaki session from `s->info`. Callers hold `s->lock` (remote) or own `s` alone.
+static ChiakiErrorCode start_chiaki(PsrpSession *s) {
+    ChiakiErrorCode err = chiaki_session_init(&s->session, &s->info, &g_log);
+    if (err != CHIAKI_ERR_SUCCESS) return err;
+    chiaki_opus_decoder_init(&s->opus, &g_log);
+    chiaki_opus_decoder_set_cb(&s->opus, session_audio_settings_cb, session_audio_frame_cb, s);
+    ChiakiAudioSink sink;
+    chiaki_opus_decoder_get_sink(&s->opus, &sink);
+    chiaki_session_set_audio_sink(&s->session, &sink);
+    chiaki_session_set_video_sample_cb(&s->session, session_video_cb, s);
+    chiaki_session_set_event_cb(&s->session, session_event_cb, s);
+    err = chiaki_session_start(&s->session);
+    if (err != CHIAKI_ERR_SUCCESS) {
+        chiaki_session_fini(&s->session);
+        chiaki_opus_decoder_fini(&s->opus);
+        return err;
+    }
+    __atomic_store_n(&s->started, true, __ATOMIC_RELEASE);
+    return CHIAKI_ERR_SUCCESS;
+}
+
+static bool started(PsrpSession *s) { return s && __atomic_load_n(&s->started, __ATOMIC_ACQUIRE); }
+
+const char *psrp_remote_error_message(int err) {
+    switch ((ChiakiErrorCode)err) {
+    case CHIAKI_ERR_HOST_DOWN:
+        return "PSN couldn't reach your PS5. Check that it's on, or in rest mode with \"Stay connected to the "
+               "internet\" turned on.";
+    case CHIAKI_ERR_HOST_UNREACH:
+        return "Your PS5 answered, but the connection couldn't get through this network. Try another network.";
+    default:
+        return "Connecting over the internet failed.";
+    }
+}
+
+bool psrp_parse_duid(const char *hex, uint8_t out[32]) {
+    if (!hex || strlen(hex) != 64) return false;
+    for (int i = 0; i < 32; i++) {
+        unsigned int byte;
+        char pair[3] = {hex[2 * i], hex[2 * i + 1], 0};
+        char *end = NULL;
+        byte = (unsigned int)strtoul(pair, &end, 16);
+        if (end != pair + 2) return false;
+        out[i] = (uint8_t)byte;
+    }
+    return true;
+}
+
+static void emit_quit(PsrpSession *s, ChiakiErrorCode err) {
+    if (!s->cb.event) return;
+    if (err == CHIAKI_ERR_CANCELED) {
+        s->cb.event(s->cb.user, PSRP_EVENT_QUIT, 0, PSRP_QUIT_STOPPED, "Stopped");
+        return;
+    }
+    char msg[512];
+    snprintf(msg, sizeof(msg), "%s (%s)", psrp_remote_error_message(err), chiaki_error_string(err));
+    s->cb.event(s->cb.user, PSRP_EVENT_QUIT, 1, PSRP_QUIT_FINAL, msg);
+}
+
+/// Internet play setup: PSN session, reach the console, punch the control hole, then start chiaki
+/// (which registers over PSN and opens the data connection itself). Each step can block up to ~30 s;
+/// psrp_session_stop cancels them.
+static void *remote_worker(void *arg) {
+    PsrpSession *s = arg;
+    if (s->cb.event) s->cb.event(s->cb.user, PSRP_EVENT_REMOTE_PROGRESS, PSRP_REMOTE_LINKING, 0, NULL);
+    ChiakiHolepunchSession hp = chiaki_holepunch_session_init(s->psn_token, &g_log);
+    if (!hp) {
+        emit_quit(s, CHIAKI_ERR_UNKNOWN);
+        return NULL;
+    }
+    pthread_mutex_lock(&s->lock);
+    bool stop = s->stopping;
+    if (!stop) s->holepunch = hp;
+    pthread_mutex_unlock(&s->lock);
+    ChiakiErrorCode err = stop ? CHIAKI_ERR_CANCELED : CHIAKI_ERR_SUCCESS;
+    if (err == CHIAKI_ERR_SUCCESS) chiaki_holepunch_upnp_discover(hp); // best effort
+    if (err == CHIAKI_ERR_SUCCESS) err = chiaki_holepunch_session_create(hp);
+    if (err == CHIAKI_ERR_SUCCESS) err = holepunch_session_create_offer(hp);
+    if (err == CHIAKI_ERR_SUCCESS)
+        err = chiaki_holepunch_session_start(hp, s->console_duid, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5);
+    if (err == CHIAKI_ERR_SUCCESS) err = chiaki_holepunch_session_punch_hole(hp, CHIAKI_HOLEPUNCH_PORT_TYPE_CTRL);
+
+    pthread_mutex_lock(&s->lock);
+    if (err == CHIAKI_ERR_SUCCESS && s->stopping) err = CHIAKI_ERR_CANCELED;
+    s->holepunch = NULL;
+    if (err == CHIAKI_ERR_SUCCESS) {
+        s->info.holepunch_session = hp; // chiaki owns it from here (and finalizes it, even on failure)
+        hp = NULL;
+        err = start_chiaki(s);
+    }
+    pthread_mutex_unlock(&s->lock);
+    if (hp) chiaki_holepunch_session_fini(hp);
+    if (err != CHIAKI_ERR_SUCCESS) emit_quit(s, err);
+    return NULL;
 }
 
 PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallbacks *callbacks, char *error,
@@ -347,55 +458,58 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
     if (!s) return NULL;
     chiaki_orientation_tracker_init(&s->orientation);
     chiaki_accel_new_zero_set_inactive(&s->accel_zero, true);
+    pthread_mutex_init(&s->lock, NULL);
     s->cb = *callbacks;
-    copy_str(s->host, sizeof(s->host), config->host);
+    s->remote = config->psn_token != NULL;
+    copy_str(s->host, sizeof(s->host), s->remote ? "" : config->host);
 
-    ChiakiConnectInfo info;
-    memset(&info, 0, sizeof(info));
-    info.ps5 = config->ps5;
-    info.host = s->host;
-    memcpy(info.regist_key, config->regist_key, sizeof(info.regist_key));
-    memcpy(info.morning, config->rp_key, sizeof(info.morning));
-    memcpy(info.psn_account_id, config->account_id, sizeof(info.psn_account_id));
+    ChiakiConnectInfo *info = &s->info;
+    info->ps5 = config->ps5;
+    info->host = s->host;
+    memcpy(info->regist_key, config->regist_key, sizeof(info->regist_key));
+    memcpy(info->morning, config->rp_key, sizeof(info->morning));
+    memcpy(info->psn_account_id, config->account_id, sizeof(info->psn_account_id));
 
     ChiakiVideoResolutionPreset res = config->height >= 1080  ? CHIAKI_VIDEO_RESOLUTION_PRESET_1080p
                                       : config->height >= 720 ? CHIAKI_VIDEO_RESOLUTION_PRESET_720p
                                       : config->height >= 540 ? CHIAKI_VIDEO_RESOLUTION_PRESET_540p
                                                               : CHIAKI_VIDEO_RESOLUTION_PRESET_360p;
-    chiaki_connect_video_profile_preset(&info.video_profile, res,
+    chiaki_connect_video_profile_preset(&info->video_profile, res,
                                         config->fps >= 60 ? CHIAKI_VIDEO_FPS_PRESET_60 : CHIAKI_VIDEO_FPS_PRESET_30);
-    if (config->bitrate > 0) info.video_profile.bitrate = (unsigned int)config->bitrate;
-    info.video_profile.codec = config->ps5 ? (ChiakiCodec)config->codec : CHIAKI_CODEC_H264;
-    info.video_profile_auto_downgrade = config->auto_downgrade;
-    info.enable_keyboard = false;
-    info.enable_dualsense = config->ps5;
-    info.audio_video_disabled = 0;
-    info.auto_regist = false;
-    info.holepunch_session = NULL;
-    info.rudp_sock = NULL;
-    info.packet_loss_max = 0.05;
-    info.enable_idr_on_fec_failure = true;
+    if (config->bitrate > 0) info->video_profile.bitrate = (unsigned int)config->bitrate;
+    info->video_profile.codec = config->ps5 ? (ChiakiCodec)config->codec : CHIAKI_CODEC_H264;
+    info->video_profile_auto_downgrade = config->auto_downgrade;
+    info->enable_keyboard = false;
+    info->enable_dualsense = config->ps5;
+    info->audio_video_disabled = 0;
+    info->auto_regist = false;
+    info->holepunch_session = NULL;
+    info->rudp_sock = NULL;
+    info->packet_loss_max = 0.05;
+    info->enable_idr_on_fec_failure = true;
 
-    ChiakiErrorCode err = chiaki_session_init(&s->session, &info, &g_log);
-    if (err != CHIAKI_ERR_SUCCESS) {
-        set_error(error, error_size, "Session init failed: %s", chiaki_error_string(err));
-        free(s);
-        return NULL;
+    if (s->remote) {
+        if (!config->ps5 || !psrp_parse_duid(config->psn_duid, s->console_duid)) {
+            copy_str(error, error_size, "Internet play needs a PS5 and its PSN device ID");
+            pthread_mutex_destroy(&s->lock);
+            free(s);
+            return NULL;
+        }
+        s->psn_token = strdup(config->psn_token);
+        if (!s->psn_token || pthread_create(&s->worker, NULL, remote_worker, s) != 0) {
+            copy_str(error, error_size, "Couldn't start connecting over the internet");
+            free(s->psn_token);
+            pthread_mutex_destroy(&s->lock);
+            free(s);
+            return NULL;
+        }
+        return s;
     }
 
-    chiaki_opus_decoder_init(&s->opus, &g_log);
-    chiaki_opus_decoder_set_cb(&s->opus, session_audio_settings_cb, session_audio_frame_cb, s);
-    ChiakiAudioSink sink;
-    chiaki_opus_decoder_get_sink(&s->opus, &sink);
-    chiaki_session_set_audio_sink(&s->session, &sink);
-    chiaki_session_set_video_sample_cb(&s->session, session_video_cb, s);
-    chiaki_session_set_event_cb(&s->session, session_event_cb, s);
-
-    err = chiaki_session_start(&s->session);
+    ChiakiErrorCode err = start_chiaki(s);
     if (err != CHIAKI_ERR_SUCCESS) {
         set_error(error, error_size, "Session start failed: %s", chiaki_error_string(err));
-        chiaki_session_fini(&s->session);
-        chiaki_opus_decoder_fini(&s->opus);
+        pthread_mutex_destroy(&s->lock);
         free(s);
         return NULL;
     }
@@ -403,7 +517,7 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
 }
 
 void psrp_session_set_controller_state(PsrpSession *s, const PsrpControllerState *c) {
-    if (!s || !c) return;
+    if (!started(s) || !c) return;
     ChiakiControllerState state;
     chiaki_controller_state_set_idle(&state);
     state.buttons = c->buttons;
@@ -427,23 +541,35 @@ void psrp_session_set_controller_state(PsrpSession *s, const PsrpControllerState
 }
 
 void psrp_session_set_login_pin(PsrpSession *s, const char *pin) {
-    if (!s || !pin) return;
+    if (!started(s) || !pin) return;
     chiaki_session_set_login_pin(&s->session, (const uint8_t *)pin, strlen(pin));
 }
 
 void psrp_session_request_idr(PsrpSession *s) {
-    if (s) chiaki_session_request_idr(&s->session);
+    if (started(s)) chiaki_session_request_idr(&s->session);
 }
 
 void psrp_session_goto_bed(PsrpSession *s) {
-    if (s) chiaki_session_goto_bed(&s->session);
+    if (started(s)) chiaki_session_goto_bed(&s->session);
 }
 
 void psrp_session_stop(PsrpSession *s) {
     if (!s) return;
-    chiaki_session_stop(&s->session);
-    chiaki_session_join(&s->session);
-    chiaki_session_fini(&s->session);
-    chiaki_opus_decoder_fini(&s->opus);
+    if (s->remote) {
+        // Cancel whatever setup step is blocking, then wait for the worker to give up.
+        pthread_mutex_lock(&s->lock);
+        s->stopping = true;
+        if (s->holepunch) chiaki_holepunch_main_thread_cancel(s->holepunch, true);
+        pthread_mutex_unlock(&s->lock);
+        pthread_join(s->worker, NULL);
+        free(s->psn_token);
+    }
+    if (started(s)) {
+        chiaki_session_stop(&s->session);
+        chiaki_session_join(&s->session);
+        chiaki_session_fini(&s->session);
+        chiaki_opus_decoder_fini(&s->opus);
+    }
+    pthread_mutex_destroy(&s->lock);
     free(s);
 }

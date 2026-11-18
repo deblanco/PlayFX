@@ -26,6 +26,21 @@ fn reply_rejects_invalid_json() {
 }
 
 #[test]
+fn with_psn_token_adds_the_token_only_for_internet_play() {
+    let core = FakeCore { psn_token: r#"{"token":"tok"}"#.into(), ..Default::default() }.leak();
+    let lan = json!({"credentials": {}, "options": {}});
+    assert_eq!(with_psn_token(core, lan.clone()), Ok(lan));
+    assert_eq!(
+        with_psn_token(core, json!({"credentials": {}, "remote": {"duid": "ab"}})),
+        Ok(json!({"credentials": {}, "remote": {"duid": "ab", "token": "tok"}}))
+    );
+    let expired = FakeCore { psn_token: r#"{"error":"Sign in again"}"#.into(), ..Default::default() }.leak();
+    assert_eq!(with_psn_token(expired, json!({"remote": {"duid": "ab"}})), Err("Sign in again".into()));
+    let odd = FakeCore { psn_token: "{}".into(), ..Default::default() }.leak();
+    assert_eq!(with_psn_token(odd, json!({"remote": {"duid": "ab"}})), Err("no PSN token in reply".into()));
+}
+
+#[test]
 fn mode_name_maps_numbers() {
     assert_eq!(mode_name(0), "bilinear");
     assert_eq!(mode_name(1), "metalfx");

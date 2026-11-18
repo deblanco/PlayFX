@@ -11,6 +11,8 @@ pub struct FakeCore {
     pub redirect_url: String,
     pub wakeup_ok: bool,
     pub psn_signed_in: bool,
+    /// Reply to psn_access_token.
+    pub psn_token: String,
     pub metalfx: bool,
     pub mode: i32,
     pub gpu_ms: f64,
@@ -61,6 +63,9 @@ impl NativeCore for FakeCore {
     }
     fn psn_consoles(&self) -> String {
         self.reply.clone()
+    }
+    fn psn_access_token(&self) -> String {
+        self.psn_token.clone()
     }
     fn psn_sign_out(&self) {
         self.log("psn_sign_out".into());
