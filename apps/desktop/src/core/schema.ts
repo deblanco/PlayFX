@@ -43,7 +43,7 @@ export type PairedConsoles = typeof PairedConsoles.Type
 
 export const Resolution = Schema.Literals([540, 720, 1080])
 export const Fps = Schema.Literals([30, 60])
-export const Upscaler = Schema.Literals(["metalfx", "bilinear"])
+export const Upscaler = Schema.Literals(["metalfx", "bilinear", "compare"])
 export type Upscaler = typeof Upscaler.Type
 
 export const Settings = Schema.Struct({
@@ -106,7 +106,7 @@ export type StreamStats = typeof StreamStats.Type
 
 export const RendererStatus = Schema.Struct({
   metalfxSupported: Schema.Boolean,
-  activeMode: Schema.Literals(["bilinear", "metalfx", "none"]),
+  activeMode: Schema.Literals(["bilinear", "metalfx", "compare", "none"]),
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

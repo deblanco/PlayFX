@@ -62,6 +62,7 @@ pub fn upscale_mode(name: &str) -> Result<i32, String> {
     match name {
         "bilinear" => Ok(0),
         "metalfx" => Ok(1),
+        "compare" => Ok(2),
         other => Err(format!("unknown upscaler: {other}")),
     }
 }
@@ -71,6 +72,7 @@ pub fn mode_name(mode: i32) -> &'static str {
     match mode {
         0 => "bilinear",
         1 => "metalfx",
+        2 => "compare",
         _ => "none",
     }
 }

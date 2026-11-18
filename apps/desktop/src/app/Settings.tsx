@@ -50,6 +50,7 @@ export const UpscalerSelect = ({ settings, metalfxSupported, onChange }: Setting
     options={[
       { value: "metalfx", label: "MetalFX", disabled: !metalfxSupported },
       { value: "bilinear", label: "Bilinear" },
+      { value: "compare", label: "Compare (split)", disabled: !metalfxSupported },
     ]}
   />
 )

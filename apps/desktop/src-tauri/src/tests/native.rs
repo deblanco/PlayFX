@@ -29,6 +29,7 @@ fn reply_rejects_invalid_json() {
 fn upscale_mode_parses_known_names() {
     assert_eq!(upscale_mode("bilinear"), Ok(0));
     assert_eq!(upscale_mode("metalfx"), Ok(1));
+    assert_eq!(upscale_mode("compare"), Ok(2));
     assert_eq!(upscale_mode("fsr"), Err("unknown upscaler: fsr".to_string()));
 }
 
@@ -36,6 +37,7 @@ fn upscale_mode_parses_known_names() {
 fn mode_name_maps_numbers() {
     assert_eq!(mode_name(0), "bilinear");
     assert_eq!(mode_name(1), "metalfx");
+    assert_eq!(mode_name(2), "compare");
     assert_eq!(mode_name(-1), "none");
     assert_eq!(mode_name(7), "none");
 }

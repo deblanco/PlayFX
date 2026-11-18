@@ -367,6 +367,16 @@ describe("streaming", () => {
     const { core } = await startStreaming()
     await userEvent.selectOptions(screen.getByLabelText("Upscaler"), "bilinear")
     expect(core.service.setUpscaler).toHaveBeenLastCalledWith("bilinear")
+    expect(screen.queryByLabelText("Upscaler comparison")).not.toBeInTheDocument()
+  })
+
+  it("labels the halves of the split-screen comparison", async () => {
+    const { core } = await startStreaming()
+    await userEvent.selectOptions(screen.getByLabelText("Upscaler"), "compare")
+    expect(core.service.setUpscaler).toHaveBeenLastCalledWith("compare")
+    const labels = screen.getByLabelText("Upscaler comparison")
+    expect(labels).toHaveTextContent("Bilinear")
+    expect(labels).toHaveTextContent("MetalFX")
   })
 
   it("fades the HUD after 2.5 s without mouse movement", async () => {

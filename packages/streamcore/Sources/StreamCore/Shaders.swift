@@ -58,4 +58,9 @@ fragment float4 presentFragment(VOut in [[stage_in]],
                                 sampler s [[sampler(0)]]) {
     return tex.sample(s, in.uv);
 }
+
+// The line between the two halves of the compare view.
+fragment float4 dividerFragment(VOut in [[stage_in]]) {
+    return float4(1.0, 1.0, 1.0, 1.0);
+}
 """

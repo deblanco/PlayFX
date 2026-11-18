@@ -61,8 +61,14 @@ export const framesPerSecond = (previous: FrameSample, current: FrameSample): nu
   return Math.max(0, Math.round(((current.frames - previous.frames) * 1000) / elapsed))
 }
 
-export const upscalerLabel = (mode: RendererStatus["activeMode"]): string =>
-  mode === "metalfx" ? "MetalFX" : mode === "bilinear" ? "Bilinear" : "No upscaling"
+const upscalerLabels: Readonly<Record<RendererStatus["activeMode"], string>> = {
+  metalfx: "MetalFX",
+  bilinear: "Bilinear",
+  compare: "Bilinear | MetalFX",
+  none: "No upscaling",
+}
+
+export const upscalerLabel = (mode: RendererStatus["activeMode"]): string => upscalerLabels[mode]
 
 /** The HUD's stats line. */
 export const hudStats = (status: RendererStatus, fps: number): string => {

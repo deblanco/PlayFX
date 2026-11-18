@@ -8,6 +8,8 @@ import os
 public enum UpscaleMode: Int32 {
     case bilinear = 0
     case metalFX = 1
+    /// Split screen for A/B: left half bilinear, right half MetalFX (falls back to bilinear).
+    case compare = 2
 }
 
 /// Renders the stream into an MTKView: video frame (NV12) → RGB → optional MetalFX spatial
@@ -29,6 +31,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private let textureCache: CVMetalTextureCache
     private let frameLock = OSAllocatedUnfairLock<CVPixelBuffer?>(initialState: nil)
     private let presentPipeline: MTLRenderPipelineState
+    private let dividerPipeline: MTLRenderPipelineState
     private let sampler: MTLSamplerState
     private let startTime = CACurrentMediaTime()
 
@@ -58,6 +61,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         pd.fragmentFunction = library.makeFunction(name: "presentFragment")
         pd.colorAttachments[0].pixelFormat = view.colorPixelFormat
         guard let presentPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
+        pd.fragmentFunction = library.makeFunction(name: "dividerFragment")
+        guard let dividerPipeline = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
 
         let sd = MTLSamplerDescriptor()
         sd.minFilter = .linear
@@ -72,6 +77,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.nv12Pipeline = nv12Pipeline
         self.textureCache = textureCache
         self.presentPipeline = presentPipeline
+        self.dividerPipeline = dividerPipeline
         self.sampler = sampler
         self.inputTexture = input
         self.view = view
@@ -116,28 +122,80 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         }
 
         let target = fittedRect(drawable: drawableSize)
-        var source = inputTexture
-        activeMode = .bilinear
-        if mode == .metalFX, metalFXSupported,
+        var upscaled: MTLTexture?
+        if mode != .bilinear, metalFXSupported,
            let (scaler, output) = scaler(outputWidth: Int(target.width), outputHeight: Int(target.height)) {
             scaler.colorTexture = inputTexture
             scaler.outputTexture = output
             scaler.encode(commandBuffer: cb)
-            source = output
-            activeMode = .metalFX
+            upscaled = output
         }
+        activeMode = upscaled == nil ? .bilinear : mode
 
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        if let enc = cb.makeRenderCommandEncoder(descriptor: pass) {
-            enc.setViewport(MTLViewport(originX: target.minX, originY: target.minY,
-                                        width: target.width, height: target.height, znear: 0, zfar: 1))
-            enc.setRenderPipelineState(presentPipeline)
-            enc.setFragmentTexture(source, index: 0)
-            enc.setFragmentSamplerState(sampler, index: 0)
+        guard let enc = cb.makeRenderCommandEncoder(descriptor: pass) else { return }
+        enc.setViewport(MTLViewport(originX: target.minX, originY: target.minY,
+                                    width: target.width, height: target.height, znear: 0, zfar: 1))
+        enc.setFragmentSamplerState(sampler, index: 0)
+        enc.setRenderPipelineState(presentPipeline)
+        if activeMode == .compare, let upscaled {
+            let split = Self.compareRects(target)
+            for (rect, texture) in [(split.left, inputTexture), (split.right, upscaled)] {
+                enc.setScissorRect(Self.scissor(rect))
+                enc.setFragmentTexture(texture, index: 0)
+                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            }
+            enc.setScissorRect(Self.scissor(split.divider))
+            enc.setRenderPipelineState(dividerPipeline)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-            enc.endEncoding()
+        } else {
+            enc.setFragmentTexture(upscaled ?? inputTexture, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         }
+        enc.endEncoding()
+    }
+
+    /// Splits the video rect into a bilinear left half, a MetalFX right half and a thin divider
+    /// between them (pixels; the divider is ~0.2% of the width, at least 2 px).
+    static func compareRects(_ target: CGRect) -> (left: CGRect, right: CGRect, divider: CGRect) {
+        let mid = (target.minX + target.width / 2).rounded()
+        let line = max(2, (target.width / 500).rounded())
+        return (CGRect(x: target.minX, y: target.minY, width: mid - target.minX, height: target.height),
+                CGRect(x: mid, y: target.minY, width: target.maxX - mid, height: target.height),
+                CGRect(x: mid - (line / 2).rounded(.down), y: target.minY, width: line, height: target.height))
+    }
+
+    private static func scissor(_ r: CGRect) -> MTLScissorRect {
+        MTLScissorRect(x: Int(r.minX), y: Int(r.minY), width: Int(r.width), height: Int(r.height))
+    }
+
+    /// Renders the pending (or last decoded) frame with the current `mode` into a `width`×`height`
+    /// image, offscreen. For screenshots and A/B comparisons.
+    public func snapshot(width: Int, height: Int) -> CGImage? {
+        let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height,
+                                                          mipmapped: false)
+        td.usage = [.renderTarget, .shaderRead]
+        td.storageMode = .shared
+        guard width > 0, height > 0, let target = device.makeTexture(descriptor: td),
+              let cb = queue.makeCommandBuffer() else { return nil }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].storeAction = .store
+        encode(cb, pass: pass, drawableSize: CGSize(width: width, height: height))
+        cb.commit()
+        cb.waitUntilCompleted()
+        var pixels = Data(count: width * height * 4)
+        pixels.withUnsafeMutableBytes {
+            target.getBytes($0.baseAddress!, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height),
+                            mipmapLevel: 0)
+        }
+        guard let provider = CGDataProvider(data: pixels as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue
+                                                | CGBitmapInfo.byteOrder32Little.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     /// Command queue on the renderer's device (tests encode offscreen with it).

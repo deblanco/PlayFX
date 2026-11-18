@@ -70,7 +70,7 @@ public func sc_metalfx_supported() -> Bool {
     renderer?.metalFXSupported ?? false
 }
 
-/// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, -1 = no renderer.
+/// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, 2 = compare (split), -1 = no renderer.
 @_cdecl("sc_active_mode")
 public func sc_active_mode() -> Int32 {
     renderer?.activeMode.rawValue ?? -1

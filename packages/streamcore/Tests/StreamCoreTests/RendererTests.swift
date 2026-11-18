@@ -116,4 +116,48 @@ import Testing
         _ = try render(r, size: (8, 8))
         #expect(r.activeMode == .bilinear)
     }
+
+    @Test func compareRectsSplitTheVideo() {
+        let split = StreamRenderer.compareRects(CGRect(x: 100, y: 0, width: 2000, height: 1000))
+        #expect(split.left == CGRect(x: 100, y: 0, width: 1000, height: 1000))
+        #expect(split.right == CGRect(x: 1100, y: 0, width: 1000, height: 1000))
+        #expect(split.divider == CGRect(x: 1098, y: 0, width: 4, height: 1000))
+        #expect(StreamRenderer.compareRects(CGRect(x: 0, y: 0, width: 64, height: 64)).divider.width == 2)
+    }
+
+    @Test func compareSplitsBilinearAndMetalFX() throws {
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
+        r.mode = .compare
+        r.showsTestPattern = false
+        r.display(try makeNV12(width: 64, height: 64, y: 16, cb: 128, cr: 128)) // black
+        let out = try render(r, size: (128, 128))
+        #expect(r.activeMode == (r.metalFXSupported ? .compare : .bilinear))
+        if r.metalFXSupported {
+            #expect(pixel(out, width: 128, x: 64, y: 64) == (255, 255, 255, 255)) // divider
+            #expect(pixel(out, width: 128, x: 20, y: 64).r < 10)  // bilinear half
+            #expect(pixel(out, width: 128, x: 108, y: 64).r < 10) // MetalFX half
+        }
+        // Not upscaling: falls back to plain bilinear, no divider.
+        let same = try render(r, size: (64, 64))
+        #expect(r.activeMode == .bilinear)
+        #expect(pixel(same, width: 64, x: 32, y: 32).r < 10)
+    }
+
+    @Test func snapshotsTheLastFrame() throws {
+        let r = try #require(StreamRenderer(inputWidth: 32, inputHeight: 32))
+        r.showsTestPattern = false
+        r.mode = .metalFX
+        r.display(try makeNV12(width: 32, height: 32, y: 63, cb: 102, cr: 240)) // red
+        let image = try #require(r.snapshot(width: 96, height: 64))
+        #expect(image.width == 96 && image.height == 64)
+        let data = try #require(image.dataProvider?.data as Data?)
+        let center = (32 * 96 + 48) * 4 // BGRA
+        #expect(data[center + 2] > 240 && data[center + 1] < 15 && data[center] < 15)
+        #expect(data[(32 * 96 + 2) * 4 + 2] == 0) // pillarbox stays black
+        // The frame was consumed; later snapshots keep re-rendering the last one.
+        r.mode = .bilinear
+        let again = try #require(r.snapshot(width: 32, height: 32)?.dataProvider?.data as Data?)
+        #expect(again[(16 * 32 + 16) * 4 + 2] > 240)
+        #expect(r.snapshot(width: 0, height: 10) == nil)
+    }
 }

@@ -73,6 +73,7 @@ describe("hudStats", () => {
 describe("upscalerLabel", () => {
   it("names each mode", () => {
     expect(upscalerLabel("none")).toBe("No upscaling")
+    expect(upscalerLabel("compare")).toBe("Bilinear | MetalFX")
   })
 })
 

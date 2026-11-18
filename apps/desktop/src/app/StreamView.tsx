@@ -138,12 +138,24 @@ export const StreamView = ({
           Stop
         </Button>
       </header>
+      {settings.upscaler === "compare" && <CompareLabels />}
       {Option.isSome(loginPin) && (
         <LoginPinPrompt incorrect={loginPin.value.incorrect} onSubmitted={onLoginPinSubmitted} onCancel={stop} />
       )}
     </>
   )
 }
+
+/** Names the two halves of the split-screen upscaler comparison. */
+const CompareLabels = () => (
+  <div aria-label="Upscaler comparison" className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-between p-4">
+    {["Bilinear", "MetalFX"].map((name) => (
+      <span key={name} className="rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur">
+        {name}
+      </span>
+    ))}
+  </div>
+)
 
 interface LoginPinPromptProps {
   readonly incorrect: boolean
