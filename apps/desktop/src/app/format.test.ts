@@ -62,10 +62,24 @@ describe("framesPerSecond", () => {
 
 describe("renderParams", () => {
   it("picks the picture settings", () => {
-    expect(renderParams({ ...defaultSettings, upscaler: "bilinear", sharpness: 0, compare: true })).toEqual({
+    const settings = {
+      ...defaultSettings,
       upscaler: "bilinear",
       sharpness: 0,
       compare: true,
+      colorMatrix: "bt2020",
+      colorRange: "full",
+      chroma: "bilinear",
+      accurateColor: false,
+    } as const
+    expect(renderParams({ ...settings, fps: 30, bitrate: 50000 })).toEqual({
+      upscaler: "bilinear",
+      sharpness: 0,
+      compare: true,
+      colorMatrix: "bt2020",
+      colorRange: "full",
+      chroma: "bilinear",
+      accurateColor: false,
     })
   })
 })
@@ -120,6 +134,10 @@ describe("withSetting / settingValue", () => {
     expect(withSetting(defaultSettings, "audio", "off").audio).toBe(false)
     expect(withSetting(defaultSettings, "sharpness", "0.6").sharpness).toBe(0.6)
     expect(withSetting(defaultSettings, "compare", "on").compare).toBe(true)
+    expect(withSetting(defaultSettings, "accurateColor", "off").accurateColor).toBe(false)
+    expect(withSetting(defaultSettings, "chroma", "bilinear").chroma).toBe("bilinear")
+    expect(withSetting(defaultSettings, "colorMatrix", "bt601").colorMatrix).toBe("bt601")
+    expect(withSetting(defaultSettings, "colorRange", "full").colorRange).toBe("full")
   })
   it("ignores invalid values", () => {
     expect(withSetting(defaultSettings, "height", "999")).toBe(defaultSettings)

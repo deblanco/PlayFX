@@ -5,7 +5,7 @@ import { CoreError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
 import * as actions from "./actions"
-import { accountId, credentials, fakeCore, pairedPs5, prefsLayer, ps5, status, type StoredPrefs } from "./testing"
+import { accountId, credentials, fakeCore, pairedPs5, picture, prefsLayer, ps5, status, type StoredPrefs } from "./testing"
 
 const setup = (core = fakeCore(), prefs: StoredPrefs = {}) => ({ core, layer: Layer.mergeAll(core.layer, prefsLayer(prefs)) })
 
@@ -143,7 +143,7 @@ describe("settings", () => {
     const { layer } = setup(core, { settings: saved })
     return Effect.gen(function* () {
       expect(yield* actions.startup).toEqual({ settings: saved, metalfxSupported: false })
-      expect(core.service.setRenderParams).toHaveBeenCalledWith({ upscaler: "bilinear", sharpness: 0.3, compare: false })
+      expect(core.service.setRenderParams).toHaveBeenCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
     }).pipe(Effect.provide(layer))
   })
 
@@ -156,11 +156,11 @@ describe("settings", () => {
       const prefs = yield* Preferences
       expect(yield* prefs.settings).toEqual(fps30)
       yield* actions.changeSettings(fps30, { ...fps30, upscaler: "bilinear" })
-      expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "bilinear", sharpness: 0.3, compare: false })
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
       yield* actions.changeSettings(fps30, { ...fps30, sharpness: 1 })
-      expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "metalfx", sharpness: 1, compare: false })
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "metalfx", sharpness: 1, compare: false }))
       yield* actions.changeSettings(fps30, { ...fps30, compare: true })
-      expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "metalfx", sharpness: 0.3, compare: true })
+      expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "metalfx", sharpness: 0.3, compare: true }))
       expect(core.service.setRenderParams).toHaveBeenCalledTimes(3)
     }).pipe(Effect.provide(layer))
   })

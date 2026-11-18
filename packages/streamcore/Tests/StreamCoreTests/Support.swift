@@ -18,14 +18,25 @@ func makeNV12(width: Int, height: Int, y: UInt8, cb: UInt8, cr: UInt8) throws ->
 
 /// An NV12 frame with uniform chroma and per-pixel luma.
 func makeNV12(width: Int, height: Int, cb: UInt8, cr: UInt8, luma y: (Int, Int) -> UInt8) throws -> CVPixelBuffer {
+    try makeNV12(width: width, height: height, luma: y) { _, _ in (cb, cr) }
+}
+
+/// An NV12 frame with per-pixel luma and per-chroma-texel (Cb, Cr), tagged like a decoded HD
+/// stream (BT.709, left-sited chroma) unless `matrix`/`siting` say otherwise (nil = untagged).
+func makeNV12(width: Int, height: Int, fullRange: Bool = false,
+              matrix: CFString? = kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+              siting: CFString? = kCVImageBufferChromaLocation_Left,
+              luma y: (Int, Int) -> UInt8, chroma: (Int, Int) -> (UInt8, UInt8)) throws -> CVPixelBuffer {
     let attrs: [CFString: Any] = [
         kCVPixelBufferMetalCompatibilityKey: true,
         kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
     ]
     var out: CVPixelBuffer?
-    let status = CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-                                     attrs as CFDictionary, &out)
+    let format = fullRange ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+    let status = CVPixelBufferCreate(nil, width, height, format, attrs as CFDictionary, &out)
     let buffer = try #require(status == kCVReturnSuccess ? out : nil)
+    if let matrix { CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, matrix, .shouldPropagate) }
+    if let siting { CVBufferSetAttachment(buffer, kCVImageBufferChromaLocationTopFieldKey, siting, .shouldPropagate) }
     CVPixelBufferLockBaseAddress(buffer, [])
     defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
     let luma = CVPixelBufferGetBaseAddressOfPlane(buffer, 0)!.assumingMemoryBound(to: UInt8.self)
@@ -33,12 +44,11 @@ func makeNV12(width: Int, height: Int, cb: UInt8, cr: UInt8, luma y: (Int, Int) 
         let line = luma + row * CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
         for x in 0..<width { line[x] = y(x, row) }
     }
-    let chroma = CVPixelBufferGetBaseAddressOfPlane(buffer, 1)!.assumingMemoryBound(to: UInt8.self)
+    let chromaPlane = CVPixelBufferGetBaseAddressOfPlane(buffer, 1)!.assumingMemoryBound(to: UInt8.self)
     for row in 0..<CVPixelBufferGetHeightOfPlane(buffer, 1) {
-        let line = chroma + row * CVPixelBufferGetBytesPerRowOfPlane(buffer, 1)
+        let line = chromaPlane + row * CVPixelBufferGetBytesPerRowOfPlane(buffer, 1)
         for x in 0..<CVPixelBufferGetWidthOfPlane(buffer, 1) {
-            line[2 * x] = cb
-            line[2 * x + 1] = cr
+            (line[2 * x], line[2 * x + 1]) = chroma(x, row)
         }
     }
     return buffer

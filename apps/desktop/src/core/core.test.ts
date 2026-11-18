@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "@effect/vitest"
 import { Effect, Exit, Layer } from "effect"
 import { Core, CoreLive } from "./core"
 import { CoreError } from "./errors"
-import type { Credentials, DiscoveredConsole, PsnAccountEvent, StreamEvent, StreamOptions } from "./schema"
+import type { Credentials, DiscoveredConsole, PsnAccountEvent, RenderParams, StreamEvent, StreamOptions } from "./schema"
 import { TauriBridge } from "./tauri"
 
 type Reply = Effect.Effect<unknown, CoreError>
@@ -49,6 +49,16 @@ const credentials: Credentials = {
   registKey: "AAAAAAAAAAAAAAAAAAAAAA==",
   rpKey: "AAAAAAAAAAAAAAAAAAAAAA==",
   accountId: "AAAAAAAAAAA=",
+}
+
+const picture: RenderParams = {
+  upscaler: "bilinear",
+  sharpness: 0,
+  compare: true,
+  colorMatrix: "bt601",
+  colorRange: "full",
+  chroma: "bilinear",
+  accurateColor: false,
 }
 
 const options: StreamOptions = { height: 1080, fps: 60, hevc: true, bitrate: 15000, audio: true, autoDowngrade: true }
@@ -203,12 +213,12 @@ describe("CoreLive", () => {
         yield* core.psnLogin
         yield* core.stopStream
         yield* core.setLoginPin("1234")
-        yield* core.setRenderParams({ upscaler: "bilinear", sharpness: 0, compare: true })
+        yield* core.setRenderParams(picture)
         expect(fake.calls).toEqual([
           { command: "psn_login", args: undefined },
           { command: "stop_stream", args: undefined },
           { command: "set_login_pin", args: { pin: "1234" } },
-          { command: "set_render_params", args: { params: { upscaler: "bilinear", sharpness: 0, compare: true } } },
+          { command: "set_render_params", args: { params: picture } },
         ])
       }).pipe(Effect.provide(fake.layer))
     })
@@ -219,7 +229,7 @@ describe("CoreLive", () => {
       })
       return Effect.gen(function* () {
         const core = yield* Core
-        const exit = yield* Effect.exit(core.setRenderParams({ upscaler: "metalfx", sharpness: 0.3, compare: false }))
+        const exit = yield* Effect.exit(core.setRenderParams(picture))
         expect(Exit.isFailure(exit)).toBe(true)
         // psn_login isn't stubbed: the fake fails it.
         expect((yield* Effect.flip(core.psnLogin)).command).toBe("psn_login")

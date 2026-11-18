@@ -35,6 +35,12 @@ public struct RenderParams: Codable, Equatable, Sendable {
     public var sharpness: Float = 0.3
     /// Split screen: left half is the baseline (bilinear, no processing), right half these params.
     public var compare = false
+    public var colorMatrix: ColorMatrix = .auto
+    public var colorRange: ColorRange = .auto
+    public var chroma: ChromaFilter = .bicubic
+    /// Tag the output as sRGB so macOS converts it to the display's gamut (off = unmanaged, more
+    /// saturated on wide-gamut displays).
+    public var accurateColor = true
 
     public init() {}
 
@@ -44,6 +50,10 @@ public struct RenderParams: Codable, Equatable, Sendable {
         upscaler = try c.decodeIfPresent(UpscaleMode.self, forKey: .upscaler) ?? d.upscaler
         sharpness = min(1, max(0, try c.decodeIfPresent(Float.self, forKey: .sharpness) ?? d.sharpness))
         compare = try c.decodeIfPresent(Bool.self, forKey: .compare) ?? d.compare
+        colorMatrix = try c.decodeIfPresent(ColorMatrix.self, forKey: .colorMatrix) ?? d.colorMatrix
+        colorRange = try c.decodeIfPresent(ColorRange.self, forKey: .colorRange) ?? d.colorRange
+        chroma = try c.decodeIfPresent(ChromaFilter.self, forKey: .chroma) ?? d.chroma
+        accurateColor = try c.decodeIfPresent(Bool.self, forKey: .accurateColor) ?? d.accurateColor
     }
 }
 
@@ -53,7 +63,9 @@ public struct RenderParams: Codable, Equatable, Sendable {
 public final class StreamRenderer: NSObject, MTKViewDelegate {
     public let view: MTKView
     public let metalFXSupported: Bool
-    public var params = RenderParams()
+    public var params = RenderParams() {
+        didSet { applyColorSpace() }
+    }
     /// Upscaler actually used for the last frame (MetalFX is skipped when not upscaling).
     public private(set) var activeMode: UpscaleMode = .bilinear
     /// Shows the animated test pattern when no video frames are arriving.
@@ -123,6 +135,12 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
         super.init()
         view.delegate = self
+        applyColorSpace()
+    }
+
+    /// sRGB (BT.709 primaries) when color-managed; nil leaves the output in the display's space.
+    private func applyColorSpace() {
+        view.colorspace = params.accurateColor ? CGColorSpace(name: CGColorSpace.sRGB) : nil
     }
 
     public func setInputSize(width: Int, height: Int) {
@@ -276,6 +294,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         enc.setTexture(lumaTex, index: 0)
         enc.setTexture(chromaTex, index: 1)
         enc.setTexture(inputTexture, index: 2)
+        var conversion = YCbCrConversion(frame: FrameColor(frame), matrix: params.colorMatrix,
+                                         range: params.colorRange, chroma: params.chroma)
+        enc.setBytes(&conversion, length: MemoryLayout<YCbCrConversion>.stride, index: 0)
         dispatch(enc, inputTexture)
         enc.endEncoding()
         // Keep the CoreVideo textures (and the frame) alive until the GPU is done with them.

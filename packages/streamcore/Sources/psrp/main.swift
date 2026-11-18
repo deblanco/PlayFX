@@ -15,8 +15,8 @@ import StreamCore
 //   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--port 7777]
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
-//          /hold?buttons=r2  /release  /keyframe  /sleep  /quit
-//          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&w=3840&h=2160   latest frame, on the GPU
+//          /hold?buttons=r2  /release  /keyframe  /sleep  /quit  /frameinfo (latest frame's colorimetry)
+//          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&chroma=bicubic&w=3840&h=2160   latest frame, on the GPU
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //
 // Saved state: ~/.config/psrp/config.json (contains pairing keys — keep it private).
@@ -256,12 +256,24 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
             default: throw fail("mode must be bilinear, metalfx or compare")
             }
             params.sharpness = query["sharpness"].flatMap(Float.init) ?? (params.upscaler == .bilinear ? 0 : 0.3)
+            if let chroma = query["chroma"] {
+                guard let filter = ChromaFilter(rawValue: chroma) else { throw fail("chroma must be bicubic or bilinear") }
+                params.chroma = filter
+            }
             let w = Int(query["w"] ?? "") ?? 3840, h = Int(query["h"] ?? "") ?? 2160
             guard let image = render(frame, params: params, width: w, height: h),
                   let png = ciContext.pngRepresentation(of: CIImage(cgImage: image), format: .RGBA8,
                                                         colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
             else { return (500, "text/plain", Data("render failed\n".utf8)) }
             return (200, "image/png", png)
+        case "/frameinfo":
+            guard let frame = ctl.session.latestFrame else { return (503, "text/plain", Data("no frame yet\n".utf8)) }
+            var info: [String: String] = ["pixelFormat": String(CVPixelBufferGetPixelFormatType(frame), radix: 16)]
+            for key in [kCVImageBufferYCbCrMatrixKey, kCVImageBufferColorPrimariesKey, kCVImageBufferTransferFunctionKey,
+                        kCVImageBufferChromaLocationTopFieldKey, kCVImageBufferChromaLocationBottomFieldKey] {
+                info[key as String] = CVBufferCopyAttachment(frame, key, nil).map { "\($0)" } ?? "(none)"
+            }
+            return json(info)
         case "/press":
             var s = try parseButtons(query["buttons"] ?? query["b"])
             if let v = query["lx"].flatMap(Int16.init) { s.leftX = v }

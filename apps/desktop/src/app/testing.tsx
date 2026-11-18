@@ -10,10 +10,13 @@ import type {
   PairedConsole,
   PsnAccountEvent,
   RendererStatus,
+  RenderParams,
   Settings,
   StreamEvent,
 } from "@/core/schema"
+import { defaultSettings } from "@/core/schema"
 import { App } from "./App"
+import { renderParams } from "./format"
 import { RuntimeProvider } from "./runtime"
 
 // Test doubles shared by the app's tests: a scriptable Core and in-memory Preferences.
@@ -41,6 +44,12 @@ export const credentials: Credentials = {
 }
 
 export const pairedPs5: PairedConsole = { hostId: "HOST1", name: "Living Room", credentials }
+
+/** Default picture settings with some overridden, as the renderer receives them. */
+export const picture = (overrides: Partial<RenderParams> = {}): RenderParams => ({
+  ...renderParams(defaultSettings),
+  ...overrides,
+})
 
 export const status = (stream: Partial<RendererStatus["stream"]> = {}, metalfxSupported = true): RendererStatus => ({
   metalfxSupported,

@@ -102,7 +102,11 @@ Work items:
 - ❌ **Q3. Pre-upscale cleanup.** Optional deblock + deband pass on the source-resolution
   texture before the upscaler (`deblock` 0–1, `deband` 0–1). Cheap at 1080p. Tests on synthetic
   8×8 block steps and gradients.
-- ❌ **Q4. Color correctness.** Read matrix/range/transfer from the `CVPixelBuffer` attachments
+- ✅ **Q4. Color correctness.** *(done: matrix/range/chroma siting read from each frame — the PS5 signals
+  BT.709 + left-sited chroma, so the old shader was a quarter chroma texel off — with overrides; bicubic
+  (Catmull-Rom) or bilinear chroma; sRGB-tagged output ("Accurate") vs unmanaged ("Vivid"). On PS5
+  frames the chroma changes are near-invisible (correctness, not a visible upgrade); the colorspace tag is
+  the visible part and only shows on a wide-gamut display. `psrp /frameinfo` dumps a frame's colorimetry.)* Read matrix/range/transfer from the `CVPixelBuffer` attachments
   (BT.601/709/2020, limited/full) with a manual override; set the layer colorspace (Rec.709/sRGB)
   so macOS color-manages to the display; better chroma upsampling (bicubic or luma-guided).
   Groundwork for HDR (P1 below). Tests: known YCbCr triples per matrix/range.

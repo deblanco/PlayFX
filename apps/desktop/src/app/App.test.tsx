@@ -8,7 +8,7 @@ import { Preferences } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
 import { hudIdleMs } from "./StreamView"
 import { useRuntime } from "./runtime"
-import { accountId, credentials, fakeCore, pairedPs5, ps5, renderApp, status } from "./testing"
+import { accountId, credentials, fakeCore, pairedPs5, picture, ps5, renderApp, status } from "./testing"
 
 const coreError = (command: string, message: string) => new CoreError({ command, message })
 
@@ -196,7 +196,7 @@ describe("settings", () => {
     await waitFor(() => {
       expect(resolution).toHaveValue("720")
     })
-    expect(core.service.setRenderParams).toHaveBeenCalledWith({ upscaler: "metalfx", sharpness: 0.3, compare: false })
+    expect(core.service.setRenderParams).toHaveBeenCalledWith(picture({ upscaler: "metalfx", sharpness: 0.3, compare: false }))
     await userEvent.selectOptions(resolution, "540")
     await userEvent.selectOptions(screen.getByLabelText("FPS"), "30")
     await userEvent.selectOptions(screen.getByLabelText("Codec"), "h264")
@@ -204,11 +204,12 @@ describe("settings", () => {
     await userEvent.selectOptions(screen.getByLabelText("When the network is slow"), "off")
     await userEvent.selectOptions(screen.getByLabelText("Audio"), "off")
     await userEvent.selectOptions(screen.getByLabelText("Upscaler"), "bilinear")
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "bilinear", sharpness: 0.3, compare: false })
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
     await userEvent.selectOptions(screen.getByLabelText("Sharpness"), "0.6")
     await waitFor(async () => {
       const saved = await runtime.runPromise(Preferences.use((prefs) => prefs.settings))
       expect(saved).toEqual({
+        ...defaultSettings,
         height: 540,
         fps: 30,
         hevc: false,
@@ -381,14 +382,14 @@ describe("streaming", () => {
   it("changes the upscaler from the HUD", async () => {
     const { core } = await startStreaming()
     await userEvent.selectOptions(screen.getByLabelText("Upscaler"), "bilinear")
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "bilinear", sharpness: 0.3, compare: false })
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
     expect(screen.queryByLabelText("Split-screen comparison")).not.toBeInTheDocument()
   })
 
   it("labels the halves of the split-screen comparison", async () => {
     const { core } = await startStreaming()
     await userEvent.selectOptions(screen.getByLabelText("Compare"), "on")
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith({ upscaler: "metalfx", sharpness: 0.3, compare: true })
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ upscaler: "metalfx", sharpness: 0.3, compare: true }))
     const labels = screen.getByLabelText("Split-screen comparison")
     expect(labels).toHaveTextContent("Original")
     expect(labels).toHaveTextContent("Enhanced")

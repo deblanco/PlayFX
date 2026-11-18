@@ -199,6 +199,9 @@ import Testing
         #expect(p.upscaler == .bilinear && p.sharpness == 1 && p.compare)
         #expect(try decode(#"{"sharpness":-1}"#).sharpness == 0)
         #expect(throws: DecodingError.self) { try decode(#"{"upscaler":"fsr"}"#) }
+        let color = try decode(#"{"colorMatrix":"bt2020","colorRange":"full","chroma":"bilinear","accurateColor":false}"#)
+        #expect(color.colorMatrix == .bt2020 && color.colorRange == .full && color.chroma == .bilinear && !color.accurateColor)
+        #expect(throws: DecodingError.self) { try decode(#"{"chroma":"lanczos"}"#) }
         let roundTrip = try decode(String(decoding: JSONEncoder().encode(p), as: UTF8.self))
         #expect(roundTrip == p)
     }

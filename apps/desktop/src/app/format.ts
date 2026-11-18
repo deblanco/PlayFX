@@ -55,6 +55,10 @@ export const renderParams = (settings: Settings): RenderParams => ({
   upscaler: settings.upscaler,
   sharpness: settings.sharpness,
   compare: settings.compare,
+  colorMatrix: settings.colorMatrix,
+  colorRange: settings.colorRange,
+  chroma: settings.chroma,
+  accurateColor: settings.accurateColor,
 })
 
 /** The decoder's counters at one moment, for computing rates between polls. */
@@ -114,6 +118,10 @@ const parsers: Readonly<Record<SettingKey, (raw: string) => unknown>> = {
   upscaler: (raw) => raw,
   sharpness: Number,
   compare: (raw) => raw === "on",
+  colorMatrix: (raw) => raw,
+  colorRange: (raw) => raw,
+  chroma: (raw) => raw,
+  accurateColor: (raw) => raw === "on",
 }
 
 /** Applies a raw `<select>` value to the settings; values the schema rejects leave them unchanged. */

@@ -57,12 +57,24 @@ const since = <S extends Schema.Top>(schema: S, value: S["Encoded"]) =>
 /** Sharpening after the upscale: 0 = off … 1 = strongest. */
 export const Sharpness = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }))
 
+/** YCbCr → RGB matrix; "auto" uses what the stream signals (the PS5 sends BT.709). */
+export const ColorMatrix = Schema.Literals(["auto", "bt601", "bt709", "bt2020"])
+/** How YCbCr values are scaled; "auto" uses the decoded frame's format. */
+export const ColorRange = Schema.Literals(["auto", "limited", "full"])
+/** How half-resolution color is brought up to full resolution. */
+export const ChromaFilter = Schema.Literals(["bicubic", "bilinear"])
+
 /** Picture settings, applied to every frame without reconnecting (StreamCore's RenderParams). */
 export const RenderParams = Schema.Struct({
   upscaler: Upscaler,
   sharpness: Sharpness,
   /** Split screen: left half is the unprocessed baseline, right half these settings. */
   compare: Schema.Boolean,
+  colorMatrix: ColorMatrix,
+  colorRange: ColorRange,
+  chroma: ChromaFilter,
+  /** Color-manage the output as sRGB; off shows the display's native, more saturated colors. */
+  accurateColor: Schema.Boolean,
 })
 export type RenderParams = typeof RenderParams.Type
 export const sameRenderParams = Schema.toEquivalence(RenderParams)
@@ -77,6 +89,10 @@ export const Settings = Schema.Struct({
   upscaler: Upscaler,
   sharpness: since(Sharpness, 0.3),
   compare: since(Schema.Boolean, false),
+  colorMatrix: since(ColorMatrix, "auto"),
+  colorRange: since(ColorRange, "auto"),
+  chroma: since(ChromaFilter, "bicubic"),
+  accurateColor: since(Schema.Boolean, true),
 })
 export type Settings = typeof Settings.Type
 
@@ -90,6 +106,10 @@ export const defaultSettings: Settings = {
   upscaler: "metalfx",
   sharpness: 0.3,
   compare: false,
+  colorMatrix: "auto",
+  colorRange: "auto",
+  chroma: "bicubic",
+  accurateColor: true,
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).

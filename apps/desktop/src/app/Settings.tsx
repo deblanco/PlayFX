@@ -79,6 +79,49 @@ export const PictureSelects = ({ settings, onChange }: Omit<SettingsProps, "meta
         { value: "on", label: "Split screen" },
       ]}
     />
+    <SettingSelect
+      label="Colors"
+      setting="accurateColor"
+      settings={settings}
+      onChange={onChange}
+      options={[
+        { value: "on", label: "Accurate" },
+        { value: "off", label: "Vivid" },
+      ]}
+    />
+    <SettingSelect
+      label="Color detail"
+      setting="chroma"
+      settings={settings}
+      onChange={onChange}
+      options={[
+        { value: "bicubic", label: "Sharp" },
+        { value: "bilinear", label: "Smooth" },
+      ]}
+    />
+    <SettingSelect
+      label="Color matrix"
+      setting="colorMatrix"
+      settings={settings}
+      onChange={onChange}
+      options={[
+        { value: "auto", label: "Automatic" },
+        { value: "bt709", label: "BT.709 (HD)" },
+        { value: "bt601", label: "BT.601 (SD)" },
+        { value: "bt2020", label: "BT.2020 (UHD)" },
+      ]}
+    />
+    <SettingSelect
+      label="Color range"
+      setting="colorRange"
+      settings={settings}
+      onChange={onChange}
+      options={[
+        { value: "auto", label: "Automatic" },
+        { value: "limited", label: "Limited (16–235)" },
+        { value: "full", label: "Full (0–255)" },
+      ]}
+    />
   </>
 )
 

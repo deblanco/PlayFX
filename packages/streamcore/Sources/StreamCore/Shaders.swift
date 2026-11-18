@@ -26,20 +26,52 @@ kernel void testPattern(texture2d<float, access::write> out [[texture(0)]],
     out.write(float4(col, 1.0), gid);
 }
 
-// Decoded video (NV12, BT.709 video range) → RGBA, the input to the upscaler.
+// YCbCrConversion in Color.swift: range = (luma offset, luma scale, chroma offset, chroma scale),
+// coef = (R←Cr, G←Cb, G←Cr, B←Cb), chroma = (siting shift x, y in chroma texels, bicubic, -).
+struct YCbCrParams { float4 range; float4 coef; float4 chroma; };
+
+// Catmull-Rom weights for the 4 taps around a sample at fraction t.
+static float4 catmullRom(float t) {
+    float t2 = t * t, t3 = t2 * t;
+    return float4(-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0,
+                  -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2);
+}
+
+// Decoded video (NV12) → RGBA, the input to the upscaler. Matrix, range and chroma siting come
+// from the frame (or the user's overrides); chroma is upsampled bilinearly or with Catmull-Rom.
 kernel void nv12ToRGB(texture2d<float, access::read> lumaTex [[texture(0)]],
                       texture2d<float, access::sample> chromaTex [[texture(1)]],
                       texture2d<float, access::write> out [[texture(2)]],
+                      constant YCbCrParams &p [[buffer(0)]],
                       uint2 gid [[thread_position_in_grid]]) {
     uint w = out.get_width(), h = out.get_height();
     if (gid.x >= w || gid.y >= h) return;
-    constexpr sampler s(filter::linear, coord::normalized, address::clamp_to_edge);
-    float2 uv = (float2(gid) + 0.5) / float2(w, h);
-    float y = (lumaTex.read(gid).r - 16.0 / 255.0) * (255.0 / 219.0);
-    float2 c = (chromaTex.sample(s, uv).rg - 128.0 / 255.0) * (255.0 / 224.0);
-    float3 rgb = float3(y + 1.5748 * c.y,
-                        y - 0.1873 * c.x - 0.4681 * c.y,
-                        y + 1.8556 * c.x);
+    float2 csize = float2(chromaTex.get_width(), chromaTex.get_height());
+    // This pixel's position in chroma texel coordinates (texel centers at integers).
+    float2 c = (float2(gid) + 0.5) * csize / float2(w, h) - 0.5 + p.chroma.xy;
+    float2 cbcr;
+    if (p.chroma.z > 0.5) {
+        float2 base = floor(c);
+        float4 wx = catmullRom(c.x - base.x), wy = catmullRom(c.y - base.y);
+        int2 last = int2(csize) - 1;
+        cbcr = float2(0.0);
+        for (int j = 0; j < 4; j++) {
+            float2 row = float2(0.0);
+            for (int i = 0; i < 4; i++) {
+                int2 q = clamp(int2(base) + int2(i - 1, j - 1), int2(0), last);
+                row += chromaTex.read(uint2(q)).rg * wx[i];
+            }
+            cbcr += row * wy[j];
+        }
+    } else {
+        constexpr sampler s(filter::linear, coord::normalized, address::clamp_to_edge);
+        cbcr = chromaTex.sample(s, (c + 0.5) / csize).rg;
+    }
+    float y = (lumaTex.read(gid).r - p.range.x) * p.range.y;
+    float2 cc = (cbcr - p.range.z) * p.range.w;
+    float3 rgb = float3(y + p.coef.x * cc.y,
+                        y - p.coef.y * cc.x - p.coef.z * cc.y,
+                        y + p.coef.w * cc.x);
     out.write(float4(saturate(rgb), 1.0), gid);
 }
 
