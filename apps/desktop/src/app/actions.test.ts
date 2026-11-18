@@ -250,11 +250,11 @@ describe("reconnect", () => {
     return fiber
   })
 
-  it.effect("stops, starts with the new settings and finishes when connected", () => {
+  it.effect("starts with the new settings (replacing the session) and finishes when connected", () => {
     const { core, layer } = setup()
     return Effect.gen(function* () {
       const fiber = yield* begin
-      expect(core.counts.stopStream).toBe(1)
+      expect(core.counts.stopStream).toBe(0) // start replaces it, keeping the last frame up
       expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }))
       core.emitStream({ type: "quit", reason: "Stopped", error: false }) // the old session: ignored
       core.emitStream({ type: "loginPin", incorrect: false }) // not an answer either

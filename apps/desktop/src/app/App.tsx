@@ -48,10 +48,21 @@ export const App = () => {
     run(actions.changeSettings(settings, next))
   }
 
-  const end = useCallback((error: Option.Option<string>) => {
+  /** Back home, after the stream view stopped the stream itself. */
+  const leave = useCallback((error: Option.Option<string>) => {
     setSession(null)
     Option.map(error, (message) => toast.error(message))
   }, [])
+
+  /** Back home after the stream ended on its own: also brings back the idle picture behind the home
+   * screen (after a quit the renderer keeps the last frame, in case the stream is reconnected). */
+  const end = useCallback(
+    (error: Option.Option<string>) => {
+      leave(error)
+      run(Effect.ignore(actions.stop))
+    },
+    [leave, run],
+  )
 
   // While reconnecting, quit events belong to the reconnect (the old session ending, or the console
   // still busy), not to the user. An effect event sees the latest session without re-subscribing.
@@ -130,7 +141,7 @@ export const App = () => {
             onReconnect: reconnect,
           }}
           onLoginPinSubmitted={clearLoginPin}
-          onEnd={end}
+          onEnd={leave}
         />
       ) : (
         <Home settings={settings} capabilities={capabilities} onSettingsChange={changeSettings} onPlay={play} />

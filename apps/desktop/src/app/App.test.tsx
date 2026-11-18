@@ -441,6 +441,10 @@ describe("streaming", () => {
     })
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     expect(screen.queryByText(/Disconnected/)).not.toBeInTheDocument()
+    // Going home brings back the idle picture (the renderer kept the last frame after the quit).
+    await waitFor(() => {
+      expect(core.counts.stopStream).toBe(1)
+    })
   })
 
   it("asks for the login PIN and sends it", async () => {
@@ -511,7 +515,7 @@ describe("streaming", () => {
     await waitFor(() => {
       expect(core.service.startStream).toHaveBeenCalledWith(credentials, expect.objectContaining({ height: 720 }))
     })
-    expect(core.counts.stopStream).toBe(1)
+    expect(core.counts.stopStream).toBe(0) // the new session replaces the old one
     // The old session's quit and a busy console don't end the stream view.
     act(() => {
       core.emitStream({ type: "quit", reason: "Stopped", error: false })

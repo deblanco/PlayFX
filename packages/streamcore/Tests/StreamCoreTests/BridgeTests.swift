@@ -116,8 +116,18 @@ extension Serial {
 
             // Loopback has no console: the session quits with an error event.
             #expect(await waitUntil { receivedEvents.lines.contains { $0.contains(#""type":"quit""#) } })
-            // The quit handler stops the session on the main queue.
+            // The quit handler stops the session on the main queue, keeping the last frame up.
             #expect(await waitUntil { (try? object(sc_session_stats())["active"] as? Bool) == false })
+            if let r = renderer { #expect(!r.showsTestPattern) }
+            sc_session_stop() // the host went home: idle pattern back
+            if let r = renderer { #expect(r.showsTestPattern) }
+
+            // A quit's late cleanup must not end a session started after it.
+            #expect(try call(sc_session_start, request)["ok"] as? Bool == true)
+            let stale = try StreamSession(credentials: fakeCredentials(), options: options)
+            cleanUpAfterQuit(of: stale)
+            #expect(try object(sc_session_stats())["active"] as? Bool == true)
+            stale.stop()
             sc_session_stop()
             window.close()
         }

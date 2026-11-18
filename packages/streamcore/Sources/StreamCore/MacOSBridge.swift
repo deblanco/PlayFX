@@ -7,7 +7,7 @@ import AppKit
 // - Returned strings are malloc'd; release them with sc_free.
 // iOS (Expo module) will use the Swift API (StreamRenderer, StreamSession, Console) directly.
 
-private var renderer: StreamRenderer?
+private(set) var renderer: StreamRenderer? // internal for tests
 private var session: StreamSession?
 private var input: ControllerInput?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
@@ -150,14 +150,20 @@ public func sc_psn_account_id(_ redirect: UnsafePointer<CChar>) -> UnsafeMutable
 @_cdecl("sc_session_start")
 public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
     struct Request: Decodable { let credentials: ConsoleCredentials; let options: StreamSession.Options? }
-    sc_session_stop()
+    endSession(idle: false) // the new session replaces it; no idle pattern in between
     do {
         let r = try decode(Request.self, request)
         let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options())
         s.onFrame = { frame in renderer?.display(frame) }
         s.onEvent = { event in
             if let payload = eventPayload(event) { emit(payload) }
-            if case .quit = event { DispatchQueue.main.async { sc_session_stop() } }
+            // Clean up after a quit, unless the host has already moved on to another session. The last
+            // frame stays up: the host may reconnect (busy console, dropped stream) or go home.
+            if case .quit = event {
+                DispatchQueue.main.async { [weak s] in
+                    if let s { cleanUpAfterQuit(of: s) }
+                }
+            }
         }
         let i = ControllerInput()
         i.onChange = { [weak s] state in s?.setController(state) }
@@ -181,10 +187,21 @@ func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
 
 @_cdecl("sc_session_stop")
 public func sc_session_stop() {
+    endSession(idle: true)
+}
+
+/// Ends `quitted` if it is still the current session (a newer one may have replaced it meanwhile).
+func cleanUpAfterQuit(of quitted: StreamSession) {
+    if session === quitted { endSession(idle: false) }
+}
+
+/// Ends the current session. `idle` brings back the test pattern (the host went home); otherwise the
+/// last frame stays on screen.
+private func endSession(idle: Bool) {
     input = nil
     session?.stop()
     session = nil
-    renderer?.showsTestPattern = true
+    if idle { renderer?.showsTestPattern = true }
 }
 
 @_cdecl("sc_session_set_login_pin")

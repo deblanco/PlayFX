@@ -220,14 +220,13 @@ const attemptStream = (
     }),
   )
 
-/** Restarts the stream with new settings, retrying while the console is still busy. */
+/** Restarts the stream with new settings, retrying while the console is still busy. Starting replaces
+ * the running session, so the last frame stays on screen until the new one arrives. */
 export const reconnect = (
   console: PairedConsole,
   settings: Settings,
 ): Effect.Effect<void, CoreError | ReconnectFailed, Core> =>
   Effect.gen(function* () {
-    const core = yield* Core
-    yield* core.stopStream
     const started = yield* Clock.currentTimeMillis
     const loop: Effect.Effect<void, CoreError | ReconnectFailed, Core> = Effect.suspend(() =>
       Effect.flatMap(attemptStream(console, settings), (answer) =>

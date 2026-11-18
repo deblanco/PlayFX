@@ -120,8 +120,9 @@ Work items:
   stream settings mid-stream offers **Reconnect**, which retries while the PS5 says it's busy (measured:
   it refuses new sessions for ~9 s after one ends; StreamCore now flags that quit as `busy`). Verified
   on the real console: reconnect 1080p→720p after 5 busy answers, no stray errors.)*
-  - Follow-ups: while reconnecting the idle test pattern shows for those ~9 s — keep the last frame
-    instead; the dev autoplay harness re-plays when Home remounts (dev-only, harmless).
+  - ✅ Follow-up done: the last frame stays on screen while reconnecting (start replaces the session; a
+    quit's own cleanup no longer brings back the idle pattern, and is ignored if a newer session started).
+  - ℹ️ The dev autoplay harness re-plays when Home remounts (dev-only, harmless).
   - Note: the split screen now compares *baseline vs. all current picture settings* (upscaler included)
     rather than only bilinear vs MetalFX. A Settings sheet with *Stream* and *Picture* sections (shadcn studio
   components), sliders for the 0–1 params, live preview while streaming, "Reset to defaults",
