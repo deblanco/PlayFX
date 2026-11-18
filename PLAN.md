@@ -1,0 +1,153 @@
+# PLAN
+
+Roadmap and gap list for **ps-remote-play** — a browser/desktop PS5 (and PS4) Remote Play client.
+Status legend: ✅ done · 🔶 partial · ❌ not started.
+
+Last updated by the build session that got end-to-end streaming working on real hardware.
+
+---
+
+## 1. What exists today
+
+A Bun monorepo with a working macOS desktop client, proven end to end against a real PS5
+(discovery → wake → pair → session → HEVC video → audio → controller input), both via the
+headless `psrp` CLI and the Tauri app.
+
+```
+apps/desktop            Tauri v2 app: React 19 + Effect + Tailwind + shadcn UI over a
+                        transparent webview, with native video drawn behind it.
+  src/core              Effect services: Core (Tauri bridge), Preferences, schemas, runtime.
+  src/app               React UI: Home, ConsoleList, Settings, StreamView, actions/format.
+  src-tauri             Rust: Tauri commands → StreamCore C ABI (NativeCore trait, ffi/native).
+packages/streamcore     Swift package (macOS + iOS target):
+  Sources/CChiaki       psrp.h — thin C shim over libchiaki.
+  Sources/StreamCore    Console (discover/register/wake), PSNAuth, StreamSession,
+                        VideoDecoder (VideoToolbox), AudioPlayer, ControllerInput,
+                        StreamRenderer (Metal + MetalFX), MacOSBridge (JSON C ABI).
+  Sources/psrp          Headless debug CLI with a localhost control API.
+third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implementation.
+```
+
+**Working / ✅**
+- Console discovery (UDP), wake-from-standby, PIN pairing, PSN OAuth → account ID.
+- Session handshake (Senkusha/Takion/StreamConnection) over the LAN.
+- Video: H.264 + HEVC hardware decode via VideoToolbox.
+- Rendering: NV12 → RGB → MetalFX spatial upscale (with bilinear fallback), letterboxed.
+- Audio: Opus decode → low-latency `AVAudioEngine` with a jitter buffer.
+- Input: DualSense/DualShock/Xbox/MFi + keyboard via the GameController framework.
+- React/Effect UI: account, console list, pairing, settings, streaming HUD.
+- Credentials kept client-side (webview `localStorage`); PSN login via Sony's own page.
+- Tests + gates: TS 130 tests (100% lines), Swift 58 tests (95%), Rust 31 tests (86%),
+  strict `tsc`/ESLint, `@effect/vitest`. Per-language `coverage.sh`.
+- Ops: local rest-mode watchdog (`~/.config/psrp/rest-watchdog.sh`), auto-sleep after 2 h idle.
+
+---
+
+## 2. Missing — prioritized
+
+### P0 — the features that most change what the product can do
+
+- ❌ **Remote Play over the internet (PSN hole-punching).** Today everything is LAN-only; the
+  app can't reach the console from another network. libchiaki already implements it
+  (`lib/src/remote/holepunch.c`, `rudp.c`), but the shim wires `holepunch_session = NULL`.
+  Work: extend `psrp.h`/`StreamSession` to accept a PSN token + DUID, implement the PSN session
+  manager calls (device list, session create/message), surface a "connect from anywhere" path in
+  the UI. This is the single highest-value feature (it's the reason LAN-only blocked real use).
+- ❌ **Auto-wake on Play.** If the console is in standby when the user hits Play, wake it and poll
+  until `ready` instead of failing. The console dropped to standby repeatedly in testing.
+- ❌ **Reconnect & resilience.** Handle mid-stream drops, Wi-Fi/network changes, and the
+  `RP_IN_USE` / version-mismatch quit reasons with clear UI and optional auto-retry/backoff.
+
+### P1 — making a stream feel complete
+
+- 🔶 **Rumble.** Rumble events are received (`StreamSession.Event.rumble`) but not applied to the
+  pad. Drive `GCDeviceHaptics` / `GCController` rumble from them.
+- ❌ **Adaptive triggers** (DualSense). `trigger_effects` events aren't surfaced by the shim yet;
+  forward them and apply via `GCDualSenseAdaptiveTrigger`.
+- ❌ **DualSense haptics audio channel.** chiaki exposes a separate haptics sink; route it to the
+  controller's haptic engine.
+- ❌ **Touchpad + motion.** Map mouse/trackpad (and touch on mobile) to the PS touchpad; forward
+  gyro/accel for motion-aware games.
+- ❌ **Microphone.** chiaki supports mic capture/echo-cancel (speex, currently disabled); wire an
+  opt-in mic path.
+- ❌ **Keyboard passthrough** to the console (`enable_keyboard`) and the on-screen keyboard events
+  (`KEYBOARD_*`) → let the user type into PS fields.
+- ❌ **HDR.** `CHIAKI_CODEC_H265_HDR` isn't selectable; add HDR decode + display tone-mapping.
+- 🔶 **Login PIN (console passcode) flow.** Plumbed end to end but not verified on a console that
+  requires it; confirm and polish the dialog.
+
+### P2 — quality, settings, UX
+
+- ❌ **Bitrate / FPS / resolution validation** against what the console advertises; expose bitrate
+  in settings (schema has it; UI doesn't).
+- ❌ **Latency & frame pacing**: measure end-to-end latency, tune the audio/video jitter buffers,
+  consider a low-latency present path; expose a stats overlay.
+- ❌ **Audio controls**: output-device selection and volume.
+- ❌ **Window UX**: fullscreen toggle, hide cursor during play, and **prevent the Mac from
+  sleeping** while streaming (`IOPMAssertion`/`NSProcessInfo` activity).
+- ❌ **Credential storage hardening**: move registration keys from `localStorage` to the macOS
+  **Keychain** (and Keychain/Keystore on mobile).
+- ❌ **First-run / onboarding** and clearer pairing guidance.
+
+### P3 — reach: cross-platform and mobile
+
+- ❌ **iOS app (Expo).** `apps/mobile` doesn't exist yet. Plan: an Expo native module wrapping
+  `StreamCore` (the renderer/session are already platform-neutral; only `MacOSBridge.swift` is
+  Mac-specific). Needs **full Xcode + an iOS SDK** (only Command Line Tools are installed now).
+  Add an on-screen touch controller overlay and iOS lifecycle handling.
+- ❌ **Windows / Linux.** Tauri is cross-platform, but `StreamCore` is Apple-only (VideoToolbox,
+  Metal, MetalFX, GameController). A non-Apple target needs a different decode/render/input layer:
+  - **FSR** (AMD FidelityFX Super Resolution 1, MIT) as the upscaler, e.g. as WGSL/WebGPU or a
+    native shader — the cross-platform analogue of MetalFX spatial. (MetalFX *temporal* and frame
+    interpolation need motion vectors a video stream lacks, so they don't apply here.)
+  - Hardware decode via the platform API (D3D11VA/NVDEC, VAAPI) or a portable decoder.
+- ❌ **Browser build** (the original ask). Not possible in a normal tab (no raw UDP/TCP). Revisit
+  only if Chrome Direct Sockets / Isolated Web Apps become broadly available, or ship the
+  "browser client + tiny local relay" design documented earlier. Keep the socket layer swappable.
+
+### P4 — build, distribution, compliance
+
+- ❌ **AGPL compliance.** `third_party/chiaki-ng` is **AGPL-3.0**; any distributed build must make
+  complete source available and carry the license. Add `LICENSE`, NOTICE, and a build/source link.
+  Decide the project's own license accordingly before any public release.
+- ❌ **Sony ToS note.** Unofficial client; fine for personal use, but document the stance and
+  don't ship anyone's credentials.
+- ❌ **Packaging**: code-sign + notarize the macOS app, bundle the static libs/rpath correctly,
+  produce a `.dmg`. (Currently relies on an `-rpath /usr/lib/swift` link arg for dev.)
+- ❌ **CI**: build + test + coverage for all three languages; reproducible libchiaki build
+  (`packages/streamcore/scripts/build-chiaki.sh`) with the OpenSSL-3 pinning and curl trimming.
+- ❌ **Reproducibility**: `vendor/macos/lib/*.a` are generated and gitignored; document/automate
+  regenerating them, and the Homebrew deps (`cmake ninja openssl@3 opus json-c miniupnpc libevent`).
+
+---
+
+## 3. Known issues / tech debt
+
+- 🔶 **Swift tests under Command Line Tools**: `swift test` reports 0 tests on this machine
+  (no full Xcode); `scripts/coverage.sh` runs the 58 tests correctly. Installing Xcode fixes
+  `swift test` and unblocks the iOS target.
+- 🔶 **Rust coverage tooling** had to be bootstrapped by hand (rustup not on PATH, llvm-tools);
+  see `apps/desktop/src-tauri/scripts/coverage.sh`. Document it in CI.
+- 🔶 `preferences.ts` has one unreachable branch (88.9% branch) — the `if (p)` guard in
+  `refreshAddresses`. Harmless; left as-is.
+- 🔶 `renderer_status` returns `stream: null` when stats JSON can't be parsed, which surfaces as a
+  `CoreError`. Decide whether to soften this.
+- 🔶 **Linker warnings**: vendored static libs built for a newer macOS than the 13.0 deployment
+  target. Harmless; silence by building the deps at the target version.
+- 🔶 **FFI safety**: the Rust↔Swift boundary (CString lifetimes, `sc_free` once, main-thread
+  rules) was reviewed and tested, but every new `@_cdecl` needs the same care.
+- ℹ️ **Dev E2E harness** (`src/app/devSeed.ts` + autoplay) is env-gated and inert in production;
+  the seed file holding keys is gitignored. Keep it dev-only.
+- ℹ️ The `psrp` CLI is a debugging tool, not a shipped artifact.
+
+---
+
+## 4. Suggested order of work
+
+1. Auto-wake on Play (small, removes a constant papercut). *(P0)*
+2. Reconnect/resilience + clear quit-reason UI. *(P0)*
+3. Remote Play over the internet (hole-punching) — the headline feature. *(P0)*
+4. Rumble + adaptive triggers + touchpad/motion. *(P1)*
+5. Keychain credential storage; sleep-prevention; fullscreen/cursor. *(P2)*
+6. Packaging + AGPL/licensing + CI. *(P4, before any release)*
+7. iOS (Expo) once Xcode is installed; then Windows/Linux via an FSR path. *(P3)*
