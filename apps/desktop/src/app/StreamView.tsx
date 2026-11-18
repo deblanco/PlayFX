@@ -144,6 +144,10 @@ export const StreamView = ({
   // Off while the login-PIN dialog or the settings are open, so typing there isn't read as gameplay.
   useKeyboardController(Option.isNone(loginPin) && !settingsOpen)
 
+  const hudHidden = idle && !settingsOpen
+  const fade = cn("transition-opacity duration-500", hudHidden && "opacity-0")
+  const keepStats = settings.showStats && connected && reconnect.reconnecting === false && stats.rows.length > 0
+
   const stop = () => {
     const end = () => { onEnd(Option.none()); }
     run(actions.stop, { onSuccess: end, onFailure: end })
@@ -154,13 +158,21 @@ export const StreamView = ({
       <header
         data-idle={idle}
         className={cn(
-          "fixed inset-x-0 top-0 flex items-center gap-4 bg-gradient-to-b from-black/70 to-transparent px-4 pt-3 pb-6 transition-opacity duration-500",
-          idle && !settingsOpen && "pointer-events-none opacity-0",
-        settingsOpen && "pr-[24rem]", // keep the HUD's buttons clear of the settings sheet
+          "fixed inset-x-0 top-0 flex items-center gap-4 px-4 pt-3 pb-6",
+          hudHidden && "pointer-events-none",
+          settingsOpen && "pr-[24rem]", // keep the HUD's buttons clear of the settings sheet
         )}
       >
-        <span className="font-medium">{title}</span>
-        <span className="flex-1 truncate text-xs text-muted-foreground tabular-nums">
+        <div aria-hidden className={cn("absolute inset-0 -z-10 bg-gradient-to-b from-black/70 to-transparent", fade)} />
+        <span className={cn("font-medium", fade)}>{title}</span>
+        {/* With "Stats on screen" on, this line stays when the rest of the HUD fades. */}
+        <span
+          aria-label={keepStats ? "Stream stats" : undefined}
+          className={cn(
+            "flex-1 truncate text-xs text-muted-foreground tabular-nums [text-shadow:0_1px_2px_rgb(0_0_0/0.8)]",
+            !keepStats && fade,
+          )}
+        >
           {reconnect.reconnecting === "dropped"
             ? "Connection lost. Reconnecting…"
             : reconnect.reconnecting === "apply"
@@ -171,9 +183,11 @@ export const StreamView = ({
                   ? "Reaching your PS5 over the internet…"
                   : remoteStage === "data"
                     ? "Opening the data connection…"
-                    : stats.line}
+                    : keepStats
+                      ? <StatsLine rows={stats.rows} />
+                      : stats.line}
         </span>
-        <details className="group relative text-xs">
+        <details className={cn("group relative text-xs", fade)}>
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">
             Keys
           </summary>
@@ -189,13 +203,14 @@ export const StreamView = ({
             </dl>
           </div>
         </details>
-        <Button variant="secondary" size="sm" onClick={toggleFullscreen}>
+        <Button variant="secondary" size="sm" className={fade} onClick={toggleFullscreen}>
           {fullscreen ? <Minimize /> : <Maximize />}
           {fullscreen ? "Exit fullscreen" : "Fullscreen"}
         </Button>
         <Button
           variant="secondary"
           size="sm"
+          className={fade}
           onClick={() => {
             setTab(reconnect.pending ? "stream" : "picture")
             setSettingsOpen(true)
@@ -204,12 +219,11 @@ export const StreamView = ({
           <SlidersHorizontal /> Settings
           {reconnect.pending && <span aria-label="Reconnect to apply" className="size-1.5 rounded-full bg-signal" />}
         </Button>
-        <Button variant="destructive" size="sm" onClick={stop}>
+        <Button variant="destructive" size="sm" className={fade} onClick={stop}>
           Stop
         </Button>
       </header>
       {settings.compare && connected && <CompareLabels />}
-      {settings.showStats && connected && stats.rows.length > 0 && <StatsPanel rows={stats.rows} />}
       {(!connected || reconnect.reconnecting !== false) && Option.isNone(loginPin) && (
         <ConnectingOverlay
           consoleName={title}
@@ -236,21 +250,14 @@ export const StreamView = ({
   )
 }
 
-/** The stream's numbers, kept on screen while "Stats on screen" is on (the HUD fades; this doesn't).
- * Top left, below the HUD, so the settings sheet on the right never covers it. */
-const StatsPanel = ({ rows }: { readonly rows: readonly StatRow[] }) => (
-  <dl
-    aria-label="Stream stats"
-    className="pointer-events-none fixed top-16 left-4 grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-xs backdrop-blur-md"
-  >
-    {rows.map((row) => (
-      <div key={row.label} className="col-span-2 grid grid-cols-subgrid">
-        <dt className="text-white/55">{row.label}</dt>
-        <dd className={cn("text-right font-medium tabular-nums", row.warn ? "text-signal" : "text-white")}>{row.value}</dd>
-      </div>
-    ))}
-  </dl>
-)
+/** The stream's numbers in the HUD's line, with the troubling ones in the signal colour. */
+const StatsLine = ({ rows }: { readonly rows: readonly StatRow[] }) =>
+  rows.map((row, i) => (
+    <span key={row.label}>
+      {i > 0 && " · "}
+      <span className={cn(row.warn && "text-signal")}>{row.inline}</span>
+    </span>
+  ))
 
 /** Names the two halves of the split-screen comparison, on either side of the divider (the
  * video's center), so both stay visible with the settings sheet open. */

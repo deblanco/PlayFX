@@ -109,6 +109,8 @@ export const megabitsPerSecond = (previous: FrameSample, current: FrameSample): 
 export interface StatRow {
   readonly label: string
   readonly value: string
+  /** As it reads in the HUD's line ("ping 12 ms", "0 lost frames"). */
+  readonly inline: string
   readonly warn: boolean
 }
 
@@ -119,15 +121,20 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number): rea
   const lost = stream.framesLost ?? 0
   const errors = stream.decodeErrors ?? 0
   const rtt = stream.rttMs ?? 0
+  const row = (label: string, value: string, inline: string, warn = false): StatRow => ({ label, value, inline, warn })
+  const size = `${String(stream.width)}×${String(stream.height)}`
+  const ping = `${rtt.toFixed(rtt < 10 ? 1 : 0)} ms`
+  const gpu = `${status.gpuMs.toFixed(1)} ms`
+  const upscaler = upscalerLabel(status.activeMode, status.mlActive)
   const rows: (StatRow | undefined)[] = [
-    { label: "Resolution", value: `${String(stream.width)}×${String(stream.height)}`, warn: false },
-    { label: "Frame rate", value: `${String(fps)} fps`, warn: false },
-    { label: "Bitrate", value: `${mbps.toFixed(1)} Mbps`, warn: false },
-    rtt > 0 ? { label: "Ping", value: `${rtt.toFixed(rtt < 10 ? 1 : 0)} ms`, warn: rtt >= 60 } : undefined,
-    status.gpuMs > 0 ? { label: "GPU", value: `${status.gpuMs.toFixed(1)} ms`, warn: status.gpuMs >= 8 } : undefined,
-    { label: "Upscaler", value: upscalerLabel(status.activeMode, status.mlActive), warn: false },
-    { label: "Lost frames", value: String(lost), warn: lost > 0 },
-    errors > 0 ? { label: "Decode errors", value: String(errors), warn: true } : undefined,
+    row("Resolution", size, size),
+    row("Frame rate", `${String(fps)} fps`, `${String(fps)} fps`),
+    row("Bitrate", `${mbps.toFixed(1)} Mbps`, `${mbps.toFixed(1)} Mbps`),
+    rtt > 0 ? row("Ping", ping, `ping ${ping}`, rtt >= 60) : undefined,
+    status.gpuMs > 0 ? row("GPU", gpu, `GPU ${gpu}`, status.gpuMs >= 8) : undefined,
+    row("Upscaler", upscaler, upscaler),
+    row("Lost frames", String(lost), `${String(lost)} lost frames`, lost > 0),
+    errors > 0 ? row("Decode errors", String(errors), `${String(errors)} decode errors`, true) : undefined,
   ]
   return rows.filter((row) => row !== undefined)
 }

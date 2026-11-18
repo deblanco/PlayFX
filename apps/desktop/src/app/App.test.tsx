@@ -686,9 +686,8 @@ describe("streaming", () => {
     expect(screen.queryByLabelText("Stream stats")).not.toBeInTheDocument()
     const sheet = await openSettings("Picture")
     await userEvent.click(sheet.getByRole("switch", { name: /Stats on screen/ }))
-    const panel = await screen.findByLabelText("Stream stats")
-    expect(panel).toHaveTextContent("Resolution1920×1080")
-    expect(panel).toHaveTextContent("Ping12 ms")
+    const line = await screen.findByLabelText("Stream stats")
+    expect(line).toHaveTextContent("1920×1080 · 0 fps · 0.0 Mbps · ping 12 ms · MetalFX · 0 lost frames")
   })
 
   it("tunes the picture from the HUD with a labelled split screen", async () => {

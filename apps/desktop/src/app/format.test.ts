@@ -345,7 +345,7 @@ describe("statRows", () => {
       ["Decode errors", "1", true],
     ])
     const slow = statRows({ ...status({ width: 1280, height: 720, rttMs: 85 }), gpuMs: 9 }, 30, 5)
-    expect(slow.find((row) => row.label === "Ping")).toEqual({ label: "Ping", value: "85 ms", warn: true })
+    expect(slow.find((row) => row.label === "Ping")).toEqual({ label: "Ping", value: "85 ms", inline: "ping 85 ms", warn: true })
     expect(slow.find((row) => row.label === "GPU")?.warn).toBe(true)
     expect(slow.some((row) => row.label === "Decode errors")).toBe(false)
   })
