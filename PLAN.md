@@ -33,6 +33,9 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Session handshake (Senkusha/Takion/StreamConnection) over the LAN.
 - Video: H.264 + HEVC hardware decode via VideoToolbox.
 - Rendering: NV12 → RGB → MetalFX spatial upscale (with bilinear fallback), letterboxed.
+- **Upscaler A/B**: `Compare (split)` upscaler mode (left bilinear, right MetalFX, divider +
+  labels) in the desktop HUD/settings; `psrp` `/render.png?mode=…&w=…&h=…` renders the latest frame
+  offscreen at any size (used for the 720p → 4K comparison screenshots).
 - Audio: Opus decode → low-latency `AVAudioEngine` with a jitter buffer.
 - Input: DualSense/DualShock/Xbox/MFi via the GameController framework.
 - **Keyboard-as-controller** (testing without a pad): the web UI captures keys and forwards a
@@ -61,6 +64,54 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   until `ready` instead of failing. The console dropped to standby repeatedly in testing.
 - ❌ **Reconnect & resilience.** Handle mid-stream drops, Wi-Fi/network changes, and the
   `RP_IN_USE` / version-mismatch quit reasons with clear UI and optional auto-retry/backoff.
+
+### P1 — Picture quality & full stream configuration (next up)
+
+Goal: the best possible image from a stream capped at 1080p, with **every stream and picture
+parameter configurable from the desktop app**, and each change measurable with the compare view.
+
+Findings that drive this (from the 720p → 4K screenshot session):
+- The source, not the upscaler, is the main limit: chiaki's presets send **720p @ 10 Mbps** and
+  **1080p @ 15 Mbps** (`chiaki_connect_video_profile_preset`), and 1080p is the max preset in this
+  chiaki version. MetalFX sharpens compression artifacts along with detail.
+- MetalFX spatial has no sharpness control and looks soft on video; it's best at ≤ 2× (1080p → 4K).
+- Color is hardcoded: BT.709 limited range in `nv12ToRGB`, bilinear chroma, and the
+  `CAMetalLayer` has no colorspace (P3 displays may oversaturate).
+
+**Two kinds of settings** (the UI groups them this way):
+- *Stream* (needs a reconnect; applied on next Play, with a "Reconnect to apply" action in the HUD):
+  resolution, fps, codec, **bitrate**, auto-downgrade, audio on/off.
+- *Picture* (live, per frame, no reconnect): upscaler, sharpness, deblock/deband strength,
+  chroma filter, color matrix/range override, output colorspace. Sent to StreamCore as one
+  JSON `RenderParams` via a single `sc_set_render_params` (replaces `sc_set_upscale_mode`).
+
+Work items:
+- ❌ **Q1. Stream parameters.** Expose bitrate (presets 5–50 Mbps + "Auto" = chiaki default),
+  auto-downgrade toggle, audio toggle; validate against the console's reply (actual resolution /
+  bitrate from streaminfo) and show it in the HUD. Shim: pass `video_profile_auto_downgrade`
+  through `PsrpSessionConfig`. Schema: extend `Settings` (Effect `Schema`) with migration of
+  saved settings.
+- ❌ **Q2. Sharpening pass (CAS/RCAS).** Compute pass after the upscaler (MetalFX *and* bilinear),
+  `sharpness` 0–1 (0 = off). Port AMD FidelityFX CAS (MIT). Unit-test on synthetic edges
+  (sharpness 0 = identity; >0 increases edge contrast without clipping).
+- ❌ **Q3. Pre-upscale cleanup.** Optional deblock + deband pass on the source-resolution
+  texture before the upscaler (`deblock` 0–1, `deband` 0–1). Cheap at 1080p. Tests on synthetic
+  8×8 block steps and gradients.
+- ❌ **Q4. Color correctness.** Read matrix/range/transfer from the `CVPixelBuffer` attachments
+  (BT.601/709/2020, limited/full) with a manual override; set the layer colorspace (Rec.709/sRGB)
+  so macOS color-manages to the display; better chroma upsampling (bicubic or luma-guided).
+  Groundwork for HDR (P1 below). Tests: known YCbCr triples per matrix/range.
+- ❌ **Q5. Settings UI.** A Settings sheet with *Stream* and *Picture* sections (shadcn studio
+  components), sliders for the 0–1 params, live preview while streaming, "Reset to defaults",
+  and a compare mode that splits **current params vs. baseline** (not just bilinear vs MetalFX).
+- ❌ **Q6. Measure.** Per-pass GPU time (`MTLCommandBuffer` GPU start/end) in the stats overlay;
+  a `psrp` capture script that renders a fixed frame with N param sets → labeled grid, so
+  quality claims are reproducible.
+- ❌ **Q7. ML super-resolution (later, after Q1–Q6).** Apple's `VTLowLatencySuperResolutionScaler`
+  (VideoToolbox, macOS 26+, in the SDK here) as a third upscaler, built for decoded compressed
+  video. Check `supportedScaleFactors` for 720p/1080p, measure added latency vs MetalFX, keep
+  MetalFX as the fallback. Ship only if the A/B and the latency numbers justify it.
+- Not planned: MetalFX temporal / frame interpolation (need engine motion vectors + depth).
 
 ### P1 — making a stream feel complete
 
@@ -150,6 +201,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 
 ## 4. Suggested order of work
 
+0. Picture quality & full stream configuration, Q1 → Q6, then evaluate Q7. *(P1, requested)*
 1. Auto-wake on Play (small, removes a constant papercut). *(P0)*
 2. Reconnect/resilience + clear quit-reason UI. *(P0)*
 3. Remote Play over the internet (hole-punching) — the headline feature. *(P0)*
