@@ -100,25 +100,34 @@ public final class StreamSession {
     /// Events that arrive before it's set (a session can report progress, or fail, right as it starts)
     /// are kept and delivered when it is.
     public var onEvent: ((Event) -> Void)? {
-        get { events.withLock { $0.handler } }
+        get { events.withLock { $0.handler?.call } }
         set {
             let pending = events.withLock { state -> [Event] in
-                state.handler = newValue
+                state.handler = newValue.map(EventHandler.init)
                 defer { state.pending = [] }
                 return newValue == nil ? [] : state.pending
             }
             pending.forEach { newValue?($0) }
         }
     }
-    private let events = OSAllocatedUnfairLock(initialState: (handler: ((Event) -> Void)?.none, pending: [Event]()))
+
+    /// The handler, boxed. A closure kept directly in the lock's state is re-wrapped in a conversion thunk
+    /// every time that state goes through `withLock` as `inout`, so with one event at a time it grew by two
+    /// calls per event, until a few thousand haptics events overflowed the receive thread's stack (seen on
+    /// the PS5). A class reference passes through unchanged.
+    private final class EventHandler: @unchecked Sendable {
+        let call: (Event) -> Void
+        init(_ call: @escaping (Event) -> Void) { self.call = call }
+    }
+    private let events = OSAllocatedUnfairLock(initialState: (handler: EventHandler?.none, pending: [Event]()))
 
     /// Delivers `event` now, or keeps it until `onEvent` is set.
     func deliver(_ event: Event) {
-        let handler = events.withLock { state -> ((Event) -> Void)? in
+        let handler = events.withLock { state -> EventHandler? in
             if state.handler == nil { state.pending.append(event) }
             return state.handler
         }
-        handler?(event)
+        handler?.call(event)
     }
     /// Called from the video thread with every decoded frame.
     /// Each decoded frame with its place in the stream (counting frames lost on the way), for pacing.

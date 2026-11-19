@@ -75,6 +75,20 @@ extension Serial {
             #expect(session.onEvent != nil)
         }
 
+        @Test func theHandlerDoesNotGrowWithEveryEvent() throws {
+            // Haptics arrive constantly from the console. The handler kept in the session must be called
+            // through the same number of frames on the 2,000th event as on the first; a closure kept in the
+            // lock's state grew by two frames per event and overflowed the receive thread (seen on a PS5).
+            let session = try StreamSession(credentials: fakeCredentials(address: "203.0.113.1"))
+            defer { session.stop() }
+            var depths: [Int] = []
+            session.onEvent = { _ in depths.append(Thread.callStackReturnAddresses.count) } // no symbol lookup: cheap
+            session.deliver(.nickname("first"))
+            for _ in 0..<2_000 { session.deliver(.nickname("again")) }
+            session.deliver(.nickname("last"))
+            #expect(depths.first == depths.last, "call depth \(depths.first ?? 0) → \(depths.last ?? 0)")
+        }
+
         @Test func internetPlayNeedsAPS5AndADeviceID() {
             #expect(throws: ConsoleError.message("Internet play needs a PS5 and its PSN device ID")) {
                 try StreamSession(credentials: fakeCredentials(), remote: StreamSession.Remote(token: "t", duid: "not-hex"))
