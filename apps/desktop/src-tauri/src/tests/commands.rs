@@ -300,7 +300,12 @@ fn ipc_contract_matches_the_ui() {
 #[test]
 fn ipc_rejects_missing_arguments() {
     let app = mock(FakeCore::default().leak());
-    for cmd in ["register_console", "wakeup", "start_stream", "set_login_pin", "set_render_params"] {
+    // Every command that takes arguments: malformed input from the web view is an error, never a panic.
+    for cmd in [
+        "register_console", "wakeup", "start_stream", "set_login_pin", "set_render_params", "set_controller",
+        "set_pointer_touch", "keyboard_set_text", "keyboard_done", "set_microphone", "secret_get", "secret_set",
+        "secret_remove", "set_audio_output", "set_detailed_logs",
+    ] {
         let err = invoke(&app, cmd, json!({})).expect_err(cmd);
         assert!(err.as_str().is_some_and(|e| e.contains("missing required key")), "{cmd}: {err}");
     }
@@ -318,4 +323,40 @@ fn ipc_psn_login_reuses_open_window() {
     assert_eq!(invoke(&app, "psn_login", json!({})), Ok(Value::Null));
     assert_eq!(invoke(&app, "psn_login", json!({})), Ok(Value::Null));
     assert!(app.get_webview_window(PSN_WINDOW).is_some());
+}
+
+/// Every other command the UI calls, through IPC with the argument names `src/core/core.ts` sends: the
+/// generated wrappers decode them, so a renamed argument fails here, not at run time.
+#[test]
+fn ipc_reaches_every_command_with_the_uis_arguments() {
+    let core = FakeCore { reply: r#"{"ok":true}"#.into(), psn_signed_in: true, ..Default::default() }.leak();
+    let app = mock(core);
+    let ok = |cmd: &str, args: Value| -> Value {
+        let reply = invoke(&app, cmd, args);
+        assert!(reply.is_ok(), "{cmd}: {reply:?}");
+        reply.unwrap_or_default()
+    };
+    ok("set_pointer_touch", json!({"touch": {"down": true, "x": 0.5, "y": 0.25, "pressed": false}}));
+    ok("keyboard_set_text", json!({"text": "hi"}));
+    ok("keyboard_done", json!({"accept": true}));
+    ok("set_microphone", json!({"on": false}));
+    ok("set_detailed_logs", json!({"on": false}));
+    ok("secret_set", json!({"key": "consoles", "value": "{}"}));
+    ok("secret_get", json!({"key": "consoles"}));
+    ok("secret_remove", json!({"key": "consoles"}));
+    ok("audio_devices", json!({}));
+    ok("set_audio_output", json!({"output": {"volume": 0.5}}));
+    assert_eq!(ok("psn_signed_in", json!({})), json!(true));
+    ok("psn_consoles", json!({}));
+    ok("psn_sign_out", json!({}));
+    ok("diagnostics", json!({}));
+    ok("toggle_fullscreen", json!({}));
+}
+
+/// StreamCore's log entries land in the app's log under `streamcore::<area>`.
+#[test]
+fn native_log_entries_reach_the_rust_log() {
+    let (area, message) = (std::ffi::CString::new("input").unwrap(), std::ffi::CString::new("pad attached").unwrap());
+    on_native_log(2, area.as_ptr(), message.as_ptr()); // no logger in tests: must not panic
+    let _plugin = log_plugin::<MockRuntime>();
 }

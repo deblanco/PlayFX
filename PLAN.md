@@ -321,10 +321,15 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   Terminal), `.app` + `.dmg` (7.3 MB). The binary links only system libraries (`/usr/lib/swift` is part of
   macOS 13+). `scripts/release.sh` signs with the personal "Developer ID Application" identity, notarizes
   the DMG with the `playfx` notarytool keychain profile, staples and checks it with Gatekeeper.
-- 🔶 **CI** *(workflow written; first run pending)*: `.github/workflows/ci.yml` on every push and PR,
-  macOS runner: libchiaki built once per submodule commit + script (cached), Swift tests + coverage,
-  tsc/ESLint/vitest + coverage, clippy `-D warnings`, Rust tests + `cargo llvm-cov` (≥ 80% lines and
-  functions, `bun run --cwd apps/desktop coverage:rust`).
+- ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): libchiaki built once
+  per submodule commit + script (cached right after building), Swift tests one at a time + coverage,
+  tsc/ESLint/vitest + coverage, clippy `-D warnings`, Rust tests + `cargo llvm-cov --lib` (≥ 80% lines and
+  functions). Getting it green found real bugs: `protobuf` missing from the documented dependencies; the
+  dev seed import broke every clean checkout; in a VM, VideoToolbox reports frame interpolation and ML
+  super-resolution as supported, then crashes or never runs (both now off in VMs). Rust coverage was
+  first measured here (72% lines): the app's entry point moved to `main.rs` (a thin adapter), every
+  command is now exercised through IPC with the UI's argument names and with missing arguments, and the
+  safe StreamCore calls are smoke-tested for real.
 - ✅ **Reproducibility**: README lists the Homebrew dependencies and `build-chiaki.sh`; CI regenerates
   `vendor/` from scratch whenever the submodule or the script changes.
 

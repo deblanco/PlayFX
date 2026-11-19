@@ -60,5 +60,16 @@ fn mac_core_without_session_or_renderer() {
     assert!(!core.hdr_active());
     assert_eq!(core.display_milliseconds(), 0.0);
     assert_eq!(reply(&core.session_stats()), Ok(json!({"active": false})));
+    // Input without a session is dropped.
+    core.set_controller(crate::native::ControllerState::default());
+    core.set_pointer_touch(crate::native::PointerTouch { down: false, x: 0.0, y: 0.0, pressed: false });
+    core.keyboard_set_text("a\0b");
+    core.keyboard_done(false);
+    core.set_microphone(false);
+    core.set_detailed_logs(false);
+    assert!(reply(&core.audio_devices()).is_ok());
+    // Read-only: whether a PSN sign-in is kept, and a key no one ever writes.
+    let _ = core.psn_signed_in();
+    assert_eq!(reply(&core.secret_get("playfx-test-never-written")), Ok(json!({"value": null})));
     core.session_stop();
 }

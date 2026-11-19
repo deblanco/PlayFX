@@ -1,3 +1,6 @@
+//! The desktop app's commands and the bridge to StreamCore. The app's entry point (window setup, the
+//! native callbacks) lives in `main.rs`, a thin adapter that only runs against a real window.
+
 #[cfg(target_os = "macos")]
 mod ffi;
 mod native;
@@ -33,7 +36,7 @@ extern "C" fn on_native_log(level: i32, area: *const std::ffi::c_char, message: 
 /// The app's log: native, Rust and web UI entries in one time-ordered file,
 /// ~/Library/Logs/<identifier>/playfx.log (5 MB, the last 3 kept), and the terminal. Our own
 /// entries at every level; other crates' from info up.
-fn log_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+pub fn log_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
     tauri_plugin_log::Builder::new()
         .clear_targets()
@@ -65,8 +68,8 @@ fn on_main<R: Runtime, T: Send + 'static>(
     app.run_on_main_thread(move || {
         let _ = tx.send(f());
     })
-    .map_err(|e| e.to_string())?;
-    rx.recv().map_err(|e| e.to_string())
+    .map_err(error_text)?;
+    rx.recv().map_err(error_text)
 }
 
 // Blocking commands run on Tauri's async thread pool (`async` attribute), never on main.
@@ -320,7 +323,7 @@ fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
 }
 
 /// Registers the commands the React UI invokes (see apps/desktop/src/core/core.ts).
-fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
+pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
         discover,
         register_console,
@@ -352,27 +355,22 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     ])
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    with_commands(tauri::Builder::default().plugin(log_plugin()))
-        .setup(|app| {
-            log::info!("PlayFX {} starting", app.package_info().version);
-            let _ = APP.set(app.handle().clone());
-            #[cfg(target_os = "macos")]
-            {
-                app.manage(CoreHandle(&ffi::MacCore));
-                unsafe { ffi::sc_set_event_callback(Some(on_stream_event)) };
-                // Detailed logs start off (the web UI switches them on from its saved preference).
-                unsafe { ffi::sc_set_log_callback(Some(on_native_log), std::env::var_os("PSRP_VERBOSE").is_some()) };
-                let window = app.get_webview_window("main").expect("main window");
-                // `setup` runs on the main thread, as AppKit requires.
-                let attached = unsafe { ffi::sc_attach_macos_window(window.ns_window()?) };
-                if !attached {
-                    log::error!("StreamCore: failed to attach the Metal view");
-                }
-            }
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+/// Connects StreamCore to the running app: the native core behind the commands, its events and log,
+/// and its Metal view under the main window's web view. Called from `main.rs` during setup, on the
+/// main thread, as AppKit requires.
+pub fn attach_streamcore(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("PlayFX {} starting", app.package_info().version);
+    let _ = APP.set(app.handle().clone());
+    #[cfg(target_os = "macos")]
+    {
+        app.manage(CoreHandle(&ffi::MacCore));
+        unsafe { ffi::sc_set_event_callback(Some(on_stream_event)) };
+        // Detailed logs start off (the web UI switches them on from its saved preference).
+        unsafe { ffi::sc_set_log_callback(Some(on_native_log), std::env::var_os("PSRP_VERBOSE").is_some()) };
+        let window = app.get_webview_window("main").ok_or("no main window")?;
+        if !unsafe { ffi::sc_attach_macos_window(window.ns_window()?) } {
+            log::error!("StreamCore: failed to attach the Metal view");
+        }
+    }
+    Ok(())
 }
