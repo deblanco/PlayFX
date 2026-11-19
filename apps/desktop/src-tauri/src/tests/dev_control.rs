@@ -38,7 +38,7 @@ impl DevHost for FakeHost {
 
 fn request(method: &str, target: &str, body: &str) -> Request {
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    Request { method: method.into(), path: path.into(), query: query.into(), body: body.into() }
+    Request { method: method.into(), path: path.into(), query: query.into(), body: body.into(), trusted: false }
 }
 
 #[test]
@@ -99,8 +99,14 @@ fn reads_http_requests() {
     assert!(read_request("POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nshort".as_bytes()).is_err());
 }
 
-/// Sends a raw HTTP request and returns (status, JSON body).
+/// Sends a raw HTTP request as a trusted client (the dev header, a local Host) and returns (status, JSON body).
 fn http(address: std::net::SocketAddr, raw: &str) -> (u16, Value) {
+    let (line, rest) = raw.split_once("\r\n").expect("a request line");
+    raw_http(address, &format!("{line}\r\nHost: 127.0.0.1:{}\r\nX-PlayFX-Dev: 1\r\n{rest}", address.port()))
+}
+
+/// Sends a raw HTTP request exactly as given.
+fn raw_http(address: std::net::SocketAddr, raw: &str) -> (u16, Value) {
     let mut stream = TcpStream::connect(address).expect("connect");
     stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     stream.write_all(raw.as_bytes()).unwrap();
@@ -151,4 +157,14 @@ fn the_app_answers_through_the_port() {
     assert_eq!(http(address, "POST /fullscreen HTTP/1.1\r\n\r\n").1, json!({"error": "no main window"}));
     WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().expect("webview");
     assert_eq!(http(address, "POST /fullscreen HTTP/1.1\r\n\r\n").0, 200);
+}
+
+#[test]
+fn only_trusted_clients_drive_the_app() {
+    let address = start(0, Arc::new(FakeHost::default())).expect("listen");
+    // A web page can post to 127.0.0.1, but not with a custom header (no CORS preflight is ever answered).
+    assert_eq!(raw_http(address, "POST /press?buttons=ps HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").0, 403);
+    // DNS rebinding: the header could come through a rebound name, which shows in the Host.
+    assert_eq!(raw_http(address, "GET /status HTTP/1.1\r\nHost: evil.example:7780\r\nX-PlayFX-Dev: 1\r\n\r\n").0, 403);
+    assert_eq!(raw_http(address, "GET /status HTTP/1.1\r\nHost: localhost:7780\r\nX-PlayFX-Dev: 1\r\n\r\n").0, 200);
 }

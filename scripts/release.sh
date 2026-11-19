@@ -21,8 +21,9 @@ export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
 NOTARY_PROFILE="${NOTARY_PROFILE:-playfx}"
 # Default: PlayFX's team, BLANK HEXADECIMAL SL (this Mac also holds other teams' certificates).
 TEAM_ID=K579SJ8947
-IDENTITY="${SIGNING_IDENTITY:-$(security find-identity -v -p codesigning \
-  | grep -o "\"Developer ID Application: [^\"]*($TEAM_ID)\"" | tr -d '"' | head -1)}"
+# `|| true`: with pipefail, grep finding nothing would end the script here, before the message below.
+IDENTITY="${SIGNING_IDENTITY:-$( (security find-identity -v -p codesigning \
+  | grep -o "\"Developer ID Application: [^\"]*($TEAM_ID)\"" | tr -d '"' | head -1) || true)}"
 [[ -n "$IDENTITY" ]] || { echo "release: no Developer ID Application certificate found (see setup above)" >&2; exit 1; }
 echo "Signing as: $IDENTITY"
 
@@ -40,8 +41,9 @@ APP="$BUNDLE/macos/PlayFX.app"
 DMG="$(ls "$BUNDLE"/dmg/PlayFX_"$VERSION"_*.dmg)"
 
 codesign --verify --deep --strict "$APP"
-codesign -d --entitlements - "$APP" 2>/dev/null | grep -q audio-input \
-  || { echo "release: the microphone entitlement is missing" >&2; exit 1; }
+# Read whole first: `grep -q` stopping early could SIGPIPE codesign and fail the pipeline even with it present.
+ENTITLEMENTS="$(codesign -d --entitlements - "$APP" 2>/dev/null || true)"
+[[ "$ENTITLEMENTS" == *audio-input* ]] || { echo "release: the microphone entitlement is missing" >&2; exit 1; }
 codesign --force --sign "$IDENTITY" --timestamp "$DMG"
 
 xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait

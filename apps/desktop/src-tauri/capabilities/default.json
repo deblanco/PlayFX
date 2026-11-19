@@ -1,10 +1,42 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "The main window: the app UI, and the only window that can call the app commands (the PSN sign-in window gets none)",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
-    "log:default"
+    "log:default",
+    "allow-discover",
+    "allow-register-console",
+    "allow-wakeup",
+    "allow-psn-login",
+    "allow-start-stream",
+    "allow-stop-stream",
+    "allow-sleep-console",
+    "allow-set-login-pin",
+    "allow-set-controller",
+    "allow-set-pointer-touch",
+    "allow-keyboard-set-text",
+    "allow-keyboard-done",
+    "allow-set-microphone",
+    "allow-secret-get",
+    "allow-audio-devices",
+    "allow-peer-wifi-status",
+    "allow-set-peer-wifi-paused",
+    "allow-set-audio-output",
+    "allow-secret-set",
+    "allow-secret-remove",
+    "allow-set-render-params",
+    "allow-toggle-fullscreen",
+    "allow-psn-signed-in",
+    "allow-psn-consoles",
+    "allow-psn-sign-out",
+    "allow-set-detailed-logs",
+    "allow-open-logs-folder",
+    "allow-open-source-code",
+    "allow-diagnostics",
+    "allow-renderer-status"
   ]
 }

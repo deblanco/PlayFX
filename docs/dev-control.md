@@ -19,6 +19,11 @@ PLAYFX_DEV_CONTROL=7780 bun run desktop
 The app logs `Dev control port open on http://127.0.0.1:7780`. It listens on the loopback address
 only, so other machines can't reach it. Without the variable, no port is opened.
 
+Every request must carry the header `X-PlayFX-Dev: 1` and a `Host` of `127.0.0.1` or `localhost`; anything
+else gets 403. A web page open in a browser can reach 127.0.0.1 too (a form post, or DNS rebinding), but it
+can't add a custom header without a CORS preflight, which the port never answers, and a rebound name shows
+in the `Host`. Connections that send nothing are closed after 5 seconds.
+
 To start streaming without a click as well, add `VITE_PSRP_AUTOPLAY=1`. It plays the first paired
 console as soon as it shows as ready on the home network.
 
@@ -104,22 +109,23 @@ stream's frame rate, which is how you can tell frame generation is working.
 
 ```sh
 PORT=7780
+DEV="X-PlayFX-Dev: 1"
 # Start streaming and keep the stats on screen
-curl -s -X POST localhost:$PORT/play
-curl -s -X POST localhost:$PORT/settings -d '{"showStats": true}'
+curl -s -H "$DEV" -X POST localhost:$PORT/play
+curl -s -H "$DEV" -X POST localhost:$PORT/settings -d '{"showStats": true}'
 
 # Unpause a game (Options on the DualSense)
-curl -s -X POST "localhost:$PORT/press?buttons=options"
+curl -s -H "$DEV" -X POST "localhost:$PORT/press?buttons=options"
 
 # The raw stream, then the enhanced picture
-curl -s -X POST localhost:$PORT/settings -d '{"view": "original"}'
-curl -s -X POST localhost:$PORT/settings -d '{"view": "enhanced", "upscaler": "metalfx", "sharpness": 0.3}'
+curl -s -H "$DEV" -X POST localhost:$PORT/settings -d '{"view": "original"}'
+curl -s -H "$DEV" -X POST localhost:$PORT/settings -d '{"view": "enhanced", "upscaler": "metalfx", "sharpness": 0.3}'
 
 # Frame generation: a 30 fps stream, then Frame interpolation
-curl -s -X POST localhost:$PORT/settings -d '{"fps": 30}'
-curl -s -X POST localhost:$PORT/reconnect
-curl -s -X POST localhost:$PORT/settings -d '{"frameInterpolation": true}'
-curl -s localhost:$PORT/status | jq '{shownFps, interpolationActive}'
+curl -s -H "$DEV" -X POST localhost:$PORT/settings -d '{"fps": 30}'
+curl -s -H "$DEV" -X POST localhost:$PORT/reconnect
+curl -s -H "$DEV" -X POST localhost:$PORT/settings -d '{"frameInterpolation": true}'
+curl -s -H "$DEV" localhost:$PORT/status | jq '{shownFps, interpolationActive}'
 ```
 
 ## Where it lives

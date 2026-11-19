@@ -74,28 +74,36 @@ fn on_main<R: Runtime, T: Send + 'static>(
     rx.recv().map_err(error_text)
 }
 
-// Blocking commands run on Tauri's async thread pool (`async` attribute), never on main.
+/// Runs blocking work (network, Keychain, a password prompt) on the blocking pool. A sync command marked
+/// `async` would run on one of the async runtime's few workers instead, and a few slow calls (PSN down,
+/// retried) would starve everything else on them, controller input included.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(error_text)
+}
 
-#[tauri::command(async)]
-fn discover<R: Runtime>(app: AppHandle<R>, host: Option<String>) -> Result<Value, String> {
+#[tauri::command]
+async fn discover<R: Runtime>(app: AppHandle<R>, host: Option<String>) -> Result<Value, String> {
+    let core = core(&app);
     match host {
         // Only an IP address goes to the console: anything else is a mistake to report, not resolve.
         Some(host) => {
             let ip: std::net::IpAddr = host.trim().parse().map_err(|_| format!("{host} isn't an IP address"))?;
-            reply(&core(&app).discover_host(&ip.to_string(), 1500))
+            reply(&blocking(move || core.discover_host(&ip.to_string(), 1500)).await?)
         }
-        None => reply(&core(&app).discover(1500)),
+        None => reply(&blocking(move || core.discover(1500)).await?),
     }
 }
 
-#[tauri::command(async)]
-fn register_console<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, String> {
-    reply(&core(&app).register(&request.to_string()))
+#[tauri::command]
+async fn register_console<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, String> {
+    let core = core(&app);
+    reply(&blocking(move || core.register(&request.to_string())).await?)
 }
 
-#[tauri::command(async)]
-fn wakeup<R: Runtime>(app: AppHandle<R>, credentials: Value) -> bool {
-    core(&app).wakeup(&credentials.to_string())
+#[tauri::command]
+async fn wakeup<R: Runtime>(app: AppHandle<R>, credentials: Value) -> Result<bool, String> {
+    let core = core(&app);
+    blocking(move || core.wakeup(&credentials.to_string())).await
 }
 
 /// Opens Sony's sign-in page in a window; when it redirects back with ?code=…, exchanges the
@@ -127,10 +135,14 @@ fn error_text(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// Lets the sign-in window navigate, except to the redirect, which is handled off-thread.
+/// Lets the sign-in window navigate within Sony's sign-in pages only, and handles the redirect off-thread.
 fn on_psn_navigation<R: Runtime>(app: &AppHandle<R>, redirect: &str, url: &str) -> bool {
     if !is_psn_redirect(url, redirect) {
-        return true;
+        let allowed = native::is_psn_sign_in_page(url);
+        if !allowed {
+            log::warn!("The sign-in window tried to leave Sony's sign-in pages; blocked");
+        }
+        return allowed;
     }
     let url = url.to_string();
     let app = app.clone();
@@ -151,16 +163,16 @@ fn finish_psn_login<R: Runtime>(app: &AppHandle<R>, url: &str) {
     }
 }
 
-#[tauri::command(async)]
-fn start_stream<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, String> {
+#[tauri::command]
+async fn start_stream<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, String> {
     let core = core(&app);
     log::info!(
         "Starting a stream {}",
         if request.get("remote").is_some() { "over the internet (PSN)" } else { "on the local network" }
     );
     // Off the main thread: fetching the PSN token may refresh it over the network.
-    let req = with_psn_token(core, request)?.to_string();
-    let text = on_main(&app, move || core.session_start(&req))?;
+    let req = blocking(move || with_psn_token(core, request)).await??.to_string();
+    let text = blocking(move || on_main(&app, move || core.session_start(&req))).await??;
     reply(&text)
 }
 
@@ -184,11 +196,13 @@ fn set_login_pin<R: Runtime>(app: AppHandle<R>, pin: String) -> Result<(), Strin
     on_main(&app, move || core.set_login_pin(&pin))
 }
 
-#[tauri::command(async)]
+/// Synchronous, so Tauri runs it on the main thread in the order the UI sent it: as an `async` command each
+/// call was its own task, and a key's release could overtake its press, leaving the button held.
+#[tauri::command]
 fn set_controller<R: Runtime>(app: AppHandle<R>, state: Value) -> Result<(), String> {
     let state = controller_state(state)?;
-    let core = core(&app);
-    on_main(&app, move || core.set_controller(state))
+    core(&app).set_controller(state);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -210,11 +224,12 @@ fn keyboard_done<R: Runtime>(app: AppHandle<R>, accept: bool) -> Result<(), Stri
     on_main(&app, move || core.keyboard_done(accept))
 }
 
-#[tauri::command(async)]
+/// Synchronous, on the main thread in order, like `set_controller`.
+#[tauri::command]
 fn set_pointer_touch<R: Runtime>(app: AppHandle<R>, touch: Value) -> Result<(), String> {
     let touch: PointerTouch = serde_json::from_value(touch).map_err(error_text)?;
-    let core = core(&app);
-    on_main(&app, move || core.set_pointer_touch(touch))
+    core(&app).set_pointer_touch(touch);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -238,9 +253,10 @@ fn toggle_fullscreen<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
     Ok(on)
 }
 
-#[tauri::command(async)]
-fn psn_signed_in<R: Runtime>(app: AppHandle<R>) -> bool {
-    core(&app).psn_signed_in()
+#[tauri::command]
+async fn psn_signed_in<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    let core = core(&app);
+    blocking(move || core.psn_signed_in()).await
 }
 
 #[tauri::command(async)]
@@ -266,34 +282,44 @@ async fn set_peer_wifi_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Re
     reply(&text)
 }
 
+/// On the main thread like every other call that touches the session (its audio player).
 #[tauri::command(async)]
 fn set_audio_output<R: Runtime>(app: AppHandle<R>, output: Value) -> Result<Value, String> {
-    reply(&core(&app).set_audio_output(&output.to_string()))
+    let core = core(&app);
+    let request = output.to_string();
+    reply(&on_main(&app, move || core.set_audio_output(&request))?)
 }
 
-#[tauri::command(async)]
-fn secret_get<R: Runtime>(app: AppHandle<R>, key: String) -> Result<Value, String> {
-    reply(&core(&app).secret_get(&key))
+// The secret store is the Keychain in release builds, which can show an unlock prompt: off the workers.
+
+#[tauri::command]
+async fn secret_get<R: Runtime>(app: AppHandle<R>, key: String) -> Result<Value, String> {
+    let core = core(&app);
+    reply(&blocking(move || core.secret_get(&key)).await?)
 }
 
-#[tauri::command(async)]
-fn secret_set<R: Runtime>(app: AppHandle<R>, key: String, value: String) -> Result<Value, String> {
-    reply(&core(&app).secret_set(&key, &value))
+#[tauri::command]
+async fn secret_set<R: Runtime>(app: AppHandle<R>, key: String, value: String) -> Result<Value, String> {
+    let core = core(&app);
+    reply(&blocking(move || core.secret_set(&key, &value)).await?)
 }
 
-#[tauri::command(async)]
-fn secret_remove<R: Runtime>(app: AppHandle<R>, key: String) {
-    core(&app).secret_remove(&key);
+#[tauri::command]
+async fn secret_remove<R: Runtime>(app: AppHandle<R>, key: String) -> Result<(), String> {
+    let core = core(&app);
+    blocking(move || core.secret_remove(&key)).await
 }
 
-#[tauri::command(async)]
-fn psn_consoles<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
-    reply(&core(&app).psn_consoles())
+#[tauri::command]
+async fn psn_consoles<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    let core = core(&app);
+    reply(&blocking(move || core.psn_consoles()).await?)
 }
 
-#[tauri::command(async)]
-fn psn_sign_out<R: Runtime>(app: AppHandle<R>) {
-    core(&app).psn_sign_out();
+#[tauri::command]
+async fn psn_sign_out<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let core = core(&app);
+    blocking(move || core.psn_sign_out()).await
 }
 
 #[tauri::command(async)]
@@ -307,7 +333,13 @@ fn set_detailed_logs<R: Runtime>(app: AppHandle<R>, on: bool) {
 fn open_logs_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let dir = app.path().app_log_dir().map_err(error_text)?;
     std::fs::create_dir_all(&dir).map_err(error_text)?;
-    std::process::Command::new("open").arg(&dir).spawn().map_err(error_text)?;
+    open(&dir.display().to_string())
+}
+
+/// `open` (Finder or the browser), reaped in the background so it doesn't linger as a zombie.
+fn open(target: &str) -> Result<(), String> {
+    let mut child = std::process::Command::new("open").arg(target).spawn().map_err(error_text)?;
+    std::thread::spawn(move || child.wait());
     Ok(())
 }
 
@@ -317,8 +349,7 @@ const SOURCE_URL: &str = "https://github.com/deblanco/PlayFX";
 /// Opens the source code in the browser. The URL is fixed here, never taken from the web view.
 #[tauri::command(async)]
 fn open_source_code() -> Result<(), String> {
-    std::process::Command::new("open").arg(SOURCE_URL).spawn().map_err(error_text)?;
-    Ok(())
+    open(SOURCE_URL)
 }
 
 /// For bug reports: versions and the end of the log file (already scrubbed of credentials).

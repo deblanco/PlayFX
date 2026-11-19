@@ -32,6 +32,10 @@ pub struct Request {
     pub path: String,
     pub query: String,
     pub body: String,
+    /// Sent with `X-PlayFX-Dev: 1` and a Host naming this machine. A web page can reach 127.0.0.1 too (a
+    /// form post, DNS rebinding), but can't add a custom header without a CORS preflight, which this port
+    /// never answers; a rebound name shows in the Host.
+    pub trusted: bool,
 }
 
 /// The port from the env var's value: a number from 1024 up, or nothing.
@@ -98,30 +102,47 @@ pub fn read_request(stream: impl Read) -> Result<Request, String> {
         _ => return Err("malformed request line".into()),
     };
     let mut length = 0usize;
+    let (mut dev_header, mut local_host) = (false, false);
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header).map_err(|e| e.to_string())? == 0 || header.trim().is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.trim().eq_ignore_ascii_case("content-length")
-        {
-            length = value.trim().parse().map_err(|_| "bad Content-Length".to_string())?;
+        let Some((name, value)) = header.split_once(':') else { continue };
+        let (name, value) = (name.trim(), value.trim());
+        if name.eq_ignore_ascii_case("content-length") {
+            length = value.parse().map_err(|_| "bad Content-Length".to_string())?;
+        } else if name.eq_ignore_ascii_case("x-playfx-dev") {
+            dev_header = value == "1";
+        } else if name.eq_ignore_ascii_case("host") {
+            let host_name = value.rsplit_once(':').map_or(value, |(name, _)| name);
+            local_host = matches!(host_name, "127.0.0.1" | "localhost");
         }
     }
     let mut body = vec![0; length.min(1 << 20)];
     reader.read_exact(&mut body).map_err(|e| e.to_string())?;
     let (path, query) = target.split_once('?').unwrap_or((&target, ""));
-    Ok(Request { method, path: path.to_string(), query: query.to_string(), body: String::from_utf8_lossy(&body).into() })
+    Ok(Request {
+        method,
+        path: path.to_string(),
+        query: query.to_string(),
+        body: String::from_utf8_lossy(&body).into(),
+        trusted: dev_header && local_host,
+    })
 }
 
 fn respond(mut stream: TcpStream, host: &dyn DevHost) {
+    // A client that connects and sends nothing doesn't hold its thread forever.
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
     let (status, body) = match stream.try_clone().map_err(|e| e.to_string()).and_then(read_request) {
+        Ok(request) if !request.trusted => {
+            (403, json!({"error": "send X-PlayFX-Dev: 1 to 127.0.0.1 or localhost; see docs/dev-control.md"}))
+        }
         Ok(request) => handle(host, &request),
         Err(error) => (400, json!({"error": error})),
     };
     let text = body.to_string();
-    let reason = match status { 200 => "OK", 404 => "Not Found", _ => "Bad Request" };
+    let reason = match status { 200 => "OK", 403 => "Forbidden", 404 => "Not Found", _ => "Bad Request" };
     let _ = write!(
         stream,
         "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",

@@ -84,6 +84,28 @@ fn renderer_status_json_assembles_reply() {
 }
 
 #[test]
+fn the_sign_in_window_stays_on_sonys_sign_in_pages() {
+    for allowed in [
+        "https://my.account.sony.com/central/signin/?x=1",
+        "https://ca.account.sony.com/api/authz/v3/oauth/authorize",
+        "https://id.sonyentertainmentnetwork.com/signin",
+        "https://www.playstation.com/",
+    ] {
+        assert!(is_psn_sign_in_page(allowed), "{allowed}");
+    }
+    for blocked in [
+        "http://my.account.sony.com/", // not HTTPS
+        "https://evil.example/",
+        "https://sony.com.evil.example/", // only real subdomains
+        "https://notsony.com/",
+        "javascript:alert(1)",
+        "not a url",
+    ] {
+        assert!(!is_psn_sign_in_page(blocked), "{blocked}");
+    }
+}
+
+#[test]
 fn is_psn_redirect_matches_prefix() {
     let redirect = "https://remoteplay.dl.playstation.net/remoteplay/redirect";
     assert!(is_psn_redirect(&format!("{redirect}?code=abc"), redirect));

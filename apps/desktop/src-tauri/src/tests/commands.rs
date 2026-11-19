@@ -12,6 +12,11 @@ use crate::*;
 
 const REDIRECT: &str = "https://remoteplay.dl.playstation.net/remoteplay/redirect";
 
+/// Runs an async command to completion (they block on the native core).
+fn run<F: std::future::Future>(f: F) -> F::Output {
+    tauri::async_runtime::block_on(f)
+}
+
 fn mock(core: &'static FakeCore) -> App<MockRuntime> {
     let app = with_commands(mock_builder()).build(mock_context(noop_assets())).expect("mock app");
     app.manage(CoreHandle(core));
@@ -50,11 +55,11 @@ fn invoke(app: &App<MockRuntime>, cmd: &str, args: Value) -> Result<Value, Value
 #[test]
 fn discover_replies_and_maps_errors() {
     let core = ok_reply();
-    assert_eq!(discover(mock(core).handle().clone(), None), Ok(json!({"ok": true})));
-    assert_eq!(discover(mock(core).handle().clone(), Some(" 192.168.1.20 ".into())), Ok(json!({"ok": true})));
+    assert_eq!(run(discover(mock(core).handle().clone(), None)), Ok(json!({"ok": true})));
+    assert_eq!(run(discover(mock(core).handle().clone(), Some(" 192.168.1.20 ".into()))), Ok(json!({"ok": true})));
     assert_eq!(core.calls(), ["discover 1500", "discover_host 192.168.1.20 1500"]);
-    assert_eq!(discover(mock(core).handle().clone(), Some("ps5.local".into())), Err("ps5.local isn't an IP address".into()));
-    assert_eq!(discover(mock(err_reply()).handle().clone(), None), Err("nope".into()));
+    assert_eq!(run(discover(mock(core).handle().clone(), Some("ps5.local".into()))), Err("ps5.local isn't an IP address".into()));
+    assert_eq!(run(discover(mock(err_reply()).handle().clone(), None)), Err("nope".into()));
 }
 
 #[test]
@@ -62,14 +67,14 @@ fn register_console_forwards_request_json() {
     let core = ok_reply();
     let app = mock(core);
     let request = json!({"address": "10.0.0.2", "ps5": true, "accountId": "x", "pin": "12345678"});
-    assert_eq!(register_console(app.handle().clone(), request.clone()), Ok(json!({"ok": true})));
+    assert_eq!(run(register_console(app.handle().clone(), request.clone())), Ok(json!({"ok": true})));
     assert_eq!(core.calls(), [format!("register {request}")]);
 }
 
 #[test]
 fn wakeup_forwards_credentials() {
     let core = FakeCore { wakeup_ok: true, ..Default::default() }.leak();
-    assert!(wakeup(mock(core).handle().clone(), json!({"host": "h"})));
+    assert_eq!(run(wakeup(mock(core).handle().clone(), json!({"host": "h"}))), Ok(true));
     assert_eq!(core.calls(), [r#"wakeup {"host":"h"}"#]);
 }
 
@@ -77,9 +82,9 @@ fn wakeup_forwards_credentials() {
 fn start_stream_runs_session_start_on_main() {
     let core = ok_reply();
     let app = mock(core);
-    assert_eq!(start_stream(app.handle().clone(), json!({"a": 1})), Ok(json!({"ok": true})));
+    assert_eq!(run(start_stream(app.handle().clone(), json!({"a": 1}))), Ok(json!({"ok": true})));
     assert_eq!(core.calls(), [r#"session_start {"a":1}"#]);
-    assert_eq!(start_stream(mock(err_reply()).handle().clone(), json!({})), Err("nope".into()));
+    assert_eq!(run(start_stream(mock(err_reply()).handle().clone(), json!({}))), Err("nope".into()));
 }
 
 #[test]
@@ -154,15 +159,15 @@ fn psn_login_opens_sign_in_window() {
 fn psn_tokens_status_and_sign_out() {
     let core = FakeCore { psn_signed_in: true, ..Default::default() }.leak();
     let app = mock(core);
-    assert!(psn_signed_in(app.handle().clone()));
-    psn_sign_out(app.handle().clone());
+    assert_eq!(run(psn_signed_in(app.handle().clone())), Ok(true));
+    assert_eq!(run(psn_sign_out(app.handle().clone())), Ok(()));
     assert_eq!(core.calls(), ["psn_sign_out"]);
 }
 
 #[test]
 fn psn_consoles_replies_or_maps_errors() {
-    assert_eq!(psn_consoles(mock(ok_reply()).handle().clone()), Ok(json!({"ok": true})));
-    assert_eq!(psn_consoles(mock(err_reply()).handle().clone()), Err("nope".into()));
+    assert_eq!(run(psn_consoles(mock(ok_reply()).handle().clone())), Ok(json!({"ok": true})));
+    assert_eq!(run(psn_consoles(mock(err_reply()).handle().clone())), Err("nope".into()));
 }
 
 #[test]
@@ -194,11 +199,11 @@ fn peer_wifi_commands() {
 fn secrets_go_through_the_native_store() {
     let core = FakeCore::default().leak();
     let app = mock(core);
-    assert_eq!(secret_get(app.handle().clone(), "consoles".into()), Ok(json!({"value": null})));
-    assert_eq!(secret_set(app.handle().clone(), "consoles".into(), "abc".into()), Ok(json!({"ok": true})));
-    assert_eq!(secret_get(app.handle().clone(), "consoles".into()), Ok(json!({"value": "abc"})));
-    secret_remove(app.handle().clone(), "consoles".into());
-    assert_eq!(secret_get(app.handle().clone(), "consoles".into()), Ok(json!({"value": null})));
+    assert_eq!(run(secret_get(app.handle().clone(), "consoles".into())), Ok(json!({"value": null})));
+    assert_eq!(run(secret_set(app.handle().clone(), "consoles".into(), "abc".into())), Ok(json!({"ok": true})));
+    assert_eq!(run(secret_get(app.handle().clone(), "consoles".into())), Ok(json!({"value": "abc"})));
+    assert_eq!(run(secret_remove(app.handle().clone(), "consoles".into())), Ok(()));
+    assert_eq!(run(secret_get(app.handle().clone(), "consoles".into())), Ok(json!({"value": null})));
 }
 
 #[test]

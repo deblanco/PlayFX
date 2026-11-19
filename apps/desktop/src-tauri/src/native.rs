@@ -134,6 +134,18 @@ pub fn tail_lines(text: &str, count: usize) -> String {
     lines[lines.len().saturating_sub(count)..].join("\n")
 }
 
+/// Whether the PSN sign-in window may show this page: Sony's sign-in hosts over HTTPS only. Anything else
+/// (a link off the sign-in page, an injected redirect) is blocked, so no other site ever runs in a window
+/// of this app.
+pub fn is_psn_sign_in_page(url: &str) -> bool {
+    let Ok(url) = url.parse::<tauri::Url>() else { return false };
+    let Some(host) = url.host_str() else { return false };
+    url.scheme() == "https"
+        && ["playstation.com", "playstation.net", "sony.com", "sonyentertainmentnetwork.com"]
+            .iter()
+            .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+}
+
 /// Turns a StreamCore JSON reply into Ok(value) / Err(message).
 pub fn reply(text: &str) -> Result<Value, String> {
     let value: Value = serde_json::from_str(text).map_err(|e| {

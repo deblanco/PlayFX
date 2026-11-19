@@ -2,7 +2,42 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         link_streamcore();
     }
-    tauri_build::build()
+    // The app's own commands are access-controlled like plugin ones: only windows granted them (the main
+    // window, capabilities/default.json) can call them. The PSN sign-in window shows Sony's site and must
+    // never reach secret_get or start_stream.
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+        "discover",
+        "register_console",
+        "wakeup",
+        "psn_login",
+        "start_stream",
+        "stop_stream",
+        "sleep_console",
+        "set_login_pin",
+        "set_controller",
+        "set_pointer_touch",
+        "keyboard_set_text",
+        "keyboard_done",
+        "set_microphone",
+        "secret_get",
+        "audio_devices",
+        "peer_wifi_status",
+        "set_peer_wifi_paused",
+        "set_audio_output",
+        "secret_set",
+        "secret_remove",
+        "set_render_params",
+        "toggle_fullscreen",
+        "psn_signed_in",
+        "psn_consoles",
+        "psn_sign_out",
+        "set_detailed_logs",
+        "open_logs_folder",
+        "open_source_code",
+        "diagnostics",
+        "renderer_status",
+    ])))
+    .expect("tauri build");
 }
 
 /// Compiles and links the shared Swift core (Metal/MetalFX renderer + libchiaki session).
