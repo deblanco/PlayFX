@@ -1,138 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- PlayFX app icon: P raised to the power of FX (the P's counter is a play triangle). Render with rsvg-convert at 1024 px,
-       then `bun tauri icon src-tauri/icons/icon.png` in apps/desktop for every size. -->
+  <!-- PlayFX app icon: P raised to the power of FX, in a four-colour split. Render with rsvg-convert at
+       1024 px, then `bun tauri icon src-tauri/icons/icon.png` in apps/desktop for every size. -->
   <defs>
-    <linearGradient id="bg" x1="0.15" y1="0" x2="0.6" y2="1">
-      <stop offset="0" stop-color="#232B62"/>
-      <stop offset="0.55" stop-color="#141A3D"/>
-      <stop offset="1" stop-color="#0B0F26"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2a2e3a"/>
+      <stop offset="1" stop-color="#0e0f14"/>
     </linearGradient>
-    <radialGradient id="spot" cx="0.68" cy="0.3" r="0.5">
-      <stop offset="0" stop-color="#6E7CFF" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#6E7CFF" stop-opacity="0"/>
-    </radialGradient>
     <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity="0.16"/>
-      <stop offset="0.06" stop-color="#fff" stop-opacity="0.03"/>
-      <stop offset="0.5" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <filter color-interpolation-filters="sRGB" id="grain" x="0" y="0" width="100%" height="100%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="11"/>
-      <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.075 0"/>
+    <!-- Filters stay in sRGB: the default linearRGB bands dark gradients -->
+    <filter id="shadow" color-interpolation-filters="sRGB" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/>
     </filter>
-    <filter color-interpolation-filters="sRGB" id="grain2" x="0" y="0" width="100%" height="100%">
+    <filter id="grain" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7"/>
+      <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.06 0"/>
+    </filter>
+    <filter id="grain-dark" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">
       <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="29"/>
-      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.09 0"/>
-    </filter>
-    <filter color-interpolation-filters="sRGB" id="bloom" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="34"/>
-    </filter>
-    <filter color-interpolation-filters="sRGB" id="shadow" x="-10%" y="-10%" width="120%" height="125%">
-      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.38"/>
-    </filter>
-    <filter color-interpolation-filters="sRGB" id="cast" x="-20%" y="-20%" width="140%" height="150%">
-      <feGaussianBlur stdDeviation="16"/>
+      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.08 0"/>
     </filter>
     <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
-    <clipPath id="topclip"><rect x="-100" y="-100" width="2000" height="104"/></clipPath>
   </defs>
 
   <rect x="100" y="100" width="824" height="824" rx="185" fill="#000" filter="url(#shadow)"/>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
   <g clip-path="url(#tile)">
-    <rect x="100" y="100" width="824" height="824" fill="url(#spot)"/>
     <rect x="100" y="100" width="824" height="824" filter="url(#grain)"/>
-    <rect x="100" y="100" width="824" height="824" filter="url(#grain2)"/>
+    <rect x="100" y="100" width="824" height="824" filter="url(#grain-dark)"/>
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#rim)"/>
 
-    <g transform="translate(187.9,301.7) scale(0.95)">
-      <!-- soft cast shadow under the whole mark -->
-      <g opacity="0.55" filter="url(#cast)" transform="translate(14,34)">
-        <path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#03050f" fill-rule="evenodd"/>
-        <g transform="translate(324,-44)"><path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#03050f"/><path d="M172,0 H234 L348,206 H286 Z" fill="#03050f"/><path d="M286,0 H348 L234,206 H172 Z" fill="#03050f"/></g>
-      </g>
-      <!-- bloom behind the exponent -->
-      <g opacity="0.75" filter="url(#bloom)" transform="translate(324,-44)">
-        <path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#FFB300"/><path d="M172,0 H234 L348,206 H286 Z" fill="#10B48F"/><path d="M286,0 H348 L234,206 H172 Z" fill="#2F66F2"/>
-      </g>
-      <g transform="translate(0,0)">
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(10.33,19.42)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(9.59,18.04)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(8.85,16.65)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(8.12,15.26)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(7.38,13.87)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(6.64,12.49)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(5.90,11.10)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(5.16,9.71)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(4.43,8.32)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(3.69,6.94)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(2.95,5.55)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(2.21,4.16)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(1.48,2.77)"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="#8E0F22" fill-rule="evenodd" transform="translate(0.74,1.39)"/>
-<linearGradient id="g-red-8449" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF4651"/><stop offset="1" stop-color="#E0222F"/></linearGradient>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="url(#g-red-8449)" fill-rule="evenodd"/>
-<path d="M0,0 H164 A138,138 0 0 1 164,276 H118 V480 H0 Z M126,58 L126,218 L246,138 Z" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="3" fill-rule="evenodd" clip-path="url(#topclip)"/>
-</g>
-      <g transform="translate(324,-44)">
-        <g transform="translate(0,0)">
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(10.33,19.42)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(9.59,18.04)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(8.85,16.65)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(8.12,15.26)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(7.38,13.87)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(6.64,12.49)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(5.90,11.10)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(5.16,9.71)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(4.43,8.32)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(3.69,6.94)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(2.95,5.55)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(2.21,4.16)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(1.48,2.77)"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="#9A6200" fill-rule="nonzero" transform="translate(0.74,1.39)"/>
-<linearGradient id="g-yel-9099" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD23A"/><stop offset="1" stop-color="#FFB300"/></linearGradient>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="url(#g-yel-9099)" fill-rule="nonzero"/>
-<path d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="3" fill-rule="nonzero" clip-path="url(#topclip)"/>
-</g>
-        <g transform="translate(0,0)">
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(10.33,19.42)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(9.59,18.04)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(8.85,16.65)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(8.12,15.26)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(7.38,13.87)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(6.64,12.49)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(5.90,11.10)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(5.16,9.71)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(4.43,8.32)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(3.69,6.94)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(2.95,5.55)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(2.21,4.16)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(1.48,2.77)"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="#06684F" fill-rule="nonzero" transform="translate(0.74,1.39)"/>
-<linearGradient id="g-teal-5045" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2EE0B5"/><stop offset="1" stop-color="#10B48F"/></linearGradient>
-<path d="M172,0 H234 L348,206 H286 Z" fill="url(#g-teal-5045)" fill-rule="nonzero"/>
-<path d="M172,0 H234 L348,206 H286 Z" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="3" fill-rule="nonzero" clip-path="url(#topclip)"/>
-</g>
-        <g transform="translate(0,0)">
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(10.33,19.42)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(9.59,18.04)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(8.85,16.65)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(8.12,15.26)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(7.38,13.87)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(6.64,12.49)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(5.90,11.10)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(5.16,9.71)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(4.43,8.32)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(3.69,6.94)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(2.95,5.55)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(2.21,4.16)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(1.48,2.77)"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="#17349A" fill-rule="nonzero" transform="translate(0.74,1.39)"/>
-<linearGradient id="g-blue-1628" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5A90FF"/><stop offset="1" stop-color="#2F66F2"/></linearGradient>
-<path d="M286,0 H348 L234,206 H172 Z" fill="url(#g-blue-1628)" fill-rule="nonzero"/>
-<path d="M286,0 H348 L234,206 H172 Z" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="3" fill-rule="nonzero" clip-path="url(#topclip)"/>
-</g>
+    <g transform="translate(175.1,319.4) scale(0.88)">
+      <path fill="#E8343B" fill-rule="evenodd" d="M0,0 H202 A148,148 0 0 1 202,296 H102 V500 H0 Z M102,90 H196 A58,58 0 0 1 196,206 H102 Z"/>
+      <g transform="translate(374,162) skewX(-12) translate(0,-206)">
+        <path fill="#F6B81A" d="M0,0 H156 V54 H58 V82 H132 V134 H58 V206 H0 Z"/>
+        <path fill="#19B394" d="M172,0 H234 L348,206 H286 Z"/>
+        <path fill="#2F6FDE" d="M286,0 H348 L234,206 H172 Z"/>
       </g>
     </g>
-    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#rim)"/>
   </g>
 </svg>
