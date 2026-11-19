@@ -300,6 +300,15 @@ export const StreamStats = Schema.Struct({
 })
 export type StreamStats = typeof StreamStats.Type
 
+/** How the renderer paces frames: in-between images shown per second, frames and in-between images never
+ * shown (a later one was due first), and how far behind the stream clock images are shown (ms). */
+export const PacingStats = Schema.Struct({
+  generatedFps: Schema.Number,
+  skippedFrames: Schema.Number,
+  skippedInterpolations: Schema.Number,
+  delayMs: Schema.Number,
+})
+
 export const RendererStatus = Schema.Struct({
   metalfxSupported: Schema.Boolean,
   activeMode: Schema.Literals(["bilinear", "metalfx", "none"]),
@@ -319,6 +328,8 @@ export const RendererStatus = Schema.Struct({
   displayMs: Schema.Number,
   /** New images put on screen per second; with Frame interpolation, more than the stream sends (0 when idle). */
   shownFps: since(Schema.Number, 0),
+  /** Frame pacing (null before the renderer reports it). */
+  pacing: since(Schema.NullOr(PacingStats), null),
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

@@ -71,6 +71,9 @@ final class InterpolationLane {
         return true
     }
 
+    /// Starts the counts over (a new stream).
+    func resetCounts() { state.withLock { $0.busyPairs = 0; $0.cutPairs = 0 } }
+
     /// Waits until the pair in hand (if any) is done; for tests and shutdown.
     func waitUntilIdle() { queue.sync {} }
 

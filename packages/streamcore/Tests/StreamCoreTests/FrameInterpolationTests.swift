@@ -183,5 +183,7 @@ extension StreamRendererTests {
         for i in 0..<3 where lane.submit(previous: a, current: b, time: Double(i), size: (640, 360)) { accepted += 1 }
         lane.waitUntilIdle()
         #expect(accepted < 3 && lane.busyPairs == 3 - accepted)
+        lane.resetCounts()
+        #expect(lane.busyPairs == 0 && lane.cutPairs == 0)
     }
 }

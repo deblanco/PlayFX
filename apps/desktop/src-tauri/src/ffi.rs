@@ -18,6 +18,7 @@ unsafe extern "C" {
     pub fn sc_hdr_active() -> bool;
     pub fn sc_display_milliseconds() -> f64;
     pub fn sc_shown_fps() -> f64;
+    pub fn sc_pacing_stats() -> *mut c_char;
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
     pub fn sc_session_stop();
     pub fn sc_session_sleep();
@@ -180,6 +181,9 @@ impl NativeCore for MacCore {
     }
     fn shown_fps(&self) -> f64 {
         unsafe { sc_shown_fps() }
+    }
+    fn pacing_stats(&self) -> String {
+        take(unsafe { sc_pacing_stats() })
     }
     fn hdr_active(&self) -> bool {
         unsafe { sc_hdr_active() }

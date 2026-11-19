@@ -334,6 +334,7 @@ fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
             hdr: core.hdr_active(),
             display_ms: core.display_milliseconds(),
             shown_fps: core.shown_fps(),
+            pacing: core.pacing_stats(),
         };
         (state, core.session_stats())
     })?;

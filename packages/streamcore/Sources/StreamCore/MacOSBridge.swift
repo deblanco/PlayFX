@@ -143,6 +143,18 @@ public func sc_shown_fps() -> Double {
     renderer?.shownFramesPerSecond ?? 0
 }
 
+/// Frame pacing: in-between images presented per second, frames and in-between images never shown (a
+/// later one was due first, or the lane was busy), and how far behind the stream clock images show (ms).
+@_cdecl("sc_pacing_stats")
+public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
+    json([
+        "generatedFps": renderer?.generatedFramesPerSecond ?? 0,
+        "skippedFrames": renderer?.skippedFrames ?? 0,
+        "skippedInterpolations": renderer?.skippedInterpolations ?? 0,
+        "delayMs": renderer?.pacingDelayMilliseconds ?? 0,
+    ])
+}
+
 /// Whether HDR10 frames are on screen (EDR output).
 @_cdecl("sc_hdr_active")
 public func sc_hdr_active() -> Bool {

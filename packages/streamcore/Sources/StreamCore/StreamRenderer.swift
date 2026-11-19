@@ -93,10 +93,14 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public let interpolationSupported = FrameInterpolator.isAvailable
     /// Whether in-between images reached the screen in the last second.
     public var interpolationActive: Bool { presented.withLock { $0.generated.perSecond(now: CACurrentMediaTime()) > 0 } }
-    /// The stream's nominal frame rate (30 or 60), which its clock runs on; set before the first frame.
+    /// The stream's nominal frame rate (30 or 60), which its clock runs on. Setting it starts pacing over
+    /// (counts included), so set it once per stream, before its first frame.
     public var streamFrameRate: Double {
         get { pacing.withLock { $0.clock.fps } }
-        set { pacing.withLock { if $0.clock.fps != newValue { $0 = Pacing(fps: newValue) } } }
+        set {
+            pacing.withLock { $0 = Pacing(fps: newValue) }
+            lane?.resetCounts()
+        }
     }
     /// Frames shown by their stream clock (see FramePacing.swift), and the in-between images made for them.
     private struct Pacing {

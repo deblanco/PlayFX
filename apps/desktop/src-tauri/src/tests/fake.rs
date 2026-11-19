@@ -147,6 +147,9 @@ impl NativeCore for FakeCore {
     fn shown_fps(&self) -> f64 {
         self.shown_fps
     }
+    fn pacing_stats(&self) -> String {
+        r#"{"generatedFps":0,"skippedFrames":0,"skippedInterpolations":0,"delayMs":0}"#.into()
+    }
     fn hdr_active(&self) -> bool {
         self.hdr
     }

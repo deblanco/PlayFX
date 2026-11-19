@@ -249,7 +249,7 @@ const PicturePanel = ({ settings, capabilities, set }: {
         label="Frame interpolation"
         description={
           capabilities.interpolation
-            ? "Adds an in-between frame, so 30 fps games look like 60 on this screen (60 like 120 on ProMotion). Each real frame shows one refresh later, so it suits slower games."
+            ? "Shows an in-between image after each frame, so 30 fps games look like 60 on this screen (60 like 120 on ProMotion). Frames show about 40 ms later at 30 fps, so it suits slower games."
             : "Needs macOS 26 on a supported Mac."
         }
         checked={settings.frameInterpolation}

@@ -130,6 +130,8 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
   const { stream } = status
   if (!stream.active || stream.width === undefined || stream.height === undefined) return []
   const lost = stream.framesLost ?? 0
+  // Decoded but never shown: a later frame was due first (the screen couldn't keep up).
+  const skipped = status.pacing?.skippedFrames ?? 0
   const errors = stream.decodeErrors ?? 0
   const rtt = stream.rttMs ?? 0
   const row = (label: string, value: string, inline: string, warn = false): StatRow => ({ label, value, inline, warn })
@@ -155,6 +157,7 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
     status.interpolationActive ? row("Frame interpolation", "On", "frame interpolation") : undefined,
     status.hdrActive ? row("HDR", "On", "HDR") : undefined,
     row("Lost frames", String(lost), `${String(lost)} lost frames`, lost > 0),
+    skipped > 0 ? row("Skipped frames", String(skipped), `${String(skipped)} skipped`, true) : undefined,
     errors > 0 ? row("Decode errors", String(errors), `${String(errors)} decode errors`, true) : undefined,
   ]
   return rows.filter((row) => row !== undefined)
