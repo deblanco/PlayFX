@@ -121,7 +121,10 @@ public final class StreamSession {
         handler?(event)
     }
     /// Called from the video thread with every decoded frame.
-    public var onFrame: ((CVPixelBuffer) -> Void)?
+    /// Each decoded frame with its place in the stream (counting frames lost on the way), for pacing.
+    public var onFrame: ((CVPixelBuffer, UInt64?) -> Void)?
+    /// The index of the last frame handed to the decoder.
+    private var frameIndex: UInt64 = 0
 
     public var stats: Stats {
         var s = lock.withLock { _stats }
@@ -149,14 +152,14 @@ public final class StreamSession {
         decoder = VideoDecoder(codec: hevc ? .hevc : .h264, tenBit: hdr)
         audio = options.audio ? AudioPlayer() : nil
 
-        decoder.onFrame = { [unowned self] frame in
+        decoder.onIndexedFrame = { [unowned self] frame, index in
             lock.withLock {
                 _latestFrame = frame
                 _stats.framesDecoded += 1
                 _stats.width = CVPixelBufferGetWidth(frame)
                 _stats.height = CVPixelBufferGetHeight(frame)
             }
-            onFrame?(frame)
+            onFrame?(frame, index)
         }
 
         var config = PsrpSessionConfig()
@@ -297,11 +300,13 @@ public final class StreamSession {
 
     func handleVideo(_ data: UnsafeRawBufferPointer, framesLost: Int) -> Bool {
         let bytes = data.count
-        lock.withLock {
+        let index: UInt64 = lock.withLock {
             _stats.framesLost += framesLost
             _stats.bytesReceived += bytes
+            frameIndex += 1 + UInt64(max(0, framesLost))
+            return frameIndex
         }
-        let ok = decoder.decode(data)
+        let ok = decoder.decode(data, index: index)
         if !ok { lock.withLock { _stats.decodeErrors += 1 } }
         return ok
     }

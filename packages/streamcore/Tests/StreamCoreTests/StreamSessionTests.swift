@@ -127,7 +127,7 @@ extension Serial {
             let session = try StreamSession(credentials: credentials, options: options)
             defer { session.stop() }
             var frames = 0
-            session.onFrame = { _ in frames += 1 }
+            session.onFrame = { _, _ in frames += 1 }
 
             let encoded = try encodeFrames(codec: kCMVideoCodecType_H264, count: 3)
             for (i, f) in encoded.enumerated() {

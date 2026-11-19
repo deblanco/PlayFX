@@ -44,41 +44,48 @@ extension StreamRendererTests {
         #expect(p.frameInterpolation && !RenderParams().frameInterpolation)
     }
 
-    /// 30 fps on a 60 Hz screen: the in-between frame shows when a new frame arrives, the new frame on
-    /// the next refresh.
-    @Test func showsTheInBetweenFrameThenTheNewOne() throws {
+    /// A 30 fps stream on a 60 Hz screen: when a bar moves between two frames, the in-between image (made
+    /// on the interpolation lane, away from the draws) shows the bar about halfway, before the new frame.
+    @Test func showsTheInBetweenImageBeforeTheNewFrame() throws {
         guard FrameInterpolator.isAvailable else { return }
         let r = try #require(StreamRenderer(inputWidth: 640, inputHeight: 360))
         r.params.upscaler = .bilinear
         r.params.sharpness = 0
         r.params.frameInterpolation = true
-        let refresh = 1.0 / 60
-        let dark = try makeNV12(width: 640, height: 360, y: 40, cb: 128, cr: 128)
-        let bright = try makeNV12(width: 640, height: 360, y: 200, cb: 128, cr: 128)
-        func luma(_ pixels: [UInt8]) -> Int { pixel(pixels, width: 64, x: 32, y: 18).g }
-        // Settle on dark frames at 30 fps so both intervals are measured.
-        var now = 0.0
-        for _ in 0..<4 {
-            r.display(dark)
-            _ = try render(r, size: (64, 36), now: now)
-            now += refresh
-            _ = try render(r, size: (64, 36), now: now)
-            now += refresh
+        r.streamFrameRate = 30
+        /// A dark frame with a bright vertical bar starting at x.
+        func bar(at x: Int) throws -> CVPixelBuffer {
+            try makeNV12(width: 640, height: 360, cb: 128, cr: 128) { px, _ in px >= x && px < x + 60 ? 220 : 40 }
         }
-        r.display(bright)
-        let between = luma(try render(r, size: (64, 36), now: now))
-        #expect(r.interpolationActive)
-        now += refresh
-        let after = luma(try render(r, size: (64, 36), now: now)) // the held real frame
-        #expect(after > between)
-        #expect(r.shownFramesPerSecond >= 0) // counted through the real draw path
-
-        // Off: the new frame shows at once.
-        r.params.frameInterpolation = false
-        r.display(dark)
-        now += refresh
-        _ = try render(r, size: (64, 36), now: now)
-        #expect(!r.interpolationActive)
+        /// Where the bar is in a rendered 64-pixel row: its brightness-weighted centre.
+        func centre(_ pixels: [UInt8]) -> Double {
+            var sum = 0.0, weight = 0.0
+            for x in 0..<64 {
+                let w = max(0, Double(pixel(pixels, width: 64, x: x, y: 18).g) - 60)
+                sum += w * Double(x)
+                weight += w
+            }
+            return weight > 0 ? sum / weight : -1
+        }
+        let frame = 1.0 / 30, refresh = 1.0 / 60
+        let before = try bar(at: 200), after = try bar(at: 300)
+        for k in 0..<8 { // the bar still, two refreshes per frame
+            r.display(before, index: UInt64(k), arrival: Double(k) * frame)
+            r.waitForInterpolation()
+            _ = try render(r, size: (64, 36), now: Double(k) * frame)
+            _ = try render(r, size: (64, 36), now: Double(k) * frame + refresh)
+        }
+        r.display(after, index: 8, arrival: 8 * frame)
+        r.waitForInterpolation()
+        var seen: [Double] = []
+        for step in 0..<12 { seen.append(centre(try render(r, size: (64, 36), now: 8 * frame + Double(step) * refresh))) }
+        // The bar is at 23 before (pixels 200–260 of 640), 33 after (300–360); halfway is 28.
+        #expect(abs((seen.last ?? 0) - 33) < 1.5, "\(seen)")
+        let arrived = try #require(seen.firstIndex { abs($0 - 33) < 1.5 }, "\(seen)")
+        #expect(seen[..<arrived].contains { abs($0 - 28) < 2.5 }, "no in-between image before the new frame: \(seen)")
+        #expect(r.pacingDelayMilliseconds > 0)
+        #expect(r.skippedInterpolations >= 0 && r.skippedFrames >= 0)
+        #expect(r.generatedFramesPerSecond == 0 && !r.interpolationActive) // nothing presented on a real screen here
     }
 }
 
@@ -111,5 +118,70 @@ extension StreamRendererTests {
         // The first window still holds the gap; the next one reads the steady 30 fps.
         let resumed = shown(&rate, fps: 30, seconds: 2.2, from: end + 2.5 + 1.0 / 30)
         #expect(abs(rate.perSecond(now: resumed) - 30) < 2)
+    }
+}
+
+@Suite struct InterpolationLaneTests {
+    let device = MTLCreateSystemDefaultDevice()
+
+    /// A dark 640×360 frame with a bright bar from x (and a fixed textured patch top-left, which never moves).
+    func frame(bar x: Int, background: UInt8 = 40) throws -> CVPixelBuffer {
+        try makeNV12(width: 640, height: 360, cb: 128, cr: 128) { px, py in
+            if px < 100 && py < 60 { return UInt8(60 + (px * 7 + py * 13) % 120) } // a "HUD"
+            return px >= x && px < x + 60 ? 220 : background
+        }
+    }
+
+    func luma(_ buffer: CVPixelBuffer, _ x: Int, _ y: Int) -> UInt8 {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0)!.assumingMemoryBound(to: UInt8.self)
+        return base[y * CVPixelBufferGetBytesPerRowOfPlane(buffer, 0) + x]
+    }
+
+    @Test func makesImagesAwayFromTheCallerKeepingStillAreas() throws {
+        guard FrameInterpolator.isAvailable, let device else { return }
+        let lane = try #require(InterpolationLane(device: device))
+        var made: [InterpolationLane.Image] = []
+        lane.onImage = { made.append($0) }
+        let a = try frame(bar: 200), b = try frame(bar: 300)
+        #expect(lane.submit(previous: a, current: b, time: 1.5, size: (640, 360)))
+        lane.waitUntilIdle()
+        let image = try #require(made.first)
+        #expect(image.time == 1.5 && image.cost > 0 && image.size == (640, 360))
+        #expect(CVPixelBufferGetWidth(image.buffer) == 640)
+        // The "HUD" didn't change between the frames, so it comes back exactly (not the model's version).
+        for (x, y) in [(10, 10), (55, 31), (90, 50)] {
+            #expect(abs(Int(luma(image.buffer, x, y)) - Int(luma(a, x, y))) <= 1, "(\(x), \(y))")
+        }
+    }
+
+    @Test func makesSmallerImagesWhenAskedAndScalesThemBack() throws {
+        guard FrameInterpolator.isAvailable, let device else { return }
+        let lane = try #require(InterpolationLane(device: device))
+        var made: [InterpolationLane.Image] = []
+        lane.onImage = { made.append($0) }
+        lane.prepare(size: (320, 180))
+        lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), time: 2, size: (320, 180))
+        lane.waitUntilIdle()
+        let image = try #require(made.first)
+        #expect(image.size == (320, 180) && CVPixelBufferGetWidth(image.buffer) == 640)
+    }
+
+    @Test func skipsCutsAndPairsWhileBusy() throws {
+        guard FrameInterpolator.isAvailable, let device else { return }
+        let lane = try #require(InterpolationLane(device: device))
+        var made = 0
+        lane.onImage = { _ in made += 1 }
+        lane.submit(previous: try frame(bar: 200, background: 20), current: try frame(bar: 200, background: 230),
+                    time: 1, size: (640, 360))
+        lane.waitUntilIdle()
+        #expect(made == 0 && lane.cutPairs == 1)
+        // Two pairs at once: the second goes without its image.
+        let a = try frame(bar: 200), b = try frame(bar: 300)
+        var accepted = 0
+        for i in 0..<3 where lane.submit(previous: a, current: b, time: Double(i), size: (640, 360)) { accepted += 1 }
+        lane.waitUntilIdle()
+        #expect(accepted < 3 && lane.busyPairs == 3 - accepted)
     }
 }

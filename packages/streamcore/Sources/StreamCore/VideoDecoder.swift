@@ -11,6 +11,8 @@ public final class VideoDecoder {
 
     /// Called synchronously from `decode` with each decoded frame (NV12, Metal-compatible).
     public var onFrame: ((CVPixelBuffer) -> Void)?
+    /// Also called for each decoded frame, with the index given to `decode` (its place in the stream).
+    public var onIndexedFrame: ((CVPixelBuffer, UInt64?) -> Void)?
     /// Time from handing a frame to VideoToolbox to getting the picture back, smoothed (ms).
     public private(set) var decodeMilliseconds = 0.0
 
@@ -37,7 +39,7 @@ public final class VideoDecoder {
 
     /// Returns false when the frame could not be decoded (caller should request a keyframe).
     @discardableResult
-    public func decode(_ accessUnit: UnsafeRawBufferPointer) -> Bool {
+    public func decode(_ accessUnit: UnsafeRawBufferPointer, index: UInt64? = nil) -> Bool {
         let nalus = Self.splitAnnexB(accessUnit)
         var params: [Data] = []
         var payload = Data()
@@ -63,6 +65,7 @@ public final class VideoDecoder {
             guard status == noErr, let imageBuffer else { ok = false; return }
             if let self { self.decodeMilliseconds = Self.smoothed(self.decodeMilliseconds, (CACurrentMediaTime() - started) * 1000) }
             self?.onFrame?(imageBuffer)
+            self?.onIndexedFrame?(imageBuffer, index)
         }
         if status == kVTInvalidSessionErr {
             // e.g. after sleep/GPU change: rebuild on the next keyframe.

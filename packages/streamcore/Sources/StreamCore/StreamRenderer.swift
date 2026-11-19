@@ -89,30 +89,51 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Whether the last decoded frame went through ML super-resolution.
     public private(set) var mlActive = false
     private let ml = MLSuperResolution()
-    /// Whether frame interpolation ("Frame interpolation") can run on this Mac and OS.
+    /// Whether frame interpolation can run on this Mac and OS.
     public let interpolationSupported = FrameInterpolator.isAvailable
-    /// Whether the last stream frame was preceded by an interpolated one.
-    public private(set) var interpolationActive = false
-    private let interpolator = FrameInterpolator()
-    /// The last stream frame (the interpolation's "before"), and a new one held back for one refresh
-    /// while the in-between frame shows.
-    private var previousFrame: CVPixelBuffer?
-    private var heldFrame: CVPixelBuffer?
-    /// Smoothed seconds between screen refreshes (draws) and between stream frames.
+    /// Whether in-between images reached the screen in the last second.
+    public var interpolationActive: Bool { presented.withLock { $0.generated.perSecond(now: CACurrentMediaTime()) > 0 } }
+    /// The stream's nominal frame rate (30 or 60), which its clock runs on; set before the first frame.
+    public var streamFrameRate: Double {
+        get { pacing.withLock { $0.clock.fps } }
+        set { pacing.withLock { if $0.clock.fps != newValue { $0 = Pacing(fps: newValue) } } }
+    }
+    /// Frames shown by their stream clock (see FramePacing.swift), and the in-between images made for them.
+    private struct Pacing {
+        var clock: StreamClock
+        var timeline = FrameTimeline<CVPixelBuffer>()
+        var planner = DelayPlanner()
+        var rungs: RungSelector?
+        var lastReal: (frame: CVPixelBuffer, time: Double)?
+        var nextIndex: UInt64 = 0
+        init(fps: Double) { clock = StreamClock(fps: fps) }
+    }
+    private let pacing = OSAllocatedUnfairLock(initialState: Pacing(fps: 60))
+    /// Whether to make in-between images: wanted, supported, and the screen refreshes fast enough to show them.
+    private let interpolating = OSAllocatedUnfairLock(initialState: false)
+    private let lane: InterpolationLane?
+    /// Smoothed seconds between screen refreshes (draws).
     private var displayInterval = 0.0
-    private var streamInterval = 0.0
     private var lastDraw = 0.0
-    private var lastArrival = 0.0
-    /// When the newest decoded frame arrived, and when the frame drawn now arrived (for display latency).
-    private let arrival = OSAllocatedUnfairLock<Double>(initialState: 0)
-    private var heldArrival = 0.0
-    private var drawnArrival: Double?
+    /// The image drawn now, for counting it once it is actually presented.
+    private var drawnItem: TimedImage<CVPixelBuffer>?
+    /// Images actually presented per second, all and in-between ones (from the drawable's presented time).
+    private let presented = OSAllocatedUnfairLock(initialState: (all: ShownRate(), generated: ShownRate()))
+    /// Frames and in-between images that were never shown (a later one was due first), and pairs that went
+    /// without an in-between image.
+    public var skippedFrames: Int { pacing.withLock { $0.timeline.skippedReal } }
+    public var skippedInterpolations: Int {
+        pacing.withLock { $0.timeline.skippedGenerated } + (lane.map { $0.busyPairs } ?? 0)
+    }
+    /// How far behind the stream clock images are shown now (ms): jitter cover, plus interpolation's time.
+    public var pacingDelayMilliseconds: Double { pacing.withLock { $0.planner.delay * 1000 } }
     /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
     public var displayMilliseconds: Double { displayTime.withLock { $0 } }
     private let displayTime = OSAllocatedUnfairLock<Double>(initialState: 0)
-    /// New images put on screen per second: stream frames plus Frame interpolation's in-between frames.
-    public var shownFramesPerSecond: Double { shownRate.withLock { $0.perSecond(now: CACurrentMediaTime()) } }
-    private let shownRate = OSAllocatedUnfairLock(initialState: ShownRate())
+    /// New images actually presented per second: stream frames plus in-between images.
+    public var shownFramesPerSecond: Double { presented.withLock { $0.all.perSecond(now: CACurrentMediaTime()) } }
+    /// In-between images actually presented per second.
+    public var generatedFramesPerSecond: Double { presented.withLock { $0.generated.perSecond(now: CACurrentMediaTime()) } }
     /// The raw stream converted at its own size, for the compare view's baseline while ML is on.
     private var baselineTexture: MTLTexture?
     /// Width of the last decoded frame, before any ML upscale (the codec's block grid lives there).
@@ -128,7 +149,6 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private let patternPipeline: MTLComputePipelineState
     private let nv12Pipeline: MTLComputePipelineState
     private let textureCache: CVMetalTextureCache
-    private let frameLock = OSAllocatedUnfairLock<CVPixelBuffer?>(initialState: nil)
     /// The present-pass pipelines, one set per output format (8-bit SDR, 16-bit float for HDR/EDR).
     private struct Pipelines {
         let present: MTLRenderPipelineState
@@ -204,9 +224,17 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.inputTexture = input
         self.view = view
         self.metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
+        self.lane = FrameInterpolator.isAvailable ? InterpolationLane(device: device) : nil
         Log.info(.renderer, "Renderer on \(device.name): MetalFX \(metalFXSupported ? "yes" : "no"), "
             + "ML super-resolution \(MLSuperResolution.isAvailable ? "yes" : "no")")
         super.init()
+        lane?.onImage = { [pacing] image in
+            pacing.withLock { p in
+                p.timeline.add(TimedImage(image: image.buffer, time: image.time, generated: true, arrival: CACurrentMediaTime()))
+                p.planner.observe(cost: image.cost)
+                p.rungs?.observe(cost: image.cost, budget: p.clock.interval * 0.6, now: CACurrentMediaTime())
+            }
+        }
         view.delegate = self
         applyColorSpace()
     }
@@ -244,13 +272,51 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         scaler = nil
     }
 
-    /// Queues a decoded frame for the next draw. Thread-safe; only the newest frame is kept.
-    /// Shows a decoded frame; the first one replaces the idle backdrop.
-    public func display(_ frame: CVPixelBuffer) {
-        frameLock.withLock { $0 = frame }
-        arrival.withLock { $0 = CACurrentMediaTime() }
+    /// Queues a decoded frame. Thread-safe. `index` is its place in the stream (one more than the last,
+    /// plus any frames lost); without it frames count up by one. The frame shows when the stream clock
+    /// says, not when it arrives; with frame interpolation on, the image between it and the previous frame
+    /// is made on the interpolation lane meanwhile. The first one replaces the idle backdrop.
+    public func display(_ frame: CVPixelBuffer, index: UInt64? = nil, arrival: Double = CACurrentMediaTime()) {
         showsTestPattern = false
+        let wanted = interpolating.withLock { $0 }
+        let pair: (previous: CVPixelBuffer, time: Double, size: (width: Int, height: Int), prepare: [(width: Int, height: Int)])? =
+            pacing.withLock { p in
+                let i = index ?? p.nextIndex
+                p.nextIndex = i + 1
+                guard var stamp = p.clock.time(index: i, arrival: arrival) else { return nil }
+                // Far earlier than the clock expects: its rate is wrong for this stream; start it over here.
+                if stamp.time - arrival > p.clock.interval / 2 {
+                    p.clock = StreamClock(fps: p.clock.fps)
+                    stamp = p.clock.time(index: i, arrival: arrival) ?? (arrival, true)
+                }
+                if stamp.restarted {
+                    p.timeline.clear()
+                    p.lastReal = nil
+                }
+                p.planner.observe(lateness: arrival - stamp.time)
+                let delay = p.planner.update(interval: p.clock.interval, interpolating: wanted)
+                // After a start or a break the frame shows at once; later ones keep to the clock.
+                let time = stamp.restarted ? arrival - delay : stamp.time
+                p.timeline.add(TimedImage(image: frame, time: time, generated: false, arrival: arrival))
+                defer { p.lastReal = (frame, time) }
+                let width = CVPixelBufferGetWidth(frame), height = CVPixelBufferGetHeight(frame)
+                guard wanted, let last = p.lastReal,
+                      CVPixelBufferGetWidth(last.frame) == width, CVPixelBufferGetHeight(last.frame) == height else { return nil }
+                var prepare: [(width: Int, height: Int)] = []
+                if p.rungs.map({ $0.rungs[0] != (width, height) }) ?? true {
+                    p.rungs = RungSelector(width: width, height: height)
+                    prepare = p.rungs?.rungs ?? []
+                }
+                guard let size = p.rungs?.size else { return nil }
+                return (last.frame, (last.time + time) / 2, size, prepare)
+            }
+        guard let pair, let lane else { return }
+        for size in pair.prepare.dropFirst() { lane.prepare(size: size) }
+        lane.submit(previous: pair.previous, current: frame, time: pair.time, size: pair.size)
     }
+
+    /// Waits until the interpolation lane has finished the pair in hand (tests).
+    func waitForInterpolation() { lane?.waitUntilIdle() }
 
     // MARK: MTKViewDelegate
 
@@ -259,17 +325,22 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public func draw(in view: MTKView) {
         // Switch SDR ↔ HDR before taking the drawable, whose format follows the mode.
         if let layer = view.layer as? CAMetalLayer, layer.maximumDrawableCount != 2 { layer.maximumDrawableCount = 2 }
-        let pending = frameLock.withLock { $0 }
+        let pending = pacing.withLock { $0.timeline.entries.last?.image }
         if let pending { setHDR(FrameColor.isHDR(pending)) } else if showsTestPattern { setHDR(false) }
         guard let drawable = view.currentDrawable,
               let pass = view.currentRenderPassDescriptor,
               let cb = queue.makeCommandBuffer() else { return }
-        drawnArrival = nil
+        drawnItem = nil
         encode(cb, pass: pass, drawableSize: view.drawableSize)
-        if let arrived = drawnArrival {
-            drawable.addPresentedHandler { [displayTime] shown in
-                guard shown.presentedTime > arrived else { return }
-                displayTime.withLock { $0 = Self.smoothed($0, (shown.presentedTime - arrived) * 1000) }
+        if let item = drawnItem {
+            drawable.addPresentedHandler { [displayTime, presented] shown in
+                guard shown.presentedTime > 0 else { return } // dropped by the system: never on screen
+                presented.withLock { counts in
+                    counts.all.count(at: shown.presentedTime)
+                    if item.generated { counts.generated.count(at: shown.presentedTime) }
+                }
+                guard !item.generated, shown.presentedTime > item.arrival else { return }
+                displayTime.withLock { $0 = Self.smoothed($0, (shown.presentedTime - item.arrival) * 1000) }
             }
         }
         cb.present(drawable)
@@ -285,8 +356,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             guard ms > 0 else { return }
             gpuTime.withLock { $0 = Self.smoothed($0, ms) }
         }
-        if let frame = nextFrame(cb, now: now) {
-            shownRate.withLock { $0.count(at: now) }
+        if let frame = nextFrame(now: now) {
             let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: fittedRect(drawable: drawableSize).size) : nil
             mlActive = enhanced != nil
             decodedWidth = CVPixelBufferGetWidth(frame)
@@ -499,31 +569,18 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         #endif
     }
 
-    /// The frame to show on this refresh: a new stream frame (or, with Frame interpolation, the in-between
-    /// frame first and the new one on the next refresh), nil when nothing changed.
-    private func nextFrame(_ cb: MTLCommandBuffer, now: Double) -> CVPixelBuffer? {
+    /// The image to show on this refresh: the newest one the stream clock says is due (a frame, or an
+    /// in-between image), nil when nothing new is due. Also decides whether in-between images can show.
+    private func nextFrame(now: Double) -> CVPixelBuffer? {
         if lastDraw > 0 { displayInterval = Self.smoothedInterval(displayInterval, now - lastDraw) }
         lastDraw = now
-        guard let incoming = frameLock.withLock({ f -> CVPixelBuffer? in defer { f = nil }; return f }) else {
-            defer { heldFrame = nil }
-            drawnArrival = heldFrame == nil ? nil : heldArrival
-            return heldFrame
-        }
-        let arrived = arrival.withLock { $0 }
-        drawnArrival = arrived
-        if lastArrival > 0 { streamInterval = Self.smoothedInterval(streamInterval, now - lastArrival) }
-        lastArrival = now
-        defer { previousFrame = incoming }
-        if params.frameInterpolation, FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval),
-           let previous = previousFrame, let middle = interpolator.encode(cb, previous: previous, current: incoming) {
-            heldFrame = incoming
-            heldArrival = arrived
-            interpolationActive = true
-            return middle
-        }
-        heldFrame = nil
-        interpolationActive = false
-        return incoming
+        let interval = pacing.withLock { $0.clock.interval }
+        let wanted = params.frameInterpolation && interpolationSupported
+            && FrameInterpolator.helps(streamInterval: interval, displayInterval: displayInterval)
+        interpolating.withLock { $0 = wanted }
+        let item = pacing.withLock { p in p.timeline.next(now: now, delay: p.planner.delay) }
+        drawnItem = item
+        return item?.image
     }
 
     /// Running average of an interval; gaps over a quarter second (pauses) are ignored.

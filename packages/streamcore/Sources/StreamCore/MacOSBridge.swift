@@ -273,7 +273,8 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         let r = try decode(Request.self, request)
         let s = try StreamSession(credentials: r.credentials, options: r.options ?? StreamSession.Options(),
                                   remote: r.remote.map { StreamSession.Remote(token: $0.token, duid: $0.duid) })
-        s.onFrame = { frame in renderer?.display(frame) }
+        renderer?.streamFrameRate = Double((r.options ?? StreamSession.Options()).fps)
+        s.onFrame = { frame, index in renderer?.display(frame, index: index) }
         let haptics = Rumble()
         let adaptive = AdaptiveTriggers()
         s.onEvent = { [weak s] event in
