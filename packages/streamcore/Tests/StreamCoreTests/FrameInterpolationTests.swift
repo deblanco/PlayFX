@@ -168,6 +168,13 @@ extension StreamRendererTests {
         #expect(image.size == (320, 180) && CVPixelBufferGetWidth(image.buffer) == 640)
     }
 
+    @Test func recognisesAnEmptyImage() throws {
+        // What VideoToolbox writes when it can't take a size: all zeros (video-range black is 16).
+        #expect(InterpolationLane.isEmpty(try makeNV12(width: 320, height: 180, y: 0, cb: 0, cr: 0)))
+        #expect(!InterpolationLane.isEmpty(try makeNV12(width: 320, height: 180, y: 16, cb: 128, cr: 128)))
+        #expect(!InterpolationLane.isEmpty(try frame(bar: 200)))
+    }
+
     @Test func skipsCutsAndPairsWhileBusy() throws {
         guard FrameInterpolator.isAvailable, let device else { return }
         let lane = try #require(InterpolationLane(device: device))

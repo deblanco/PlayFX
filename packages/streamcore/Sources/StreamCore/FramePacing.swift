@@ -154,11 +154,21 @@ struct RungSelector {
     private var blockedUntil: [Int: Double] = [:]
     private var since = 0.0
 
-    /// The rungs for a stream: its own size, then 1280×720 and 960×540 where they are smaller.
+    /// The rungs for a stream: its own size, then 1280×720 and 960×544 where they are smaller. (The
+    /// Neural Engine's fast path wants both sides a multiple of 16; 960×540 comes out empty.)
     init(width: Int, height: Int) {
         var list = [(width, height)]
-        for r in [(1280, 720), (960, 540)] where r.0 * r.1 < width * height { list.append(r) }
+        for r in [(1280, 720), (960, 544)] where r.0 * r.1 < width * height { list.append(r) }
         rungs = list
+    }
+
+    /// The current size doesn't work at all: never use it again, and move to the next smaller one.
+    /// False when there is none left.
+    mutating func markBroken() -> Bool {
+        blockedUntil[current] = .infinity
+        guard current + 1 < rungs.count else { return false }
+        current += 1
+        return true
     }
 
     var size: (width: Int, height: Int) { rungs[current] }

@@ -101,6 +101,7 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
 @Suite struct RungSelectorTests {
     @Test func offersSmallerSizesOnlyBelowTheStreams() {
         #expect(RungSelector(width: 1920, height: 1080).rungs.map(\.width) == [1920, 1280, 960])
+        #expect(RungSelector(width: 1920, height: 1080).rungs.map(\.height) == [1080, 720, 544])
         #expect(RungSelector(width: 1280, height: 720).rungs.map(\.width) == [1280, 960])
         #expect(RungSelector(width: 960, height: 540).rungs.map(\.width) == [960])
     }
@@ -118,6 +119,18 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         s.observe(cost: 0.050, budget: 0.010, now: 32)
         s.observe(cost: 0.050, budget: 0.010, now: 33)
         s.observe(cost: 0.050, budget: 0.010, now: 34) // already the smallest
+        #expect(s.size.width == 960)
+    }
+
+    @Test func dropsASizeThatDoesNotWork() {
+        var s = RungSelector(width: 1920, height: 1080)
+        let first = s.markBroken()
+        #expect(first && s.size.width == 1280)
+        let second = s.markBroken()
+        #expect(second && s.size.width == 960)
+        let third = s.markBroken()
+        #expect(!third) // none left
+        s.observe(cost: 0.001, budget: 1, now: 100) // lots of room, much later: broken sizes stay out
         #expect(s.size.width == 960)
     }
 }

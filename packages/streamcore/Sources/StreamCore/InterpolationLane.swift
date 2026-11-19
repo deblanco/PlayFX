@@ -35,26 +35,34 @@ final class InterpolationLane {
     private let commandQueue: MTLCommandQueue
     private let blendLuma: MTLComputePipelineState
     private let blendChroma: MTLComputePipelineState
+    private let scaleLuma: MTLComputePipelineState
+    private let scaleChroma: MTLComputePipelineState
+
     private var textureCache: CVMetalTextureCache?
-    private var transfer: VTPixelTransferSession?
     private var interpolators: [String: FrameInterpolator] = [:]
     private var pools: [String: CVPixelBufferPool] = [:]
+    /// Time spent in each stage of the last pair (ms): cut check, scaling, interpolation, static blend.
+    private(set) var stages: (cut: Double, scale: Double, interpolate: Double, blend: Double) = (0, 0, 0, 0)
     /// Images made at each size so far.
     private var madeAt: [String: Int] = [:]
-    private let state = OSAllocatedUnfairLock(initialState: (busy: false, busyPairs: 0, cutPairs: 0))
+    /// Whether a pair is in hand, pairs gone without an image, and sizes that came out empty (never used again).
+    private let state = OSAllocatedUnfairLock(initialState: (busy: false, busyPairs: 0, cutPairs: 0, broken: Set<String>()))
 
     init?(device: MTLDevice) {
         guard let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: Self.shaders, options: nil),
               let luma = library.makeFunction(name: "blendStaticLuma").flatMap({ try? device.makeComputePipelineState(function: $0) }),
-              let chroma = library.makeFunction(name: "blendStaticChroma").flatMap({ try? device.makeComputePipelineState(function: $0) })
+              let chroma = library.makeFunction(name: "blendStaticChroma").flatMap({ try? device.makeComputePipelineState(function: $0) }),
+              let sLuma = library.makeFunction(name: "scaleLuma").flatMap({ try? device.makeComputePipelineState(function: $0) }),
+              let sChroma = library.makeFunction(name: "scaleChroma").flatMap({ try? device.makeComputePipelineState(function: $0) })
         else { return nil }
+        scaleLuma = sLuma
+        scaleChroma = sChroma
         self.device = device
         commandQueue = queue
         blendLuma = luma
         blendChroma = chroma
         CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache)
-        VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &transfer)
     }
 
     /// Queues the pair (previous, current); false when the lane is still busy with the last one.
@@ -69,7 +77,9 @@ final class InterpolationLane {
         let started = CACurrentMediaTime()
         queue.async { [self] in
             defer { state.withLock { $0.busy = false } }
+            let t0 = CACurrentMediaTime()
             if Self.isCut(previous, current) { state.withLock { $0.cutPairs += 1 }; return }
+            stages.cut = (CACurrentMediaTime() - t0) * 1000
             guard let made = make(previous, current, size: size) else { return }
             let key = "\(size.width)x\(size.height)"
             madeAt[key, default: 0] += 1
@@ -78,6 +88,9 @@ final class InterpolationLane {
         }
         return true
     }
+
+    /// Whether a size came out empty before (and so is never used).
+    func isBroken(_ size: (width: Int, height: Int)) -> Bool { state.withLock { $0.broken.contains("\(size.width)x\(size.height)") } }
 
     /// Starts the counts over (a new stream).
     func resetCounts() { state.withLock { $0.busyPairs = 0; $0.cutPairs = 0 } }
@@ -98,37 +111,72 @@ final class InterpolationLane {
         return made
     }
 
+    /// Everything for one pair in one command buffer: scale down (if asked), interpolate, scale back up,
+    /// blend still areas back. One commit and one wait, so no stage waits on another submission.
     private func make(_ previous: CVPixelBuffer, _ current: CVPixelBuffer, size: (width: Int, height: Int)) -> CVPixelBuffer? {
         let width = CVPixelBufferGetWidth(current), height = CVPixelBufferGetHeight(current)
+        let format = CVPixelBufferGetPixelFormatType(current)
         let scaled = size.width < width
+        var t = CACurrentMediaTime()
+        func lap() -> Double { defer { t = CACurrentMediaTime() }; return (CACurrentMediaTime() - t) * 1000 }
+        guard let cb = commandQueue.makeCommandBuffer() else { return nil }
         var a = previous, b = current
         if scaled {
-            guard let sa = scale(previous, to: size), let sb = scale(current, to: size) else { return nil }
+            guard let sa = buffer(size.width, size.height, format), let sb = buffer(size.width, size.height, format),
+                  encodeScale(cb, previous, into: sa), encodeScale(cb, current, into: sb) else { return nil }
             a = sa
             b = sb
         }
-        guard let cb = commandQueue.makeCommandBuffer(),
-              var middle = interpolator(size).encode(cb, previous: a, current: b) else { return nil }
-        cb.commit()
-        cb.waitUntilCompleted()
-        guard cb.status == .completed else { return nil }
+        guard var middle = interpolator(size).encode(cb, previous: a, current: b) else { return nil }
         if scaled {
-            guard let full = scale(middle, to: (width, height)) else { return nil }
+            guard let full = buffer(width, height, format), encodeScale(cb, middle, into: full) else { return nil }
             CVBufferPropagateAttachments(current, full)
             middle = full
         }
-        return blendStatic(previous, current, middle) ?? middle
+        guard let output = buffer(width, height, format),
+              encodeBlend(cb, previous, current, middle, into: output) else { return nil }
+        stages.scale = lap()
+        cb.commit()
+        cb.waitUntilCompleted()
+        stages.interpolate = lap()
+        stages.blend = 0
+        guard cb.status == .completed else { return nil }
+        // VideoToolbox can report success and write nothing (sizes it doesn't take); never show that.
+        guard !Self.isEmpty(output) else {
+            state.withLock { _ = $0.broken.insert("\(size.width)x\(size.height)") }
+            Log.warning(.renderer, "Frame interpolation made an empty image at \(size.width)x\(size.height); not using that size")
+            return nil
+        }
+        CVBufferPropagateAttachments(current, output)
+        return output
     }
 
-    /// The image with areas that didn't change between `a` and `b` taken from them instead.
-    private func blendStatic(_ a: CVPixelBuffer, _ b: CVPixelBuffer, _ middle: CVPixelBuffer) -> CVPixelBuffer? {
-        let width = CVPixelBufferGetWidth(middle), height = CVPixelBufferGetHeight(middle)
-        guard CVPixelBufferGetWidth(a) == width, CVPixelBufferGetHeight(a) == height,
-              let output = buffer(width, height, CVPixelBufferGetPixelFormatType(middle)),
-              let ya = plane(a, 0, .r8Unorm), let yb = plane(b, 0, .r8Unorm), let ym = plane(middle, 0, .r8Unorm),
+    /// Bilinear resample of an NV12 frame into another of a different size, on the GPU.
+    private func encodeScale(_ cb: MTLCommandBuffer, _ source: CVPixelBuffer, into target: CVPixelBuffer) -> Bool {
+        guard let sy = plane(source, 0, .r8Unorm), let sc = plane(source, 1, .rg8Unorm),
+              let ty = plane(target, 0, .r8Unorm), let tc = plane(target, 1, .rg8Unorm),
+              let enc = cb.makeComputeCommandEncoder() else { return false }
+        enc.setComputePipelineState(scaleLuma)
+        enc.setTexture(sy, index: 0)
+        enc.setTexture(ty, index: 1)
+        enc.dispatchThreads(MTLSize(width: ty.width, height: ty.height, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        enc.setComputePipelineState(scaleChroma)
+        enc.setTexture(sc, index: 0)
+        enc.setTexture(tc, index: 1)
+        enc.dispatchThreads(MTLSize(width: tc.width, height: tc.height, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        enc.endEncoding()
+        return true
+    }
+
+    /// The in-between image with areas that didn't change between `a` and `b` taken from them instead.
+    private func encodeBlend(_ cb: MTLCommandBuffer, _ a: CVPixelBuffer, _ b: CVPixelBuffer, _ middle: CVPixelBuffer,
+                             into output: CVPixelBuffer) -> Bool {
+        guard let ya = plane(a, 0, .r8Unorm), let yb = plane(b, 0, .r8Unorm), let ym = plane(middle, 0, .r8Unorm),
               let ca = plane(a, 1, .rg8Unorm), let cbt = plane(b, 1, .rg8Unorm), let cm = plane(middle, 1, .rg8Unorm),
               let yo = plane(output, 0, .r8Unorm), let co = plane(output, 1, .rg8Unorm),
-              let cmd = commandQueue.makeCommandBuffer(), let enc = cmd.makeComputeCommandEncoder() else { return nil }
+              let enc = cb.makeComputeCommandEncoder() else { return false }
         enc.setComputePipelineState(blendLuma)
         for (i, t) in [ya, yb, ym, yo].enumerated() { enc.setTexture(t, index: i) }
         enc.dispatchThreads(MTLSize(width: yo.width, height: yo.height, depth: 1),
@@ -138,11 +186,19 @@ final class InterpolationLane {
         enc.dispatchThreads(MTLSize(width: co.width, height: co.height, depth: 1),
                             threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
         enc.endEncoding()
-        cmd.commit()
-        cmd.waitUntilCompleted()
-        guard cmd.status == .completed else { return nil }
-        CVBufferPropagateAttachments(middle, output)
-        return output
+        return true
+    }
+
+    /// Whether a frame's luma is (nearly) all zero, which no video frame is (video-range black is 16).
+    static func isEmpty(_ frame: CVPixelBuffer) -> Bool {
+        CVPixelBufferLockBaseAddress(frame, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(frame, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(frame, 0)?.assumingMemoryBound(to: UInt8.self) else { return true }
+        let row = CVPixelBufferGetBytesPerRowOfPlane(frame, 0)
+        let width = CVPixelBufferGetWidth(frame), height = CVPixelBufferGetHeight(frame)
+        var total = 0
+        for gy in 0..<9 { for gx in 0..<16 { total += Int(base[(gy * 2 + 1) * height / 18 * row + (gx * 2 + 1) * width / 32]) } }
+        return total / 144 < 8
     }
 
     private func plane(_ buffer: CVPixelBuffer, _ index: Int, _ format: MTLPixelFormat) -> MTLTexture? {
@@ -152,12 +208,6 @@ final class InterpolationLane {
                                                   CVPixelBufferGetWidthOfPlane(buffer, index),
                                                   CVPixelBufferGetHeightOfPlane(buffer, index), index, &texture)
         return texture.flatMap(CVMetalTextureGetTexture)
-    }
-
-    private func scale(_ frame: CVPixelBuffer, to size: (width: Int, height: Int)) -> CVPixelBuffer? {
-        guard let transfer, let out = buffer(size.width, size.height, CVPixelBufferGetPixelFormatType(frame)),
-              VTPixelTransferSessionTransferImage(transfer, from: frame, to: out) == noErr else { return nil }
-        return out
     }
 
     private func buffer(_ width: Int, _ height: Int, _ format: OSType) -> CVPixelBuffer? {
@@ -210,6 +260,19 @@ final class InterpolationLane {
         float a = ya.read(g).r, b = yb.read(g).r;
         float moved = smoothstep(lo, hi, abs(a - b));
         yo.write(float4(mix((a + b) * 0.5, ym.read(g).r, moved)), g);
+    }
+    constexpr sampler bilinear(filter::linear, address::clamp_to_edge);
+    kernel void scaleLuma(texture2d<float, access::sample> src [[texture(0)]],
+                          texture2d<float, access::write> dst [[texture(1)]], uint2 g [[thread_position_in_grid]]) {
+        if (g.x >= dst.get_width() || g.y >= dst.get_height()) return;
+        float2 uv = (float2(g) + 0.5) / float2(dst.get_width(), dst.get_height());
+        dst.write(src.sample(bilinear, uv), g);
+    }
+    kernel void scaleChroma(texture2d<float, access::sample> src [[texture(0)]],
+                            texture2d<float, access::write> dst [[texture(1)]], uint2 g [[thread_position_in_grid]]) {
+        if (g.x >= dst.get_width() || g.y >= dst.get_height()) return;
+        float2 uv = (float2(g) + 0.5) / float2(dst.get_width(), dst.get_height());
+        dst.write(src.sample(bilinear, uv), g);
     }
     kernel void blendStaticChroma(texture2d<float, access::read> ya [[texture(0)]],
                                   texture2d<float, access::read> yb [[texture(1)]],

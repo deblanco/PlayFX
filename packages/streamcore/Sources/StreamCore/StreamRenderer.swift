@@ -134,6 +134,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// The size in-between images are made at now, and what one costs (90th percentile, ms).
     public var interpolationSize: (width: Int, height: Int)? { pacing.withLock { $0.rungs?.size } }
     public var interpolationCostMilliseconds: Double { pacing.withLock { $0.planner.generationCost * 1000 } }
+    /// Where the last in-between image's time went (ms), for the bench.
+    public var interpolationStages: String {
+        guard let s = lane?.stages else { return "—" }
+        return String(format: "cut %.1f · scale %.1f · interpolate %.1f · blend %.1f", s.cut, s.scale, s.interpolate, s.blend)
+    }
     /// How far behind the stream clock images are shown now (ms): jitter cover, plus interpolation's time.
     public var pacingDelayMilliseconds: Double { pacing.withLock { $0.planner.delay * 1000 } }
     /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
@@ -242,7 +247,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 p.timeline.add(TimedImage(image: image.buffer, time: image.time, generated: true, arrival: CACurrentMediaTime()))
                 guard !image.warmingUp else { return } // a model being built: not the size's real cost
                 p.planner.observe(cost: image.cost)
-                p.rungs?.observe(cost: image.cost, budget: p.clock.interval * 0.6, now: CACurrentMediaTime())
+                p.rungs?.observe(cost: image.cost, budget: p.clock.interval * 0.75, now: CACurrentMediaTime())
             }
         }
         view.delegate = self
@@ -317,8 +322,12 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                     p.rungs = RungSelector(width: width, height: height)
                     prepare = p.rungs?.rungs ?? []
                 }
-                guard let size = p.rungs?.size else { return nil }
-                return (last.frame, (last.time + time) / 2, size, prepare)
+                guard var rungs = p.rungs else { return nil }
+                if let lane, lane.isBroken(rungs.size) {
+                    guard rungs.markBroken() else { p.rungs = rungs; return nil } // nothing left that works
+                }
+                p.rungs = rungs
+                return (last.frame, (last.time + time) / 2, rungs.size, prepare)
             }
         guard let pair, let lane else { return }
         for size in pair.prepare.dropFirst() { lane.prepare(size: size) }
