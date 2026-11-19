@@ -21,7 +21,7 @@ jobs:
           submodules: recursive
 
       - name: Homebrew dependencies for libchiaki
-        run: brew install cmake ninja openssl@3 opus json-c miniupnpc libevent
+        run: brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent
 
       # libchiaki and its static dependencies only change with the submodule or the build script.
       - name: libchiaki version

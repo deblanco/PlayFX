@@ -43,7 +43,7 @@ Requires an Apple silicon Mac, Xcode, [Bun](https://bun.sh), Rust (stable) and H
 ```sh
 git clone --recursive git@github.com:deblanco/PlayFX.git
 cd PlayFX
-brew install cmake ninja openssl@3 opus json-c miniupnpc libevent
+brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent
 packages/streamcore/scripts/build-chiaki.sh   # once, and after bumping the submodule
 bun install
 bun run desktop                               # run the app (dev)

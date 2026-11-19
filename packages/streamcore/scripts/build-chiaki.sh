@@ -3,8 +3,11 @@
 # libraries for macOS and stages them for StreamCore:
 #   vendor/macos/lib/*.a                 libchiaki + its dependencies
 #   Sources/CChiaki/include/chiaki/*.h   public headers (incl. generated config.h)
-# Requires: brew install cmake ninja openssl@3 opus json-c miniupnpc libevent
+# Requires: brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent
 set -euo pipefail
+for tool in cmake ninja protoc; do
+  command -v "$tool" >/dev/null || { echo "build-chiaki: $tool not found; brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent" >&2; exit 1; }
+done
 
 PKG="$(cd "$(dirname "$0")/.." && pwd)"
 CHIAKI="$PKG/../../third_party/chiaki-ng"
