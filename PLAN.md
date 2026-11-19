@@ -261,6 +261,14 @@ Work items:
   ever came. Haptics-made rumble is now its own event (`PSRP_EVENT_HAPTIC_RUMBLE`), repeated every 50 ms
   while packets keep coming, and stopped 150 ms after the last one; the console's own rumble messages
   still last until it ends them. The feel in a game still needs judging.
+  **Real haptics over USB** (built 2026-11-19, unverified on a pad): on USB the DualSense is also a 4-channel
+  sound device whose channels 3 and 4 are its motors. The shim hands the raw stream (stereo, 3 kHz) to
+  StreamCore first; `DualSenseHaptics` finds the pad's device (name "DualSense", 4+ output channels), plays
+  the stream there through an AUHAL output (upsampled to 48 kHz, at most 60 ms buffered so it never lags the
+  game) and tells the shim not to make rumble from it. Devices are looked at every 2 s off the receive
+  thread, so plugging or unplugging mid-stream switches between the two. A pad left at 2-channel sound gets
+  a hint in the log (set it to Quadraphonic in Audio MIDI Setup) and stays on rumble, as chiaki-ng does.
+  To check: a game with haptics (Astro's Playroom) with the pad on a cable.
 - 🔶 **Touchpad + motion.** *(touchpad built, **unverified on hardware**: the shim takes a struct-based
   controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
   DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new

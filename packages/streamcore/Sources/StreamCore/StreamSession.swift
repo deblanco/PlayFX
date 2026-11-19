@@ -162,6 +162,8 @@ public final class StreamSession {
     private var handle: OpaquePointer?
     private let decoder: VideoDecoder
     private let audio: AudioPlayer?
+    /// The DualSense haptics stream played on a pad connected by USB (otherwise it becomes rumble).
+    private let padHaptics = DualSenseHaptics()
     private let lock = OSAllocatedUnfairLock()
     private var _stats = Stats()
     private var _latestFrame: CVPixelBuffer?
@@ -218,6 +220,11 @@ public final class StreamSession {
             let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
             s.handleTriggerEffects(typeLeft, left.map { Array(UnsafeBufferPointer(start: $0, count: 10)) } ?? [],
                                    typeRight, right.map { Array(UnsafeBufferPointer(start: $0, count: 10)) } ?? [])
+        }
+        callbacks.haptics = { user, pcm, frames in
+            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
+            guard let pcm else { return false }
+            return s.handleHaptics(UnsafeBufferPointer(start: pcm, count: frames * 2))
         }
         callbacks.event = { user, type, a, b, message in
             let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
@@ -319,6 +326,13 @@ public final class StreamSession {
         psrp_session_stop(handle)
         decoder.flush() // no frame comes out after the session stopped
         audio?.stop()
+        padHaptics.stop()
+    }
+
+    /// One frame of the DualSense haptics stream: played on a USB pad if there is one (returns true), else the
+    /// shim makes rumble from it.
+    func handleHaptics(_ samples: UnsafeBufferPointer<Int16>) -> Bool {
+        padHaptics.push(samples)
     }
 
     func handleTriggerEffects(_ typeLeft: UInt8, _ left: [UInt8], _ typeRight: UInt8, _ right: [UInt8]) {

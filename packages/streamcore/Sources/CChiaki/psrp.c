@@ -427,11 +427,13 @@ void psrp_haptics_to_rumble(const int16_t *samples, size_t frames, uint8_t *left
     *right = r > 100 ? (uint8_t)(r > 0xFFFF ? 0xFF : r >> 8) : 0;
 }
 
-/// The DualSense haptics stream (stereo 16-bit PCM for the voice-coil motors): pads on the Mac can't
-/// play it, so it becomes rumble, as chiaki-ng does for non-USB pads.
+/// The DualSense haptics stream (stereo 16-bit PCM for the voice-coil motors). A DualSense on USB plays it
+/// as it is (the host's `haptics` callback); otherwise it becomes rumble, as chiaki-ng does for other pads.
 static void session_haptics_cb(uint8_t *buf, size_t buf_size, void *user) {
     PsrpSession *s = user;
-    if (!s->cb.event || buf_size < 4 || buf_size % 4 != 0) return;
+    if (buf_size < 4 || buf_size % 4 != 0) return;
+    if (s->cb.haptics && s->cb.haptics(s->cb.user, (const int16_t *)buf, buf_size / 4)) return;
+    if (!s->cb.event) return;
     uint8_t left, right;
     psrp_haptics_to_rumble((const int16_t *)buf, buf_size / 4, &left, &right);
     // Unchanged levels are repeated at most every 50 ms: the receiver stops the rumble when they stop

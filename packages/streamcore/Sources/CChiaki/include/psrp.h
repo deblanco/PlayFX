@@ -126,6 +126,9 @@ PsrpQuitKind psrp_quit_kind(int reason);
 
 typedef enum { PSRP_CODEC_H264 = 0, PSRP_CODEC_H265 = 1, PSRP_CODEC_H265_HDR = 2 } PsrpCodec;
 
+/// The DualSense haptics stream's sample rate (interleaved stereo 16-bit PCM, one channel per motor).
+#define PSRP_HAPTICS_SAMPLE_RATE 3000
+
 typedef struct {
     void *user;
     /// One complete Annex-B access unit. Return false if it couldn't be decoded (requests an IDR).
@@ -137,6 +140,10 @@ typedef struct {
     /// DualSense adaptive trigger effects, in the controller's own format: a mode byte and 10 parameter
     /// bytes per trigger.
     void (*trigger_effects)(void *user, uint8_t type_left, const uint8_t *left, uint8_t type_right, const uint8_t *right);
+    /// The DualSense haptics stream as it arrives: `frames` interleaved stereo samples at
+    /// PSRP_HAPTICS_SAMPLE_RATE. Return true if it was played on a pad: then no PSRP_EVENT_HAPTIC_RUMBLE is made
+    /// from it. Optional.
+    bool (*haptics)(void *user, const int16_t *pcm, size_t frames);
 } PsrpCallbacks;
 
 typedef struct {

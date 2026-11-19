@@ -23,6 +23,10 @@ adaptive triggers, touchpad and motion.
 - **Controllers:** DualSense, DualShock 4, Xbox and MFi pads through GameController, with rumble, adaptive
   triggers, touchpad and motion. The Mac keyboard works as a controller, and the trackpad works as the
   touchpad (hold ⌥ Option).
+- **Real DualSense haptics over USB:** PS5 games drive the DualSense's motors with an audio stream. With the
+  pad on a USB cable, PlayFX plays that stream on the pad's motors as it is, so you get the feel the game was
+  made with; over Bluetooth it becomes rumble. One-time setup: in Audio MIDI Setup, set the DualSense's
+  output to 4 channels (Quadraphonic). If it's left at 2, the log says so and rumble is used.
 - **Steady Wi-Fi:** pauses AirDrop and Handoff while PlayFX is open. They take the Mac's Wi-Fi off your
   network for about 90 ms every second, and the stream stalls with it (see below).
 - **Status:** an on-screen stats line (frame rate, bitrate, latency, lost frames); pairing keys are
