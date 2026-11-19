@@ -51,8 +51,28 @@ jobs:
             packages/streamcore/Sources/CChiaki/include/chiaki
           key: ${{ steps.chiaki.outputs.cache-primary-key }}
 
+      # One test at a time: on a runner the log then names the test that fails or crashes.
       - name: Swift tests and coverage
-        run: packages/streamcore/scripts/coverage.sh
+        run: packages/streamcore/scripts/coverage.sh --no-parallel
+
+      - name: Crash reports
+        if: failure()
+        run: |
+          for f in ~/Library/Logs/DiagnosticReports/*.ips; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python3 - "$f" <<'PY'
+          import json, sys
+          lines = open(sys.argv[1]).read().split("\n", 1)
+          report = json.loads(lines[1])
+          print(report.get("exception"), report.get("termination", {}).get("indicator"))
+          images = report.get("usedImages", [])
+          thread = report["threads"][report.get("faultingThread", 0)]
+          for frame in thread["frames"][:30]:
+              image = images[frame["imageIndex"]].get("name", "?") if frame.get("imageIndex") is not None else "?"
+              print(f'  {image:32} {frame.get("symbol", hex(frame.get("imageOffset", 0)))}')
+          PY
+          done
 
       - uses: oven-sh/setup-bun@v2
 
