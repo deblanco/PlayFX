@@ -208,6 +208,18 @@ export const StreamOptions = Schema.Struct({
 export type StreamOptions = typeof StreamOptions.Type
 export const sameStreamOptions = Schema.toEquivalence(StreamOptions)
 
+/** Requests from the dev-only control port (`PLAYFX_DEV_CONTROL`, debug builds; docs/dev-control.md),
+ * carried out by the UI as its own controls would. */
+export const DevCommand = Schema.Union([
+  /** Settings to change; anything left out stays as it is. */
+  Schema.Struct({ type: Schema.Literal("settings"), patch: Schema.Record(Schema.String, Schema.Unknown) }),
+  /** Play the first paired console, as its Play button does. */
+  Schema.Struct({ type: Schema.Literal("play") }),
+  /** Restart the stream, applying changed stream settings. */
+  Schema.Struct({ type: Schema.Literal("reconnect") }),
+])
+export type DevCommand = typeof DevCommand.Type
+
 export const StreamEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("connected") }),
   Schema.Struct({

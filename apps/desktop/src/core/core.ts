@@ -2,6 +2,7 @@ import { Context, Effect, Layer, Option, Schema, Semaphore } from "effect"
 import { CoreError, ValidationError } from "./errors"
 import {
   Credentials,
+  DevCommand,
   DiscoveredConsoles,
   isAccountId,
   isPin,
@@ -74,6 +75,8 @@ export class Core extends Context.Service<
     readonly rendererStatus: Effect.Effect<RendererStatus, CoreError>
     readonly onStreamEvent: (handler: (event: StreamEvent) => void) => Effect.Effect<() => void, CoreError>
     readonly onPsnAccount: (handler: (event: PsnAccountEvent) => void) => Effect.Effect<() => void, CoreError>
+    /** Requests from the dev control port (debug builds only). */
+    readonly onDevControl: (handler: (command: DevCommand) => void) => Effect.Effect<() => void, CoreError>
   }
 >()("Core") {}
 
@@ -162,6 +165,7 @@ export const CoreLive = Layer.effect(
       rendererStatus: call(RendererStatus, "renderer_status"),
       onStreamEvent: subscribe(StreamEvent, "stream-event"),
       onPsnAccount: subscribe(PsnAccountEvent, "psn-account"),
+      onDevControl: subscribe(DevCommand, "dev-control"),
     }
   }),
 )

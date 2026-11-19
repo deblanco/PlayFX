@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import type { DiscoveredConsole, PairedConsole, PairedConsoles, Settings } from "@/core/schema"
 import * as actions from "./actions"
+import { useDevControl } from "./devControl"
 import { useDevAutoplay } from "./devSeed"
 import { consoleRows, samePaired, type ConsoleRow } from "./format"
 import { PinInput } from "./PinInput"
@@ -118,6 +119,13 @@ export const ConsoleList = ({ accountId, connection = "auto", onPlay, onPairedCh
   const rows = consoleRows(discovered, paired, onPsn)
   const signedIn = Option.isSome(accountId)
   useDevAutoplay(rows, onPlay)
+  // Dev control port: play the first paired console, as its Play button would.
+  useDevControl((command) => {
+    if (command.type !== "play") return
+    const row = rows.find((r) => r.paired !== undefined)
+    if (row?.paired !== undefined) play(row, row.paired)
+    else toast.error("Dev control: no paired console to play")
+  })
 
   return (
     <section aria-label="Consoles" className="flex flex-col gap-2">

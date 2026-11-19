@@ -6,6 +6,7 @@ import { Preferences } from "@/core/preferences"
 import {
   isAccountId,
   type AudioDevice,
+  type DevCommand,
   type Diagnostics,
   type RendererStatus,
   type DiscoveredConsole,
@@ -113,6 +114,13 @@ export const onPsnAccount = (handler: (event: PsnAccountEvent) => void): Effect.
   Effect.gen(function* () {
     const core = yield* Core
     return yield* listen(core.onPsnAccount(handler))
+  })
+
+/** Requests from the dev control port (debug builds only; docs/dev-control.md). */
+export const onDevControl = (handler: (command: DevCommand) => void): Effect.Effect<never, CoreError, Core> =>
+  Effect.gen(function* () {
+    const core = yield* Core
+    return yield* listen(core.onDevControl(handler))
   })
 
 // ---------- Consoles ----------

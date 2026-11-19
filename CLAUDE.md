@@ -39,6 +39,8 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 - Rust isn't on the default PATH on this machine: `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"`.
 - Build libchiaki once (and after bumping the submodule): `packages/streamcore/scripts/build-chiaki.sh`.
 - Run the desktop app: `bun run desktop`.
+- Drive a running dev build from scripts (settings, play, button presses, renderer stats) with the dev
+  control port: `PLAYFX_DEV_CONTROL=7780 bun run desktop`; see `docs/dev-control.md`. Never in release builds.
 - Headless debugging against a real console: `packages/streamcore/.build/debug/psrp --help`-style
   commands (`discover`, `register`, `stream` with a control API on `127.0.0.1:7777`). Pairing keys live in
   `~/.config/psrp/config.json`; never commit or print them.

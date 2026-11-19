@@ -1,6 +1,8 @@
 //! The desktop app's commands and the bridge to StreamCore. The app's entry point (window setup, the
 //! native callbacks) lives in `main.rs`, a thin adapter that only runs against a real window.
 
+#[cfg(debug_assertions)]
+pub mod dev_control;
 #[cfg(target_os = "macos")]
 mod ffi;
 mod native;
@@ -356,6 +358,46 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     ])
 }
 
+/// The dev control port's view of the app (debug builds only; see docs/dev-control.md).
+#[cfg(debug_assertions)]
+struct AppDevHost<R: Runtime>(AppHandle<R>);
+
+#[cfg(debug_assertions)]
+impl<R: Runtime> dev_control::DevHost for AppDevHost<R> {
+    fn status(&self) -> Result<Value, String> {
+        renderer_status(self.0.clone())
+    }
+    fn press(&self, buttons: u32, ms: u64) -> Result<(), String> {
+        let core = core(&self.0);
+        let held = native::ControllerState { buttons, ..Default::default() };
+        on_main(&self.0, move || core.set_controller(held))?;
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        on_main(&self.0, move || core.set_controller(native::ControllerState::default()))
+    }
+    fn fullscreen(&self) -> Result<bool, String> {
+        toggle_fullscreen(self.0.clone())
+    }
+    fn emit(&self, command: Value) -> Result<(), String> {
+        self.0.emit("dev-control", command).map_err(error_text)
+    }
+}
+
+/// Starts the dev control port when `PLAYFX_DEV_CONTROL` names one (debug builds only).
+#[cfg(debug_assertions)]
+pub fn start_dev_control<R: Runtime>(app: &AppHandle<R>, port: Option<u16>) -> Option<std::net::SocketAddr> {
+    let port = port?;
+    match dev_control::start(port, std::sync::Arc::new(AppDevHost(app.clone()))) {
+        Ok(address) => {
+            log::warn!("Dev control port open on http://{address} (debug build, {})", dev_control::ENV);
+            Some(address)
+        }
+        Err(error) => {
+            log::error!("{error}");
+            None
+        }
+    }
+}
+
 /// Connects StreamCore to the running app: the native core behind the commands, its events and log,
 /// and its Metal view under the main window's web view. Called from `main.rs` during setup, on the
 /// main thread, as AppKit requires.
@@ -365,6 +407,8 @@ pub fn attach_streamcore(app: &tauri::App) -> Result<(), Box<dyn std::error::Err
     #[cfg(target_os = "macos")]
     {
         app.manage(CoreHandle(&ffi::MacCore));
+        #[cfg(debug_assertions)]
+        start_dev_control(app.handle(), dev_control::port(std::env::var(dev_control::ENV).ok().as_deref()));
         unsafe { ffi::sc_set_event_callback(Some(on_stream_event)) };
         // Detailed logs start off (the web UI switches them on from its saved preference).
         unsafe { ffi::sc_set_log_callback(Some(on_native_log), std::env::var_os("PSRP_VERBOSE").is_some()) };

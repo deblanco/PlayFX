@@ -11,6 +11,7 @@ import {
   type StreamOptions,
 } from "@/core/schema"
 import * as actions from "./actions"
+import { patchSettings, useDevControl } from "./devControl"
 import {
   afterQuit,
   microphoneProblem,
@@ -237,6 +238,16 @@ export const App = () => {
     }
   }, [runtime])
 
+
+  useDevControl((command) => {
+    if (command.type === "settings") {
+      const next = patchSettings(settings, command.patch)
+      if (Option.isSome(next)) changeSettings(next.value)
+      else toast.error("Dev control: those aren't valid settings")
+    } else if (command.type === "reconnect" && session?.started === true) {
+      reconnect("apply")
+    }
+  })
 
   const clearLoginPin = useCallback(() => {
     setSession((s) => s && { ...s, loginPin: Option.none() })

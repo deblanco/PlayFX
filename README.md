@@ -74,6 +74,9 @@ cd packages/streamcore && swift build --product psrp
 
 Pairing keys are saved to `~/.config/psrp/config.json`. Keep that file private.
 
+A development build of the app can also be driven over HTTP (settings, play, button presses, stats)
+with the [dev control port](docs/dev-control.md).
+
 ## License
 
 PlayFX is free software under the [GNU AGPL-3.0](LICENSE). It links

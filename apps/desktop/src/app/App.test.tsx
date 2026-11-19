@@ -7,6 +7,7 @@ import { CoreError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
 import { cursorIdleMs, hudIdleMs } from "./StreamView"
+import { renderParams } from "./format"
 import { useRuntime } from "./runtime"
 import { accountId, credentials, fakeCore, pairedPs5, picture, ps5, renderApp, status } from "./testing"
 
@@ -1186,5 +1187,54 @@ describe("keyboard controller", () => {
     vi.mocked(core.service.setController).mockClear()
     fireEvent.keyDown(window, { code: "ArrowUp" })
     expect(core.service.setController).not.toHaveBeenCalled()
+  })
+})
+
+describe("dev control port", () => {
+  it("changes settings as the sheet would, and refuses invalid ones", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core)
+    act(() => {
+      core.emitDev({ type: "settings", patch: { view: "original", smoothMotion: true } })
+    })
+    await waitFor(async () => {
+      expect(await savedSettings(runtime)).toMatchObject({ view: "original", smoothMotion: true })
+    })
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(renderParams({ ...defaultSettings, view: "original", smoothMotion: true }))
+    act(() => {
+      core.emitDev({ type: "settings", patch: { fps: 45 } })
+    })
+    expect(await screen.findByText("Dev control: those aren't valid settings")).toBeInTheDocument()
+    expect((await savedSettings(runtime)).fps).toBe(60)
+  })
+
+  it("reconnects while streaming, and plays from the home screen", async () => {
+    const core = fakeCore()
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    await consoleItem()
+    act(() => {
+      core.emitDev({ type: "reconnect" }) // nothing to reconnect at home
+      core.emitDev({ type: "play" })
+    })
+    await screen.findByRole("button", { name: "Stop" })
+    expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    act(() => {
+      core.emitStream({ type: "connected" })
+      core.emitDev({ type: "settings", patch: { fps: 30 } })
+      core.emitDev({ type: "reconnect" })
+    })
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it("says when there's no console to play", async () => {
+    const core = fakeCore()
+    renderApp(core)
+    await screen.findByRole("region", { name: "Consoles" })
+    act(() => {
+      core.emitDev({ type: "play" })
+    })
+    expect(await screen.findByText("Dev control: no paired console to play")).toBeInTheDocument()
   })
 })

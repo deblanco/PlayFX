@@ -9,6 +9,7 @@ import type {
   DiscoveredConsole,
   PairedConsole,
   PsnAccountEvent,
+  DevCommand,
   PsnConsole,
   RendererStatus,
   RenderParams,
@@ -74,6 +75,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
   const counts = { discover: 0, psnLogin: 0, stopStream: 0, openLogsFolder: 0, openSourceCode: 0 }
   const streamHandlers = new Set<(event: StreamEvent) => void>()
   const psnHandlers = new Set<(event: PsnAccountEvent) => void>()
+  const devHandlers = new Set<(command: DevCommand) => void>()
   const service: CoreService = {
     discover: Effect.sync(() => {
       counts.discover++
@@ -136,6 +138,11 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
         psnHandlers.add(handler)
         return () => psnHandlers.delete(handler)
       }),
+    onDevControl: (handler) =>
+      Effect.sync(() => {
+        devHandlers.add(handler)
+        return () => devHandlers.delete(handler)
+      }),
     ...overrides,
   }
   return {
@@ -151,6 +158,9 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     },
     emitPsn: (event: PsnAccountEvent) => {
       for (const handler of psnHandlers) handler(event)
+    },
+    emitDev: (command: DevCommand) => {
+      for (const handler of [...devHandlers]) handler(command)
     },
   }
 }
