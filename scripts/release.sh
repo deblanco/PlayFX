@@ -6,7 +6,7 @@
 #   1. A "Developer ID Application" certificate for your team in the login keychain
 #      (Xcode → Settings → Accounts → Manage Certificates → + → Developer ID Application).
 #   2. Notary credentials kept in the keychain (an app-specific password from account.apple.com):
-#        xcrun notarytool store-credentials playfx --apple-id YOU@EXAMPLE.COM --team-id TEAMID
+#        xcrun notarytool store-credentials playfx --apple-id YOU@EXAMPLE.COM --team-id K579SJ8947
 #
 # Usage: scripts/release.sh            (SIGNING_IDENTITY / NOTARY_PROFILE override the defaults)
 set -euo pipefail
@@ -14,9 +14,10 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
 
 NOTARY_PROFILE="${NOTARY_PROFILE:-playfx}"
-# Default: the personal team's Developer ID (this Mac also holds other teams' certificates).
+# Default: PlayFX's team, BLANK HEXADECIMAL SL (this Mac also holds other teams' certificates).
+TEAM_ID=K579SJ8947
 IDENTITY="${SIGNING_IDENTITY:-$(security find-identity -v -p codesigning \
-  | grep -o '"Developer ID Application: Daniel B. ([^"]*"' | tr -d '"' | head -1)}"
+  | grep -o "\"Developer ID Application: [^\"]*($TEAM_ID)\"" | tr -d '"' | head -1)}"
 [[ -n "$IDENTITY" ]] || { echo "release: no Developer ID Application certificate found (see setup above)" >&2; exit 1; }
 echo "Signing as: $IDENTITY"
 
