@@ -197,12 +197,15 @@ Work items:
   (looping) player — `AVHapticEvent` isn't in its allowed XPC classes, so it drops the connection (error
   4097). Now a plain player runs one 30 s continuous event, its intensity follows the console through
   dynamic parameters, and it is replaced every 25 s while rumbling. Engine failures are logged.)*
-- 🔶 **Adaptive triggers** (DualSense). *(built, **unverified on hardware**: the shim forwards
+- 🔶 **Adaptive triggers** (DualSense). *(**felt on a DualSense over Bluetooth** with `psrp pad`: feedback,
+  weapon, and raw console effects through the decoder (0x25 weapon, 0x26 vibration) all play; in a game
+  unverified. The console's vibration frequency (Hz) is mapped to GameController's 0–1 as Hz/255, a guess
+  to tune in a game. The shim forwards
   libchiaki's trigger-effect events (the DualSense's raw format: mode byte + 10 parameters per trigger);
   `TriggerEffect` decodes feedback (per-zone resistance), weapon, vibration (per-zone amplitude +
   frequency), bow/galloping/machine (as the nearest weapon/vibration) and the older simple modes; the
   adapter applies them with `GCDualSenseAdaptiveTrigger`, and releases the triggers when the session
-  ends. To verify: a DualSense and a game that uses the triggers, e.g. Astro's Playroom.)*
+  ends. To verify in a game: Astro's Playroom.)*
 - 🔶 **DualSense haptics channel** (built; the stream arrives — feel on a pad unverified): PS5 games drive
   the DualSense's voice-coil motors with a haptics audio stream instead of rumble events, so pads got
   nothing in those games. The shim now takes libchiaki's haptics sink and, as chiaki-ng does for pads
