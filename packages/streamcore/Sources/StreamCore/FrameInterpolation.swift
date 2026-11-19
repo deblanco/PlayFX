@@ -9,9 +9,12 @@ import VideoToolbox
 /// fast as the stream (30 fps on a 60 Hz screen, 60 fps on a 120 Hz one). The cost is that the real
 /// frame lands one refresh late, so it's off by default.
 final class FrameInterpolator {
-    /// Whether this OS and Mac can run it at all.
+    /// Whether this OS and Mac can run it at all. Not in a virtual machine: VideoToolbox reports it
+    /// supported there, then crashes the process when it runs (seen on GitHub's macOS runners).
     static var isAvailable: Bool {
-        if #available(macOS 26.0, iOS 26.0, *) { return VTLowLatencyFrameInterpolationConfiguration.isSupported }
+        if #available(macOS 26.0, iOS 26.0, *) {
+            return !isVirtualMachine && VTLowLatencyFrameInterpolationConfiguration.isSupported
+        }
         return false
     }
 
@@ -85,3 +88,10 @@ final class FrameInterpolator {
         size = nil
     }
 }
+
+/// Whether this Mac is a virtual machine, where some VideoToolbox processors don't really run.
+let isVirtualMachine: Bool = {
+    var present: Int32 = 0
+    var size = MemoryLayout<Int32>.size
+    return sysctlbyname("kern.hv_vmm_present", &present, &size, nil, 0) == 0 && present == 1
+}()

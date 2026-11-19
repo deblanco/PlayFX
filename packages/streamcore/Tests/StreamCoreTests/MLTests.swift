@@ -44,7 +44,8 @@ extension StreamRendererTests {
         r.params.sharpness = 0
         r.display(try mlFrame(width: 1280, height: 720))
         let out = try render(r, size: (2560, 1440))
-        #expect(r.mlActive == r.mlSupported || inVirtualMachine)
+        #expect(r.mlActive == r.mlSupported || isVirtualMachine)
+        // GitHub's runners are VMs: the ML scaler reports itself supported there but can't run.
         guard r.mlActive else { // older macOS, an unsupported Mac or a VM: the plain pipeline
             #expect(r.inputSize == (1280, 720))
             return
@@ -97,7 +98,7 @@ extension StreamRendererTests {
         r.params.compare = true
         r.display(try mlFrame(width: 1280, height: 720))
         let out = try render(r, size: (2560, 1440))
-        #expect(r.mlActive || inVirtualMachine)
+        #expect(r.mlActive || isVirtualMachine)
         guard r.mlActive else { return }
         // Left half: the raw stream (dark); right half: processed (light) — split at the center line.
         #expect(abs(pixel(out, width: 2560, x: 300, y: 700).g - 86) <= 6)
@@ -105,11 +106,3 @@ extension StreamRendererTests {
         #expect(pixel(out, width: 2560, x: 1280, y: 700) == (255, 255, 255, 255))
     }
 }
-
-/// GitHub's macOS runners are virtual machines: the ML scaler reports itself supported there but can't
-/// run, and the renderer falls back to the plain pipeline. Real Macs must run the model.
-let inVirtualMachine: Bool = {
-    var present: Int32 = 0
-    var size = MemoryLayout<Int32>.size
-    return sysctlbyname("kern.hv_vmm_present", &present, &size, nil, 0) == 0 && present == 1
-}()
