@@ -273,6 +273,16 @@ fn open_logs_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
+/// Where PlayFX's source code lives (AGPL-3.0: every build points users to it).
+const SOURCE_URL: &str = "https://github.com/deblanco/PlayFX";
+
+/// Opens the source code in the browser. The URL is fixed here, never taken from the web view.
+#[tauri::command(async)]
+fn open_source_code() -> Result<(), String> {
+    std::process::Command::new("open").arg(SOURCE_URL).spawn().map_err(error_text)?;
+    Ok(())
+}
+
 /// For bug reports: versions and the end of the log file (already scrubbed of credentials).
 #[tauri::command(async)]
 fn diagnostics<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
@@ -336,6 +346,7 @@ fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         psn_sign_out,
         set_detailed_logs,
         open_logs_folder,
+        open_source_code,
         diagnostics,
         renderer_status
     ])

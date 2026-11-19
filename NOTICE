@@ -1,0 +1,35 @@
+PlayFX
+Copyright (C) 2026 Daniel B.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU Affero General Public License as published by the Free Software Foundation, version 3 (see
+LICENSE). It is distributed WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+Source code: https://github.com/deblanco/PlayFX
+
+PlayFX is an independent project. It is not affiliated with, endorsed by or sponsored by Sony
+Interactive Entertainment. "PlayStation", "PS4", "PS5" and "DualSense" are trademarks of their
+respective owners.
+
+-------------------------------------------------------------------------------------------------
+Third-party software linked into PlayFX
+-------------------------------------------------------------------------------------------------
+
+chiaki-ng (third_party/chiaki-ng): the Remote Play protocol implementation (libchiaki).
+  AGPL-3.0-only, with an exception for linking OpenSSL. https://github.com/streetpea/chiaki-ng
+  Bundled by chiaki-ng and statically linked:
+    curl          curl license (MIT/X derivative)     https://curl.se
+    nanopb        zlib license                        https://github.com/nanopb/nanopb
+    Jerasure      BSD 3-Clause                        https://github.com/tsuraan/Jerasure
+    GF-Complete   BSD 3-Clause                        https://github.com/ceph/gf-complete
+
+Statically linked from Homebrew at build time:
+    OpenSSL 3     Apache License 2.0                  https://www.openssl.org
+    Opus          BSD 3-Clause                        https://opus-codec.org
+    json-c        MIT                                 https://github.com/json-c/json-c
+    miniupnpc     BSD 3-Clause                        https://github.com/miniupnp/miniupnp
+    libevent      BSD 3-Clause                        https://libevent.org
+
+The desktop app also includes Tauri, React, Effect and other npm and Cargo packages under their
+own licenses (mostly MIT and Apache-2.0); each package carries its license in its distribution.

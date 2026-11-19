@@ -333,7 +333,7 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   fields, sign-in codes, the token in Sony's account-lookup URL, pairing keys, account IDs). Log points
   for PSN (HTTP outcomes, Sony's error replies on sign-in/refresh failures, forced refreshes, console
   list), sessions, discovery/wake/pairing, renderer capabilities and ML fallbacks, controllers.
-- ✅ L2. One log file: `~/Library/Logs/dev.psremoteplay.desktop/playfx.log` (tauri-plugin-log;
+- ✅ L2. One log file: `~/Library/Logs/dev.deblanco.playfx/playfx.log` (tauri-plugin-log;
   5 MB, the last 3 kept, local time) and the terminal. Native entries arrive through
   `sc_set_log_callback` as `streamcore::<area>`; Rust logs stream starts (local/internet), the PSN
   sign-in window, every StreamCore error reply. Ours at every level, other crates from info up.

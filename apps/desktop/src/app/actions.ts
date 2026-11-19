@@ -302,6 +302,8 @@ export const copyDiagnostics = (settings: Settings): Effect.Effect<void, CoreErr
 
 export const openLogsFolder: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openLogsFolder)
 
+export const openSourceCode: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openSourceCode)
+
 /** Loads saved settings and applies the saved picture settings to the renderer. */
 export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Preferences> = Effect.gen(function* () {
   const core = yield* Core

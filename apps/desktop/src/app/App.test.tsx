@@ -528,6 +528,11 @@ describe("settings", () => {
     await waitFor(() => {
       expect(core.counts.openLogsFolder).toBe(1)
     })
+    expect(sheet.getByText(/free software under the GNU AGPL-3.0/)).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("button", { name: "Source code" }))
+    await waitFor(() => {
+      expect(core.counts.openSourceCode).toBe(1)
+    })
     await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ })) // back off
   })
 

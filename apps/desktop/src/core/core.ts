@@ -66,6 +66,8 @@ export class Core extends Context.Service<
     readonly setRenderParams: (params: RenderParams) => Effect.Effect<void, CoreError>
     readonly setDetailedLogs: (on: boolean) => Effect.Effect<void, CoreError>
     readonly openLogsFolder: Effect.Effect<void, CoreError>
+    /** Opens PlayFX's source code (AGPL-3.0) in the browser. */
+    readonly openSourceCode: Effect.Effect<void, CoreError>
     readonly diagnostics: Effect.Effect<Diagnostics, CoreError>
     /** Toggles native fullscreen; succeeds with the new state. */
     readonly toggleFullscreen: Effect.Effect<boolean, CoreError>
@@ -155,6 +157,7 @@ export const CoreLive = Layer.effect(
       toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),
       setDetailedLogs: (on) => Effect.asVoid(call(unit, "set_detailed_logs", { on })),
       openLogsFolder: Effect.asVoid(call(unit, "open_logs_folder")),
+      openSourceCode: Effect.asVoid(call(unit, "open_source_code")),
       diagnostics: call(Diagnostics, "diagnostics"),
       rendererStatus: call(RendererStatus, "renderer_status"),
       onStreamEvent: subscribe(StreamEvent, "stream-event"),

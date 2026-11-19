@@ -76,5 +76,14 @@ Pairing keys are saved to `~/.config/psrp/config.json`. Keep that file private.
 
 ## License
 
-PlayFX links [chiaki-ng](https://github.com/streetpea/chiaki-ng), which is AGPL-3.0, so a build of
-PlayFX that you distribute falls under the AGPL-3.0's terms.
+PlayFX is free software under the [GNU AGPL-3.0](LICENSE). It links
+[chiaki-ng](https://github.com/streetpea/chiaki-ng) (AGPL-3.0), so every build you distribute must
+come with its complete source. The app links to it under Settings → Diagnostics → Source code.
+[NOTICE](NOTICE) lists the third-party code that is linked in.
+
+## Sony and PlayStation Network
+
+PlayFX is an unofficial client for your own consoles and your own PlayStation account. It talks to the
+console with the same Remote Play protocol as Sony's app. It signs in to PSN only through Sony's own
+sign-in page, and keeps the result on your Mac. No credentials ship with PlayFX, and none are sent
+anywhere else. Using it is subject to Sony's terms for PlayStation Network.

@@ -1,4 +1,4 @@
-import { ChevronRight, ClipboardCopy, FolderOpen, RotateCcw } from "lucide-react"
+import { ChevronRight, ClipboardCopy, Code, FolderOpen, RotateCcw } from "lucide-react"
 import { useEffect, useId, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -453,6 +453,15 @@ const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; read
       <p className="text-xs text-muted-foreground">
         Logs never contain your PlayStation sign-in, pairing keys or account ID.
       </p>
+      <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
+        <p className="text-xs text-muted-foreground">
+          PlayFX is free software under the GNU AGPL-3.0, built on chiaki-ng. It isn't affiliated with Sony
+          Interactive Entertainment.
+        </p>
+        <Button variant="ghost" size="sm" className="self-start" onClick={() => { run(actions.openSourceCode) }}>
+          <Code /> Source code
+        </Button>
+      </div>
     </>
   )
 }
