@@ -23,6 +23,7 @@ import StreamCore
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //          /grid.png?vary=sharpness&values=0,0.3,1&crop=2400,500,600,600   one frame, one tile per value
 //                       (also &ml=1: Apple ML super-resolution first, for streams up to 1280 px wide)
+//   psrp interpolate <in.mov> [--out out.mov] [--frames N]   frame interpolation bench on a video file (no console)
 //   psrp pad [--port 7778]                  the Mac's controller without a console: live state, rumble and
 //                                           trigger-effect tests (see Pad.swift)
 //
@@ -152,6 +153,9 @@ func run() throws {
 
     case "pad":
         try pad(args)
+
+    case "interpolate":
+        try interpolate(args)
 
     default:
         throw fail("unknown command \(command)")

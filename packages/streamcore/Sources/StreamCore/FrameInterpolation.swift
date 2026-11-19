@@ -8,10 +8,10 @@ import VideoToolbox
 /// frame one screen refresh later, doubling the frame rate when the screen refreshes at least twice as
 /// fast as the stream (30 fps on a 60 Hz screen, 60 fps on a 120 Hz one). The cost is that the real
 /// frame lands one refresh late, so it's off by default.
-final class FrameInterpolator {
+public final class FrameInterpolator {
     /// Whether this OS and Mac can run it at all. Not in a virtual machine: VideoToolbox reports it
     /// supported there, then crashes the process when it runs (seen on GitHub's macOS runners).
-    static var isAvailable: Bool {
+    public static var isAvailable: Bool {
         if #available(macOS 26.0, iOS 26.0, *) {
             return !isVirtualMachine && VTLowLatencyFrameInterpolationConfiguration.isSupported
         }
@@ -30,11 +30,13 @@ final class FrameInterpolator {
     private var failed: Set<String> = []
     private var timestamp: Int64 = 0
 
+    public init() {}
+
     deinit { end() }
 
     /// Encodes the frame halfway between `previous` and `current` into a new NV12 buffer in `cb`; nil
     /// when it can't run (unsupported format or size, or the frames differ in size).
-    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer? {
+    public func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer? {
         guard #available(macOS 26.0, iOS 26.0, *), Self.isAvailable,
               CVPixelBufferGetPixelFormatType(current) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
               CVPixelBufferGetPixelFormatType(previous) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return nil }
