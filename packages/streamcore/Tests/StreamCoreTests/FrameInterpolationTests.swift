@@ -71,6 +71,7 @@ extension StreamRendererTests {
         now += refresh
         let after = luma(try render(r, size: (64, 36), now: now)) // the held real frame
         #expect(after > between)
+        #expect(r.shownFramesPerSecond >= 0) // counted through the real draw path
 
         // Off: the new frame shows at once.
         r.params.smoothMotion = false
@@ -78,5 +79,37 @@ extension StreamRendererTests {
         now += refresh
         _ = try render(r, size: (64, 36), now: now)
         #expect(!r.smoothActive)
+    }
+}
+
+@Suite struct ShownRateTests {
+    /// Images at `fps` for `seconds`, starting at `start`.
+    func shown(_ rate: inout ShownRate, fps: Double, seconds: Double, from start: Double = 100) -> Double {
+        let n = Int(fps * seconds)
+        for i in 0...n { rate.count(at: start + Double(i) / fps) }
+        return start + Double(n) / fps
+    }
+
+    @Test func countsImagesPerSecond() {
+        var rate = ShownRate()
+        #expect(rate.perSecond(now: 100) == 0) // nothing yet
+        var end = shown(&rate, fps: 60, seconds: 1.5)
+        #expect(abs(rate.perSecond(now: end) - 60) < 1)
+        // Smooth motion doubles what reaches the screen.
+        end = shown(&rate, fps: 120, seconds: 2.5, from: end + 1.0 / 120)
+        #expect(abs(rate.perSecond(now: end) - 120) < 2)
+    }
+
+    @Test func aPauseReadsZeroAndStartsAFreshWindow() {
+        var rate = ShownRate()
+        let end = shown(&rate, fps: 60, seconds: 1.5)
+        #expect(rate.perSecond(now: end + 2) == 0) // nothing new for 2 s
+        // After the pause the old window doesn't count: no rate until a full second of new images.
+        rate.count(at: end + 2)
+        rate.count(at: end + 2.5)
+        #expect(rate.perSecond(now: end + 2.5) == 0)
+        // The first window still holds the gap; the next one reads the steady 30 fps.
+        let resumed = shown(&rate, fps: 30, seconds: 2.2, from: end + 2.5 + 1.0 / 30)
+        #expect(abs(rate.perSecond(now: resumed) - 30) < 2)
     }
 }

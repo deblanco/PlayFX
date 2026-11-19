@@ -110,6 +110,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
     public var displayMilliseconds: Double { displayTime.withLock { $0 } }
     private let displayTime = OSAllocatedUnfairLock<Double>(initialState: 0)
+    /// New images put on screen per second: stream frames plus Smooth motion's in-between frames.
+    public var shownFramesPerSecond: Double { shownRate.withLock { $0.perSecond(now: CACurrentMediaTime()) } }
+    private let shownRate = OSAllocatedUnfairLock(initialState: ShownRate())
     /// The raw stream converted at its own size, for the compare view's baseline while ML is on.
     private var baselineTexture: MTLTexture?
     /// Width of the last decoded frame, before any ML upscale (the codec's block grid lives there).
@@ -283,6 +286,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             gpuTime.withLock { $0 = Self.smoothed($0, ms) }
         }
         if let frame = nextFrame(cb, now: now) {
+            shownRate.withLock { $0.count(at: now) }
             let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: fittedRect(drawable: drawableSize).size) : nil
             mlActive = enhanced != nil
             decodedWidth = CVPixelBufferGetWidth(frame)
@@ -584,5 +588,29 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         td.usage = [.shaderRead, .shaderWrite, .renderTarget]
         td.storageMode = .private
         return device.makeTexture(descriptor: td)
+    }
+}
+
+/// Counts the images put on screen and reports them per second, over windows of about a second.
+struct ShownRate {
+    private var rate: Double = 0
+    private var windowStart: Double = 0
+    private var inWindow = 0
+    private var last: Double = 0
+
+    mutating func count(at now: Double) {
+        if windowStart == 0 || now - last > 1 { (windowStart, inWindow, rate) = (now, 0, 0) }
+        last = now
+        inWindow += 1
+        let elapsed = now - windowStart
+        if elapsed >= 1 {
+            rate = Double(inWindow - 1) / elapsed // intervals between the window's images
+            (windowStart, inWindow) = (now, 1)
+        }
+    }
+
+    /// The last full window's rate; 0 once nothing new has been shown for a second (a pause).
+    func perSecond(now: Double) -> Double {
+        now - last > 1 ? 0 : rate
     }
 }

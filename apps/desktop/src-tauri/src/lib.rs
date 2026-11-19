@@ -316,6 +316,7 @@ fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
             smooth: core.smooth_status(),
             hdr: core.hdr_active(),
             display_ms: core.display_milliseconds(),
+            shown_fps: core.shown_fps(),
         };
         (state, core.session_stats())
     })?;

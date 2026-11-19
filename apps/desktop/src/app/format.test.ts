@@ -369,6 +369,11 @@ describe("statRows", () => {
     ])
     const smooth = statRows({ ...status({ width: 1280, height: 720 }), smoothActive: true, hdrActive: true }, 60, 5)
     expect(smooth.find((row) => row.label === "Smooth motion")?.inline).toBe("smooth motion")
+    // Frame generation: the screen gets more images than the stream sends.
+    const generated = statRows({ ...status({ width: 1920, height: 1080 }), smoothActive: true, shownFps: 59.6 }, 30, 5)
+    expect(generated.find((row) => row.label === "Frame rate")?.inline).toBe("30 fps · 60 shown")
+    const plain = statRows({ ...status({ width: 1920, height: 1080 }), shownFps: 61 }, 60, 5)
+    expect(plain.find((row) => row.label === "Frame rate")?.inline).toBe("60 fps")
     expect(smooth.find((row) => row.label === "HDR")?.inline).toBe("HDR")
     const measured = statRows({ ...status({ width: 1280, height: 720, decodeMs: 3.2 }), displayMs: 12.6 }, 60, 5, 1080)
     expect(measured.find((row) => row.label === "Latency")).toMatchObject({ inline: "latency 16 ms", warn: false })

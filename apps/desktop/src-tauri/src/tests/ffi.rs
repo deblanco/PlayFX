@@ -59,6 +59,7 @@ fn mac_core_without_session_or_renderer() {
     assert_eq!(core.smooth_status(), (false, false));
     assert!(!core.hdr_active());
     assert_eq!(core.display_milliseconds(), 0.0);
+    assert_eq!(core.shown_fps(), 0.0);
     assert_eq!(reply(&core.session_stats()), Ok(json!({"active": false})));
     // Input without a session is dropped.
     core.set_controller(crate::native::ControllerState::default());

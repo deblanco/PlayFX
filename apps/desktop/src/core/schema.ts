@@ -271,6 +271,8 @@ export const RendererStatus = Schema.Struct({
   hdrActive: Schema.Boolean,
   /** From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured). */
   displayMs: Schema.Number,
+  /** New images put on screen per second; with Smooth motion, more than the stream sends (0 when idle). */
+  shownFps: since(Schema.Number, 0),
   stream: StreamStats,
 })
 export type RendererStatus = typeof RendererStatus.Type

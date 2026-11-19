@@ -103,6 +103,7 @@ extension Serial {
             if sc_active_mode() == -1 {
                 #expect(!sc_metalfx_supported())
                 #expect(sc_gpu_milliseconds() == 0)
+                #expect(sc_shown_fps() == 0)
                 #expect(sc_set_render_params(#"{"upscaler":"metalfx"}"#)) // no renderer: accepted, no-op
             }
         }

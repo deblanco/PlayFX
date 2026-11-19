@@ -141,9 +141,12 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
   const ping = `${rtt.toFixed(rtt < 10 ? 1 : 0)} ms`
   const gpu = `${status.gpuMs.toFixed(1)} ms`
   const upscaler = upscalerLabel(status.activeMode, status.mlActive)
+  // With Smooth motion the screen shows more images than the stream sends: say how many.
+  const shown = Math.round(status.shownFps)
+  const rate = shown > fps * 1.25 ? `${String(fps)} fps · ${String(shown)} shown` : `${String(fps)} fps`
   const rows: (StatRow | undefined)[] = [
     row("Resolution", size, lower ? `${size} (asked ${String(requestedHeight)}p)` : size, lower),
-    row("Frame rate", `${String(fps)} fps`, `${String(fps)} fps`),
+    row("Frame rate", rate, rate),
     row("Bitrate", `${mbps.toFixed(1)} Mbps`, `${mbps.toFixed(1)} Mbps`),
     rtt > 0 ? row("Ping", ping, `ping ${ping}`, rtt >= 60) : undefined,
     status.gpuMs > 0 ? row("GPU", gpu, `GPU ${gpu}`, status.gpuMs >= 8) : undefined,

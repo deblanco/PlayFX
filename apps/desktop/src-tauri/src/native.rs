@@ -88,6 +88,8 @@ pub trait NativeCore: Send + Sync {
     fn hdr_active(&self) -> bool;
     /// From a decoded frame arriving to it being on screen, smoothed (ms).
     fn display_milliseconds(&self) -> f64;
+    /// New images put on screen per second (with Smooth motion, more than the stream sends).
+    fn shown_fps(&self) -> f64;
     fn session_stats(&self) -> String;
 }
 
@@ -156,6 +158,7 @@ pub struct RendererState {
     pub smooth: (bool, bool),
     pub hdr: bool,
     pub display_ms: f64,
+    pub shown_fps: f64,
 }
 
 /// The `renderer_status` reply; unparseable stats become `null`.
@@ -170,6 +173,7 @@ pub fn renderer_status_json(state: &RendererState, stats: &str) -> Value {
         "smoothActive": state.smooth.1,
         "hdrActive": state.hdr,
         "displayMs": (state.display_ms * 10.0).round() / 10.0,
+        "shownFps": state.shown_fps.round(),
         "stream": serde_json::from_str::<Value>(stats).unwrap_or(Value::Null),
     })
 }

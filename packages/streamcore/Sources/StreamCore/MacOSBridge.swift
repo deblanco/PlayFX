@@ -137,6 +137,12 @@ public func sc_display_milliseconds() -> Double {
     renderer?.displayMilliseconds ?? 0
 }
 
+/// New images put on screen per second (stream frames plus Smooth motion's in-between frames; 0 when idle).
+@_cdecl("sc_shown_fps")
+public func sc_shown_fps() -> Double {
+    renderer?.shownFramesPerSecond ?? 0
+}
+
 /// Whether HDR10 frames are on screen (EDR output).
 @_cdecl("sc_hdr_active")
 public func sc_hdr_active() -> Bool {
