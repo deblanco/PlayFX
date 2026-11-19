@@ -19,6 +19,9 @@ final class InterpolationLane {
         /// Seconds from submitting the pair to the image being ready.
         let cost: Double
         let size: (width: Int, height: Int)
+        /// One of the first images at its size: the cost includes building that size's model, so it
+        /// says nothing about the size's steady cost.
+        let warmingUp: Bool
     }
 
     /// Called on the lane's queue with each image made.
@@ -36,6 +39,8 @@ final class InterpolationLane {
     private var transfer: VTPixelTransferSession?
     private var interpolators: [String: FrameInterpolator] = [:]
     private var pools: [String: CVPixelBufferPool] = [:]
+    /// Images made at each size so far.
+    private var madeAt: [String: Int] = [:]
     private let state = OSAllocatedUnfairLock(initialState: (busy: false, busyPairs: 0, cutPairs: 0))
 
     init?(device: MTLDevice) {
@@ -66,7 +71,10 @@ final class InterpolationLane {
             defer { state.withLock { $0.busy = false } }
             if Self.isCut(previous, current) { state.withLock { $0.cutPairs += 1 }; return }
             guard let made = make(previous, current, size: size) else { return }
-            onImage?(Image(buffer: made, time: time, cost: CACurrentMediaTime() - started, size: size))
+            let key = "\(size.width)x\(size.height)"
+            madeAt[key, default: 0] += 1
+            onImage?(Image(buffer: made, time: time, cost: CACurrentMediaTime() - started, size: size,
+                           warmingUp: madeAt[key, default: 0] <= 2))
         }
         return true
     }

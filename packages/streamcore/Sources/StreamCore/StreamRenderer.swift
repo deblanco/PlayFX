@@ -105,7 +105,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Frames shown by their stream clock (see FramePacing.swift), and the in-between images made for them.
     private struct Pacing {
         var clock: StreamClock
-        var timeline = FrameTimeline<CVPixelBuffer>()
+        var timeline = FrameTimeline<CVPixelBuffer>(capacity: 16)
         var planner = DelayPlanner()
         var rungs: RungSelector?
         var lastReal: (frame: CVPixelBuffer, time: Double)?
@@ -122,13 +122,18 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// The image drawn now, for counting it once it is actually presented.
     private var drawnItem: TimedImage<CVPixelBuffer>?
     /// Images actually presented per second, all and in-between ones (from the drawable's presented time).
-    private let presented = OSAllocatedUnfairLock(initialState: (all: ShownRate(), generated: ShownRate()))
+    private let presented = OSAllocatedUnfairLock(initialState: PresentationCounts())
+    /// Drawn images whose presentation the system reported (all), and of those, ones it never put on screen.
+    public var presentationReports: (handled: Int, unpresented: Int) { presented.withLock { ($0.handled, $0.unpresented) } }
     /// Frames and in-between images that were never shown (a later one was due first), and pairs that went
     /// without an in-between image.
     public var skippedFrames: Int { pacing.withLock { $0.timeline.skippedReal } }
     public var skippedInterpolations: Int {
         pacing.withLock { $0.timeline.skippedGenerated } + (lane.map { $0.busyPairs } ?? 0)
     }
+    /// The size in-between images are made at now, and what one costs (90th percentile, ms).
+    public var interpolationSize: (width: Int, height: Int)? { pacing.withLock { $0.rungs?.size } }
+    public var interpolationCostMilliseconds: Double { pacing.withLock { $0.planner.generationCost * 1000 } }
     /// How far behind the stream clock images are shown now (ms): jitter cover, plus interpolation's time.
     public var pacingDelayMilliseconds: Double { pacing.withLock { $0.planner.delay * 1000 } }
     /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
@@ -235,6 +240,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         lane?.onImage = { [pacing] image in
             pacing.withLock { p in
                 p.timeline.add(TimedImage(image: image.buffer, time: image.time, generated: true, arrival: CACurrentMediaTime()))
+                guard !image.warmingUp else { return } // a model being built: not the size's real cost
                 p.planner.observe(cost: image.cost)
                 p.rungs?.observe(cost: image.cost, budget: p.clock.interval * 0.6, now: CACurrentMediaTime())
             }
@@ -338,11 +344,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         encode(cb, pass: pass, drawableSize: view.drawableSize)
         if let item = drawnItem {
             drawable.addPresentedHandler { [displayTime, presented] shown in
-                guard shown.presentedTime > 0 else { return } // dropped by the system: never on screen
-                presented.withLock { counts in
-                    counts.all.count(at: shown.presentedTime)
-                    if item.generated { counts.generated.count(at: shown.presentedTime) }
+                let onScreen = presented.withLock {
+                    $0.report(presentedAt: shown.presentedTime, generated: item.generated, now: CACurrentMediaTime())
                 }
+                guard onScreen, shown.presentedTime > 0 else { return }
                 guard !item.generated, shown.presentedTime > item.arrival else { return }
                 displayTime.withLock { $0 = Self.smoothed($0, (shown.presentedTime - item.arrival) * 1000) }
             }
@@ -673,5 +678,35 @@ struct ShownRate {
     /// The last full window's rate; 0 once nothing new has been shown for a second (a pause).
     func perSecond(now: Double) -> Double {
         now - last > 1 ? 0 : rate
+    }
+}
+
+/// Counts images by their presentation reports. A presented time of 0 means the system dropped the image,
+/// except on displays that never report times (Sidecar reports 0 for everything): after 30 zeros in a row
+/// the display is taken to be one of those, and each report counts as shown at the time it arrives,
+/// until a real time comes back.
+struct PresentationCounts {
+    var all = ShownRate()
+    var generated = ShownRate()
+    private(set) var handled = 0
+    private(set) var unpresented = 0
+    private var zerosInARow = 0
+
+    /// Whether the image counts as shown.
+    mutating func report(presentedAt time: Double, generated isGenerated: Bool, now: Double) -> Bool {
+        handled += 1
+        let at: Double
+        if time > 0 {
+            zerosInARow = 0
+            at = time
+        } else {
+            zerosInARow += 1
+            unpresented += 1
+            guard zerosInARow > 30 else { return false }
+            at = now
+        }
+        all.count(at: at)
+        if isGenerated { generated.count(at: at) }
+        return true
     }
 }

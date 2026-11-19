@@ -148,7 +148,7 @@ extension StreamRendererTests {
         #expect(lane.submit(previous: a, current: b, time: 1.5, size: (640, 360)))
         lane.waitUntilIdle()
         let image = try #require(made.first)
-        #expect(image.time == 1.5 && image.cost > 0 && image.size == (640, 360))
+        #expect(image.time == 1.5 && image.cost > 0 && image.size == (640, 360) && image.warmingUp)
         #expect(CVPixelBufferGetWidth(image.buffer) == 640)
         // The "HUD" didn't change between the frames, so it comes back exactly (not the model's version).
         for (x, y) in [(10, 10), (55, 31), (90, 50)] {

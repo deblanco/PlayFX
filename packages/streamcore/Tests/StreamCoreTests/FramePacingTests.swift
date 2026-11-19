@@ -131,3 +131,28 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         #expect(SceneCut.isCut(width: 1920, height: 1080, a: gradient, b: other))
     }
 }
+
+@Suite struct PresentationCountsTests {
+    @Test func countsPresentedImagesAndDropsReportedAsZero() {
+        var counts = PresentationCounts()
+        for i in 0..<90 {
+            let shown = counts.report(presentedAt: 10 + Double(i) / 60, generated: i % 2 == 1, now: 10)
+            #expect(shown)
+        }
+        #expect(abs(counts.all.perSecond(now: 11.5) - 60) < 1)
+        #expect(abs(counts.generated.perSecond(now: 11.5) - 30) < 1) // every other image
+        let dropped = !counts.report(presentedAt: 0, generated: false, now: 11.6) // a drop
+        #expect(dropped)
+        #expect(counts.handled == 91 && counts.unpresented == 1)
+    }
+
+    @Test func displaysThatNeverReportTimesStillCount() {
+        var counts = PresentationCounts()
+        var shown = 0
+        for i in 0..<60 where counts.report(presentedAt: 0, generated: false, now: Double(i) / 30) { shown += 1 }
+        #expect(shown == 30) // the first 30 zeros are drops; after that the display just doesn't report times
+        let timed = counts.report(presentedAt: 3, generated: false, now: 3) // a real time: back to normal
+        let zero = counts.report(presentedAt: 0, generated: false, now: 3.1)
+        #expect(timed && !zero)
+    }
+}

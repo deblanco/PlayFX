@@ -24,6 +24,7 @@ import StreamCore
 //          /grid.png?vary=sharpness&values=0,0.3,1&crop=2400,500,600,600   one frame, one tile per value
 //                       (also &ml=1: Apple ML super-resolution first, for streams up to 1280 px wide)
 //   psrp interpolate <in.mov> [--out out.mov] [--frames N]   frame interpolation bench on a video file (no console)
+//   psrp play <clip.mov> [--interpolate] [--jitter MS] [--seconds N] [--screen NAME]   frame pacing on a real screen
 //   psrp pad [--port 7778]                  the Mac's controller without a console: live state, rumble and
 //                                           trigger-effect tests (see Pad.swift)
 //
@@ -156,6 +157,9 @@ func run() throws {
 
     case "interpolate":
         try interpolate(args)
+
+    case "play":
+        try play(args)
 
     default:
         throw fail("unknown command \(command)")
