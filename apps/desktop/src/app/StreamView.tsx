@@ -233,7 +233,8 @@ export const StreamView = ({
       >
         <div aria-hidden className={cn("absolute inset-0 -z-10 bg-gradient-to-b from-black/70 to-transparent", fade)} />
         <span className={cn("font-medium", fade)}>{title}</span>
-        {/* With "Stats on screen" on, this line stays when the rest of the HUD fades. */}
+        {/* Connection messages always; the stream's numbers only with "Stats on screen" on, and then they stay
+            when the rest of the HUD fades. */}
         <span
           aria-label={keepStats ? "Stream stats" : undefined}
           className={cn(
@@ -255,7 +256,7 @@ export const StreamView = ({
                     ? "Opening the data connection…"
                     : keepStats
                       ? <StatsLine rows={stats.rows} />
-                      : stats.line}
+                      : settings.showStats ? stats.line : null /* off: no numbers, even with the HUD up */}
         </span>
         <details className={cn("group relative text-xs", fade)}>
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">

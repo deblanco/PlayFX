@@ -624,7 +624,9 @@ describe("streaming", () => {
     }, undefined)
     expect(screen.queryByText("Consoles")).not.toBeInTheDocument()
     expect(screen.getByText("Living Room")).toBeInTheDocument()
-    expect(await screen.findByText(/^1920×1080 · \d+ fps · [\d.]+ Mbps · MetalFX$/)).toBeInTheDocument()
+    // "Stats on screen" is off by default: no numbers in the HUD (see "shows the stream's numbers only when
+    // asked to" for them appearing once it's on).
+    expect(screen.queryByText(/1920×1080/)).not.toBeInTheDocument()
   })
 
   it("stays home when the stream can't start", async () => {
@@ -808,12 +810,14 @@ describe("streaming", () => {
     })
   })
 
-  it("keeps the stream's numbers on screen when asked to", async () => {
+  it("shows the stream's numbers only when asked to", async () => {
     const core = fakeCore()
     core.state.status = status({ width: 1920, height: 1080, framesDecoded: 0, rttMs: 12 })
     await startStreaming(core)
     expect(screen.queryByLabelText("Stream stats")).not.toBeInTheDocument()
     const sheet = await openSettings("Picture")
+    // The HUD is up while the settings are open, and still shows no numbers with the switch off.
+    expect(screen.queryByText(/1920×1080/)).not.toBeInTheDocument()
     await userEvent.click(sheet.getByRole("switch", { name: /Stats on screen/ }))
     const line = await screen.findByLabelText("Stream stats")
     expect(line).toHaveTextContent("1920×1080 · 0 fps · 0.0 Mbps · ping 12 ms · MetalFX · 0 lost frames")
