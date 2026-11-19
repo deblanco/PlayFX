@@ -39,9 +39,9 @@ public struct RenderParams: Codable, Equatable, Sendable {
     public var deband: Float = 0
     /// Apple's ML super-resolution on the decoded frame first (macOS 26+, streams up to 1280 px wide).
     public var mlUpscale = false
-    /// "Smooth motion": an interpolated frame between each pair of stream frames (macOS 26+), when the
+    /// "Frame interpolation": an interpolated frame between each pair of stream frames (macOS 26+), when the
     /// screen refreshes at least twice as fast as the stream. Adds one screen refresh of latency.
-    public var smoothMotion = false
+    public var frameInterpolation = false
     /// Split screen: left half is the baseline (bilinear, no processing), right half these params.
     public var compare = false
     public var colorMatrix: ColorMatrix = .auto
@@ -69,7 +69,7 @@ public struct RenderParams: Codable, Equatable, Sendable {
         chroma = try c.decodeIfPresent(ChromaFilter.self, forKey: .chroma) ?? d.chroma
         accurateColor = try c.decodeIfPresent(Bool.self, forKey: .accurateColor) ?? d.accurateColor
         mlUpscale = try c.decodeIfPresent(Bool.self, forKey: .mlUpscale) ?? d.mlUpscale
-        smoothMotion = try c.decodeIfPresent(Bool.self, forKey: .smoothMotion) ?? d.smoothMotion
+        frameInterpolation = try c.decodeIfPresent(Bool.self, forKey: .frameInterpolation) ?? d.frameInterpolation
     }
 }
 
@@ -89,10 +89,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Whether the last decoded frame went through ML super-resolution.
     public private(set) var mlActive = false
     private let ml = MLSuperResolution()
-    /// Whether frame interpolation ("Smooth motion") can run on this Mac and OS.
-    public let smoothSupported = FrameInterpolator.isAvailable
+    /// Whether frame interpolation ("Frame interpolation") can run on this Mac and OS.
+    public let interpolationSupported = FrameInterpolator.isAvailable
     /// Whether the last stream frame was preceded by an interpolated one.
-    public private(set) var smoothActive = false
+    public private(set) var interpolationActive = false
     private let interpolator = FrameInterpolator()
     /// The last stream frame (the interpolation's "before"), and a new one held back for one refresh
     /// while the in-between frame shows.
@@ -110,7 +110,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
     public var displayMilliseconds: Double { displayTime.withLock { $0 } }
     private let displayTime = OSAllocatedUnfairLock<Double>(initialState: 0)
-    /// New images put on screen per second: stream frames plus Smooth motion's in-between frames.
+    /// New images put on screen per second: stream frames plus Frame interpolation's in-between frames.
     public var shownFramesPerSecond: Double { shownRate.withLock { $0.perSecond(now: CACurrentMediaTime()) } }
     private let shownRate = OSAllocatedUnfairLock(initialState: ShownRate())
     /// The raw stream converted at its own size, for the compare view's baseline while ML is on.
@@ -499,7 +499,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         #endif
     }
 
-    /// The frame to show on this refresh: a new stream frame (or, with Smooth motion, the in-between
+    /// The frame to show on this refresh: a new stream frame (or, with Frame interpolation, the in-between
     /// frame first and the new one on the next refresh), nil when nothing changed.
     private func nextFrame(_ cb: MTLCommandBuffer, now: Double) -> CVPixelBuffer? {
         if lastDraw > 0 { displayInterval = Self.smoothedInterval(displayInterval, now - lastDraw) }
@@ -514,15 +514,15 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         if lastArrival > 0 { streamInterval = Self.smoothedInterval(streamInterval, now - lastArrival) }
         lastArrival = now
         defer { previousFrame = incoming }
-        if params.smoothMotion, FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval),
+        if params.frameInterpolation, FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval),
            let previous = previousFrame, let middle = interpolator.encode(cb, previous: previous, current: incoming) {
             heldFrame = incoming
             heldArrival = arrived
-            smoothActive = true
+            interpolationActive = true
             return middle
         }
         heldFrame = nil
-        smoothActive = false
+        interpolationActive = false
         return incoming
     }
 

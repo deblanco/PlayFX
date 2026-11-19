@@ -137,7 +137,7 @@ public func sc_display_milliseconds() -> Double {
     renderer?.displayMilliseconds ?? 0
 }
 
-/// New images put on screen per second (stream frames plus Smooth motion's in-between frames; 0 when idle).
+/// New images put on screen per second (stream frames plus Frame interpolation's in-between frames; 0 when idle).
 @_cdecl("sc_shown_fps")
 public func sc_shown_fps() -> Double {
     renderer?.shownFramesPerSecond ?? 0
@@ -149,16 +149,16 @@ public func sc_hdr_active() -> Bool {
     renderer?.hdrActive ?? false
 }
 
-/// Whether frame interpolation ("Smooth motion") can run here (macOS 26+, supported Mac).
+/// Whether frame interpolation ("Frame interpolation") can run here (macOS 26+, supported Mac).
 @_cdecl("sc_smooth_supported")
 public func sc_smooth_supported() -> Bool {
-    renderer?.smoothSupported ?? false
+    renderer?.interpolationSupported ?? false
 }
 
 /// Whether the last stream frame was preceded by an interpolated one.
 @_cdecl("sc_smooth_active")
 public func sc_smooth_active() -> Bool {
-    renderer?.smoothActive ?? false
+    renderer?.interpolationActive ?? false
 }
 
 /// Upscaler used for the last frame: 0 = bilinear, 1 = MetalFX, -1 = no renderer.

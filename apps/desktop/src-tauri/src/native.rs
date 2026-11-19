@@ -86,13 +86,13 @@ pub trait NativeCore: Send + Sync {
     fn gpu_milliseconds(&self) -> f64;
     /// Apple ML super-resolution: (can run here, ran on the last frame).
     fn ml_status(&self) -> (bool, bool);
-    /// Frame interpolation ("Smooth motion"): (can run here, made the last in-between frame).
-    fn smooth_status(&self) -> (bool, bool);
+    /// Frame interpolation ("Frame interpolation"): (can run here, made the last in-between frame).
+    fn interpolation_status(&self) -> (bool, bool);
     /// HDR10 frames are on screen (EDR output).
     fn hdr_active(&self) -> bool;
     /// From a decoded frame arriving to it being on screen, smoothed (ms).
     fn display_milliseconds(&self) -> f64;
-    /// New images put on screen per second (with Smooth motion, more than the stream sends).
+    /// New images put on screen per second (with Frame interpolation, more than the stream sends).
     fn shown_fps(&self) -> f64;
     fn session_stats(&self) -> String;
 }
@@ -158,8 +158,8 @@ pub struct RendererState {
     pub gpu_ms: f64,
     /// Apple ML super-resolution: (can run here, ran on the last frame).
     pub ml: (bool, bool),
-    /// Frame interpolation ("Smooth motion"): (can run here, active on the last frame).
-    pub smooth: (bool, bool),
+    /// Frame interpolation ("Frame interpolation"): (can run here, active on the last frame).
+    pub interpolation: (bool, bool),
     pub hdr: bool,
     pub display_ms: f64,
     pub shown_fps: f64,
@@ -173,8 +173,8 @@ pub fn renderer_status_json(state: &RendererState, stats: &str) -> Value {
         "gpuMs": (state.gpu_ms * 100.0).round() / 100.0,
         "mlSupported": state.ml.0,
         "mlActive": state.ml.1,
-        "smoothSupported": state.smooth.0,
-        "smoothActive": state.smooth.1,
+        "interpolationSupported": state.interpolation.0,
+        "interpolationActive": state.interpolation.1,
         "hdrActive": state.hdr,
         "displayMs": (state.display_ms * 10.0).round() / 10.0,
         "shownFps": state.shown_fps.round(),

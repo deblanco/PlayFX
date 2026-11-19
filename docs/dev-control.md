@@ -51,14 +51,14 @@ The ones that matter for picture work:
 | `upscaler` | `"metalfx"`, `"bilinear"` | At once |
 | `sharpness`, `deblock`, `deband` | 0–1 | At once |
 | `mlUpscale` | `true`/`false`: Apple ML super-resolution before upscaling (streams up to 720p) | At once |
-| `smoothMotion` | `true`/`false`: frame generation, an in-between frame for each pair of stream frames | At once |
+| `frameInterpolation` | `true`/`false`: frame generation, an in-between frame for each pair of stream frames | At once |
 | `showStats` | `true`/`false`: keep the stats line on screen | At once |
 | `height` | `540`, `720`, `1080` | On reconnect |
 | `fps` | `30`, `60` | On reconnect |
 | `hevc`, `hdr` | `true`/`false` | On reconnect |
 | `bitrate` | kbps, `0` for the console's default | On reconnect |
 
-Smooth motion only adds frames when the screen refreshes at least twice per stream frame: a 30 fps
+Frame interpolation only adds frames when the screen refreshes at least twice per stream frame: a 30 fps
 stream on a 60 or 75 Hz display, or a 60 fps stream on a 120 Hz one.
 
 ### Buttons
@@ -77,8 +77,8 @@ stream on a 60 or 75 Hz display, or a 60 fps stream on a 120 Hz one.
   "gpuMs": 1.42,
   "mlSupported": true,
   "mlActive": false,
-  "smoothSupported": true,
-  "smoothActive": true,
+  "interpolationSupported": true,
+  "interpolationActive": true,
   "hdrActive": false,
   "displayMs": 9.8,
   "shownFps": 60,
@@ -86,7 +86,7 @@ stream on a 60 or 75 Hz display, or a 60 fps stream on a 120 Hz one.
 }
 ```
 
-`shownFps` counts the new images put on screen each second. With Smooth motion it's higher than the
+`shownFps` counts the new images put on screen each second. With Frame interpolation it's higher than the
 stream's frame rate, which is how you can tell frame generation is working.
 
 ## Examples
@@ -104,11 +104,11 @@ curl -s -X POST "localhost:$PORT/press?buttons=options"
 curl -s -X POST localhost:$PORT/settings -d '{"view": "original"}'
 curl -s -X POST localhost:$PORT/settings -d '{"view": "enhanced", "upscaler": "metalfx", "sharpness": 0.3}'
 
-# Frame generation: a 30 fps stream, then Smooth motion
+# Frame generation: a 30 fps stream, then Frame interpolation
 curl -s -X POST localhost:$PORT/settings -d '{"fps": 30}'
 curl -s -X POST localhost:$PORT/reconnect
-curl -s -X POST localhost:$PORT/settings -d '{"smoothMotion": true}'
-curl -s localhost:$PORT/status | jq '{shownFps, smoothActive}'
+curl -s -X POST localhost:$PORT/settings -d '{"frameInterpolation": true}'
+curl -s localhost:$PORT/status | jq '{shownFps, interpolationActive}'
 ```
 
 ## Where it lives

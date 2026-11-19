@@ -66,7 +66,7 @@ export const streamOptions = (settings: Settings): StreamOptions => ({
 /** The settings as the picture uses them: in the Original view, every processing step is off. */
 export const effectivePicture = (settings: Settings): Settings =>
   settings.view === "original"
-    ? { ...settings, upscaler: "bilinear", sharpness: 0, deblock: 0, deband: 0, mlUpscale: false, smoothMotion: false }
+    ? { ...settings, upscaler: "bilinear", sharpness: 0, deblock: 0, deband: 0, mlUpscale: false, frameInterpolation: false }
     : settings
 
 export const renderParams = (settings: Settings): RenderParams => {
@@ -77,7 +77,7 @@ export const renderParams = (settings: Settings): RenderParams => {
     deblock: picture.deblock,
     deband: picture.deband,
     mlUpscale: picture.mlUpscale,
-    smoothMotion: picture.smoothMotion,
+    frameInterpolation: picture.frameInterpolation,
     compare: settings.view === "split",
     colorMatrix: picture.colorMatrix,
     colorRange: picture.colorRange,
@@ -141,7 +141,7 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
   const ping = `${rtt.toFixed(rtt < 10 ? 1 : 0)} ms`
   const gpu = `${status.gpuMs.toFixed(1)} ms`
   const upscaler = upscalerLabel(status.activeMode, status.mlActive)
-  // With Smooth motion the screen shows more images than the stream sends: say how many.
+  // With Frame interpolation the screen shows more images than the stream sends: say how many.
   const shown = Math.round(status.shownFps)
   const rate = shown > fps * 1.25 ? `${String(fps)} fps · ${String(shown)} shown` : `${String(fps)} fps`
   const rows: (StatRow | undefined)[] = [
@@ -152,7 +152,7 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
     status.gpuMs > 0 ? row("GPU", gpu, `GPU ${gpu}`, status.gpuMs >= 8) : undefined,
     status.displayMs > 0 ? row("Latency", `${latency.toFixed(0)} ms`, `latency ${latency.toFixed(0)} ms`, latency >= 33) : undefined,
     row("Upscaler", upscaler, upscaler),
-    status.smoothActive ? row("Smooth motion", "On", "smooth motion") : undefined,
+    status.interpolationActive ? row("Frame interpolation", "On", "frame interpolation") : undefined,
     status.hdrActive ? row("HDR", "On", "HDR") : undefined,
     row("Lost frames", String(lost), `${String(lost)} lost frames`, lost > 0),
     errors > 0 ? row("Decode errors", String(errors), `${String(errors)} decode errors`, true) : undefined,
@@ -285,8 +285,8 @@ export interface Capabilities {
   readonly metalfx: boolean
   /** Apple ML super-resolution (macOS 26+). */
   readonly ml: boolean
-  /** Frame interpolation, "Smooth motion" (macOS 26+). */
-  readonly smooth: boolean
+  /** Frame interpolation, "Frame interpolation" (macOS 26+). */
+  readonly interpolation: boolean
 }
 
 /** ML super-resolution only takes streams up to 1280 px wide, i.e. 720p and lower. */

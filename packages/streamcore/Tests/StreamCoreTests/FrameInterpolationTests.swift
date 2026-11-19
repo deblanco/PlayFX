@@ -39,9 +39,9 @@ import Testing
 }
 
 extension StreamRendererTests {
-    @Test func smoothMotionParamDecodes() throws {
-        let p = try JSONDecoder().decode(RenderParams.self, from: Data(#"{"smoothMotion":true}"#.utf8))
-        #expect(p.smoothMotion && !RenderParams().smoothMotion)
+    @Test func frameInterpolationParamDecodes() throws {
+        let p = try JSONDecoder().decode(RenderParams.self, from: Data(#"{"frameInterpolation":true}"#.utf8))
+        #expect(p.frameInterpolation && !RenderParams().frameInterpolation)
     }
 
     /// 30 fps on a 60 Hz screen: the in-between frame shows when a new frame arrives, the new frame on
@@ -51,7 +51,7 @@ extension StreamRendererTests {
         let r = try #require(StreamRenderer(inputWidth: 640, inputHeight: 360))
         r.params.upscaler = .bilinear
         r.params.sharpness = 0
-        r.params.smoothMotion = true
+        r.params.frameInterpolation = true
         let refresh = 1.0 / 60
         let dark = try makeNV12(width: 640, height: 360, y: 40, cb: 128, cr: 128)
         let bright = try makeNV12(width: 640, height: 360, y: 200, cb: 128, cr: 128)
@@ -67,18 +67,18 @@ extension StreamRendererTests {
         }
         r.display(bright)
         let between = luma(try render(r, size: (64, 36), now: now))
-        #expect(r.smoothActive)
+        #expect(r.interpolationActive)
         now += refresh
         let after = luma(try render(r, size: (64, 36), now: now)) // the held real frame
         #expect(after > between)
         #expect(r.shownFramesPerSecond >= 0) // counted through the real draw path
 
         // Off: the new frame shows at once.
-        r.params.smoothMotion = false
+        r.params.frameInterpolation = false
         r.display(dark)
         now += refresh
         _ = try render(r, size: (64, 36), now: now)
-        #expect(!r.smoothActive)
+        #expect(!r.interpolationActive)
     }
 }
 
@@ -95,7 +95,7 @@ extension StreamRendererTests {
         #expect(rate.perSecond(now: 100) == 0) // nothing yet
         var end = shown(&rate, fps: 60, seconds: 1.5)
         #expect(abs(rate.perSecond(now: end) - 60) < 1)
-        // Smooth motion doubles what reaches the screen.
+        // Frame interpolation doubles what reaches the screen.
         end = shown(&rate, fps: 120, seconds: 2.5, from: end + 1.0 / 120)
         #expect(abs(rate.perSecond(now: end) - 120) < 2)
     }

@@ -68,7 +68,7 @@ const pictureKeys = [
   "deblock",
   "deband",
   "mlUpscale",
-  "smoothMotion",
+  "frameInterpolation",
   "view",
   "colorMatrix",
   "colorRange",
@@ -246,15 +246,15 @@ const PicturePanel = ({ settings, capabilities, set }: {
         onCheckedChange={(on) => { set("showStats", on) }}
       />
       <SwitchRow
-        label="Smooth motion"
+        label="Frame interpolation"
         description={
-          capabilities.smooth
+          capabilities.interpolation
             ? "Adds an in-between frame, so 30 fps games look like 60 on this screen (60 like 120 on ProMotion). Each real frame shows one refresh later, so it suits slower games."
             : "Needs macOS 26 on a supported Mac."
         }
-        checked={settings.smoothMotion}
-        disabled={!capabilities.smooth}
-        onCheckedChange={(on) => { set("smoothMotion", on) }}
+        checked={settings.frameInterpolation}
+        disabled={!capabilities.interpolation}
+        onCheckedChange={(on) => { set("frameInterpolation", on) }}
       />
       <Section stage={stages[0]} step={1} hint="Smooths compression artifacts before upscaling.">
         <StrengthSlider label="Blockiness" value={settings.deblock} onChange={(v) => { set("deblock", v) }} />

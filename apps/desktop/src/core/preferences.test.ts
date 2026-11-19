@@ -6,6 +6,7 @@ import {
   memoryStore,
   Preferences,
   PreferencesLive,
+  renamedSettingKeys,
   SecretStore,
   SecurePreferencesLive,
 } from "./preferences"
@@ -317,5 +318,35 @@ describe("SecurePreferencesLive", () => {
       yield* prefs.setAccountId(Option.none())
       expect(secrets.data.has("psrp.accountId")).toBe(false)
     }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("settings saved before the rename to Frame interpolation", () => {
+  const { frameInterpolation: _new, ...withoutNewKey } = defaultSettings
+  const legacy = { ...withoutNewKey, fps: 30, smoothMotion: true }
+
+  it.effect("keep Smooth motion's value, in settings and in profiles", () =>
+    Effect.gen(function* () {
+      const prefs = yield* Preferences
+      expect((yield* prefs.settings).frameInterpolation).toBe(true)
+      const [profile] = yield* prefs.profiles
+      expect(profile?.settings.frameInterpolation).toBe(true)
+      expect(profile?.name).toBe("Couch")
+    }).pipe(Effect.provide(withMemory({
+      "psrp.settings": JSON.stringify(legacy),
+      "psrp.profiles": JSON.stringify([{ name: "Couch", settings: legacy }]),
+    }))),
+  )
+
+  it.effect("still read a damaged profile list as none", () =>
+    Effect.gen(function* () {
+      expect(yield* (yield* Preferences).profiles).toEqual([])
+    }).pipe(Effect.provide(withMemory({ "psrp.profiles": JSON.stringify(["not a profile"]) }))),
+  )
+
+  it("leaves new and unrelated JSON as it is", () => {
+    expect(renamedSettingKeys({ frameInterpolation: false, smoothMotion: true })).toEqual({ frameInterpolation: false, smoothMotion: true })
+    expect(renamedSettingKeys([1])).toEqual([1])
+    expect(renamedSettingKeys(null)).toBe(null)
   })
 })

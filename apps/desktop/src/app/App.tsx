@@ -55,7 +55,7 @@ interface Session {
 export const App = () => {
   const run = useRun()
   const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const [capabilities, setCapabilities] = useState<Capabilities>({ metalfx: true, ml: false, smooth: false })
+  const [capabilities, setCapabilities] = useState<Capabilities>({ metalfx: true, ml: false, interpolation: false })
   const [session, setSession] = useState<Session | null>(null)
   const runtime = useRuntime()
   // Background work tied to the stream view: an in-flight reconnect, and the timer that forgives past

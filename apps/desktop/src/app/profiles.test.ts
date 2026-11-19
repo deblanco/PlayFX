@@ -27,9 +27,9 @@ describe("profiles", () => {
   })
 
   it("applies only its own settings", () => {
-    const tv = { name: "TV", settings: profileSettings({ ...defaultSettings, height: 720, smoothMotion: true }) }
+    const tv = { name: "TV", settings: profileSettings({ ...defaultSettings, height: 720, frameInterpolation: true }) }
     const applied = applyProfile({ ...defaultSettings, showStats: true, volume: 0.4 }, tv)
-    expect(applied).toMatchObject({ height: 720, smoothMotion: true, showStats: true, volume: 0.4 })
+    expect(applied).toMatchObject({ height: 720, frameInterpolation: true, showStats: true, volume: 0.4 })
   })
 
   it("saves by name, replacing a profile of the same name", () => {
@@ -51,8 +51,8 @@ describe("profiles", () => {
     const summary = (overrides: Partial<typeof defaultSettings>) =>
       profileSummary({ name: "x", settings: profileSettings({ ...defaultSettings, ...overrides }) })
     expect(summary({ view: "original", fps: 30 })).toBe("1080p30 · original picture")
-    expect(summary({ upscaler: "bilinear", sharpness: 0, mlUpscale: true, smoothMotion: true, deblock: 0.5, hdr: true })).toBe(
-      "1080p60 · bilinear · ML upscaling · Smooth motion · cleanup · HDR",
+    expect(summary({ upscaler: "bilinear", sharpness: 0, mlUpscale: true, frameInterpolation: true, deblock: 0.5, hdr: true })).toBe(
+      "1080p60 · bilinear · ML upscaling · Frame interpolation · cleanup · HDR",
     )
   })
 })

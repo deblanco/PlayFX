@@ -17,7 +17,7 @@ pub struct FakeCore {
     pub mode: i32,
     pub gpu_ms: f64,
     pub ml: (bool, bool),
-    pub smooth: (bool, bool),
+    pub interpolation: (bool, bool),
     pub hdr: bool,
     pub display_ms: f64,
     pub shown_fps: f64,
@@ -150,8 +150,8 @@ impl NativeCore for FakeCore {
     fn hdr_active(&self) -> bool {
         self.hdr
     }
-    fn smooth_status(&self) -> (bool, bool) {
-        self.smooth
+    fn interpolation_status(&self) -> (bool, bool) {
+        self.interpolation
     }
     fn active_mode(&self) -> i32 {
         self.mode

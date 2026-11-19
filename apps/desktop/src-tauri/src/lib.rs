@@ -330,7 +330,7 @@ fn renderer_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
             active_mode: core.active_mode(),
             gpu_ms: core.gpu_milliseconds(),
             ml: core.ml_status(),
-            smooth: core.smooth_status(),
+            interpolation: core.interpolation_status(),
             hdr: core.hdr_active(),
             display_ms: core.display_milliseconds(),
             shown_fps: core.shown_fps(),

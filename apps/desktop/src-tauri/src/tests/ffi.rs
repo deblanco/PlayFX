@@ -56,7 +56,7 @@ fn mac_core_without_session_or_renderer() {
     assert_eq!(core.active_mode(), -1);
     assert_eq!(core.gpu_milliseconds(), 0.0);
     assert_eq!(core.ml_status(), (false, false)); // no renderer attached
-    assert_eq!(core.smooth_status(), (false, false));
+    assert_eq!(core.interpolation_status(), (false, false));
     assert!(!core.hdr_active());
     assert_eq!(core.display_milliseconds(), 0.0);
     assert_eq!(core.shown_fps(), 0.0);

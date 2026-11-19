@@ -14,7 +14,7 @@ export const profileSettings = (s: Settings): ProfileSettings => ({
   deblock: s.deblock,
   deband: s.deband,
   mlUpscale: s.mlUpscale,
-  smoothMotion: s.smoothMotion,
+  frameInterpolation: s.frameInterpolation,
   colorMatrix: s.colorMatrix,
   colorRange: s.colorRange,
   chroma: s.chroma,
@@ -53,7 +53,7 @@ export const profileSummary = (profile: Profile): string => {
     parts.push(s.upscaler === "metalfx" ? "MetalFX" : "bilinear")
     if (s.sharpness > 0) parts.push(`sharpness ${String(Math.round(s.sharpness * 100) / 100)}`)
     if (s.mlUpscale) parts.push("ML upscaling")
-    if (s.smoothMotion) parts.push("Smooth motion")
+    if (s.frameInterpolation) parts.push("Frame interpolation")
     if (s.deblock > 0 || s.deband > 0) parts.push("cleanup")
   }
   if (s.hdr) parts.push("HDR")

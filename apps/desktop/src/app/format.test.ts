@@ -89,7 +89,7 @@ describe("renderParams", () => {
       deblock: 0.6,
       deband: 0.3,
       mlUpscale: true,
-      smoothMotion: true,
+      frameInterpolation: true,
       view: "split",
       colorMatrix: "bt2020",
       colorRange: "full",
@@ -102,7 +102,7 @@ describe("renderParams", () => {
       deblock: 0.6,
       deband: 0.3,
       mlUpscale: true,
-      smoothMotion: true,
+      frameInterpolation: true,
       compare: true,
       colorMatrix: "bt2020",
       colorRange: "full",
@@ -112,13 +112,13 @@ describe("renderParams", () => {
   })
 
   it("turns every processing step off in the Original view, keeping the colors", () => {
-    const tuned = { ...defaultSettings, sharpness: 0.8, deblock: 0.5, deband: 0.5, mlUpscale: true, smoothMotion: true }
+    const tuned = { ...defaultSettings, sharpness: 0.8, deblock: 0.5, deband: 0.5, mlUpscale: true, frameInterpolation: true }
     expect(renderParams({ ...tuned, view: "original" })).toMatchObject({
-      upscaler: "bilinear", sharpness: 0, deblock: 0, deband: 0, mlUpscale: false, smoothMotion: false, compare: false,
+      upscaler: "bilinear", sharpness: 0, deblock: 0, deband: 0, mlUpscale: false, frameInterpolation: false, compare: false,
       accurateColor: true,
     })
     expect(renderParams({ ...tuned, view: "enhanced" })).toMatchObject({ sharpness: 0.8, compare: false })
-    expect(pipelineStages({ ...tuned, view: "original" }, { metalfx: true, ml: true, smooth: true }).some((s) => s.active && s.id !== "color")).toBe(false)
+    expect(pipelineStages({ ...tuned, view: "original" }, { metalfx: true, ml: true, interpolation: true }).some((s) => s.active && s.id !== "color")).toBe(false)
   })
 })
 
@@ -250,14 +250,14 @@ describe("quitMessage", () => {
 describe("ML super-resolution", () => {
   const ml = { ...defaultSettings, mlUpscale: true, height: 720 } as const
   it("applies to 720p and lower streams when the Mac supports it", () => {
-    expect(mlApplies(ml, { metalfx: true, ml: true, smooth: false })).toBe(true)
-    expect(mlApplies({ ...ml, height: 540 }, { metalfx: true, ml: true, smooth: false })).toBe(true)
-    expect(mlApplies({ ...ml, height: 1080 }, { metalfx: true, ml: true, smooth: false })).toBe(false)
-    expect(mlApplies(ml, { metalfx: true, ml: false, smooth: false })).toBe(false)
-    expect(mlApplies({ ...ml, mlUpscale: false }, { metalfx: true, ml: true, smooth: false })).toBe(false)
+    expect(mlApplies(ml, { metalfx: true, ml: true, interpolation: false })).toBe(true)
+    expect(mlApplies({ ...ml, height: 540 }, { metalfx: true, ml: true, interpolation: false })).toBe(true)
+    expect(mlApplies({ ...ml, height: 1080 }, { metalfx: true, ml: true, interpolation: false })).toBe(false)
+    expect(mlApplies(ml, { metalfx: true, ml: false, interpolation: false })).toBe(false)
+    expect(mlApplies({ ...ml, mlUpscale: false }, { metalfx: true, ml: true, interpolation: false })).toBe(false)
   })
   it("shows in the pipeline and the HUD", () => {
-    const [, upscale] = pipelineStages({ ...ml, upscaler: "bilinear" }, { metalfx: true, ml: true, smooth: false })
+    const [, upscale] = pipelineStages({ ...ml, upscaler: "bilinear" }, { metalfx: true, ml: true, interpolation: false })
     expect(upscale).toMatchObject({ value: "ML + Bilinear", active: true })
     expect(hudStats({ ...status({ width: 1280, height: 720 }), mlActive: true }, 60, 8)).toBe(
       "1280×720 · 60 fps · 8.0 Mbps · ML + MetalFX",
@@ -284,7 +284,7 @@ describe("settings labels", () => {
 describe("pipelineStages", () => {
   const view = (stages: readonly Stage[]) => stages.map((s) => [s.id, s.value, s.active])
   it("lists the picture steps in render order with their values", () => {
-    expect(view(pipelineStages(defaultSettings, { metalfx: true, ml: true, smooth: false }))).toEqual([
+    expect(view(pipelineStages(defaultSettings, { metalfx: true, ml: true, interpolation: false }))).toEqual([
       ["cleanup", "Off", false],
       ["upscale", "MetalFX", true],
       ["sharpen", "30%", true],
@@ -293,7 +293,7 @@ describe("pipelineStages", () => {
   })
   it("reflects changes and an unsupported MetalFX", () => {
     const settings = { ...defaultSettings, deblock: 0.2, deband: 0.6, sharpness: 0, accurateColor: false }
-    expect(view(pipelineStages(settings, { metalfx: false, ml: false, smooth: false }))).toEqual([
+    expect(view(pipelineStages(settings, { metalfx: false, ml: false, interpolation: false }))).toEqual([
       ["cleanup", "60%", true],
       ["upscale", "Bilinear", false],
       ["sharpen", "Off", false],
@@ -368,10 +368,10 @@ describe("statRows", () => {
       ["Lost frames", "3", true],
       ["Decode errors", "1", true],
     ])
-    const smooth = statRows({ ...status({ width: 1280, height: 720 }), smoothActive: true, hdrActive: true }, 60, 5)
-    expect(smooth.find((row) => row.label === "Smooth motion")?.inline).toBe("smooth motion")
+    const smooth = statRows({ ...status({ width: 1280, height: 720 }), interpolationActive: true, hdrActive: true }, 60, 5)
+    expect(smooth.find((row) => row.label === "Frame interpolation")?.inline).toBe("frame interpolation")
     // Frame generation: the screen gets more images than the stream sends.
-    const generated = statRows({ ...status({ width: 1920, height: 1080 }), smoothActive: true, shownFps: 59.6 }, 30, 5)
+    const generated = statRows({ ...status({ width: 1920, height: 1080 }), interpolationActive: true, shownFps: 59.6 }, 30, 5)
     expect(generated.find((row) => row.label === "Frame rate")?.inline).toBe("30 fps · 60 shown")
     const plain = statRows({ ...status({ width: 1920, height: 1080 }), shownFps: 61 }, 60, 5)
     expect(plain.find((row) => row.label === "Frame rate")?.inline).toBe("60 fps")

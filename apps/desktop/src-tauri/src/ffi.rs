@@ -184,7 +184,7 @@ impl NativeCore for MacCore {
     fn hdr_active(&self) -> bool {
         unsafe { sc_hdr_active() }
     }
-    fn smooth_status(&self) -> (bool, bool) {
+    fn interpolation_status(&self) -> (bool, bool) {
         unsafe { (sc_smooth_supported(), sc_smooth_active()) }
     }
     fn session_stats(&self) -> String {

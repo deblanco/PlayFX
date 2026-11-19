@@ -94,16 +94,32 @@ export const migratingSecrets = (
   remove: (key) => Effect.andThen(secrets.remove(key), legacy.remove(key)),
 })
 
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+/** Settings saved before a rename keep their values: "Smooth motion" became "Frame interpolation". */
+export const renamedSettingKeys = (json: unknown): unknown => {
+  if (!isRecord(json) || !("smoothMotion" in json) || "frameInterpolation" in json) return json
+  const { smoothMotion, ...rest } = json
+  return { ...rest, frameInterpolation: smoothMotion }
+}
+
 const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore["Service"]) => {
 
-    /** Reads JSON under `key` from `from`; missing or corrupt data yields `fallback`. */
-    const read = <A>(schema: Schema.Codec<A, unknown>, key: string, fallback: A, from = store) =>
+    /** Reads JSON under `key` from `from`, after `migrate` renames old keys; missing or corrupt data
+     * yields `fallback`. */
+    const read = <A>(schema: Schema.Codec<A, unknown>, key: string, fallback: A, from = store, migrate = (json: unknown) => json) =>
       from.get(key).pipe(
         Effect.map((raw) =>
           Option.match(raw, {
             onNone: () => fallback,
             onSome: (text) =>
-              Option.getOrElse(Schema.decodeUnknownOption(Schema.fromJsonString(schema))(text), () => fallback),
+              Option.getOrElse(
+                Option.flatMap(Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(text), (json) =>
+                  Schema.decodeUnknownOption(schema)(migrate(json)),
+                ),
+                () => fallback,
+              ),
           }),
         ),
       )
@@ -142,9 +158,11 @@ const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore[
           }
           return writePaired(next)
         }),
-      settings: read(Settings, keys.settings, defaultSettings),
+      settings: read(Settings, keys.settings, defaultSettings, store, renamedSettingKeys),
       saveSettings: (settings) => write(keys.settings, settings),
-      profiles: read(Profiles, keys.profiles, []),
+      profiles: read(Profiles, keys.profiles, [], store, (json) =>
+        Array.isArray(json) ? json.map((p: unknown) => (isRecord(p) ? { ...p, settings: renamedSettingKeys(p["settings"]) } : p)) : json,
+      ),
       saveProfiles: (profiles) => write(keys.profiles, profiles),
     } satisfies Preferences["Service"]
 }

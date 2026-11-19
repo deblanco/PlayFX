@@ -142,11 +142,11 @@ fn the_app_answers_through_the_port() {
     app.listen_any("dev-control", move |event| {
         let _ = tx.send(serde_json::from_str(event.payload()).unwrap_or(Value::Null));
     });
-    let body = r#"{"smoothMotion":true}"#;
+    let body = r#"{"frameInterpolation":true}"#;
     let raw = format!("POST /settings HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}", body.len());
     assert_eq!(http(address, &raw).0, 200);
     let event = rx.recv_timeout(Duration::from_secs(5)).ok();
-    assert_eq!(event, Some(json!({"type": "settings", "patch": {"smoothMotion": true}})));
+    assert_eq!(event, Some(json!({"type": "settings", "patch": {"frameInterpolation": true}})));
 
     assert_eq!(http(address, "POST /fullscreen HTTP/1.1\r\n\r\n").1, json!({"error": "no main window"}));
     WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().expect("webview");

@@ -515,8 +515,8 @@ describe("settings", () => {
     })
     expect(sheet.getByText("MetalFX isn't available on this Mac.")).toBeInTheDocument()
     expect(sheet.getByRole("switch", { name: /ML upscaling first/ })).toBeDisabled()
-    expect(sheet.getAllByText("Needs macOS 26 on a supported Mac.")).toHaveLength(2) // ML upscaling, Smooth motion
-    expect(sheet.getByRole("switch", { name: /Smooth motion/ })).toBeDisabled()
+    expect(sheet.getAllByText("Needs macOS 26 on a supported Mac.")).toHaveLength(2) // ML upscaling, Frame interpolation
+    expect(sheet.getByRole("switch", { name: /Frame interpolation/ })).toBeDisabled()
   })
 
   it("offers diagnostics: detailed logs, copying a report, the logs folder", async () => {
@@ -774,13 +774,13 @@ describe("streaming", () => {
     expect(core.counts.sleepConsole).toBe(0)
   })
 
-  it("turns Smooth motion on for the renderer", async () => {
+  it("turns Frame interpolation on for the renderer", async () => {
     const core = fakeCore()
-    core.state.status = { ...status(), smoothSupported: true }
+    core.state.status = { ...status(), interpolationSupported: true }
     await startStreaming(core)
     const sheet = await openSettings("Picture")
-    await userEvent.click(sheet.getByRole("switch", { name: /Smooth motion/ }))
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ smoothMotion: true }))
+    await userEvent.click(sheet.getByRole("switch", { name: /Frame interpolation/ }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ frameInterpolation: true }))
   })
 
   it("uses the pointer as the touchpad while ⌥ Option is held", async () => {
@@ -1227,12 +1227,12 @@ describe("dev control port", () => {
     const core = fakeCore()
     const { runtime } = await startStreaming(core)
     act(() => {
-      core.emitDev({ type: "settings", patch: { view: "original", smoothMotion: true } })
+      core.emitDev({ type: "settings", patch: { view: "original", frameInterpolation: true } })
     })
     await waitFor(async () => {
-      expect(await savedSettings(runtime)).toMatchObject({ view: "original", smoothMotion: true })
+      expect(await savedSettings(runtime)).toMatchObject({ view: "original", frameInterpolation: true })
     })
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(renderParams({ ...defaultSettings, view: "original", smoothMotion: true }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(renderParams({ ...defaultSettings, view: "original", frameInterpolation: true }))
     act(() => {
       core.emitDev({ type: "settings", patch: { fps: 45 } })
     })

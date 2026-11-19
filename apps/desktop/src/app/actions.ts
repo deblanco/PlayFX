@@ -365,7 +365,7 @@ export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Pr
   yield* core.setRenderParams(renderParams(settings))
   yield* applyDetailedLogs(settings.detailedLogs)
   yield* Effect.ignore(applyAudio(settings))
-  return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported, smooth: status.smoothSupported } }
+  return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported, interpolation: status.interpolationSupported } }
 })
 
 /** Persists new settings and applies their picture part to the renderer (cheap, and always the latest

@@ -81,7 +81,7 @@ export const RenderParams = Schema.Struct({
   /** Apple's ML super-resolution on the decoded frame first (720p and lower, macOS 26+). */
   mlUpscale: Schema.Boolean,
   /** An interpolated frame between stream frames when the screen is fast enough (macOS 26+). */
-  smoothMotion: Schema.Boolean,
+  frameInterpolation: Schema.Boolean,
   /** Split screen: left half is the unprocessed baseline, right half these settings. */
   compare: Schema.Boolean,
   colorMatrix: ColorMatrix,
@@ -104,7 +104,7 @@ export const Settings = Schema.Struct({
   deblock: since(Strength, 0),
   deband: since(Strength, 0),
   mlUpscale: since(Schema.Boolean, false),
-  smoothMotion: since(Schema.Boolean, false),
+  frameInterpolation: since(Schema.Boolean, false),
   view: since(PictureView, "enhanced"),
   colorMatrix: since(ColorMatrix, "auto"),
   colorRange: since(ColorRange, "auto"),
@@ -139,7 +139,7 @@ export const ProfileSettings = Schema.Struct({
   deblock: Settings.fields.deblock,
   deband: Settings.fields.deband,
   mlUpscale: Settings.fields.mlUpscale,
-  smoothMotion: Settings.fields.smoothMotion,
+  frameInterpolation: Settings.fields.frameInterpolation,
   colorMatrix: Settings.fields.colorMatrix,
   colorRange: Settings.fields.colorRange,
   chroma: Settings.fields.chroma,
@@ -168,7 +168,7 @@ export const defaultSettings: Settings = {
   deblock: 0,
   deband: 0,
   mlUpscale: false,
-  smoothMotion: false,
+  frameInterpolation: false,
   view: "enhanced",
   colorMatrix: "auto",
   colorRange: "auto",
@@ -309,15 +309,15 @@ export const RendererStatus = Schema.Struct({
   mlSupported: Schema.Boolean,
   /** The last frame went through ML super-resolution. */
   mlActive: Schema.Boolean,
-  /** Frame interpolation ("Smooth motion") can run on this Mac (macOS 26+). */
-  smoothSupported: Schema.Boolean,
+  /** Frame interpolation ("Frame interpolation") can run on this Mac (macOS 26+). */
+  interpolationSupported: Schema.Boolean,
   /** The last stream frame was preceded by an interpolated one. */
-  smoothActive: Schema.Boolean,
+  interpolationActive: Schema.Boolean,
   /** HDR10 frames are on screen (EDR). */
   hdrActive: Schema.Boolean,
   /** From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured). */
   displayMs: Schema.Number,
-  /** New images put on screen per second; with Smooth motion, more than the stream sends (0 when idle). */
+  /** New images put on screen per second; with Frame interpolation, more than the stream sends (0 when idle). */
   shownFps: since(Schema.Number, 0),
   stream: StreamStats,
 })

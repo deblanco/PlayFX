@@ -3,7 +3,7 @@ import CoreVideo
 import Metal
 import VideoToolbox
 
-/// "Smooth motion": Apple's low-latency frame interpolation (VideoToolbox, macOS 26+) makes a frame
+/// "Frame interpolation": Apple's low-latency frame interpolation (VideoToolbox, macOS 26+) makes a frame
 /// halfway between the previous decoded frame and the new one. The renderer shows it first and the new
 /// frame one screen refresh later, doubling the frame rate when the screen refreshes at least twice as
 /// fast as the stream (30 fps on a 60 Hz screen, 60 fps on a 120 Hz one). The cost is that the real
@@ -53,13 +53,13 @@ public final class FrameInterpolator {
                   CVPixelBufferPoolCreate(nil, nil, Self.metalCompatible(config.destinationPixelBufferAttributes) as CFDictionary,
                                           &newPool) == kCVReturnSuccess else {
                 failed.insert(sizeKey)
-                Log.warning(.renderer, "Smooth motion couldn't start for \(sizeKey) streams")
+                Log.warning(.renderer, "Frame interpolation couldn't start for \(sizeKey) streams")
                 return nil
             }
             session = processor
             pool = newPool
             size = (w, h)
-            Log.info(.renderer, "Smooth motion on for \(sizeKey) streams")
+            Log.info(.renderer, "Frame interpolation on for \(sizeKey) streams")
         }
         var output: CVPixelBuffer?
         timestamp += 2
