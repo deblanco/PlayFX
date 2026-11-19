@@ -102,7 +102,9 @@ extension StreamRendererTests {
         r.display(try red())
         #expect(pixel(try render(r, size: (32, 32)), width: 32, x: 16, y: 16).r > 245)
         r.params.colorMatrix = .bt601
-        r.display(try red())
+        // Frames show when the stream clock says: a big jump in the index starts the clock over, so this
+        // one shows at once instead of one frame interval later (which a fast runner renders before).
+        r.display(try red(), index: 1000)
         #expect(pixel(try render(r, size: (32, 32)), width: 32, x: 16, y: 16).r < 240)
     }
 

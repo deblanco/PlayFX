@@ -67,7 +67,8 @@ extension StreamRendererTests {
         r.display(try mlFrame(width: 1280, height: 720))
         _ = try render(r, size: (1280, 720)) // no upscale needed: ML skipped
         #expect(!r.mlActive)
-        r.display(try mlFrame(width: 1280, height: 720))
+// A jump in the index restarts the stream clock: shown at once, not one frame interval later.
+        r.display(try mlFrame(width: 1280, height: 720), index: 1000)
         _ = try render(r, size: (2560, 1440)) // bigger window: ML again
         #expect(r.mlActive)
     }
@@ -81,7 +82,8 @@ extension StreamRendererTests {
         #expect(!r.mlActive)
         #expect(r.inputSize == (1920, 1080))
         r.params.mlUpscale = false
-        r.display(try mlFrame(width: 1280, height: 720))
+        // A jump in the index restarts the stream clock: shown at once, not one frame interval later.
+        r.display(try mlFrame(width: 1280, height: 720), index: 1000)
         _ = try render(r, size: (2560, 1440))
         #expect(!r.mlActive && r.inputSize == (1280, 720))
     }

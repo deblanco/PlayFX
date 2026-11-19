@@ -63,7 +63,8 @@ extension StreamRendererTests {
         r.params.deband = 0.5
         r.display(try makeNV12(width: 64, height: 64, y: 120, cb: 128, cr: 128))
         _ = try render(r, size: (128, 128))
-        r.display(try makeNV12(width: 32, height: 32, y: 120, cb: 128, cr: 128))
+// A jump in the index restarts the stream clock: shown at once, not one frame interval later.
+        r.display(try makeNV12(width: 32, height: 32, y: 120, cb: 128, cr: 128), index: 1000)
         let out = try render(r, size: (128, 128))
         #expect(r.inputSize == (32, 32))
         #expect(abs(pixel(out, width: 128, x: 64, y: 64).g - 121) <= 3)
