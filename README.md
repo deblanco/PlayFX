@@ -57,7 +57,7 @@ Every package keeps line, branch and function coverage at or above 80%.
 ```sh
 bun run --cwd apps/desktop check                       # tsc, ESLint, vitest + coverage
 packages/streamcore/scripts/coverage.sh                # Swift tests + coverage
-(cd apps/desktop/src-tauri && cargo llvm-cov)          # Rust
+bun run --cwd apps/desktop coverage:rust               # Rust (cargo llvm-cov)
 ```
 
 ## Debugging without the app

@@ -1,0 +1,70 @@
+# Build and check all three languages on every push and pull request. Each package keeps line and
+# function coverage at or above 80% (CLAUDE.md); the coverage commands fail below that.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Homebrew dependencies for libchiaki
+        run: brew install cmake ninja openssl@3 opus json-c miniupnpc libevent
+
+      # libchiaki and its static dependencies only change with the submodule or the build script.
+      - name: libchiaki version
+        id: chiaki-rev
+        run: echo "rev=$(git rev-parse HEAD:third_party/chiaki-ng)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache libchiaki
+        id: chiaki
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/streamcore/vendor
+            packages/streamcore/Sources/CChiaki/include/chiaki
+          key: chiaki-${{ runner.os }}-${{ runner.arch }}-${{ steps.chiaki-rev.outputs.rev }}-${{ hashFiles('packages/streamcore/scripts/build-chiaki.sh') }}
+
+      - name: Build libchiaki
+        if: steps.chiaki.outputs.cache-hit != 'true'
+        run: packages/streamcore/scripts/build-chiaki.sh
+
+      - name: Swift tests and coverage
+        run: packages/streamcore/scripts/coverage.sh
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: TypeScript (tsc, ESLint, vitest + coverage)
+        run: bun run --cwd apps/desktop check
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview, clippy
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      # Tauri embeds the built web UI, so the Rust crate needs it to compile.
+      - name: Build the web UI
+        run: bun run --cwd apps/desktop build
+
+      - name: Clippy
+        working-directory: apps/desktop/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Rust tests and coverage
+        run: bun run --cwd apps/desktop coverage:rust

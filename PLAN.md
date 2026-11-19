@@ -309,17 +309,24 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
 
 ### P4 — build, distribution, compliance
 
-- ❌ **AGPL compliance.** `third_party/chiaki-ng` is **AGPL-3.0**; any distributed build must make
-  complete source available and carry the license. Add `LICENSE`, NOTICE, and a build/source link.
-  Decide the project's own license accordingly before any public release.
-- ❌ **Sony ToS note.** Unofficial client; fine for personal use, but document the stance and
-  don't ship anyone's credentials.
-- ❌ **Packaging**: code-sign + notarize the macOS app, bundle the static libs/rpath correctly,
-  produce a `.dmg`. (Currently relies on an `-rpath /usr/lib/swift` link arg for dev.)
-- ❌ **CI**: build + test + coverage for all three languages; reproducible libchiaki build
-  (`packages/streamcore/scripts/build-chiaki.sh`) with the OpenSSL-3 pinning and curl trimming.
-- ❌ **Reproducibility**: `vendor/macos/lib/*.a` are generated and gitignored; document/automate
-  regenerating them, and the Homebrew deps (`cmake ninja openssl@3 opus json-c miniupnpc libevent`).
+- ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
+  exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,
+  license fields in every manifest, and Settings → Diagnostics → **Source code** opens the repo. Make the
+  repo public (or publish the source) with the first public build.
+- ✅ **Sony ToS note.** README: unofficial client, own consoles and account, PSN sign-in only through
+  Sony's page, no credentials shipped. NOTICE and the app's About text: not affiliated with Sony.
+- 🔶 **Packaging** *(built and launched unsigned; signing needs the personal Developer ID)*: bundle ID
+  `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
+  `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
+  Terminal), `.app` + `.dmg` (7.3 MB). The binary links only system libraries (`/usr/lib/swift` is part of
+  macOS 13+). `scripts/release.sh` signs with the personal "Developer ID Application" identity, notarizes
+  the DMG with the `playfx` notarytool keychain profile, staples and checks it with Gatekeeper.
+- 🔶 **CI** *(workflow written; first run pending)*: `.github/workflows/ci.yml` on every push and PR,
+  macOS runner: libchiaki built once per submodule commit + script (cached), Swift tests + coverage,
+  tsc/ESLint/vitest + coverage, clippy `-D warnings`, Rust tests + `cargo llvm-cov` (≥ 80% lines and
+  functions, `bun run --cwd apps/desktop coverage:rust`).
+- ✅ **Reproducibility**: README lists the Homebrew dependencies and `build-chiaki.sh`; CI regenerates
+  `vendor/` from scratch whenever the submodule or the script changes.
 
 ---
 
