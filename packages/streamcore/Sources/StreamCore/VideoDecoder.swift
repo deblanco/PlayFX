@@ -68,7 +68,8 @@ public final class VideoDecoder {
             self?.onIndexedFrame?(imageBuffer, index)
         }
         if status == kVTInvalidSessionErr {
-            // e.g. after sleep/GPU change: rebuild on the next keyframe.
+            // e.g. after sleep/GPU change: rebuild on the next keyframe, releasing the dead session's resources.
+            VTDecompressionSessionInvalidate(session)
             self.session = nil
             parameterSets = []
         }

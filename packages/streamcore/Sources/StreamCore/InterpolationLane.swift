@@ -16,6 +16,12 @@ import VideoToolbox
 /// checks, busy pairs) is tested everywhere.
 protocol MiddleFrameMaker: AnyObject {
     func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer?
+    /// Gets ready for this size (building VideoToolbox's model), so the first pair doesn't wait for it.
+    func prepare(width: Int, height: Int)
+}
+
+extension MiddleFrameMaker {
+    func prepare(width: Int, height: Int) {}
 }
 
 extension FrameInterpolator: MiddleFrameMaker {}
@@ -48,6 +54,11 @@ final class InterpolationLane {
     private let scaleChroma: MTLComputePipelineState
 
     private var textureCache: CVMetalTextureCache?
+    /// The CoreVideo textures behind the Metal ones in the command buffer being built: CoreVideo wants them
+    /// alive until the GPU is done with them. Cleared once it is. On `queue`.
+    private var inFlight: [CVMetalTexture] = []
+    /// Pairs in a row that came out with no image at each size; a size that keeps failing is dropped.
+    private var failures: [String: Int] = [:]
     private var interpolators: [String: MiddleFrameMaker] = [:]
     /// Makes the engine for each size.
     private let makeEngine: () -> MiddleFrameMaker
@@ -92,8 +103,16 @@ final class InterpolationLane {
             let t0 = CACurrentMediaTime()
             if Self.isCut(previous, current) { state.withLock { $0.cutPairs += 1 }; return }
             stages.cut = (CACurrentMediaTime() - t0) * 1000
-            guard let made = make(previous, current, size: size) else { return }
             let key = "\(size.width)x\(size.height)"
+            guard let made = make(previous, current, size: size) else {
+                inFlight.removeAll() // a pair given up before the commit
+                // A size that never gives an image (VideoToolbox couldn't start there) is dropped like an
+                // empty one, so the renderer moves to the next size instead of waiting on it.
+                failures[key, default: 0] += 1
+                if failures[key, default: 0] >= 5 { state.withLock { _ = $0.broken.insert(key) } }
+                return
+            }
+            failures[key] = 0
             madeAt[key, default: 0] += 1
             onImage?(Image(buffer: made, time: time, cost: CACurrentMediaTime() - started, size: size,
                            warmingUp: madeAt[key, default: 0] <= 2))
@@ -112,7 +131,7 @@ final class InterpolationLane {
 
     /// Builds the size's interpolation model ahead of the first pair that needs it (1–2 s the first time).
     func prepare(size: (width: Int, height: Int)) {
-        queue.async { [self] in _ = interpolator(size) }
+        queue.async { [self] in interpolator(size).prepare(width: size.width, height: size.height) }
     }
 
     private func interpolator(_ size: (width: Int, height: Int)) -> MiddleFrameMaker {
@@ -151,6 +170,7 @@ final class InterpolationLane {
         stages.scale = lap()
         cb.commit()
         cb.waitUntilCompleted()
+        inFlight.removeAll()
         stages.interpolate = lap()
         stages.blend = 0
         guard cb.status == .completed else { return nil }
@@ -222,7 +242,9 @@ final class InterpolationLane {
         CVMetalTextureCacheCreateTextureFromImage(nil, textureCache, buffer, nil, format,
                                                   CVPixelBufferGetWidthOfPlane(buffer, index),
                                                   CVPixelBufferGetHeightOfPlane(buffer, index), index, &texture)
-        return texture.flatMap(CVMetalTextureGetTexture)
+        guard let texture else { return nil }
+        inFlight.append(texture)
+        return CVMetalTextureGetTexture(texture)
     }
 
     private func buffer(_ width: Int, _ height: Int, _ format: OSType) -> CVPixelBuffer? {

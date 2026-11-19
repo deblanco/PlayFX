@@ -175,7 +175,8 @@ static float3 deband(texture2d<float, access::read> t, int2 pos, int2 size, floa
     return c + (hash(pos, 3.0) - 0.5) * (s / 255.0);
 }
 
-// strengths = (deblock, deband, block grid in px — 8, or more after an ML upscale, -).
+// strengths = (deblock, deband, block grid in px — 8, or more after an ML upscale, ceiling): the ceiling is
+// 1 in SDR and unbounded in HDR, where linear light goes far above SDR white (1.0 = 203 nits).
 kernel void cleanup(texture2d<float, access::read> src [[texture(0)]],
                     texture2d<float, access::write> dst [[texture(1)]],
                     constant float4 &strengths [[buffer(0)]],
@@ -190,7 +191,7 @@ kernel void cleanup(texture2d<float, access::read> src [[texture(0)]],
         c = deblockAxis(src, pos, size, int2(0, 1), c, strengths.x, grid);
     }
     if (strengths.y > 0.0) c = deband(src, pos, size, c, strengths.y);
-    dst.write(float4(saturate(c), 1.0), gid);
+    dst.write(float4(clamp(c, 0.0, strengths.w), 1.0), gid);
 }
 
 struct VOut { float4 pos [[position]]; float2 uv; };
@@ -211,12 +212,15 @@ fragment float4 presentFragment(VOut in [[stage_in]],
 
 // Contrast-adaptive sharpening (AMD FidelityFX CAS, MIT), sharpen-only variant, on the
 // presented image: neighbors are one output pixel apart, so it works the same after MetalFX
-// (texel-exact) or bilinear. `peak` = -1 / lerp(8, 5, sharpness).
+// (texel-exact) or bilinear. `peak` = -1 / lerp(8, 5, sharpness). `ceiling` is 1 in SDR; in HDR (linear
+// light, 1.0 = SDR white) it's unbounded, and the neighbourhood is scaled to 0–1 by its own peak for CAS's
+// contrast maths, so highlights keep their headroom.
 fragment float4 sharpenFragment(VOut in [[stage_in]],
                                 texture2d<float> tex [[texture(0)]],
                                 sampler s [[sampler(0)]],
                                 constant float2 &step [[buffer(0)]],
-                                constant float &peak [[buffer(1)]]) {
+                                constant float &peak [[buffer(1)]],
+                                constant float &ceiling [[buffer(2)]]) {
     float2 uv = in.uv;
     float3 a = tex.sample(s, uv + float2(-step.x, -step.y)).rgb;
     float3 b = tex.sample(s, uv + float2(0.0, -step.y)).rgb;
@@ -228,6 +232,11 @@ fragment float4 sharpenFragment(VOut in [[stage_in]],
     float3 h = tex.sample(s, uv + float2(0.0, step.y)).rgb;
     float3 i = tex.sample(s, uv + float2(step.x, step.y)).rgb;
 
+    // HDR: bring the neighbourhood into 0–1 by its brightest sample (1 in SDR, so nothing changes there).
+    float3 brightest = max(max(max(a, b), max(c, d)), max(max(e, f), max(max(g, h), i)));
+    float scale = max(1.0, max(brightest.r, max(brightest.g, brightest.b)));
+    a /= scale; b /= scale; c /= scale; d /= scale; e /= scale; f /= scale; g /= scale; h /= scale; i /= scale;
+
     // Soft min/max over the cross plus the corners.
     float3 mn = min(min(min(d, e), min(f, b)), h);
     mn += min(mn, min(min(a, c), min(g, i)));
@@ -238,7 +247,7 @@ fragment float4 sharpenFragment(VOut in [[stage_in]],
     float3 amp = sqrt(saturate(min(mn, 2.0 - mx) / max(mx, float3(1e-5))));
     float3 w = amp * peak;
     float3 sharp = (b * w + d * w + f * w + h * w + e) / (1.0 + 4.0 * w);
-    return float4(saturate(sharp), 1.0);
+    return float4(clamp(saturate(sharp) * scale, 0.0, ceiling), 1.0);
 }
 
 // The line between the two halves of the compare view.

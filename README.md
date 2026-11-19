@@ -85,7 +85,8 @@ bun run --cwd apps/desktop coverage:rust               # Rust (cargo llvm-cov)
 cd packages/streamcore && swift build --product psrp
 .build/debug/psrp discover
 .build/debug/psrp register --host 192.168.1.20 --pin 12345678
-.build/debug/psrp stream          # control API on http://127.0.0.1:7777 (/status, /snapshot.png, /press…)
+.build/debug/psrp stream          # control API on http://127.0.0.1:7777 (/status, /snapshot.png, /press…);
+                                  # every request needs the header X-PSRP: 1 (curl -H 'X-PSRP: 1' …)
 .build/debug/psrp pad             # the Mac's controller without a console: live state, rumble, triggers
 ```
 

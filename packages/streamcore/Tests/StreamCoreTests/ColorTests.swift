@@ -93,6 +93,22 @@ extension StreamRendererTests {
         try redRow(params, siting: siting) { $0 < 16 ? 200 : 128 }
     }
 
+    @Test func tenBitLimitedRangeReachesExactBlackAndWhite() {
+        // 10-bit codes read as c·64/65535: black (64) must give 0 and white (940) exactly 1, chroma 512 none.
+        let r = YCbCrConversion.range(full: false, tenBit: true)
+        let read = { (code: Float) in code * 64 / 65535 }
+        #expect(abs((read(64) - r.x) * r.y) < 1e-5)
+        #expect(abs((read(940) - r.x) * r.y - 1) < 1e-5)
+        #expect(abs((read(512) - r.z) * r.w) < 1e-5)
+        let full = YCbCrConversion.range(full: true, tenBit: true)
+        #expect(abs((read(1023) - full.x) * full.y - 1) < 1e-5)
+        // 8-bit unchanged.
+        let limited8: SIMD4<Float> = [Float(16) / 255, Float(255) / 219, Float(128) / 255, Float(255) / 224]
+        let full8: SIMD4<Float> = [0, 1, Float(128) / 255, 1]
+        #expect(YCbCrConversion.range(full: false, tenBit: false) == limited8)
+        #expect(YCbCrConversion.range(full: true, tenBit: false) == full8)
+    }
+
     @Test func matrixOverrideChangesTheColors() throws {
         let r = try #require(StreamRenderer(inputWidth: 32, inputHeight: 32))
         r.showsTestPattern = false

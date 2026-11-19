@@ -33,6 +33,22 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         #expect(abs(last.arrival - last.time) < 0.002)
     }
 
+    @Test func startsOverWhenFramesKeepArrivingLate() throws {
+        // A "60" stream that really sends 50 frames a second: every frame lands later on the clock. The slow
+        // phase can't follow; a second of frames more than two intervals late starts the clock over, so
+        // lateness stays bounded instead of growing for as long as the stream lasts.
+        var clock = StreamClock(fps: 60)
+        var worst = 0.0, restarts = 0
+        for i in 0..<1500 { // 30 s
+            let arrival = Double(i) / 50
+            let t = try tick(&clock, UInt64(i), arrival)
+            if t.restarted { restarts += 1 }
+            worst = max(worst, arrival - t.time)
+        }
+        #expect(restarts > 1)
+        #expect(worst < 0.4, "\(worst)")
+    }
+
     @Test func restartsAfterAGapAndRefusesOldFrames() throws {
         var clock = StreamClock(fps: 30)
         #expect(try tick(&clock, 1, 5).restarted)
@@ -64,6 +80,19 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         #expect(timeline.next(now: 3, delay: 0.5)?.image == "b")
         #expect(timeline.skippedGenerated == 1 && timeline.skippedReal == 0)
         #expect(timeline.entries.isEmpty)
+    }
+
+    @Test func neverStepsBackToAnOlderImage() {
+        var timeline = FrameTimeline<String>()
+        timeline.add(image("b", 2))
+        #expect(timeline.next(now: 2, delay: 0)?.image == "b")
+        // The in-between image of a and b, finished after b was shown: dropped, not shown next.
+        timeline.add(image("ab", 1.5, generated: true))
+        #expect(timeline.entries.isEmpty && timeline.skippedGenerated == 1)
+        #expect(timeline.next(now: 3, delay: 0) == nil)
+        timeline.clear() // a new clock: older times are fine again
+        timeline.add(image("x", 1))
+        #expect(timeline.entries.count == 1)
     }
 
     @Test func dropsTheOldestBeyondCapacity() {
@@ -123,6 +152,20 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         s.observe(cost: 0.050, budget: 0.010, now: 33)
         s.observe(cost: 0.050, budget: 0.010, now: 34) // already the smallest
         #expect(s.size.width == 960)
+    }
+
+    @Test func triesTheLargerSizeAgainAfterASpike() {
+        // At 30 fps the budget is 25 ms. One 1080p image took 30 ms (a hitch): down to 720p. The spike says
+        // nothing about 1080p's steady cost, so once the 30 s block is over it's tried again.
+        var s = RungSelector(width: 1920, height: 1080)
+        s.observe(cost: 0.030, budget: 0.025, now: 0)
+        #expect(s.size.width == 1280)
+        s.observe(cost: 0.007, budget: 0.025, now: 20)
+        #expect(s.size.width == 1280) // still blocked
+        s.observe(cost: 0.007, budget: 0.025, now: 31)
+        #expect(s.size.width == 1920) // back up
+        s.observe(cost: 0.014, budget: 0.025, now: 32)
+        #expect(s.size.width == 1920) // and it fits
     }
 
     @Test func dropsASizeThatDoesNotWork() {

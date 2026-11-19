@@ -51,6 +51,8 @@ struct FrameColor: Equatable {
     var siting: ChromaSiting
     /// HDR10: the samples carry the PQ (SMPTE ST 2084) transfer curve, so they decode to light levels.
     var pq = false
+    /// 10-bit samples (HDR): read as 16-bit unorm, a code c is c·64/65535, so the range constants differ.
+    var tenBit = false
 
     /// Reads the frame's attachments; missing ones fall back to what H.264/HEVC imply
     /// (BT.709 for HD, BT.601 for SD, limited range, left-sited chroma).
@@ -66,6 +68,8 @@ struct FrameColor: Equatable {
         fullRange = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
         pq = attachment(kCVImageBufferTransferFunctionKey) == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String
+        tenBit = format == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
         siting = attachment(kCVImageBufferChromaLocationTopFieldKey).flatMap { name in
             Self.sitings[name]
         } ?? .left
@@ -116,14 +120,27 @@ struct YCbCrConversion: Equatable {
     init(frame: FrameColor, matrix: ColorMatrix, range: ColorRange, chroma filter: ChromaFilter) {
         let m = matrix == .auto ? frame.matrix : matrix
         let full = range == .auto ? frame.fullRange : range == .full
-        let mid: Float = 128.0 / 255, black: Float = 16.0 / 255
-        let lumaScale: Float = 255.0 / 219, chromaScale: Float = 255.0 / 224
-        self.range = full ? [0, 1, mid, 1] : [black, lumaScale, mid, chromaScale]
+        self.range = Self.range(full: full, tenBit: frame.tenBit)
         let (kr, kb) = m.weights
         let kg = 1 - kr - kb
         coefficients = [2 * (1 - kr), 2 * kb * (1 - kb) / kg, 2 * kr * (1 - kr) / kg, 2 * (1 - kb)]
         let shift = frame.siting.shift
         chroma = [shift.x, shift.y, filter == .bicubic ? 1 : 0, frame.pq ? 1 : 0]
+    }
+
+    /// Luma offset and scale, chroma offset and scale, for samples as the shader reads them: 8-bit codes as
+    /// c/255; 10-bit ones, high-bit aligned in 16-bit words, as c·64/65535 (not c/1023: 940, limited-range
+    /// white, would read 0.4% low).
+    static func range(full: Bool, tenBit: Bool) -> SIMD4<Float> {
+        guard tenBit else {
+            let mid: Float = 128.0 / 255, black: Float = 16.0 / 255
+            return full ? [0, 1, mid, 1] : [black, 255.0 / 219, mid, 255.0 / 224]
+        }
+        let unit: Float = 64.0 / 65535 // one 10-bit code step
+        let codes: (black: Float, luma: Float, mid: Float, chroma: Float, max: Float) = (64, 876, 512, 896, 1023)
+        return full
+            ? [0, 1 / (codes.max * unit), codes.mid * unit, 1 / (codes.max * unit)]
+            : [codes.black * unit, 1 / (codes.luma * unit), codes.mid * unit, 1 / (codes.chroma * unit)]
     }
 
     /// RGB for one (Y, Cb, Cr) triple of 8-bit codes — the shader's math, for tests and reference.

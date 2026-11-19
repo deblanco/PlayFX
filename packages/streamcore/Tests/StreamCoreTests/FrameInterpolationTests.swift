@@ -127,6 +127,8 @@ final class StandInMaker: MiddleFrameMaker {
     enum Output { case newer, zeros, none }
     let output: Output
     let delay: TimeInterval
+    private(set) var prepared: [String] = []
+    func prepare(width: Int, height: Int) { prepared.append("\(width)x\(height)") }
     init(_ output: Output = .newer, delay: TimeInterval = 0) {
         self.output = output
         self.delay = delay
@@ -227,6 +229,32 @@ final class StandInMaker: MiddleFrameMaker {
         lane.submit(previous: a, current: b, time: 1, size: (640, 360))
         lane.waitUntilIdle()
         #expect(made == 0 && lane.isBroken((640, 360)))
+    }
+
+    @Test func dropsASizeThatKeepsFailing() throws {
+        // VideoToolbox couldn't start at a size: every pair comes back empty-handed. After a few, the size is
+        // dropped so the renderer moves on instead of waiting on it.
+        let lane = try lane(StandInMaker(.none))
+        for i in 0..<5 {
+            lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), time: Double(i), size: (640, 360))
+            lane.waitUntilIdle()
+        }
+        #expect(lane.isBroken((640, 360)))
+    }
+
+    @Test func getsTheEngineReadyAhead() throws {
+        let maker = StandInMaker()
+        let lane = try lane(maker)
+        lane.prepare(size: (1280, 720))
+        lane.waitUntilIdle()
+        #expect(maker.prepared == ["1280x720"])
+    }
+
+    @Test func onlyEightBitFramesGoToTheLane() throws {
+        // VideoToolbox's frame interpolation takes 8-bit 4:2:0 only: HDR frames aren't sent, so no time is
+        // spent on them and no delay is added for images that will never come.
+        #expect(StreamRenderer.interpolates(try frame(bar: 200)))
+        #expect(!StreamRenderer.interpolates(try makeHDRFrame(width: 64, height: 64, y: 500)))
     }
 
     @Test func anEngineThatGivesNothingGivesNoImage() throws {

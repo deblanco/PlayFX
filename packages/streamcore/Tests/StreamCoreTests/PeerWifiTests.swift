@@ -109,6 +109,28 @@ extension Serial {
             #expect(fixture.scripts.isEmpty)
         }
 
+        @Test func aDoubleClickAsksOnce() {
+            let fixture = Fixture()
+            let slow = PeerWifi.runAppleScript
+            PeerWifi.runAppleScript = { script in
+                Thread.sleep(forTimeInterval: 0.2) // the prompt stays open a moment
+                return slow(script)
+            }
+            let group = DispatchGroup()
+            var outcomes: [PeerWifi.Outcome] = []
+            let lock = NSLock()
+            for _ in 0..<2 {
+                DispatchQueue.global().async(group: group) {
+                    let outcome = PeerWifi.pause()
+                    lock.withLock { outcomes.append(outcome) }
+                }
+            }
+            group.wait()
+            #expect(outcomes == [.done, .done])
+            #expect(fixture.scripts.count == 1)
+            #expect(PeerWifi.state == .paused)
+        }
+
         @Test func aDismissedPromptChangesNothing() {
             let fixture = Fixture()
             fixture.reply = (1, "execution error: User canceled. (-128)\n")

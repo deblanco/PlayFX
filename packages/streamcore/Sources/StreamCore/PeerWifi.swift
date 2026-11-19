@@ -44,6 +44,11 @@ public enum PeerWifi {
     /// first check) but nothing is paused yet.
     private static let pausing = OSAllocatedUnfairLock(initialState: false)
 
+    /// One change at a time: a second pause while the first prompt is open (a double click) waits for it and
+    /// then finds AWDL paused, instead of opening a second prompt whose cancel would remove the marker the
+    /// first helper is watching.
+    private static let changing = NSLock()
+
     /// Removes the marker when PlayFX exits normally (the helper also stops on its own once PlayFX is gone).
     private static let removeMarkerOnExit: Void = {
         atexit { try? FileManager.default.removeItem(atPath: PeerWifi.markerPath) }
@@ -112,6 +117,8 @@ public enum PeerWifi {
     /// Also when it reads as off at this instant: macOS switches it off and on by itself, so it would
     /// come back unwatched. Nothing to do without AWDL, or when it's paused already.
     public static func pause() -> Outcome {
+        changing.lock()
+        defer { changing.unlock() }
         guard [.active, .off].contains(state) else { return .done }
         let marker = markerPath
         guard isPlainPath(marker) else { return .failed("Unexpected temporary folder \(marker)") }
@@ -136,6 +143,8 @@ public enum PeerWifi {
     /// (up to 1.5 s) until it has, so the state returned is what follows, not the moment in between.
     @discardableResult
     public static func resume() -> State {
+        changing.lock()
+        defer { changing.unlock() }
         guard FileManager.default.fileExists(atPath: markerPath) else { return state }
         try? FileManager.default.removeItem(atPath: markerPath)
         var checks = 0

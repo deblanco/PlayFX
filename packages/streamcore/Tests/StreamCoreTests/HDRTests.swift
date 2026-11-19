@@ -39,10 +39,14 @@ func makeHDRFrame(width: Int, height: Int, y: UInt16, cb: UInt16 = 512, cr: UInt
         #expect(FrameColor(try makeHDRFrame(width: 16, height: 16, y: 500)).pq)
     }
 
-    @Test func showsPQLightLevelsAboveSDRWhite() throws {
+    /// With sharpening and clean-up on too: they used to clamp to SDR white, losing every highlight.
+    @Test(arguments: [Float(0), 0.3])
+    func showsPQLightLevelsAboveSDRWhite(sharpness: Float) throws {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
         r.params.upscaler = .bilinear
-        r.params.sharpness = 0
+        r.params.sharpness = sharpness
+        r.params.deblock = sharpness > 0 ? 0.5 : 0
+        r.params.deband = sharpness > 0 ? 0.5 : 0
         r.setHDR(true)
         #expect(r.hdrActive)
         // 1000 nits: PQ signal ≈ 0.7518 → 10-bit limited code 64 + 0.7518 × 876 ≈ 723.

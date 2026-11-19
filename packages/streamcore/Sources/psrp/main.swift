@@ -42,8 +42,12 @@ struct Config: Codable {
         try FileManager.default.createDirectory(at: Self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try enc.encode(self).write(to: Self.url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.url.path)
+        // Created 0600 (not chmod-ed after writing, which left the pairing keys readable for a moment).
+        guard FileManager.default.createFile(atPath: Self.url.path, contents: try enc.encode(self),
+                                             attributes: [.posixPermissions: 0o600]) else {
+            throw fail("Couldn't write \(Self.url.path)")
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.url.path) // an older file
     }
     func console(host: String?) throws -> ConsoleCredentials {
         if let host {
@@ -442,6 +446,13 @@ func serve(port: UInt16, _ handler: @escaping (String, [String: String]) -> (Int
         conn.start(queue: .global())
         conn.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, _, _ in
             let request = String(decoding: data ?? Data(), as: UTF8.self)
+            guard controlAllowed(request, port: port) else {
+                let body = Data("Send the header X-PSRP: 1 (and Host 127.0.0.1 or localhost)\n".utf8)
+                var head = Data("HTTP/1.0 403 Forbidden\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+                head.append(body)
+                conn.send(content: head, completion: .contentProcessed { _ in conn.cancel() })
+                return
+            }
             let target = request.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
             let comps = URLComponents(string: target)
             var query: [String: String] = [:]
@@ -456,6 +467,15 @@ func serve(port: UInt16, _ handler: @escaping (String, [String: String]) -> (Int
     servers.append(listener)
 }
 var servers: [NWListener] = []
+
+/// Whether a request may drive the console. A web page in a browser can reach 127.0.0.1 too (an image
+/// pointing at /press, or DNS rebinding), but it can't add a custom header without a CORS preflight, which
+/// this server never answers; and the Host must be this machine, not a rebound name.
+func controlAllowed(_ request: String, port: UInt16) -> Bool {
+    let headers = request.split(separator: "\r\n").dropFirst().map { $0.lowercased() }
+    let hosts = ["host: 127.0.0.1:\(port)", "host: localhost:\(port)"]
+    return headers.contains("x-psrp: 1") && headers.contains { hosts.contains($0) }
+}
 
 // MARK: - Entry
 

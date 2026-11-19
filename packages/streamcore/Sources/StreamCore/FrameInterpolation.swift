@@ -42,25 +42,7 @@ public final class FrameInterpolator {
               CVPixelBufferGetPixelFormatType(previous) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return nil }
         let w = CVPixelBufferGetWidth(current), h = CVPixelBufferGetHeight(current)
         guard CVPixelBufferGetWidth(previous) == w, CVPixelBufferGetHeight(previous) == h else { return nil }
-        let sizeKey = "\(w)x\(h)"
-        guard !failed.contains(sizeKey) else { return nil }
-        if size?.width != w || size?.height != h {
-            end()
-            var newPool: CVPixelBufferPool?
-            let processor = VTFrameProcessor()
-            guard let config = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: 1),
-                  (try? processor.startSession(configuration: config)) != nil,
-                  CVPixelBufferPoolCreate(nil, nil, Self.metalCompatible(config.destinationPixelBufferAttributes) as CFDictionary,
-                                          &newPool) == kCVReturnSuccess else {
-                failed.insert(sizeKey)
-                Log.warning(.renderer, "Frame interpolation couldn't start for \(sizeKey) streams")
-                return nil
-            }
-            session = processor
-            pool = newPool
-            size = (w, h)
-            Log.info(.renderer, "Frame interpolation on for \(sizeKey) streams")
-        }
+        guard start(width: w, height: h) else { return nil }
         var output: CVPixelBuffer?
         timestamp += 2
         guard let processor = session as? VTFrameProcessor, let pool,
@@ -75,6 +57,35 @@ public final class FrameInterpolator {
         CVBufferPropagateAttachments(current, output)
         processor.process(with: cb, parameters: parameters)
         return output
+    }
+
+    /// Starts the session (building the model, 1–2 s the first time for a size) ahead of the first pair.
+    public func prepare(width: Int, height: Int) {
+        if #available(macOS 26.0, iOS 26.0, *), Self.isAvailable { _ = start(width: width, height: height) }
+    }
+
+    /// A session for this size, started if needed; false when it can't run at this size.
+    @available(macOS 26.0, iOS 26.0, *)
+    private func start(width w: Int, height h: Int) -> Bool {
+        let sizeKey = "\(w)x\(h)"
+        guard !failed.contains(sizeKey) else { return false }
+        if size?.width == w, size?.height == h { return true }
+        end()
+        var newPool: CVPixelBufferPool?
+        let processor = VTFrameProcessor()
+        guard let config = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: 1),
+              (try? processor.startSession(configuration: config)) != nil,
+              CVPixelBufferPoolCreate(nil, nil, Self.metalCompatible(config.destinationPixelBufferAttributes) as CFDictionary,
+                                      &newPool) == kCVReturnSuccess else {
+            failed.insert(sizeKey)
+            Log.warning(.renderer, "Frame interpolation couldn't start for \(sizeKey) streams")
+            return false
+        }
+        session = processor
+        pool = newPool
+        size = (w, h)
+        Log.info(.renderer, "Frame interpolation on for \(sizeKey) streams")
+        return true
     }
 
     private static func metalCompatible(_ attributes: [String: Any]) -> [String: Any] {

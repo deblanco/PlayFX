@@ -110,6 +110,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         var rungs: RungSelector?
         var lastReal: (frame: CVPixelBuffer, time: Double)?
         var nextIndex: UInt64 = 0
+        /// The newest frame's arrival, and what it was when the lane last made an image (nil before any).
+        var lastArrival = 0.0
+        var lastMade: Double?
         /// Times the clock started over (a gap, a jump, or frames far ahead of it).
         var restarts = 0
         init(fps: Double) { clock = StreamClock(fps: fps) }
@@ -251,6 +254,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         super.init()
         lane?.onImage = { [pacing] image in
             pacing.withLock { p in
+                p.lastMade = p.lastArrival
                 p.timeline.add(TimedImage(image: image.buffer, time: image.time, generated: true, arrival: CACurrentMediaTime()))
                 guard !image.warmingUp else { return } // a model being built: not the size's real cost
                 p.planner.observe(cost: image.cost)
@@ -316,15 +320,20 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                     p.timeline.clear()
                     p.lastReal = nil
                 }
+                p.lastArrival = arrival
                 p.planner.observe(lateness: arrival - stamp.time)
-                let delay = p.planner.update(interval: p.clock.interval, interpolating: wanted)
+                // The extra delay for in-between images only while the lane is making them: not for frames
+                // it can't take (10-bit HDR), nor at a size VideoToolbox couldn't start, where it would only
+                // add lag.
+                let making = p.lastMade.map { arrival - $0 < 2 } ?? false
+                let delay = p.planner.update(interval: p.clock.interval, interpolating: wanted && making)
                 Self.trace("\(i) \(arrival) \(stamp.time) \(stamp.restarted ? 1 : 0) \(delay) \(wanted ? 1 : 0)") // TEMP-TRACE
                 // After a start or a break the frame shows at once; later ones keep to the clock.
                 let time = stamp.restarted ? arrival - delay : stamp.time
                 p.timeline.add(TimedImage(image: frame, time: time, generated: false, arrival: arrival))
                 defer { p.lastReal = (frame, time) }
                 let width = CVPixelBufferGetWidth(frame), height = CVPixelBufferGetHeight(frame)
-                guard wanted, let last = p.lastReal,
+                guard wanted, Self.interpolates(frame), let last = p.lastReal,
                       CVPixelBufferGetWidth(last.frame) == width, CVPixelBufferGetHeight(last.frame) == height else { return nil }
                 var prepare: [(width: Int, height: Int)] = []
                 if p.rungs.map({ $0.rungs[0] != (width, height) }) ?? true {
@@ -350,6 +359,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         return FileHandle(forWritingAtPath: path)
     }()
     private static func trace(_ line: String) { traceHandle?.write((line + "\n").data(using: .utf8)!) }
+
+    /// Whether VideoToolbox's frame interpolation takes this frame: 8-bit 4:2:0, video range.
+    static func interpolates(_ frame: CVPixelBuffer) -> Bool {
+        CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+    }
 
     /// Waits until the interpolation lane has finished the pair in hand (tests).
     func waitForInterpolation() { lane?.waitUntilIdle() }
@@ -438,6 +452,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 enc.setRenderPipelineState(pipes.sharpen)
                 enc.setFragmentBytes(&step, length: MemoryLayout<SIMD2<Float>>.size, index: 0)
                 enc.setFragmentBytes(&peak, length: MemoryLayout<Float>.size, index: 1)
+                var ceiling = hdrActive ? Float.greatestFiniteMagnitude : 1
+                enc.setFragmentBytes(&ceiling, length: MemoryLayout<Float>.size, index: 2)
             } else {
                 enc.setRenderPipelineState(pipes.present)
             }
@@ -470,7 +486,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             cleanTexture = Self.makeInputTexture(device, inputTexture.width, inputTexture.height, inputTexture.pixelFormat)
         }
         guard let clean = cleanTexture, let enc = cb.makeComputeCommandEncoder() else { return nil }
-        var strengths = SIMD4<Float>(params.deblock, params.deband, Self.blockGrid(texture: inputTexture.width, decoded: decodedWidth), 0)
+        var strengths = SIMD4<Float>(params.deblock, params.deband, Self.blockGrid(texture: inputTexture.width, decoded: decodedWidth),
+                                     hdrActive ? .greatestFiniteMagnitude : 1)
         enc.setComputePipelineState(cleanupPipeline)
         enc.setTexture(inputTexture, index: 0)
         enc.setTexture(clean, index: 1)

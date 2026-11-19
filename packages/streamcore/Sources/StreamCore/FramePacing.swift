@@ -10,7 +10,9 @@ import Foundation
 /// `arrival − nominal` over the last second: network jitter only ever adds delay, so the earliest arrivals
 /// show the stream's true timing. The phase moves at most 0.5% of a frame per frame, so a burst of jitter
 /// can't make times jump or run backwards; the stream's real rate (59.94 for "60") is followed through
-/// the phase. A gap of over 200 ms, or a jump of more than half a second of frames, starts over.
+/// the phase. A gap of over 200 ms, or a jump of more than half a second of frames, starts over; so does
+/// a second of frames all more than two intervals late (the stream fell behind its clock for good, e.g. it
+/// runs slower than its nominal rate, or a stall shifted its cadence), which the slow phase can't catch.
 struct StreamClock {
     let fps: Double
     private var anchor = 0.0
@@ -20,6 +22,8 @@ struct StreamClock {
     private var lastTime = 0.0
     private var phase = 0.0
     private var anchored = false
+    /// Consecutive frames more than two intervals behind the clock.
+    private var lateRun = 0
     /// (arrival, error) pairs, error increasing: the window's minimum is at the front.
     private var window: [(arrival: Double, error: Double)] = []
 
@@ -31,13 +35,14 @@ struct StreamClock {
     mutating func time(index: UInt64, arrival: Double) -> (time: Double, restarted: Bool)? {
         if anchored, index <= lastIndex || arrival < lastArrival { return nil }
         var restarted = !anchored
-        if !anchored || arrival - lastArrival > 0.2 || Double(index - lastIndex) > fps / 2 {
+        if !anchored || arrival - lastArrival > 0.2 || Double(index - lastIndex) > fps / 2 || Double(lateRun) >= fps {
             anchor = arrival
             firstIndex = index
             phase = 0
             window.removeAll()
             anchored = true
             restarted = true
+            lateRun = 0
         }
         let nominal = anchor + Double(index - firstIndex) / fps
         let error = arrival - nominal
@@ -48,6 +53,7 @@ struct StreamClock {
         phase += min(max((window.first?.error ?? error) - phase, -maxSlew), maxSlew)
         var time = nominal + phase
         if !restarted { time = max(time, lastTime + 1e-6) }
+        lateRun = arrival - time > 2 * interval ? lateRun + 1 : 0
         lastIndex = index
         lastArrival = arrival
         lastTime = time
@@ -71,6 +77,9 @@ struct FrameTimeline<Image> {
     private(set) var entries: [TimedImage<Image>] = []
     private(set) var skippedReal = 0
     private(set) var skippedGenerated = 0
+    /// The time of the image shown last: anything older that turns up afterwards (an in-between image
+    /// finished late) would step the picture back, so it's dropped.
+    private var shownTime = -Double.infinity
     /// How many images may wait; more means the screen is not keeping up, and the oldest go.
     let capacity: Int
 
@@ -79,6 +88,7 @@ struct FrameTimeline<Image> {
     var newestRealTime: Double? { entries.last(where: { !$0.generated })?.time }
 
     mutating func add(_ item: TimedImage<Image>) {
+        guard item.time > shownTime else { return count(item) }
         let at = entries.firstIndex { $0.time > item.time } ?? entries.endIndex
         entries.insert(item, at: at)
         while entries.count > capacity { count(entries.removeFirst()) }
@@ -88,13 +98,17 @@ struct FrameTimeline<Image> {
     mutating func next(now: Double, delay: Double) -> TimedImage<Image>? {
         guard let last = entries.lastIndex(where: { $0.time + delay <= now }) else { return nil }
         let shown = entries[last]
+        shownTime = shown.time
         for skipped in entries[..<last] { count(skipped) }
         entries.removeFirst(last + 1)
         return shown
     }
 
     /// Forgets everything (a new stream or a clock restart).
-    mutating func clear() { entries.removeAll() }
+    mutating func clear() {
+        entries.removeAll()
+        shownTime = -.infinity
+    }
 
     private mutating func count(_ skipped: TimedImage<Image>) {
         if skipped.generated { skippedGenerated += 1 } else { skippedReal += 1 }
@@ -147,8 +161,8 @@ struct DelayPlanner {
 
 /// The size in-between images are made at: the frame's own when there is time, smaller when not
 /// (the Neural Engine's fast path, at or below 1280×720). Leaves a size at once when it misses its
-/// budget, and doesn't try it again for 30 s; moves to a larger one only when its last measured cost
-/// fits with room to spare and the choice has stood for 10 s.
+/// budget, and doesn't try it again for 30 s; moves to a larger one after the choice has stood for 10 s,
+/// when that size's measured cost fits with room to spare or it was last left over a cost spike.
 struct RungSelector {
     /// Largest first. Each is a frame size the in-between images can be made at.
     let rungs: [(width: Int, height: Int)]
@@ -183,11 +197,15 @@ struct RungSelector {
     mutating func observe(cost: Double, budget: Double, now: Double) {
         lastCost[current] = cost
         if cost > budget, current + 1 < rungs.count {
+            // The cost that made it step down says little about the size's steady cost (often a one-off
+            // spike), and nothing updates it while working smaller: forget it, so once the block is over the
+            // size is tried again (and left again at once if it really is too slow).
+            lastCost[current] = nil
             blockedUntil[current] = now + 30
             current += 1
             since = now
         } else if current > 0, now - since >= 10, now >= blockedUntil[current - 1, default: 0],
-                  lastCost[current - 1].map({ $0 <= budget * 0.6 }) ?? (cost * 2.5 <= budget * 0.6) {
+                  lastCost[current - 1].map({ $0 <= budget * 0.6 }) ?? true {
             current -= 1
             since = now
         }
