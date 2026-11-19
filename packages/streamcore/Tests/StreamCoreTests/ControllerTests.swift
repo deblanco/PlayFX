@@ -170,7 +170,7 @@ import Testing
         let c = s.psrp
         #expect(c.buttons == UInt32(PSRP_BTN_TOUCHPAD.rawValue) && c.l2 == 10 && c.right_y == -5)
         #expect(c.touches.0.id == 3 && c.touches.0.x == 960 && c.touches.0.y == UInt16(PSRP_TOUCHPAD_HEIGHT))
-        #expect(c.touches.1.id == 200 & 0x7F && c.touches.1.x == UInt16(PSRP_TOUCHPAD_WIDTH) && c.touches.1.y == 0) // clamped
+        #expect(c.touches.1.id == Int8(200 & 0x7F) && c.touches.1.x == UInt16(PSRP_TOUCHPAD_WIDTH) && c.touches.1.y == 0) // clamped
         #expect(ControllerState().psrp.touches.0.id == -1 && ControllerState().psrp.touches.1.id == -1) // no fingers
     }
 

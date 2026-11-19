@@ -10,6 +10,11 @@ STREAMCORE_C_COVERAGE=1 ./scripts/test.sh --enable-code-coverage "$@"
 BIN_DIR="$(STREAMCORE_C_COVERAGE=1 swift build --show-bin-path)"
 PROFDATA="$BIN_DIR/codecov/default.profdata"
 BINARY="$BIN_DIR/StreamCorePackageTests.xctest/Contents/MacOS/StreamCorePackageTests"
+# Newer toolchains build tests with the Xcode build system, under .build/out/Products/Debug.
+if [[ ! -f "$BINARY" && -d .build/out/Products/Debug/StreamCoreTests.xctest ]]; then
+  PROFDATA=.build/out/Products/Debug/codecov/default.profdata
+  BINARY=.build/out/Products/Debug/StreamCoreTests.xctest/Contents/MacOS/StreamCoreTests
+fi
 [[ -f "$PROFDATA" ]] || { echo "coverage: no profile data at $PROFDATA" >&2; exit 1; }
 [[ -f "$BINARY" ]] || { echo "coverage: no test binary at $BINARY" >&2; exit 1; }
 

@@ -23,6 +23,8 @@ import StreamCore
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //          /grid.png?vary=sharpness&values=0,0.3,1&crop=2400,500,600,600   one frame, one tile per value
 //                       (also &ml=1: Apple ML super-resolution first, for streams up to 1280 px wide)
+//   psrp pad [--port 7778]                  the Mac's controller without a console: live state, rumble and
+//                                           trigger-effect tests (see Pad.swift)
 //
 // Saved state: ~/.config/psrp/config.json (contains pairing keys — keep it private).
 
@@ -96,7 +98,7 @@ func blocking<T>(_ work: @escaping () async throws -> T) throws -> T {
 
 func run() throws {
     var argv = Array(CommandLine.arguments.dropFirst())
-    guard !argv.isEmpty else { throw fail("usage: psrp <discover|login-url|account-id|register|consoles|wake|stream> ...") }
+    guard !argv.isEmpty else { throw fail("usage: psrp <discover|login-url|account-id|register|consoles|wake|stream|pad> ...") }
     let command = argv.removeFirst()
     let args = Args(argv)
     Log.configure(detailed: args.has("verbose")) { entry in
@@ -147,6 +149,9 @@ func run() throws {
 
     case "stream":
         try stream(try config.console(host: args["host"]), args)
+
+    case "pad":
+        try pad(args)
 
     default:
         throw fail("unknown command \(command)")
@@ -241,7 +246,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
     }
 
     let port = UInt16(args["port"] ?? "") ?? 7777
-    try serve(port: port, ctl)
+    try serve(port: port) { handle(path: $0, query: $1, ctl) }
     log("Control API: http://127.0.0.1:\(port)/status  (/snapshot.png, /press?buttons=cross, /quit)")
     signal(SIGINT, SIG_IGN)
     let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
@@ -420,7 +425,7 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
 }
 
 /// Minimal HTTP/1.0 server on localhost (one request per connection).
-func serve(port: UInt16, _ ctl: Controller) throws {
+func serve(port: UInt16, _ handler: @escaping (String, [String: String]) -> (Int, String, Data)) throws {
     let params = NWParameters.tcp
     params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
     let listener = try NWListener(using: params)
@@ -432,7 +437,7 @@ func serve(port: UInt16, _ ctl: Controller) throws {
             let comps = URLComponents(string: target)
             var query: [String: String] = [:]
             comps?.queryItems?.forEach { query[$0.name] = $0.value ?? "" }
-            let (status, type, body) = handle(path: comps?.path ?? target, query: query, ctl)
+            let (status, type, body) = handler(comps?.path ?? target, query)
             var head = Data("HTTP/1.0 \(status) \(status == 200 ? "OK" : "Error")\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
             head.append(body)
             conn.send(content: head, completion: .contentProcessed { _ in conn.cancel() })

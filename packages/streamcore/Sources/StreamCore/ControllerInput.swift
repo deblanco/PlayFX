@@ -113,6 +113,9 @@ public final class ControllerInput {
             + "haptics \(controller.haptics == nil ? "no" : "yes"), "
             + "adaptive triggers \(pad is GCDualSenseGamepad ? "yes" : "no"), "
             + "motion \(controller.motion == nil ? "no" : "yes")")
+        // Every button belongs to the console: by default macOS keeps some (PS, Options) for its own
+        // gestures and never reports them.
+        for element in controller.physicalInputProfile.allElements { element.preferredSystemGestureState = .disabled }
         controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
             guard let self else { return }
             var state = Self.state(from: pad)

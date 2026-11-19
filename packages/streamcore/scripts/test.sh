@@ -10,4 +10,4 @@ FLAGS=()
 if [[ -d "$FRAMEWORKS/Testing.framework" ]]; then
   FLAGS=(-Xswiftc -F -Xswiftc "$FRAMEWORKS" -Xlinker -rpath -Xlinker "$FRAMEWORKS")
 fi
-exec swift test "${FLAGS[@]}" "$@"
+exec swift test ${FLAGS[@]+"${FLAGS[@]}"} "$@"

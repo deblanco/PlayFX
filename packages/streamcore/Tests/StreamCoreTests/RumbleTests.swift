@@ -28,6 +28,13 @@ import Testing
         #expect(abs(light[0].1 - 120.0 / 255) < 1e-6 && light[0].2 > 0.5)
     }
 
+    @Test func aFreshPlayerStartsWhenNoneIsPlayingOrTheCurrentOneNearsItsEnd() {
+        #expect(Rumble.needsNewPlayer(playingSince: nil, now: 100))
+        #expect(!Rumble.needsNewPlayer(playingSince: 100, now: 100 + Rumble.renewAfter - 1))
+        #expect(Rumble.needsNewPlayer(playingSince: 100, now: 100 + Rumble.renewAfter))
+        #expect(Rumble.renewAfter < Rumble.eventDuration)
+    }
+
     @Test func noControllersIsANoOp() {
         let rumble = Rumble()
         rumble.apply(left: 255, right: 255)

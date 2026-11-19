@@ -190,11 +190,13 @@ Work items:
 
 ### P1 — making a stream feel complete
 
-- 🔶 **Rumble.** *(built, **unverified on hardware** — no pad was connected: the console's two motor
-  levels play through GameController haptics, the heavy motor on the left handle and the light one on the
-  right (or the stronger one on single-actuator pads), as looping continuous haptics whose intensity
-  follows the console; stopped when the session ends. To verify: connect a DualSense, play a game that
-  rumbles.)*
+- 🔶 **Rumble.** *(plays on a DualSense over Bluetooth — `psrp pad` /rumble; feel in a game unverified):
+  the console's two motor levels play through GameController haptics, the heavy motor on the left handle
+  and the light one on the right (or the stronger one on single-actuator pads); stopped when the session
+  ends. **It never played before**: on macOS 27 gamecontrollerd rejects patterns sent for an *advanced*
+  (looping) player — `AVHapticEvent` isn't in its allowed XPC classes, so it drops the connection (error
+  4097). Now a plain player runs one 30 s continuous event, its intensity follows the console through
+  dynamic parameters, and it is replaced every 25 s while rumbling. Engine failures are logged.)*
 - 🔶 **Adaptive triggers** (DualSense). *(built, **unverified on hardware**: the shim forwards
   libchiaki's trigger-effect events (the DualSense's raw format: mode byte + 10 parameters per trigger);
   `TriggerEffect` decodes feedback (per-zone resistance), weapon, vibration (per-zone amplitude +
@@ -221,6 +223,12 @@ Work items:
   (ripple on press). StreamCore merges this finger and press into whatever the pad or keyboard sends
   (`sc_session_set_pointer_touch`), one update per animation frame. **Verified on the PS5**: in
   Silent Hill 2 an ⌥-click on the video opened the map, as the pad's touchpad button does.)*
+- 🔶 **Pad buttons on the Mac** (`psrp pad`, DualSense over Bluetooth, 2026-11-19): every face/shoulder/
+  D-pad/stick button, Create, Options, the touchpad click and both analog triggers (0–255) map correctly;
+  touchpad ids are stable per finger and two fingers track. All elements opt out of macOS system
+  gestures. **PS button**: macOS never delivers it to the app; with a game-category app in front
+  (`LSApplicationCategoryType` games, now in the desktop `Info.plist`) it at least stops opening the
+  Games app. Keyboard H still sends PS. **Mute** isn't exposed by GameController.
 - ✅ **Microphone** (verified on the Mac with the user allowing the prompt: capture starts — 48 kHz mono
   input converted to stereo — the stream stays clean at 60 fps / 0 lost, the amber button and the tag
   after the HUD fades both show, and turning it off stops capture; hearing it on the console needs a
