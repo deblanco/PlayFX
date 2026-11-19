@@ -1,5 +1,6 @@
 import CoreMedia
 import CoreVideo
+import os
 import Testing
 @testable import StreamCore
 
@@ -39,20 +40,23 @@ import Testing
 }
 
 @Suite struct VideoDecoderTests {
-    func decodeAll(_ frames: [EncodedFrame], codec: VideoDecoder.Codec) -> (results: [Bool], decoded: [CVPixelBuffer]) {
-        let decoder = VideoDecoder(codec: codec)
-        var decoded: [CVPixelBuffer] = []
-        decoder.onFrame = { decoded.append($0) }
-        let results = frames.map { f in f.annexB.withUnsafeBytes { decoder.decode($0) } }
-        return (results, decoded)
+    func decodeAll(_ frames: [EncodedFrame], codec: VideoDecoder.Codec,
+                   asynchronous: Bool = true) -> (results: [Bool], decoded: [CVPixelBuffer]) {
+        let decoder = VideoDecoder(codec: codec, asynchronous: asynchronous)
+        let decoded = OSAllocatedUnfairLock<[CVPixelBuffer]>(initialState: [])
+        decoder.onFrame = { frame in decoded.withLock { $0.append(frame) } }
+        var results = frames.map { f in f.annexB.withUnsafeBytes { decoder.decode($0) } }
+        results.append(decoder.flush())
+        return (results, decoded.withLock { $0 })
     }
 
-    @Test(arguments: [(kCMVideoCodecType_H264, VideoDecoder.Codec.h264), (kCMVideoCodecType_HEVC, .hevc)])
-    func decodesEncodedStream(encoder: CMVideoCodecType, codec: VideoDecoder.Codec) throws {
+    @Test(arguments: [(kCMVideoCodecType_H264, VideoDecoder.Codec.h264, true), (kCMVideoCodecType_HEVC, .hevc, true),
+                      (kCMVideoCodecType_HEVC, .hevc, false)])
+    func decodesEncodedStream(encoder: CMVideoCodecType, codec: VideoDecoder.Codec, asynchronous: Bool) throws {
         let frames = try encodeFrames(codec: encoder, count: 8)
         try #require(frames.count == 8)
         #expect(frames.first?.keyframe == true)
-        let (results, decoded) = decodeAll(frames, codec: codec)
+        let (results, decoded) = decodeAll(frames, codec: codec, asynchronous: asynchronous)
         #expect(results.allSatisfy { $0 })
         #expect(decoded.count == 8)
         let first = try #require(decoded.first)
@@ -95,15 +99,29 @@ import Testing
         #expect(![UInt8]([0, 0, 1, 0x40, 1, 0, 0, 1, 0x42, 1, 0, 0, 1, 0x44, 1]).withUnsafeBytes { hevc.decode($0) })
     }
 
-    @Test func reportsUndecodableSlices() throws {
+    @Test(arguments: [true, false])
+    func reportsUndecodableSlices(asynchronous: Bool) throws {
         let frames = try encodeFrames(codec: kCMVideoCodecType_H264, count: 1)
+        let decoder = VideoDecoder(codec: .h264, asynchronous: asynchronous)
+        let frameCount = OSAllocatedUnfairLock(initialState: 0)
+        decoder.onFrame = { _ in frameCount.withLock { $0 += 1 } }
+        #expect(frames[0].annexB.withUnsafeBytes { decoder.decode($0) })
+        #expect(decoder.flush())
+        // A corrupt non-IDR slice: VideoToolbox rejects it (or emits no image). Decoding asynchronously the
+        // failure may only be known once the frame is done: reported by flush (or the next decode).
+        let garbage: [UInt8] = [0, 0, 0, 1, 0x41] + [UInt8](repeating: 0xFF, count: 64)
+        let ok = garbage.withUnsafeBytes { decoder.decode($0) } && decoder.flush()
+        #expect(!ok || frameCount.withLock { $0 } <= 1)
+        #expect(decoder.flush()) // reported once
+    }
+
+    @Test func reportsAnEarlierFailureOnTheNextDecode() throws {
+        let frames = try encodeFrames(codec: kCMVideoCodecType_H264, count: 2)
         let decoder = VideoDecoder(codec: .h264)
         #expect(frames[0].annexB.withUnsafeBytes { decoder.decode($0) })
-        // A corrupt non-IDR slice: VideoToolbox rejects it (or emits no image).
-        let garbage: [UInt8] = [0, 0, 0, 1, 0x41] + [UInt8](repeating: 0xFF, count: 64)
-        var frameCount = 0
-        decoder.onFrame = { _ in frameCount += 1 }
-        let ok = garbage.withUnsafeBytes { decoder.decode($0) }
-        #expect(!ok || frameCount <= 1)
+        decoder.markFailedForTesting()
+        #expect(!frames[1].annexB.withUnsafeBytes { decoder.decode($0) }) // the caller asks for a keyframe
+        #expect(decoder.flush())
+        #expect(decoder.decodeMilliseconds > 0)
     }
 }

@@ -1,20 +1,28 @@
 import CoreMedia
 import CoreVideo
 import Foundation
+import os
 import QuartzCore
 import VideoToolbox
 
 /// Hardware H.264 / HEVC decoder for the Annex-B access units libchiaki delivers.
-/// Not thread-safe: call `decode` from one thread (libchiaki's video thread).
+/// Call `decode` from one thread (libchiaki's video thread). Asynchronous by default: VideoToolbox decodes on
+/// its own threads, so the caller (libchiaki's receive thread) goes back to reading packets instead of
+/// waiting the few milliseconds a frame takes. Frames come out in order, on VideoToolbox's thread.
 public final class VideoDecoder {
     public enum Codec { case h264, hevc }
 
-    /// Called synchronously from `decode` with each decoded frame (NV12, Metal-compatible).
+    /// Called with each decoded frame (NV12, Metal-compatible). Set before decoding starts.
     public var onFrame: ((CVPixelBuffer) -> Void)?
     /// Also called for each decoded frame, with the index given to `decode` (its place in the stream).
     public var onIndexedFrame: ((CVPixelBuffer, UInt64?) -> Void)?
     /// Time from handing a frame to VideoToolbox to getting the picture back, smoothed (ms).
-    public private(set) var decodeMilliseconds = 0.0
+    public var decodeMilliseconds: Double { results.withLock { $0.decodeMs } }
+
+    /// Written where frames come out (VideoToolbox's thread when asynchronous): the decode time, and whether
+    /// a frame failed since `decode` last reported.
+    private let results = OSAllocatedUnfairLock(initialState: (decodeMs: 0.0, failed: false))
+    private let asynchronous: Bool
 
     static func smoothed(_ average: Double, _ sample: Double) -> Double {
         average == 0 ? sample : average * 0.9 + sample * 0.1
@@ -28,16 +36,38 @@ public final class VideoDecoder {
     /// 10-bit output (HDR streams); otherwise 8-bit NV12.
     private let tenBit: Bool
 
-    public init(codec: Codec, tenBit: Bool = false) {
+    public init(codec: Codec, tenBit: Bool = false, asynchronous: Bool = true) {
         self.codec = codec
         self.tenBit = tenBit
+        self.asynchronous = asynchronous
     }
 
     deinit {
-        if let session { VTDecompressionSessionInvalidate(session) }
+        if let session {
+            VTDecompressionSessionWaitForAsynchronousFrames(session)
+            VTDecompressionSessionInvalidate(session)
+        }
     }
 
-    /// Returns false when the frame could not be decoded (caller should request a keyframe).
+    /// Waits for the frames still being decoded. Returns false if any frame failed since `decode` last said.
+    @discardableResult
+    public func flush() -> Bool {
+        if let session { VTDecompressionSessionWaitForAsynchronousFrames(session) }
+        return !takeFailure()
+    }
+
+    /// As if a frame had failed where frames come out (tests: an asynchronous failure's timing isn't controllable).
+    func markFailedForTesting() { results.withLock { $0.failed = true } }
+
+    private func takeFailure() -> Bool {
+        results.withLock { state in
+            defer { state.failed = false }
+            return state.failed
+        }
+    }
+
+    /// Returns false when this frame, or (decoding asynchronously) one before it, could not be decoded: the
+    /// caller should request a keyframe.
     @discardableResult
     public func decode(_ accessUnit: UnsafeRawBufferPointer, index: UInt64? = nil) -> Bool {
         let nalus = Self.splitAnnexB(accessUnit)
@@ -58,14 +88,19 @@ public final class VideoDecoder {
         guard let session, let format, !payload.isEmpty else { return session != nil }
         guard let sample = makeSampleBuffer(payload, format: format) else { return false }
 
-        var ok = true
         let started = CACurrentMediaTime()
-        let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [._1xRealTimePlayback],
+        let flags: VTDecodeFrameFlags = asynchronous ? [._1xRealTimePlayback, ._EnableAsynchronousDecompression] : [._1xRealTimePlayback]
+        let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: flags,
                                                        infoFlagsOut: nil) { [weak self] status, _, imageBuffer, _, _ in
-            guard status == noErr, let imageBuffer else { ok = false; return }
-            if let self { self.decodeMilliseconds = Self.smoothed(self.decodeMilliseconds, (CACurrentMediaTime() - started) * 1000) }
-            self?.onFrame?(imageBuffer)
-            self?.onIndexedFrame?(imageBuffer, index)
+            guard let self else { return }
+            let frame = status == noErr ? imageBuffer : nil
+            results.withLock { state in
+                if frame == nil { state.failed = true }
+                else { state.decodeMs = Self.smoothed(state.decodeMs, (CACurrentMediaTime() - started) * 1000) }
+            }
+            guard let frame else { return }
+            onFrame?(frame)
+            onIndexedFrame?(frame, index)
         }
         if status == kVTInvalidSessionErr {
             // e.g. after sleep/GPU change: rebuild on the next keyframe, releasing the dead session's resources.
@@ -73,7 +108,8 @@ public final class VideoDecoder {
             self.session = nil
             parameterSets = []
         }
-        return status == noErr && ok
+        // Synchronously this frame's own result; asynchronously, any earlier frame's that failed since.
+        return !takeFailure() && status == noErr
     }
 
     // MARK: Private
@@ -109,7 +145,10 @@ public final class VideoDecoder {
         }
         guard status == noErr, let newFormat else { return false }
 
-        if let session { VTDecompressionSessionInvalidate(session) }
+        if let session {
+            VTDecompressionSessionWaitForAsynchronousFrames(session) // the old size's frames first
+            VTDecompressionSessionInvalidate(session)
+        }
         session = nil
 
         let attrs: [CFString: Any] = [

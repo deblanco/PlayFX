@@ -156,6 +156,8 @@ public final class StreamSession {
         return s
     }
     public var latestFrame: CVPixelBuffer? { lock.withLock { _latestFrame } }
+    /// Waits for the frames VideoToolbox is still decoding (tests).
+    func waitForDecodedFrames() { decoder.flush() }
 
     private var handle: OpaquePointer?
     private let decoder: VideoDecoder
@@ -175,12 +177,14 @@ public final class StreamSession {
         decoder = VideoDecoder(codec: hevc ? .hevc : .h264, tenBit: hdr)
         audio = options.audio ? AudioPlayer() : nil
 
-        decoder.onIndexedFrame = { [unowned self] frame, index in
+        // Weak: VideoToolbox can still hand over a frame while the session is going away.
+        decoder.onIndexedFrame = { [weak self] frame, index in
+            guard let self else { return }
             lock.withLock {
-                _latestFrame = frame
-                _stats.framesDecoded += 1
-                _stats.width = CVPixelBufferGetWidth(frame)
-                _stats.height = CVPixelBufferGetHeight(frame)
+                self._latestFrame = frame
+                self._stats.framesDecoded += 1
+                self._stats.width = CVPixelBufferGetWidth(frame)
+                self._stats.height = CVPixelBufferGetHeight(frame)
             }
             frameHandler.withLock { $0 }?.call(frame, index)
         }
@@ -313,6 +317,7 @@ public final class StreamSession {
         microphone = nil
         self.handle = nil
         psrp_session_stop(handle)
+        decoder.flush() // no frame comes out after the session stopped
         audio?.stop()
     }
 

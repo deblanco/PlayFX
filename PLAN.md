@@ -221,6 +221,11 @@ Work items:
   - **Result** (1080p60, AWDL on): lateness behind the stream clock went from 219–555 ms to 9.5 ms, and
     lost frames from 2–15 to 0.
   - The pacing clock now re-anchors when lateness stays high (it used to grow without bound).
+  - From [neo773/chiaki-ng](https://github.com/neo773/chiaki-ng) (reviewed 2026-11-19): the fork retries the
+    control request when the console resets the connection (3×, 35 ms apart), and both TCP sockets get
+    `TCP_NODELAY`, the real-time marking and `SO_NOSIGPIPE`. Video now decodes asynchronously, off
+    libchiaki's receive thread. Its Takion rewrite was left out (tuned for wired links). Not yet tried on the
+    console. See docs/NETWORK.md.
   - **Open:**
     - the 33 ms reorder wait from PR #817 is untested;
     - the stream with Steady Wi-Fi on hasn't been measured (only pings were);
@@ -274,7 +279,8 @@ Work items:
   touchpad ids are stable per finger and two fingers track. All elements opt out of macOS system
   gestures. **PS button**: macOS never delivers it to the app; with a game-category app in front
   (`LSApplicationCategoryType` games, now in the desktop `Info.plist`) it at least stops opening the
-  Games app. The Mac keyboard's P sends PS (the web UI's keymap). **Mute** isn't exposed by GameController.
+  Games app. The Mac keyboard's P sends PS (the web UI's keymap), and the stream HUD has a semi-transparent
+  **PS button** at the bottom center (held while the pointer is down: short press = control center, long = home). **Mute** isn't exposed by GameController.
 - ✅ **Settings profiles**: a profile holds the stream and picture settings (resolution, frame rate, codec,
   bitrate, HDR, view, upscaler, sharpening, cleanup, ML, frame interpolation, colors); app preferences stay put.
   Built-in **Recommended** (1080p60 · MetalFX · sharpness 0.3, also what a new install starts with); the
@@ -466,8 +472,11 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   lines and functions only.
 - 🔶 `renderer_status` returns `stream: null` when stats JSON can't be parsed, which surfaces as a
   `CoreError`. Decide whether to soften this.
-- 🔶 **Notarization**: the first release build was submitted on 2026-11-19 and was still "In Progress" at
-  Apple when last checked (`xcrun notarytool history --keychain-profile playfx`).
+- ✅ **Notarization**: the first release DMG (0.1.0) was accepted by Apple on 2026-11-19, stapled, and passes
+  Gatekeeper (DMG and app: "Notarized Developer ID"). `release.sh` stopped before stapling because one of
+  `notarytool`'s status polls timed out after hours "In Progress"; it should survive that (retry the wait).
+  The app inside the DMG has no ticket of its own: Gatekeeper checks it online on first launch. Stapling the
+  `.app` before building the DMG would cover offline first launches.
 - 🔶 **Linker warnings**: vendored static libs built for a newer macOS than the 13.0 deployment
   target. Harmless; silence by building the deps at the target version.
 - 🔶 **FFI safety**: the Rust↔Swift boundary (CString lifetimes, `sc_free` once, main-thread

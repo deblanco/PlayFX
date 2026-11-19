@@ -139,10 +139,51 @@ The submodule follows `playfx` (`.gitmodules`). The fixes, each meant to be offe
 | **4 MB receive buffer** instead of 100 KB (`takion.c`) | One large keyframe is more than 100 KB, so a short stall of the receive thread, or a Wi-Fi burst after one, dropped packets. From upstream PR #817. |
 | **Real-time marking on Apple platforms**, and `TCP_NODELAY` for the control connection (`takion.c`, `ctrl.c`) | `SO_NET_SERVICE_TYPE = NET_SERVICE_TYPE_RV` ("responsive audio/video, e.g. screen sharing") sends our packets with Wi-Fi WMM video priority: acks, feedback and controller input. From PR #817. |
 | **Accept data acks with gap blocks** (`takion.c`) | The size check wanted exactly 12 bytes, so every ack with gap blocks was dropped, and its cumulative ack with it. From PR #817. |
+| **Retry the control request when the console resets the connection** (`ctrl.c`) | The console can reset the control connection while it's still getting ready after the session request, and that failed the whole session. Now the request is resent on a new connection up to 3 times, 35 ms apart; a stop cancels the wait at once. A timeout is still retried once, as upstream does. From neo773's fork (below). |
+| **One setup for both TCP connections** (`utils.h`: `chiaki_tcp_socket_tune`, `session.c`, `ctrl.c`, test in `test/sock.c`) | The session request and control sockets both get `TCP_NODELAY`, the real-time marking, and `SO_NOSIGPIPE`: a write after the console reset the connection would otherwise raise SIGPIPE, which kills a process that doesn't ignore it (the app ignores it; the `psrp` CLI didn't). The session request socket had none of them. From neo773's fork. |
 
 PR #817 also raised the reorder queue's wait from 16 to 33 ms. That trades latency for fewer lost frames,
 so it isn't taken without a measurement. Its other parts (FFmpeg flags, Vulkan, Qt threads) don't apply to
 PlayFX.
+
+### What we took from neo773/chiaki-ng
+
+[neo773/chiaki-ng](https://github.com/neo773/chiaki-ng) is another macOS-focused fork (19 commits ahead of
+upstream, November 2026). Most of it is chiaki-ng's own Qt app: a Metal renderer, MetalFX, CoreAudio output,
+120 Hz. PlayFX has its own versions of those. From the library part:
+
+- **Already here:** the 4 MB receive buffer, the real-time marking, `TCP_NODELAY` on the control connection,
+  user-interactive threads.
+- **Taken:** the control-request retry, and `SO_NOSIGPIPE` plus the marking on the session request socket
+  (the table above).
+- **Taken as an idea, in our own code:** decoding off libchiaki's receive thread. See "Asynchronous decoding"
+  below.
+- **Left out:**
+  - its Takion rewrite (2.5 ms reorder timeout, skipping missing packets when FEC can rebuild the frame, a
+    256-slot queue, a packet pool, about 400 lines): tuned for wired links. On Wi-Fi it turns late packets
+    into lost ones, and it doesn't touch our real problem, the AWDL stall. Its next commit "restores" a few
+    things it broke.
+  - sending input from the caller's thread instead of waking the sender thread: microseconds, at the cost of
+    changing chiaki's locking.
+  - a shorter Senkusha ping test: it only applies below 2 ms of round trip (wired); we measure 12–40 ms on
+    Wi-Fi.
+  - skipping the 10 ms wait before the control connection on PS5: its next commit put a 20 ms wait back.
+  - crypto and buffer micro-optimisations: negligible on Apple silicon, and the buffer-clearing change risks
+    subtle FEC bugs.
+
+### Asynchronous decoding
+
+Not a chiaki change either. libchiaki calls our video callback on its receive thread, and `VideoDecoder`
+used to decode there, synchronously: for the 2–5 ms a frame takes, no packets were read (they waited in the
+socket buffer) and no acks went out. VideoToolbox now decodes asynchronously on its own threads
+(`kVTDecodeFrame_EnableAsynchronousDecompression`) and the receive thread goes straight back to reading.
+
+- Frames still come out in order, now on VideoToolbox's thread; the renderer already takes them from any
+  thread.
+- A frame that fails is reported by the next `decode` call, so libchiaki asks for a keyframe one frame later
+  than before.
+- Before a size change the old session's frames are waited for (they come out first), and stopping a
+  session waits for the frames in flight, so none arrive after it stopped.
 
 **Thread priority** isn't a chiaki change: libchiaki calls a hook as each of its threads starts, and our
 shim (`psrp.c`, `psrp_thread_qos`) sets the QoS class.
@@ -208,10 +249,10 @@ All of these work without the UI:
 
 ## Known limits
 
-- **The pacing clock follows lateness slowly.** It moves at most 0.5% of a frame per frame. When frames
-  fall behind it steadily, faster than it can follow, lateness and the pacing delay grow until the
-  stream recovers. That's what produced the 219–555 ms figures above. The thread priority removed the
-  cause on this setup, but the clock should also re-anchor when lateness stays high. This is open.
+- **The pacing clock follows lateness slowly.** It moves at most 0.5% of a frame per frame, which is what let
+  the 219–555 ms figures above build up. It now starts over after a second of frames running more than two
+  intervals late.
 - **Steady Wi-Fi depends on AppleScript's administrator prompt and `ifconfig`.** Both exist on every
   macOS release so far, but Apple could restrict them.
 - **The fork's fixes are measured on one network.** The reorder-wait change from PR #817 is untested.
+- **Not yet tried on a console:** the control-request retry and asynchronous decoding (unit-tested only).

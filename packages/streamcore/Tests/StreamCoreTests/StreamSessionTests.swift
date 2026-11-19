@@ -2,6 +2,7 @@ import CChiaki
 import CoreMedia
 import CoreVideo
 import Foundation
+import os
 import Testing
 @testable import StreamCore
 
@@ -141,16 +142,17 @@ extension Serial {
             credentials.ps5 = false // PS4 is always H.264
             let session = try StreamSession(credentials: credentials, options: options)
             defer { session.stop() }
-            var frames = 0
-            session.onFrame = { _, _ in frames += 1 }
+            let frames = OSAllocatedUnfairLock(initialState: 0)
+            session.onFrame = { _, _ in frames.withLock { $0 += 1 } }
 
             let encoded = try encodeFrames(codec: kCMVideoCodecType_H264, count: 3)
             for (i, f) in encoded.enumerated() {
                 #expect(f.annexB.withUnsafeBytes { session.handleVideo($0, framesLost: i == 1 ? 2 : 0) })
             }
             #expect(![UInt8]([0, 0, 0, 1, 0x67, 0xFF]).withUnsafeBytes { session.handleVideo($0, framesLost: 0) })
+            session.waitForDecodedFrames() // decoded asynchronously
             let stats = session.stats
-            #expect(stats.framesDecoded == 3 && frames == 3)
+            #expect(stats.framesDecoded == 3 && frames.withLock { $0 } == 3)
             #expect(stats.framesLost == 2 && stats.decodeErrors == 1)
             #expect(stats.width == 320 && stats.height == 240)
             #expect(stats.bytesReceived == encoded.reduce(6) { $0 + $1.annexB.count })

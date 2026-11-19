@@ -134,10 +134,13 @@ one commit per fix, each meant to be offered upstream. The submodule follows tha
 | **4 MB receive buffer** instead of 100 KB (`takion.c`) | One large keyframe is more than 100 KB, so a short stall of the receive thread, or a Wi-Fi burst after one, dropped packets. |
 | **Real-time marking on Apple platforms**, and `TCP_NODELAY` on the control connection (`takion.c`, `ctrl.c`) | `NET_SERVICE_TYPE_RV` sends acks, feedback and controller input with Wi-Fi's video priority (WMM). |
 | **Accept data acks with gap blocks** (`takion.c`) | The size check wanted exactly 12 bytes, so every ack carrying gap blocks was dropped, and its cumulative ack with it. |
+| **Retry the control request when the console resets the connection** (`ctrl.c`) | A reset while the console was still getting ready failed the whole session; now it's resent up to 3 times, 35 ms apart. From [neo773/chiaki-ng](https://github.com/neo773/chiaki-ng). |
+| **The same setup for both TCP connections** (`utils.h`, `session.c`, `ctrl.c`, with a test) | The session request socket gets `TCP_NODELAY` and the real-time marking too, and both get `SO_NOSIGPIPE` (a write after a reset could otherwise kill the process). From neo773's fork. |
 
 Outside the fork, PlayFX's shim (`psrp.c`) raises libchiaki's threads as they start: receive, resend,
 decryption keys and controller feedback to `USER_INTERACTIVE`, and session, control and congestion to
-`USER_INITIATED`.
+`USER_INITIATED`. And video decodes asynchronously on VideoToolbox's threads, so libchiaki's receive thread
+no longer waits the few milliseconds each frame takes before reading the next packets.
 
 Measured on a PS5 at 1080p60 over Wi-Fi (60 s each; one network, so take it as a direction):
 
@@ -147,7 +150,7 @@ Measured on a PS5 at 1080p60 over Wi-Fi (60 s each; one network, so take it as a
 | Fork | 79 ms | 194 ms | 0 | 54.4 |
 | **Fork + thread priority** | **9.5 ms** | **17–42 ms** | **0** | **56** |
 
-How to rebase the fork on upstream, and what was left out on purpose:
+How to rebase the fork on upstream, what we took from neo773's fork and what was left out on purpose:
 [docs/NETWORK.md](docs/NETWORK.md#libchiaki-our-fork).
 
 ## Playing over Wi-Fi
