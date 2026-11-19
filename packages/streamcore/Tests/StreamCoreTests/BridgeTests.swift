@@ -82,6 +82,8 @@ extension Serial {
             let text = take(sc_discover(50))
             #expect(try JSONDecoder().decode([DiscoveredConsole].self, from: Data(text.utf8)).count >= 0)
             #expect(text.hasPrefix("["))
+            // Asked directly at an address nothing answers on (TEST-NET-1): no consoles.
+            #expect(take("192.0.2.1".withCString { sc_discover_host($0, 50) }) == "[]")
         }
 
         @Test func eventPayloads() {
@@ -104,6 +106,7 @@ extension Serial {
                 #expect(!sc_metalfx_supported())
                 #expect(sc_gpu_milliseconds() == 0)
                 #expect(sc_shown_fps() == 0)
+                sc_session_sleep() // no session: nothing to put to sleep
                 #expect(sc_set_render_params(#"{"upscaler":"metalfx"}"#)) // no renderer: accepted, no-op
             }
         }

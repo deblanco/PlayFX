@@ -50,9 +50,11 @@ fn invoke(app: &App<MockRuntime>, cmd: &str, args: Value) -> Result<Value, Value
 #[test]
 fn discover_replies_and_maps_errors() {
     let core = ok_reply();
-    assert_eq!(discover(mock(core).handle().clone()), Ok(json!({"ok": true})));
-    assert_eq!(core.calls(), ["discover 1500"]);
-    assert_eq!(discover(mock(err_reply()).handle().clone()), Err("nope".into()));
+    assert_eq!(discover(mock(core).handle().clone(), None), Ok(json!({"ok": true})));
+    assert_eq!(discover(mock(core).handle().clone(), Some(" 192.168.1.20 ".into())), Ok(json!({"ok": true})));
+    assert_eq!(core.calls(), ["discover 1500", "discover_host 192.168.1.20 1500"]);
+    assert_eq!(discover(mock(core).handle().clone(), Some("ps5.local".into())), Err("ps5.local isn't an IP address".into()));
+    assert_eq!(discover(mock(err_reply()).handle().clone(), None), Err("nope".into()));
 }
 
 #[test]
@@ -336,6 +338,9 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
         assert!(reply.is_ok(), "{cmd}: {reply:?}");
         reply.unwrap_or_default()
     };
+    ok("sleep_console", json!({}));
+    ok("discover", json!({"host": "10.0.0.5"}));
+    assert!(core.calls().contains(&"session_sleep".to_string()));
     ok("set_pointer_touch", json!({"touch": {"down": true, "x": 0.5, "y": 0.25, "pressed": false}}));
     ok("keyboard_set_text", json!({"text": "hi"}));
     ok("keyboard_done", json!({"accept": true}));

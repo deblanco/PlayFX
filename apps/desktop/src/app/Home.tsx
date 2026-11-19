@@ -1,8 +1,10 @@
 import { Option } from "effect"
 import { SlidersHorizontal } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import type { PairedConsole, Settings } from "@/core/schema"
 import * as actions from "./actions"
@@ -10,7 +12,7 @@ import { AccountSection } from "./AccountSection"
 import { ConsoleList } from "./ConsoleList"
 import { GetStarted } from "./GetStarted"
 import { useRun } from "./runtime"
-import { streamSummary, type Capabilities } from "./format"
+import { isIpv4, streamSummary, type Capabilities } from "./format"
 import { Segmented, SettingsSheet, type SettingsTab } from "./SettingsSheet"
 
 const connectionDescription: Readonly<Record<Settings["connection"], string>> = {
@@ -69,6 +71,12 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
               onChange={(connection) => { onSettingsChange({ ...settings, connection }) }}
             />
             <p className="text-xs text-muted-foreground">{connectionDescription[settings.connection]}</p>
+            {settings.connection === "local" && (
+              <ConsoleAddress
+                value={settings.consoleAddress}
+                onChange={(consoleAddress) => { onSettingsChange({ ...settings, consoleAddress }) }}
+              />
+            )}
           </div>
           <Separator />
           <div className="flex items-center justify-between gap-3">
@@ -89,5 +97,38 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
         onChange={onSettingsChange}
       />
     </main>
+  )
+}
+
+/** The console's IP on the home network, for when it doesn't show up on its own. Saved when the field
+ * is left or Enter is pressed; an address that isn't one is pointed out instead. */
+const ConsoleAddress = ({ value, onChange }: { readonly value: string; readonly onChange: (address: string) => void }) => {
+  const id = useId()
+  const [text, setText] = useState(value)
+  const invalid = text.trim() !== "" && !isIpv4(text.trim())
+  const commit = () => {
+    const address = text.trim()
+    if (!invalid && address !== value) onChange(address)
+  }
+  return (
+    <div className="flex flex-col gap-1.5 pt-1">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">Console IP address</Label>
+      <Input
+        id={id}
+        inputMode="decimal"
+        placeholder="e.g. 192.168.1.20"
+        value={text}
+        aria-invalid={invalid}
+        onChange={(event) => { setText(event.target.value) }}
+        onBlur={commit}
+        onKeyDown={(event) => { if (event.key === "Enter") commit() }}
+        className="tabular-nums"
+      />
+      <p className="text-xs text-muted-foreground">
+        {invalid
+          ? "That isn't an IP address. It looks like 192.168.1.20."
+          : "Only needed if your PS5 doesn't show up. On the PS5: Settings → Network → Connection Status."}
+      </p>
+    </div>
   )
 }

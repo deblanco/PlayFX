@@ -65,6 +65,10 @@ pub trait NativeCore: Send + Sync {
     // main thread
     fn session_start(&self, request: &str) -> String;
     fn session_stop(&self);
+    /// Puts the console in rest mode (it ends the session itself).
+    fn session_sleep(&self);
+    /// Discovery aimed at one address, for consoles broadcast discovery can't reach.
+    fn discover_host(&self, host: &str, timeout_ms: i32) -> String;
     fn set_login_pin(&self, pin: &str);
     fn set_controller(&self, state: ControllerState);
     /// Types into the console's open text field (replacing its text), then sends or cancels it.

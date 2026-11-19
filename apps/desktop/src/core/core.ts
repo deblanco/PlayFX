@@ -32,6 +32,8 @@ export class Core extends Context.Service<
   Core,
   {
     readonly discover: Effect.Effect<readonly DiscoveredConsole[], CoreError>
+    /** Asks one console directly at an IP address (for when broadcast discovery can't reach it). */
+    readonly discoverAt: (address: string) => Effect.Effect<readonly DiscoveredConsole[], CoreError>
     readonly pair: (request: PairRequest) => Effect.Effect<Credentials, CoreError | ValidationError>
     readonly wakeup: (credentials: Credentials) => Effect.Effect<boolean, CoreError>
     /** Opens Sony's sign-in window; the result arrives through `onPsnAccount`. */
@@ -48,6 +50,8 @@ export class Core extends Context.Service<
       psnDuid?: string,
     ) => Effect.Effect<void, CoreError>
     readonly stopStream: Effect.Effect<void, CoreError>
+    /** Puts the console in rest mode; it ends the session itself. */
+    readonly sleepConsole: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
     readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
     /** Types into the console's open text field (replacing its text); `keyboardDone` sends or cancels. */
@@ -115,6 +119,7 @@ export const CoreLive = Layer.effect(
 
     return {
       discover: call(DiscoveredConsoles, "discover"),
+      discoverAt: (address) => call(DiscoveredConsoles, "discover", { host: address }),
       pair: ({ console, accountId, pin }) =>
         Effect.gen(function* () {
           const digits = pin.replace(/\D/g, "")
@@ -136,6 +141,7 @@ export const CoreLive = Layer.effect(
           }),
         ),
       stopStream: Effect.asVoid(call(unit, "stop_stream")),
+      sleepConsole: Effect.asVoid(call(unit, "sleep_console")),
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
       setPointerTouch: (touch) => Effect.asVoid(call(unit, "set_pointer_touch", { touch })),

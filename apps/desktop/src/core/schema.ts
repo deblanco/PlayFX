@@ -113,6 +113,8 @@ export const Settings = Schema.Struct({
   /** Debug entries in the log file (native, libchiaki and web UI), for tracking down problems. */
   detailedLogs: since(Schema.Boolean, false),
   connection: since(ConnectionRoute, "auto"),
+  /** The console's IP on the home network, asked directly when broadcast discovery can't find it ("" = none). */
+  consoleAddress: since(Schema.String, ""),
   /** Keeps the stream's numbers (frame rate, bitrate, ping, GPU time…) on screen while playing. */
   showStats: since(Schema.Boolean, false),
   hdr: since(Schema.Boolean, false),
@@ -122,6 +124,37 @@ export const Settings = Schema.Struct({
   audioDevice: since(Schema.String, ""),
 })
 export type Settings = typeof Settings.Type
+
+/** What a settings profile holds: how the stream is asked for and how the picture is processed. App
+ * preferences (stats, sound, connection route, logs) stay as they are when a profile is applied. */
+export const ProfileSettings = Schema.Struct({
+  height: Settings.fields.height,
+  fps: Settings.fields.fps,
+  hevc: Settings.fields.hevc,
+  bitrate: Settings.fields.bitrate,
+  hdr: Settings.fields.hdr,
+  view: Settings.fields.view,
+  upscaler: Settings.fields.upscaler,
+  sharpness: Settings.fields.sharpness,
+  deblock: Settings.fields.deblock,
+  deband: Settings.fields.deband,
+  mlUpscale: Settings.fields.mlUpscale,
+  smoothMotion: Settings.fields.smoothMotion,
+  colorMatrix: Settings.fields.colorMatrix,
+  colorRange: Settings.fields.colorRange,
+  chroma: Settings.fields.chroma,
+  accurateColor: Settings.fields.accurateColor,
+})
+export type ProfileSettings = typeof ProfileSettings.Type
+export const sameProfileSettings = Schema.toEquivalence(ProfileSettings)
+
+/** A profile name: 1–40 characters, not just spaces. */
+export const ProfileName = Schema.String.check(Schema.makeFilter((name: string) => name.trim().length > 0 && name.length <= 40))
+
+/** A named set of stream and picture settings the user saved. */
+export const Profile = Schema.Struct({ name: ProfileName, settings: ProfileSettings })
+export type Profile = typeof Profile.Type
+export const Profiles = Schema.Array(Profile)
 
 export const defaultSettings: Settings = {
   height: 1080,
@@ -143,6 +176,7 @@ export const defaultSettings: Settings = {
   accurateColor: true,
   detailedLogs: false,
   connection: "auto",
+  consoleAddress: "",
   showStats: false,
   hdr: false,
   volume: 1,

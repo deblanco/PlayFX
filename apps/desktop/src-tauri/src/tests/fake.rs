@@ -100,6 +100,13 @@ impl NativeCore for FakeCore {
         self.log(format!("session_start {request}"));
         self.reply.clone()
     }
+    fn discover_host(&self, host: &str, timeout_ms: i32) -> String {
+        self.log(format!("discover_host {host} {timeout_ms}"));
+        self.reply.clone()
+    }
+    fn session_sleep(&self) {
+        self.log("session_sleep".into());
+    }
     fn session_stop(&self) {
         self.log("session_stop".into());
     }

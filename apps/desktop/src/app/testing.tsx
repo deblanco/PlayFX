@@ -72,7 +72,7 @@ type CoreService = Core["Service"]
 /** A Core whose replies are mutable state, recording calls and letting tests fire events. */
 export const fakeCore = (overrides: Partial<CoreService> = {}) => {
   const state = { discovered: [ps5] as readonly DiscoveredConsole[], status: status(), fullscreen: false, psnSignedIn: false, psnConsoles: [] as readonly PsnConsole[] }
-  const counts = { discover: 0, psnLogin: 0, stopStream: 0, openLogsFolder: 0, openSourceCode: 0 }
+  const counts = { discover: 0, psnLogin: 0, stopStream: 0, sleepConsole: 0, openLogsFolder: 0, openSourceCode: 0 }
   const streamHandlers = new Set<(event: StreamEvent) => void>()
   const psnHandlers = new Set<(event: PsnAccountEvent) => void>()
   const devHandlers = new Set<(command: DevCommand) => void>()
@@ -92,8 +92,12 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
       state.psnSignedIn = false
     }),
     startStream: vi.fn<CoreService["startStream"]>(() => Effect.void),
+    discoverAt: vi.fn<CoreService["discoverAt"]>(() => Effect.succeed([])),
     stopStream: Effect.sync(() => {
       counts.stopStream++
+    }),
+    sleepConsole: Effect.sync(() => {
+      counts.sleepConsole++
     }),
     setLoginPin: vi.fn<CoreService["setLoginPin"]>(() => Effect.void),
     setController: vi.fn<CoreService["setController"]>(() => Effect.void),

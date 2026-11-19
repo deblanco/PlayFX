@@ -232,6 +232,17 @@ Work items:
   gestures. **PS button**: macOS never delivers it to the app; with a game-category app in front
   (`LSApplicationCategoryType` games, now in the desktop `Info.plist`) it at least stops opening the
   Games app. Keyboard H still sends PS. **Mute** isn't exposed by GameController.
+- ✅ **Settings profiles**: a profile holds the stream and picture settings (resolution, frame rate, codec,
+  bitrate, HDR, view, upscaler, sharpening, cleanup, ML, Smooth motion, colors); app preferences stay put.
+  Built-in **Recommended** (1080p60 · MetalFX · sharpness 0.3, also what a new install starts with); the
+  user saves the current settings under a name, switches, deletes. Settings → Profile; stored in
+  `psrp.profiles`. "Custom" when the settings match no profile.
+- ✅ **Rest mode on Stop**: while streaming, Stop asks "Put <console> in rest mode?" (Rest mode / Leave
+  it on / Keep playing). Rest mode sends libchiaki's goto-bed (`sleep_console`), waits 1.5 s for it to
+  reach the console, then stops. Before the stream connects, Stop stops at once. Unverified on a console.
+- ✅ **Console IP on the home network**: with Connect set to Home network, an optional IP field; each
+  discovery round also asks that address directly (`discover` with `host`, IPs only) and merges what it
+  finds, so a console broadcast discovery can't see still shows up and plays. Unverified on a console.
 - ✅ **Microphone** (verified on the Mac with the user allowing the prompt: capture starts — 48 kHz mono
   input converted to stereo — the stream stays clean at 60 fps / 0 lost, the amber button and the tag
   after the HUD fades both show, and turning it off stops capture; hearing it on the console needs a

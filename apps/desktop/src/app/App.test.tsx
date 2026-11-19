@@ -38,6 +38,13 @@ const startStreaming = async (core = fakeCore(), { connected = true } = {}) => {
   return { ...app, core }
 }
 
+/** Presses the HUD's Stop and answers the rest mode question. */
+const stopFromHud = async (answer: "Leave it on" | "Rest mode" | "Keep playing" = "Leave it on") => {
+  await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+  const dialog = await screen.findByRole("alertdialog")
+  await userEvent.click(within(dialog).getByRole("button", { name: answer }))
+}
+
 afterEach(() => {
   vi.useRealTimers()
   toast.dismiss()
@@ -736,10 +743,35 @@ describe("streaming", () => {
 
   it("stops the stream from the HUD, even if stopping fails", async () => {
     const { core } = await startStreaming(fakeCore({ stopStream: Effect.fail(coreError("stop_stream", "already gone")) }))
-    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    await stopFromHud()
     expect(await screen.findByText("already gone")).toBeInTheDocument()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     expect(core.streamListeners()).toBe(1)
+  })
+
+  it("asks on Stop whether to put the console in rest mode", async () => {
+    const { core } = await startStreaming()
+    await stopFromHud("Keep playing")
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+    expect(core.counts.stopStream).toBe(0) // still streaming
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    expect(within(await screen.findByRole("alertdialog")).getByText("Put Living Room in rest mode?")).toBeInTheDocument()
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Rest mode" }))
+    await waitFor(() => {
+      expect(core.counts.stopStream).toBe(1)
+    }, { timeout: 3000 })
+    expect(core.counts.sleepConsole).toBe(1) // asked before the stream was stopped
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
+  })
+
+  it("stops at once while still connecting", async () => {
+    const { core } = await startStreaming(fakeCore(), { connected: false })
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    expect(await screen.findByText("Consoles")).toBeInTheDocument()
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(core.counts.sleepConsole).toBe(0)
   })
 
   it("turns Smooth motion on for the renderer", async () => {
@@ -911,7 +943,7 @@ describe("streaming", () => {
     act(() => {
       core.emitStream({ type: "quit", reason: "in use", error: true, kind: "busy" }) // retry scheduled…
     })
-    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    await stopFromHud()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     await new Promise((resolve) => setTimeout(resolve, 1800)) // …past the retry delay: nothing restarts
     expect(core.service.startStream).toHaveBeenCalledTimes(1)
@@ -1145,7 +1177,7 @@ describe("streaming", () => {
     })
     expect(document.documentElement).toHaveClass("cursor-none")
     vi.useRealTimers()
-    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    await stopFromHud()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     expect(document.documentElement).not.toHaveClass("cursor-none")
   })
@@ -1236,5 +1268,102 @@ describe("dev control port", () => {
       core.emitDev({ type: "play" })
     })
     expect(await screen.findByText("Dev control: no paired console to play")).toBeInTheDocument()
+  })
+})
+
+describe("settings profiles", () => {
+  const savedProfiles = (runtime: ReturnType<typeof renderApp>["runtime"]) =>
+    runtime.runPromise(Effect.gen(function* () {
+      const prefs = yield* Preferences
+      return yield* prefs.profiles
+    }))
+
+  it("starts on Recommended, saves the current settings under a name, switches and deletes", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core)
+    const sheet = await openSettings("Picture")
+    const profile = () => sheet.getByRole("combobox", { name: "Profile" })
+    await waitFor(() => {
+      expect(profile()).toHaveValue("Recommended")
+    })
+    expect(sheet.getByText("1080p60 · MetalFX · sharpness 0.3")).toBeInTheDocument()
+
+    // A change of a picture setting makes it a custom mix.
+    nudge("Sharpness", "ArrowRight", 2)
+    expect(await sheet.findByText("Your own mix of settings. Save it to come back to it.")).toBeInTheDocument()
+
+    // The built-in name is taken; a new one saves.
+    await userEvent.click(sheet.getByRole("button", { name: "Save as…" }))
+    await userEvent.type(sheet.getByRole("textbox", { name: "Profile name" }), "Recommended{Enter}")
+    expect(await screen.findByText('"Recommended" is built in. Choose another name.')).toBeInTheDocument()
+    await userEvent.clear(sheet.getByRole("textbox", { name: "Profile name" }))
+    await userEvent.type(sheet.getByRole("textbox", { name: "Profile name" }), "Sharp{Enter}")
+    expect(await screen.findByText('Saved "Sharp"')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(profile()).toHaveValue("Sharp")
+    })
+    expect((await savedProfiles(runtime)).map((p) => p.name)).toEqual(["Sharp"])
+
+    // Back to Recommended applies its settings.
+    await userEvent.selectOptions(profile(), "Recommended")
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture())
+    await userEvent.selectOptions(profile(), "Sharp")
+    await waitFor(() => {
+      expect(profile()).toHaveValue("Sharp")
+    })
+
+    await userEvent.click(sheet.getByRole("button", { name: "Delete Sharp" }))
+    await waitFor(async () => {
+      expect(await savedProfiles(runtime)).toEqual([])
+    })
+    expect(sheet.queryByRole("option", { name: "Sharp" })).not.toBeInTheDocument()
+  })
+
+  it("can cancel naming a profile, and refuses an empty name", async () => {
+    await startStreaming()
+    const sheet = await openSettings("Stream")
+    await userEvent.click(sheet.getByRole("button", { name: "Save as…" }))
+    await userEvent.click(sheet.getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Give the profile a name of up to 40 characters.")).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("button", { name: "Cancel" }))
+    expect(sheet.queryByRole("textbox", { name: "Profile name" })).not.toBeInTheDocument()
+  })
+})
+
+describe("console IP on the home network", () => {
+  it("is offered for Home network only, refuses what isn't an IP, and saves on Enter", async () => {
+    const core = fakeCore()
+    const { runtime } = renderApp(core, { accountId, paired: [pairedPs5] })
+    await consoleItem()
+    expect(screen.queryByLabelText("Console IP address")).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("radio", { name: "Home network" }))
+    const field = await screen.findByLabelText("Console IP address")
+    await userEvent.type(field, "ps5.local")
+    expect(screen.getByText("That isn't an IP address. It looks like 192.168.1.20.")).toBeInTheDocument()
+    expect(field).toHaveAttribute("aria-invalid", "true")
+    await userEvent.clear(field)
+    await userEvent.type(field, " 192.168.1.20 {Enter}")
+    await waitFor(async () => {
+      expect((await savedSettings(runtime)).consoleAddress).toBe("192.168.1.20")
+    })
+    fireEvent.blur(field) // nothing new to save
+  })
+
+  it("asks the console at that address directly, and lists it", async () => {
+    const core = fakeCore({
+      discover: Effect.succeed([]),
+      discoverAt: vi.fn(() => Effect.succeed([{ ...ps5, address: "192.168.1.20" }])),
+    })
+    renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "local", consoleAddress: "192.168.1.20" } })
+    const item = await consoleItem()
+    expect(core.service.discoverAt).toHaveBeenCalledWith("192.168.1.20")
+    expect(await item.findByRole("button", { name: "Play" })).toBeInTheDocument()
+  })
+
+  it("keeps scanning when the direct ask fails", async () => {
+    const core = fakeCore({ discoverAt: () => Effect.fail(coreError("discover", "no route")) })
+    renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "local", consoleAddress: "10.0.0.9" } })
+    await consoleItem()
+    expect(screen.queryByText(/Discovery failed/)).not.toBeInTheDocument()
   })
 })

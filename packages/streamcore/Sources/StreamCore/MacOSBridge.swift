@@ -174,6 +174,12 @@ public func sc_discover(_ timeoutMs: Int32) -> UnsafeMutablePointer<CChar> {
     json(encodable: Console.discover(timeout: Double(timeoutMs) / 1000))
 }
 
+/// Asks one console directly at `host` (an IP), for when broadcast discovery can't reach it.
+@_cdecl("sc_discover_host")
+public func sc_discover_host(_ host: UnsafePointer<CChar>, _ timeoutMs: Int32) -> UnsafeMutablePointer<CChar> {
+    json(encodable: Console.discover(host: String(cString: host), timeout: Double(timeoutMs) / 1000))
+}
+
 /// `request`: {"address","ps5","accountId","pin"} → ConsoleCredentials JSON or {"error"}.
 @_cdecl("sc_register")
 public func sc_register(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
@@ -351,6 +357,12 @@ public func sc_secret_set(_ key: UnsafePointer<CChar>, _ value: UnsafePointer<CC
 @_cdecl("sc_secret_remove")
 public func sc_secret_remove(_ key: UnsafePointer<CChar>) {
     SecretStores.shared.remove(String(cString: key))
+}
+
+/// Puts the console in rest mode; it then ends the session itself. No-op without a session.
+@_cdecl("sc_session_sleep")
+public func sc_session_sleep() {
+    session?.sleepConsole()
 }
 
 @_cdecl("sc_session_stop")

@@ -20,6 +20,8 @@ unsafe extern "C" {
     pub fn sc_shown_fps() -> f64;
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
     pub fn sc_session_stop();
+    pub fn sc_session_sleep();
+    pub fn sc_discover_host(host: *const c_char, timeout_ms: i32) -> *mut c_char;
     pub fn sc_session_set_login_pin(pin: *const c_char);
     pub fn sc_session_set_controller(
         buttons: u32, l2: u8, r2: u8, left_x: i16, left_y: i16, right_x: i16, right_y: i16,
@@ -132,6 +134,12 @@ impl NativeCore for MacCore {
     }
     fn session_stop(&self) {
         unsafe { sc_session_stop() }
+    }
+    fn discover_host(&self, host: &str, timeout_ms: i32) -> String {
+        take(unsafe { sc_discover_host(cstr(host).as_ptr(), timeout_ms) })
+    }
+    fn session_sleep(&self) {
+        unsafe { sc_session_sleep() }
     }
     fn set_login_pin(&self, pin: &str) {
         unsafe { sc_session_set_login_pin(cstr(pin).as_ptr()) }

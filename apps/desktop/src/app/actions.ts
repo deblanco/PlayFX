@@ -8,6 +8,7 @@ import {
   type AudioDevice,
   type DevCommand,
   type Diagnostics,
+  type Profile,
   type RendererStatus,
   type DiscoveredConsole,
   type ControllerState,
@@ -31,6 +32,7 @@ import {
   type Capabilities,
   type FrameSample,
 } from "./format"
+import { recommended, withProfile } from "./profiles"
 
 // Every side effect the UI triggers lives here, as an Effect over the Core and Preferences services.
 
@@ -123,6 +125,43 @@ export const onDevControl = (handler: (command: DevCommand) => void): Effect.Eff
     return yield* listen(core.onDevControl(handler))
   })
 
+// ---------- Profiles ----------
+
+/** Settings profiles the user saved (the built-in one comes from `allProfiles`). */
+export const loadProfiles: Effect.Effect<readonly Profile[], StorageError, Preferences> = Effect.flatMap(
+  Preferences,
+  (prefs) => prefs.profiles,
+)
+
+/** Saves the stream and picture settings in `settings` as a profile named `name`, replacing one of
+ * that name; the saved profiles after. */
+export const saveProfile = (
+  name: string,
+  settings: Settings,
+): Effect.Effect<readonly Profile[], ValidationError | StorageError, Preferences> =>
+  Effect.gen(function* () {
+    const trimmed = name.trim()
+    if (trimmed.length === 0 || trimmed.length > 40) {
+      return yield* new ValidationError({ message: "Give the profile a name of up to 40 characters." })
+    }
+    if (trimmed === recommended.name) {
+      return yield* new ValidationError({ message: `"${recommended.name}" is built in. Choose another name.` })
+    }
+    const prefs = yield* Preferences
+    const next = withProfile(yield* prefs.profiles, trimmed, settings)
+    yield* prefs.saveProfiles(next)
+    return next
+  })
+
+/** Deletes a saved profile; the saved profiles after. */
+export const deleteProfile = (name: string): Effect.Effect<readonly Profile[], StorageError, Preferences> =>
+  Effect.gen(function* () {
+    const prefs = yield* Preferences
+    const next = (yield* prefs.profiles).filter((p) => p.name !== name)
+    yield* prefs.saveProfiles(next)
+    return next
+  })
+
 // ---------- Consoles ----------
 
 export const loadPaired: Effect.Effect<PairedConsoles, StorageError, Preferences> = Effect.gen(function* () {
@@ -139,7 +178,12 @@ export interface ScanResult {
 export const scan: Effect.Effect<ScanResult, CoreError | StorageError, Core | Preferences> = Effect.gen(function* () {
   const core = yield* Core
   const prefs = yield* Preferences
-  const discovered = yield* core.discover
+  const settings = yield* prefs.settings
+  const broadcast = yield* core.discover
+  // On the home network with an address typed in, that console is also asked directly.
+  const address = settings.connection === "local" ? settings.consoleAddress.trim() : ""
+  const direct = address === "" ? [] : yield* Effect.orElseSucceed(core.discoverAt(address), () => [])
+  const discovered = [...broadcast, ...direct.filter((d) => !broadcast.some((b) => b.hostId === d.hostId))]
   yield* prefs.refreshAddresses(discovered.map(({ hostId, address }) => ({ hostId, address })))
   const paired = yield* prefs.paired
   return { discovered, paired }
@@ -452,6 +496,16 @@ export const stop: Effect.Effect<void, CoreError, Core> = Effect.gen(function* (
   const core = yield* Core
   yield* Effect.logInfo("Stopping the stream")
   yield* core.stopStream
+})
+
+/** Puts the console in rest mode, then stops the stream. The console ends the session itself once it
+ * goes to sleep; the pause gives that request time to reach it before the stream closes. */
+export const sleepAndStop: Effect.Effect<void, CoreError, Core> = Effect.gen(function* () {
+  const core = yield* Core
+  yield* Effect.logInfo("Putting the console in rest mode")
+  yield* core.sleepConsole
+  yield* Effect.sleep("1500 millis")
+  yield* stop
 })
 
 /** Enters or leaves fullscreen; succeeds with whether the window is now fullscreen. */

@@ -77,8 +77,15 @@ fn on_main<R: Runtime, T: Send + 'static>(
 // Blocking commands run on Tauri's async thread pool (`async` attribute), never on main.
 
 #[tauri::command(async)]
-fn discover<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
-    reply(&core(&app).discover(1500))
+fn discover<R: Runtime>(app: AppHandle<R>, host: Option<String>) -> Result<Value, String> {
+    match host {
+        // Only an IP address goes to the console: anything else is a mistake to report, not resolve.
+        Some(host) => {
+            let ip: std::net::IpAddr = host.trim().parse().map_err(|_| format!("{host} isn't an IP address"))?;
+            reply(&core(&app).discover_host(&ip.to_string(), 1500))
+        }
+        None => reply(&core(&app).discover(1500)),
+    }
 }
 
 #[tauri::command(async)]
@@ -161,6 +168,14 @@ fn start_stream<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, 
 fn stop_stream<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let core = core(&app);
     on_main(&app, move || core.session_stop())
+}
+
+/// Puts the console in rest mode; the session ends when it goes to sleep.
+#[tauri::command(async)]
+fn sleep_console<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    log::info!("Putting the console in rest mode");
+    let core = core(&app);
+    on_main(&app, move || core.session_sleep())
 }
 
 #[tauri::command(async)]
@@ -334,6 +349,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         psn_login,
         start_stream,
         stop_stream,
+        sleep_console,
         set_login_pin,
         set_controller,
         set_pointer_touch,

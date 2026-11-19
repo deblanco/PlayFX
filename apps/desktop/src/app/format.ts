@@ -380,3 +380,8 @@ export const microphoneProblem = (state: "denied" | "unavailable"): string =>
     ? "PlayFX can't use the microphone. Allow it in System Settings › Privacy & Security › Microphone, then turn it on again."
     : "No microphone found. Connect one, or pick an input in System Settings › Sound."
 
+/** An IPv4 address as a console has on a home network: four numbers 0–255, e.g. 192.168.1.20. */
+export const isIpv4 = (text: string): boolean => {
+  const parts = text.split(".")
+  return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255)
+}

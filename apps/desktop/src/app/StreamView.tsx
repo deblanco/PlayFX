@@ -1,6 +1,16 @@
 import { Effect, Option } from "effect"
 import { Maximize, Mic, MicOff, Minimize, SlidersHorizontal } from "lucide-react"
 import { useEffect, useEffectEvent, useId, useMemo, useState } from "react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -161,13 +171,24 @@ export const StreamView = ({
   const fade = cn("transition-opacity duration-500", hudHidden && "opacity-0")
   const keepStats = settings.showStats && connected && reconnect.reconnecting === false && stats.rows.length > 0
 
-  const stop = () => {
-    const end = () => { onEnd(Option.none()); }
-    run(actions.stop, { onSuccess: end, onFailure: end })
+  const end = () => { onEnd(Option.none()) }
+  const stop = () => { run(actions.stop, { onSuccess: end, onFailure: end }) }
+  // Once streaming, Stop asks whether to put the console in rest mode too.
+  const [askingRest, setAskingRest] = useState(false)
+  const requestStop = () => {
+    if (connected) setAskingRest(true)
+    else stop()
   }
 
   return (
     <>
+      <RestModeDialog
+        open={askingRest}
+        console={title}
+        onOpenChange={setAskingRest}
+        onLeaveOn={stop}
+        onRest={() => { run(actions.sleepAndStop, { onSuccess: end, onFailure: end }) }}
+      />
       <header
         data-idle={idle}
         className={cn(
@@ -245,7 +266,7 @@ export const StreamView = ({
           <SlidersHorizontal /> Settings
           {reconnect.pending && <span aria-label="Reconnect to apply" className="size-1.5 rounded-full bg-signal" />}
         </Button>
-        <Button variant="destructive" size="sm" className={fade} onClick={stop}>
+        <Button variant="destructive" size="sm" className={fade} onClick={requestStop}>
           Stop
         </Button>
       </header>
@@ -363,3 +384,29 @@ const LoginPinPrompt = ({ incorrect, onSubmitted, onCancel }: LoginPinPromptProp
     </div>
   )
 }
+
+/** Asked when Stop is pressed while streaming: put the console in rest mode too, or leave it on. */
+const RestModeDialog = ({ open, console, onOpenChange, onRest, onLeaveOn }: {
+  readonly open: boolean
+  readonly console: string
+  readonly onOpenChange: (open: boolean) => void
+  readonly onRest: () => void
+  readonly onLeaveOn: () => void
+}) => (
+  <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Put {console} in rest mode?</AlertDialogTitle>
+        <AlertDialogDescription>
+          Rest mode saves power, and the PS5 wakes up again the next time you play. Leave it on if someone will
+          keep playing on the TV.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Keep playing</AlertDialogCancel>
+        <AlertDialogAction variant="outline" onClick={onLeaveOn}>Leave it on</AlertDialogAction>
+        <AlertDialogAction onClick={onRest}>Rest mode</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+)

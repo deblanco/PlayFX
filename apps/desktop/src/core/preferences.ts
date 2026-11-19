@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { StorageError } from "./errors"
-import { defaultSettings, isAccountId, PairedConsoles, Settings, type PairedConsole } from "./schema"
+import { defaultSettings, isAccountId, PairedConsoles, Profiles, Settings, type PairedConsole, type Profile } from "./schema"
 
 /** String key/value storage (localStorage in the app, a Map in tests). */
 export class KeyValueStore extends Context.Service<
@@ -47,7 +47,7 @@ export const memoryStore = (initial: Record<string, string> = {}) => {
   })
 }
 
-const keys = { accountId: "psrp.accountId", consoles: "psrp.consoles", settings: "psrp.settings" } as const
+const keys = { accountId: "psrp.accountId", consoles: "psrp.consoles", settings: "psrp.settings", profiles: "psrp.profiles" } as const
 
 /** What the user keeps on this machine: PSN account ID, pairing keys, stream settings. */
 export class Preferences extends Context.Service<
@@ -62,6 +62,9 @@ export class Preferences extends Context.Service<
     readonly refreshAddresses: (seen: readonly { hostId: string; address: string }[]) => Effect.Effect<void, StorageError>
     readonly settings: Effect.Effect<Settings, StorageError>
     readonly saveSettings: (settings: Settings) => Effect.Effect<void, StorageError>
+    /** Settings profiles the user saved (the built-in one isn't stored). */
+    readonly profiles: Effect.Effect<readonly Profile[], StorageError>
+    readonly saveProfiles: (profiles: readonly Profile[]) => Effect.Effect<void, StorageError>
   }
 >()("Preferences") {}
 
@@ -141,6 +144,8 @@ const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore[
         }),
       settings: read(Settings, keys.settings, defaultSettings),
       saveSettings: (settings) => write(keys.settings, settings),
+      profiles: read(Profiles, keys.profiles, []),
+      saveProfiles: (profiles) => write(keys.profiles, profiles),
     } satisfies Preferences["Service"]
 }
 

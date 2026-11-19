@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Option } from "effect"
 import { defaultSettings } from "@/core/schema"
 import {
+  isIpv4,
   consoleRows,
   describeEvent,
   bitrateLabel,
@@ -393,3 +394,10 @@ describe("microphoneProblem", () => {
   })
 })
 
+describe("isIpv4", () => {
+  it("accepts dotted IPv4 addresses only", () => {
+    expect(isIpv4("192.168.1.20")).toBe(true)
+    expect(isIpv4("10.0.0.255")).toBe(true)
+    for (const bad of ["192.168.1", "192.168.1.256", "ps5.local", "1.2.3.4.5", "1.2.3.x", ""]) expect(isIpv4(bad)).toBe(false)
+  })
+})

@@ -72,5 +72,8 @@ fn mac_core_without_session_or_renderer() {
     // Read-only: whether a PSN sign-in is kept, and a key no one ever writes.
     let _ = core.psn_signed_in();
     assert_eq!(reply(&core.secret_get("playfx-test-never-written")), Ok(json!({"value": null})));
+    core.session_sleep(); // no session: nothing to put to sleep
+    // A direct probe of an address nothing answers on (TEST-NET-1): no consoles, quickly.
+    assert_eq!(reply(&core.discover_host("192.0.2.1", 100)), Ok(json!([])));
     core.session_stop();
 }

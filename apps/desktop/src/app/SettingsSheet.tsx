@@ -1,17 +1,20 @@
-import { ChevronRight, ClipboardCopy, Code, FolderOpen, RotateCcw } from "lucide-react"
+import { Option } from "effect"
+import { ChevronRight, ClipboardCopy, Code, FolderOpen, RotateCcw, Save, Trash2 } from "lucide-react"
 import { useEffect, useId, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { bitrates, defaultSettings, type AudioDevice, type Settings } from "@/core/schema"
+import { bitrates, defaultSettings, type AudioDevice, type Profile, type Settings } from "@/core/schema"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
+import { allProfiles, applyProfile, isBuiltIn, matchingProfile, profileSummary } from "./profiles"
 import {
   bitrateLabel,
   pipelineStages,
@@ -96,6 +99,7 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             {tabHints[props.tab]}
           </SheetDescription>
         </SheetHeader>
+        <ProfileBar settings={settings} onChange={onChange} />
         <Tabs
           value={props.tab}
           onValueChange={(tab) => { props.onTabChange(tab === "stream" || tab === "diagnostics" ? tab : "picture") }}
@@ -129,6 +133,87 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
 }
 
 type Set = <K extends SettingKey>(key: K, value: Settings[K]) => void
+
+// ---------- Profiles ----------
+
+/** Settings profiles: pick one to apply its stream and picture settings, or save the current ones. */
+const ProfileBar = ({ settings, onChange }: { readonly settings: Settings; readonly onChange: (next: Settings) => void }) => {
+  const run = useRun()
+  const id = useId()
+  const [saved, setSaved] = useState<readonly Profile[]>([])
+  /** The name being typed for a new profile; null when not saving. */
+  const [naming, setNaming] = useState<string | null>(null)
+  useEffect(() => { run(actions.loadProfiles, { onSuccess: setSaved }) }, [run])
+  const profiles = allProfiles(saved)
+  const current = matchingProfile(settings, profiles)
+  const selected = Option.getOrUndefined(current)
+  const save = (name: string) => {
+    run(actions.saveProfile(name, settings), {
+      onSuccess: (next) => {
+        setSaved(next)
+        setNaming(null)
+        toast.success(`Saved "${name.trim()}"`)
+      },
+    })
+  }
+  return (
+    <div className="flex flex-col gap-1.5 px-5 pb-4">
+      <label htmlFor={id} className="text-xs text-muted-foreground">Profile</label>
+      <div className="flex gap-2">
+        <NativeSelect
+          id={id}
+          value={selected?.name ?? ""}
+          onChange={(event) => {
+            const profile = profiles.find((p) => p.name === event.target.value)
+            if (profile) onChange(applyProfile(settings, profile))
+          }}
+          className="w-full"
+        >
+          {selected === undefined && <NativeSelectOption value="" disabled>Custom</NativeSelectOption>}
+          {profiles.map((p) => <NativeSelectOption key={p.name} value={p.name}>{p.name}</NativeSelectOption>)}
+        </NativeSelect>
+        {selected !== undefined && !isBuiltIn(selected) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete ${selected.name}`}
+            onClick={() => { run(actions.deleteProfile(selected.name), { onSuccess: setSaved }) }}
+          >
+            <Trash2 />
+          </Button>
+        )}
+        {naming === null && (
+          <Button variant="secondary" size="sm" onClick={() => { setNaming("") }}>
+            <Save /> Save as…
+          </Button>
+        )}
+      </div>
+      {naming !== null && (
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            save(naming)
+          }}
+        >
+          <Input
+            aria-label="Profile name"
+            placeholder="Name, e.g. Living room TV"
+            maxLength={40}
+            autoFocus
+            value={naming}
+            onChange={(event) => { setNaming(event.target.value) }}
+          />
+          <Button type="submit" size="sm">Save</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setNaming(null) }}>Cancel</Button>
+        </form>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {selected === undefined ? "Your own mix of settings. Save it to come back to it." : profileSummary(selected)}
+      </p>
+    </div>
+  )
+}
 
 // ---------- Picture ----------
 

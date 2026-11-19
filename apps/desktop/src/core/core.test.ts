@@ -276,6 +276,7 @@ describe("CoreLive", () => {
       const fake = fakeBridge({
         psn_login: Effect.succeed(null),
         stop_stream: Effect.succeed(null),
+        sleep_console: Effect.succeed(null),
         set_login_pin: Effect.succeed(null),
         set_render_params: Effect.succeed(null),
       })
@@ -283,11 +284,13 @@ describe("CoreLive", () => {
         const core = yield* Core
         yield* core.psnLogin
         yield* core.stopStream
+        yield* core.sleepConsole
         yield* core.setLoginPin("1234")
         yield* core.setRenderParams(picture)
         expect(fake.calls).toEqual([
           { command: "psn_login", args: undefined },
           { command: "stop_stream", args: undefined },
+          { command: "sleep_console", args: undefined },
           { command: "set_login_pin", args: { pin: "1234" } },
           { command: "set_render_params", args: { params: picture } },
         ])
