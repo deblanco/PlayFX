@@ -599,6 +599,34 @@ export const onStreamEvent = (handler: (event: StreamEvent) => void): Effect.Eff
 
 export const statsInterval = "1 second"
 
+/** How long the stream may go without a new frame before the picture counts as stopped. The console sends
+ * frames all the time, even for a still scene; recovering from a lost frame normally takes under a second. */
+export const stallAfterMs = 5_000
+
+/** Watches a connected stream's decoded frames and returns once none has come for `stallAfterMs`: the video
+ * stopped getting through (seen live: 95% of it lost, the keyframe asked for never arriving whole) while the
+ * session, and its sound, went on. Polls that fail count as no new frame. */
+export const watchForStall: Effect.Effect<void, never, Core> = Effect.gen(function* () {
+  const core = yield* Core
+  let frames = -1
+  let since = yield* Clock.currentTimeMillis
+  for (;;) {
+    yield* Effect.sleep(statsInterval)
+    const now = yield* Clock.currentTimeMillis
+    const decoded = yield* core.rendererStatus.pipe(
+      Effect.map((status) => status.stream.framesDecoded ?? 0),
+      Effect.orElseSucceed(() => frames),
+    )
+    if (decoded !== frames) {
+      frames = decoded
+      since = now
+    } else if (now - since >= stallAfterMs) {
+      yield* Effect.logWarning(`No new frame for ${String(Math.round((now - since) / 1000))} s; the picture stopped`)
+      return
+    }
+  }
+})
+
 /** Polls the renderer every second, reporting the HUD stats line; failed polls are skipped. */
 /** The HUD's line and the stats panel's rows, refreshed every second. */
 export interface LiveStats {

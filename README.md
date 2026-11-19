@@ -15,6 +15,9 @@ adaptive triggers, touchpad and motion.
 
 - **Connect:** finds consoles on the local network, wakes them from rest, pairs with a PIN, and plays
   over the internet through PSN when the local network can't reach the console.
+- **Reconnects on its own:** when the connection drops, when the Mac changes network, and when the picture
+  stops while the stream goes on (no new frame for 5 s, sound still playing: the video stopped getting
+  through). Up to 3 times in a row; then it goes home and says why.
 - **Video:** H.264 and HEVC decoded with VideoToolbox, then a Metal picture pipeline: artifact clean-up,
   MetalFX spatial upscaling (optional Apple ML super-resolution first), CAS sharpening, color-managed
   output, HEVC HDR10 shown in EDR, frame pacing on a stream clock and optional frame interpolation

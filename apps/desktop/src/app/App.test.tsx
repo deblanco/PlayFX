@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Effect } from "effect"
+import { TestClock } from "effect/testing"
 import { toast } from "sonner"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CoreError } from "@/core/errors"
@@ -22,8 +23,8 @@ const consoleItem = async (name = "Living Room") => {
 
 /** Renders the app with a paired, ready console and starts streaming it. */
 /** Plays the paired console; `connected` also reports the stream as up (otherwise it stays connecting). */
-const startStreaming = async (core = fakeCore(), { connected = true } = {}) => {
-  const app = renderApp(core, { accountId, paired: [pairedPs5] })
+const startStreaming = async (core = fakeCore(), { connected = true, testClock = false } = {}) => {
+  const app = renderApp(core, { accountId, paired: [pairedPs5] }, { testClock })
   const item = await consoleItem()
   await userEvent.click(item.getByRole("button", { name: "Play" }))
   await screen.findByRole("button", { name: "Stop" })
@@ -907,6 +908,21 @@ describe("streaming", () => {
       expect(screen.getByRole("banner")).not.toHaveTextContent("Reconnecting")
     })
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument()
+  })
+
+  it("reconnects on its own when the picture stops while the stream goes on", async () => {
+    const core = fakeCore()
+    core.state.status = status({ framesDecoded: 100 }) // and never more: the video stopped getting through
+    const { runtime } = await startStreaming(core, { testClock: true })
+    vi.mocked(core.service.startStream).mockClear()
+    const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
+    await wait(4)
+    expect(core.service.startStream).not.toHaveBeenCalled() // not yet: a lost frame recovers within a second
+    await wait(3)
+    expect(screen.getByRole("banner")).toHaveTextContent("The picture stopped. Reconnecting…")
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
   })
 
   it("gives up after repeated drops and goes home with the reason", async () => {

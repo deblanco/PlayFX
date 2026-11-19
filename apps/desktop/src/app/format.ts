@@ -199,12 +199,20 @@ export const psnDeviceIds = (
     }),
   )
 
-/** Why a stream is being (re)started: new stream settings, a lost connection, or a console that was
- * still busy when the stream first started (e.g. just woken, or just after another session). */
-export type Reconnecting = false | "apply" | "dropped" | "starting" | "network"
+/** Why a stream is being (re)started: new stream settings, a lost connection, a picture that stopped while
+ * the session went on, or a console that was still busy when the stream first started (e.g. just woken, or
+ * just after another session). */
+export type Reconnecting = false | "apply" | "dropped" | "stalled" | "starting" | "network"
 
 /** How many automatic reconnects in a row (without a stable minute in between) before giving up. */
 export const maxAutoReconnects = 3
+
+/** What to do when the picture stopped while the session goes on: reconnect, unless the automatic
+ * reconnects in a row are used up. */
+export const afterStall = (session: { readonly autoReconnects: number }): "reconnect" | "end" =>
+  session.autoReconnects < maxAutoReconnects ? "reconnect" : "end"
+
+export const stallMessage = "The picture stopped and reconnecting didn't bring it back. Check your network and try again."
 
 /** libchiaki's reason when the console can't be reached on the local network at all. */
 export const unreachableReason = "Unknown Session Request Error"
@@ -353,6 +361,8 @@ export const connectionTitle = (reconnecting: Reconnecting, consoleName: string)
   switch (reconnecting) {
     case "dropped":
       return `Connection lost. Reconnecting to ${consoleName}`
+    case "stalled":
+      return `The picture stopped. Reconnecting to ${consoleName}`
     case "network":
       return `Your network changed. Reconnecting to ${consoleName}`
     case "apply":

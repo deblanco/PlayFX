@@ -244,6 +244,8 @@ export const StreamView = ({
         >
           {reconnect.reconnecting === "dropped"
             ? "Connection lost. Reconnecting…"
+            : reconnect.reconnecting === "stalled"
+              ? "The picture stopped. Reconnecting…"
             : reconnect.reconnecting === "network"
               ? "Network changed. Reconnecting…"
             : reconnect.reconnecting === "apply"

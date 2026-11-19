@@ -8,6 +8,7 @@ import {
   bitrateLabel,
   framesPerSecond,
   afterQuit,
+  afterStall,
   maxAutoReconnects,
   megabitsPerSecond,
   mlApplies,
@@ -180,6 +181,14 @@ describe("psnDeviceIds", () => {
   })
 })
 
+describe("afterStall", () => {
+  it("reconnects a stopped picture until the automatic reconnects are used up", () => {
+    expect(afterStall({ autoReconnects: 0 })).toBe("reconnect")
+    expect(afterStall({ autoReconnects: maxAutoReconnects - 1 })).toBe("reconnect")
+    expect(afterStall({ autoReconnects: maxAutoReconnects })).toBe("end")
+  })
+})
+
 describe("afterQuit", () => {
   const live = { connected: true, reconnecting: false, autoReconnects: 0 } as const
   const dropped = { type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" } as const
@@ -326,6 +335,7 @@ describe("connecting screen", () => {
   it("names what's happening", () => {
     expect(connectionTitle(false, "PS5")).toBe("Connecting to PS5")
     expect(connectionTitle("dropped", "PS5")).toBe("Connection lost. Reconnecting to PS5")
+    expect(connectionTitle("stalled", "PS5")).toBe("The picture stopped. Reconnecting to PS5")
     expect(connectionTitle("apply", "PS5")).toBe("Reconnecting to PS5 with the new settings")
     expect(connectionTitle("starting", "PS5")).toBe("PS5 is finishing its last session")
     expect(connectionTitle("network", "PS5")).toBe("Your network changed. Reconnecting to PS5")

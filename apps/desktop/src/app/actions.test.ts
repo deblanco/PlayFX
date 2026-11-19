@@ -223,6 +223,38 @@ describe("streaming", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("notices when the picture stops while the stream goes on", () => {
+    let broken = false
+    const core = fakeCore()
+    const service = core.service
+    const { layer } = setup(
+      fakeCore({
+        rendererStatus: Effect.suspend(() =>
+          broken ? Effect.fail(new CoreError({ command: "renderer_status", message: "gone" })) : service.rendererStatus,
+        ),
+      }),
+    )
+    return Effect.gen(function* () {
+      let frames = 0
+      core.state.status = status({ framesDecoded: frames })
+      const fiber = yield* Effect.forkChild(actions.watchForStall)
+      // Frames keep coming (even with a poll failing now and then): no stall.
+      for (let second = 0; second < 8; second++) {
+        frames += 60
+        core.state.status = status({ framesDecoded: frames })
+        broken = second === 3
+        yield* TestClock.adjust("1 second")
+      }
+      broken = false
+      expect(fiber.pollUnsafe()).toBeUndefined()
+      // Then none for 5 s: reported once, and the watch ends.
+      yield* TestClock.adjust("4 seconds")
+      expect(fiber.pollUnsafe()).toBeUndefined()
+      yield* TestClock.adjust("2 seconds")
+      expect(fiber.pollUnsafe()).toBeDefined()
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("polls stats every second, computing fps and skipping failed polls", () => {
     let broken = false
     const core = fakeCore()

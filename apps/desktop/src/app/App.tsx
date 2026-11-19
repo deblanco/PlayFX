@@ -14,12 +14,14 @@ import * as actions from "./actions"
 import { patchSettings, useDevControl } from "./devControl"
 import {
   afterQuit,
+  afterStall,
   microphoneProblem,
   quitMessage,
   streamOptions,
   type Capabilities,
   type MicState,
   type Reconnecting,
+  stallMessage,
 } from "./format"
 import { Home } from "./Home"
 import { useRun, useRuntime } from "./runtime"
@@ -149,7 +151,7 @@ export const App = () => {
       ...session,
       mic: "off", // the new session starts without it
       reconnecting: why,
-      autoReconnects: session.autoReconnects + (why === "dropped" ? 1 : 0),
+      autoReconnects: session.autoReconnects + (why === "dropped" || why === "stalled" ? 1 : 0),
     })
     // A reconnect already under way is interrupted first and only then the new attempt starts (which
     // replaces any session itself). Cancelling it on the side (interrupt, then stop) raced the new attempt:
@@ -235,6 +237,20 @@ export const App = () => {
         break
     }
   })
+
+  // The picture can stop while the session goes on (its video no longer getting through, sound still
+  // playing): reconnect, as for a dropped connection. Watched while connected and not already reconnecting.
+  const onStall = useEffectEvent(() => {
+    if (session?.reconnecting !== false) return
+    if (afterStall(session) === "reconnect") reconnect("stalled")
+    else fail(session, Option.some(stallMessage))
+  })
+  const watchingPicture = session?.connected === true && session.reconnecting === false
+  useEffect(() => {
+    if (!watchingPicture) return
+    const fiber = runtime.runFork(Effect.andThen(actions.watchForStall, Effect.sync(() => { onStall() })))
+    return () => { runtime.runFork(Fiber.interrupt(fiber)) }
+  }, [watchingPicture, runtime])
 
   // Subscribed for the app's lifetime: the console can ask for the login PIN or quit before
   // start_stream has even replied, and Tauri doesn't buffer events for late listeners.

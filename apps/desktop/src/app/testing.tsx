@@ -3,6 +3,7 @@ import { Effect, Layer, Option } from "effect"
 import { vi } from "vitest"
 import { Core } from "@/core/core"
 import { memoryStore, PreferencesLive } from "@/core/preferences"
+import { TestClock } from "effect/testing"
 import { makeAppRuntime, type AppRuntime } from "@/core/runtime"
 import type {
   Credentials,
@@ -204,11 +205,16 @@ export const storedPrefs = ({ accountId: id, paired, settings }: StoredPrefs = {
 
 export const prefsLayer = (prefs: StoredPrefs = {}) => PreferencesLive.pipe(Layer.provide(memoryStore(storedPrefs(prefs))))
 
-export const testRuntime = (core: FakeCore, prefs: StoredPrefs = {}): AppRuntime =>
-  makeAppRuntime(Layer.mergeAll(core.layer, prefsLayer(prefs)))
+/** `testClock`: the app's time only moves with `TestClock.adjust` (for timeouts measured in seconds). */
+export const testRuntime = (core: FakeCore, prefs: StoredPrefs = {}, { testClock = false } = {}): AppRuntime =>
+  makeAppRuntime(
+    testClock
+      ? Layer.mergeAll(core.layer, prefsLayer(prefs), TestClock.layer())
+      : Layer.mergeAll(core.layer, prefsLayer(prefs)),
+  )
 
-export const renderApp = (core: FakeCore, prefs: StoredPrefs = {}) => {
-  const runtime = testRuntime(core, prefs)
+export const renderApp = (core: FakeCore, prefs: StoredPrefs = {}, options: { readonly testClock?: boolean } = {}) => {
+  const runtime = testRuntime(core, prefs, options)
   return {
     runtime,
     ...render(
