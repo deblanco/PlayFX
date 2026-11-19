@@ -10,6 +10,9 @@
 #        xcrun notarytool store-credentials playfx --key AuthKey_<KEYID>.p8 --key-id <KEYID> --issuer <ISSUER>
 #      then delete the .p8; the profile keeps the key in the keychain.
 #
+# Nothing ships below the coverage floor: every package's tests and coverage gates (≥ 80% lines and
+# functions everywhere, branches too in TypeScript) run first, and any failure stops the release.
+#
 # Usage: scripts/release.sh            (SIGNING_IDENTITY / NOTARY_PROFILE override the defaults)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -22,6 +25,12 @@ IDENTITY="${SIGNING_IDENTITY:-$(security find-identity -v -p codesigning \
   | grep -o "\"Developer ID Application: [^\"]*($TEAM_ID)\"" | tr -d '"' | head -1)}"
 [[ -n "$IDENTITY" ]] || { echo "release: no Developer ID Application certificate found (see setup above)" >&2; exit 1; }
 echo "Signing as: $IDENTITY"
+
+echo "Tests and coverage (a release needs >= 80% in every package)…"
+packages/streamcore/scripts/coverage.sh --no-parallel   # Swift: lines, functions
+bun run --cwd apps/desktop check                        # TypeScript: tsc, ESLint, lines/branches/functions
+bun run --cwd apps/desktop coverage:rust                # Rust: lines, functions
+echo "Coverage gates passed."
 
 VERSION="$(python3 -c 'import json; print(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["version"])')"
 APPLE_SIGNING_IDENTITY="$IDENTITY" bun run desktop:build

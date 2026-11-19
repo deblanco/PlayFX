@@ -319,7 +319,7 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
   `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
   Terminal), `.app` + `.dmg` (7.3 MB). The binary links only system libraries (`/usr/lib/swift` is part of
-  macOS 13+). `scripts/release.sh` signs with the "Developer ID Application: BLANK HEXADECIMAL SL (K579SJ8947)" identity (in the login keychain), notarizes
+  macOS 13+). `scripts/release.sh` first runs every package's tests and coverage gates (stops below 80%), then signs with the "Developer ID Application: BLANK HEXADECIMAL SL (K579SJ8947)" identity (in the login keychain), notarizes
   the DMG with the `playfx` notarytool keychain profile, staples and checks it with Gatekeeper.
 - ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): libchiaki built once
   per submodule commit + script (cached right after building), Swift tests one at a time + coverage,

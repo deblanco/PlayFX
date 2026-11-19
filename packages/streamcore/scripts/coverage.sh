@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the tests with coverage and reports it for Sources/StreamCore (gated: line coverage must be
+# Runs the tests with coverage and reports it for Sources/StreamCore (gated: line and function coverage must be
 # at least $MIN_COVERAGE, default 80) and, for information, the Sources/CChiaki C shim.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -28,11 +28,19 @@ echo "== CChiaki (C shim, informational) =="
 report Sources/CChiaki/psrp.c
 
 # TOTAL row: Filename Regions Missed Cover Functions Missed Executed Lines Missed Cover [Branches ...]
-LINES="$(report Sources/StreamCore | awk '/^TOTAL/ { print $10 }' | tr -d '%')"
+# Lines and functions are gated; SwiftPM records no branch coverage for Swift.
+TOTAL="$(report Sources/StreamCore | awk '/^TOTAL/')"
+LINES="$(echo "$TOTAL" | awk '{ print $10 }' | tr -d '%')"
+FUNCTIONS="$(echo "$TOTAL" | awk '{ print $7 }' | tr -d '%')"
 echo
-if awk -v c="$LINES" -v m="$MIN_COVERAGE" 'BEGIN { exit !(c + 0 >= m + 0) }'; then
-  echo "StreamCore line coverage ${LINES}% (>= ${MIN_COVERAGE}%)"
-else
-  echo "StreamCore line coverage ${LINES}% is below ${MIN_COVERAGE}%" >&2
-  exit 1
-fi
+status=0
+for metric in "line:$LINES" "function:$FUNCTIONS"; do
+  name="${metric%%:*}"; value="${metric#*:}"
+  if awk -v c="$value" -v m="$MIN_COVERAGE" 'BEGIN { exit !(c + 0 >= m + 0) }'; then
+    echo "StreamCore $name coverage ${value}% (>= ${MIN_COVERAGE}%)"
+  else
+    echo "StreamCore $name coverage ${value}% is below ${MIN_COVERAGE}%" >&2
+    status=1
+  fi
+done
+exit $status
