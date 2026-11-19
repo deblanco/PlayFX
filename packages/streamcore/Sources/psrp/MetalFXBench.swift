@@ -30,7 +30,8 @@ final class MetalFXInterpolatorBench {
         self.height = height
         flowWidth = Int((Double(width) * flowScale).rounded()) & ~1
         flowHeight = Int((Double(height) * flowScale).rounded()) & ~1
-        self.motionScale = motionScale ?? Float(width) / Float(flowWidth)
+        // Motion is in pixels of the motion texture (measured by MacNativeGames' MetalFX probe), so no rescale.
+        self.motionScale = motionScale ?? 1
         guard MTLFXFrameInterpolatorDescriptor.supportsDevice(device),
               let config = VTOpticalFlowConfiguration(frameWidth: flowWidth, frameHeight: flowHeight,
                                                       qualityPrioritization: .normal, revision: VTOpticalFlowConfiguration.defaultRevision),
