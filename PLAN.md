@@ -3,7 +3,7 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated by the build session that got end-to-end streaming working on real hardware.
+Last updated 2026-11-19, after the frame-interpolation, network and project-wide review work.
 
 ---
 
@@ -39,13 +39,17 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Audio: Opus decode → low-latency `AVAudioEngine` with a jitter buffer.
 - Input: DualSense/DualShock/Xbox/MFi via the GameController framework.
 - **Keyboard-as-controller** (testing without a pad): the web UI captures keys and forwards a
-  controller state through `sc_session_set_controller`; mapping is a pure, tested function
-  (`src/app/keyboard.ts`), with an in-HUD key legend. The headless `psrp` CLI also drives input
-  via its `/press`, `/hold`, `/stick` control API.
+  controller state through `sc_session_set_controller`, which StreamCore merges with the pad's
+  (`ControllerInput.setKeys`); mapping is a pure, tested function (`src/app/keyboard.ts`), with an in-HUD
+  key legend. It's the only keyboard path: StreamCore's own GameController keyboard reading was removed
+  (it ignored text fields and dialogs). The headless `psrp` CLI also drives input via its `/press`,
+  `/hold`, `/stick` control API.
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
-- Credentials kept client-side (webview `localStorage`); PSN login via Sony's own page.
-- Tests + gates: TS 130 tests (100% lines), Swift 58 tests (95%), Rust 31 tests (86%),
-  strict `tsc`/ESLint, `@effect/vitest`. Per-language `coverage.sh`.
+- Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
+  login via Sony's own page.
+- Tests + gates (2026-11-19): TS 287 tests (97% lines), Swift 197 tests (87% lines; 83% as CI's VM sees
+  it), Rust 51 tests (89% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`. Each
+  package's gate fails below 80%; CI runs them all on every push.
 - Ops: local rest-mode watchdog (`~/.config/psrp/rest-watchdog.sh`), auto-sleep after 2 h idle.
 
 ---
@@ -196,6 +200,15 @@ Work items:
   - Bench, live on Sidecar: 30 fps in → 57–59 shown/s with jitter, about 40–45 ms delay.
   - MetalFX frame interpolation was measured (zero motion, media-engine motion, optical flow) and isn't
     worth its GPU time. See [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md).
+  - **Blank images found and fixed:** VideoToolbox writes all-zero (green) images at sizes whose sides
+    aren't multiples of 16 on its fast path (960×540, 854×480, 640×360), so 540p streams only ever got
+    partly green in-between images. Small sizes are now rounded down (540p works at 960×528) and scaled
+    back; the blank check looks at VideoToolbox's own output, before the still-area blend that hid it.
+  - The lane takes its engine as a parameter (VideoToolbox in the app, stand-ins in tests), so its logic
+    is tested in CI's VM too.
+  - Review fixes: the size climbs back up after a spike; a late in-between image never shows after a
+    newer one; the clock starts over after a second of frames running more than two intervals late;
+    the extra delay only while images are being made; 10-bit HDR frames aren't sent to the lane.
   - Not yet checked on the PS5.
 - ✅ **Network** (requested): see [docs/NETWORK.md](docs/NETWORK.md).
   - **Cause found:** AirDrop and Handoff (AWDL) stall the Mac's Wi-Fi about 90 ms every second. Pings to
@@ -207,10 +220,12 @@ Work items:
   - **Threads:** libchiaki's receive and input threads run at user-interactive QoS.
   - **Result** (1080p60, AWDL on): lateness behind the stream clock went from 219–555 ms to 9.5 ms, and
     lost frames from 2–15 to 0.
+  - The pacing clock now re-anchors when lateness stays high (it used to grow without bound).
   - **Open:**
-    - the pacing clock should re-anchor when lateness stays high;
     - the 33 ms reorder wait from PR #817 is untested;
-    - the stream with Steady Wi-Fi on hasn't been measured yet.
+    - the stream with Steady Wi-Fi on hasn't been measured (only pings were);
+    - a warning in the app when the once-a-second Wi-Fi stall pattern shows (not built);
+    - offer the packet-loss wrap fix upstream to chiaki-ng (not sent).
 
 ### P1 — making a stream feel complete
 
@@ -220,7 +235,8 @@ Work items:
   ends. **It never played before**: on macOS 27 gamecontrollerd rejects patterns sent for an *advanced*
   (looping) player — `AVHapticEvent` isn't in its allowed XPC classes, so it drops the connection (error
   4097). Now a plain player runs one 30 s continuous event, its intensity follows the console through
-  dynamic parameters, and it is replaced every 25 s while rumbling. Engine failures are logged.)*
+  dynamic parameters, and it is replaced every 25 s while rumbling. Engine failures are logged. Felt in a
+  game on 2026-11-19, which found the non-stop rumble below.)*
 - 🔶 **Adaptive triggers** (DualSense). *(**felt on a DualSense over Bluetooth** with `psrp pad`: feedback,
   weapon, and raw console effects through the decoder (0x25 weapon, 0x26 vibration) all play; in a game
   unverified. The console's vibration frequency (Hz) is mapped to GameController's 0–1 as Hz/255, a guess
@@ -234,9 +250,12 @@ Work items:
   the DualSense's voice-coil motors with a haptics audio stream instead of rumble events, so pads got
   nothing in those games. The shim now takes libchiaki's haptics sink and, as chiaki-ng does for pads
   that can't play it (GameController can't take raw haptic audio), turns each 10 ms frame into rumble
-  strengths (mean |sample| per channel, noise floor), reported only when they change, through the
-  existing rumble path. Seen live in Silent Hill 2: 44 rumble updates in ~10 s of play (`psrp /status`
-  now counts them). A pad in hand is needed to judge the feel.
+  strengths (mean |sample| per channel, noise floor). Seen live in Silent Hill 2: 44 rumble updates in
+  ~10 s of play (`psrp /status` now counts them). **Fixed 2026-11-19: the pad rumbled non-stop.** When
+  an effect ends the console stops sending haptics packets instead of sending silence, so no zero level
+  ever came. Haptics-made rumble is now its own event (`PSRP_EVENT_HAPTIC_RUMBLE`), repeated every 50 ms
+  while packets keep coming, and stopped 150 ms after the last one; the console's own rumble messages
+  still last until it ends them. The feel in a game still needs judging.
 - 🔶 **Touchpad + motion.** *(touchpad built, **unverified on hardware**: the shim takes a struct-based
   controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
   DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new
@@ -408,17 +427,47 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   `$PSRP_TOKEN_FILE`) instead of the Keychain, which would prompt after every rebuild of an unsigned
   build — unanswerable when developing remotely. Release builds use the Keychain.
 
+### Stability, CI and the project-wide review (2026-11-19)
+
+- ✅ **Crash about two minutes into a stream:** the session's event handler was kept in a lock's state and
+  re-wrapped in two conversion thunks on every event, until a few thousand haptics events overflowed the
+  receive thread's stack. Boxed in a class; a test checks the call depth stays constant.
+- ✅ **CI was red** from the pacing work on: a test assumed a second frame shows at once (true before the
+  stream clock), and Swift coverage in CI's VM was 76% (the interpolation lane never ran there).
+  `STREAMCORE_SIMULATE_VM=1` shows locally what CI's coverage sees.
+- ✅ **Project-wide review** (four reviewers, every file read in full), all findings fixed:
+  - *Security:* the PSN sign-in window could call every app command, secrets included (an app manifest
+    now grants them to the main window only, and the window stays on Sony's sign-in hosts); a
+    Content-Security-Policy; both debug control ports want a custom header and a local Host (any web page
+    could press buttons); pairing keys are written through an exclusive 0600 temp file.
+  - *Data loss:* settings are read field by field and profiles one by one; pairings that don't decode are
+    written back untouched; a temporary PSN error no longer signs you out; a secrets file that doesn't
+    decode is never written over; pairing writes are serialized.
+  - *Crashes and stalls:* the microphone's permission prompt answered after a stream ended no longer
+    feeds a freed session; audio engine changes are serialized; slow PSN/Keychain/discovery calls run on
+    the blocking pool, not the async workers.
+  - *Input:* key presses and releases stay in order; ⌘ shortcuts release held keys; the keyboard
+    controller is off in the rest-mode dialog and before the stream is up; double-click fullscreen only on
+    the video; the Fullscreen button reads the window's real state.
+  - *Picture:* HDR highlights are no longer clipped to SDR white by sharpening or clean-up; 10-bit range
+    constants (white exactly 1.0).
+- **Behaviour changes users will notice:** the keyboard's PS button is **P** (it was H in the removed
+  StreamCore path); Sound → "System default" follows macOS when its output changes; the dev control port
+  needs `-H 'X-PlayFX-Dev: 1'` and `psrp`'s control API `-H 'X-PSRP: 1'`.
+- 🔶 Not covered by a test: the reconnect race fix, and the audio output following the system default.
+
 ## 3. Known issues / tech debt
 
-- 🔶 **Swift tests under Command Line Tools**: `swift test` reports 0 tests on this machine
-  (no full Xcode); `scripts/coverage.sh` runs the 58 tests correctly. Installing Xcode fixes
-  `swift test` and unblocks the iOS target.
-- 🔶 **Rust coverage tooling** had to be bootstrapped by hand (rustup not on PATH, llvm-tools);
-  see `apps/desktop/src-tauri/scripts/coverage.sh`. Document it in CI.
-- 🔶 `preferences.ts` has one unreachable branch (88.9% branch) — the `if (p)` guard in
-  `refreshAddresses`. Harmless; left as-is.
+- ℹ️ **Swift tests**: run them with `packages/streamcore/scripts/test.sh` or `coverage.sh`, which pass
+  swift-testing's framework path (a bare `swift test` under the Command Line Tools runs none). Full
+  Xcode is installed on this Mac now.
+- ✅ **Rust coverage tooling**: `bun run coverage:rust` runs `src-tauri/scripts/coverage.sh` (tests and
+  `main.rs` excluded), locally, in CI and in `release.sh`. Branch coverage needs nightly, so Rust gates
+  lines and functions only.
 - 🔶 `renderer_status` returns `stream: null` when stats JSON can't be parsed, which surfaces as a
   `CoreError`. Decide whether to soften this.
+- 🔶 **Notarization**: the first release build was submitted on 2026-11-19 and was still "In Progress" at
+  Apple when last checked (`xcrun notarytool history --keychain-profile playfx`).
 - 🔶 **Linker warnings**: vendored static libs built for a newer macOS than the 13.0 deployment
   target. Harmless; silence by building the deps at the target version.
 - 🔶 **FFI safety**: the Rust↔Swift boundary (CString lifetimes, `sc_free` once, main-thread
@@ -433,8 +482,14 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 
 0. ~~Picture quality & full stream configuration, Q1 → Q7~~ (done). *(P1, requested)*
 1. ~~Auto-wake on Play~~ (done). *(P0)*
-2. Reconnect/resilience + clear quit-reason UI. *(P0)*
-3. Remote Play over the internet (hole-punching) — the headline feature. *(P0)*
-4. Rumble + adaptive triggers + touchpad/motion. *(P1)*
-5. Keychain credential storage. *(P2)* (sleep-prevention, fullscreen and cursor: done)
-6. Packaging + AGPL/licensing + CI. *(P4, before any release)*
+2. ~~Reconnect/resilience + clear quit-reason UI~~ (done). *(P0)*
+3. Remote Play over the internet: built and verified from the home network; **a run from another network
+   (phone hotspot) is left**. *(P0)*
+4. Rumble + adaptive triggers + touchpad/motion: built; **feel and motion axes in a game are left**. *(P1)*
+5. ~~Keychain credential storage~~ (done). *(P2)*
+6. Packaging + AGPL/licensing + CI: done; **notarization result pending, then a public release** (make the
+   repo public with it). *(P4)*
+7. On the PS5: frame interpolation (30 fps on 60 Hz, then 60 on 120 Hz), and a stream measured with Steady
+   Wi-Fi on.
+8. Smaller follow-ups: the Wi-Fi stall warning, the PR #817 reorder-wait test, the chiaki-ng upstream PR,
+   echo cancellation for the microphone, audio jitter-buffer tuning.
