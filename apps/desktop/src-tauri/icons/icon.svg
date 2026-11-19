@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- PlayFX app icon: an upright P with FX leaning forward in front of it, in a four-colour split.
+       Source for every size: `bun tauri icon (in apps/desktop)` after
+       rendering this file to icon.png with rsvg-convert at 1024 px. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2a2e3a"/>
+      <stop offset="1" stop-color="#0e0f14"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <!-- Faint noise so the background gradient doesn't band -->
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7"/>
+      <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.05 0"/>
+    </filter>
+    <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+    <!-- FX, drawn at the origin: F 0–190, X 225–425, 260 tall -->
+    <g id="fx-shape">
+      <path d="M0,0 H190 V64 H70 V100 H160 V160 H70 V260 H0 Z"/>
+      <path d="M225,0 H297 L425,260 H353 Z"/>
+      <path d="M353,0 H425 L297,260 H225 Z"/>
+    </g>
+    <!-- The gap where FX passes in front of the P -->
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <use href="#fx-shape" transform="translate(400,500) skewX(-12)" fill="#000" stroke="#000"
+           stroke-width="34" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  </g>
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#rim)"/>
+    <rect x="100" y="100" width="824" height="824" filter="url(#grain)"/>
+
+    <!-- P, upright -->
+    <path fill="#E8343B" fill-rule="evenodd" mask="url(#cut)"
+          d="M250,262 H452 A148,148 0 0 1 452,558 H352 V762 H250 Z
+             M352,352 H446 A58,58 0 0 1 446,468 H352 Z"/>
+
+    <!-- FX, leaning forward, cut out of the P by the mask -->
+    <g transform="translate(400,500) skewX(-12)">
+      <path fill="#F6B81A" d="M0,0 H190 V64 H70 V100 H160 V160 H70 V260 H0 Z"/>
+      <path fill="#19B394" d="M225,0 H297 L425,260 H353 Z"/>
+      <path fill="#2F6FDE" d="M353,0 H425 L297,260 H225 Z"/>
+    </g>
+  </g>
+</svg>
