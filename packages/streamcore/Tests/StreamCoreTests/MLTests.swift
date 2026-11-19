@@ -44,12 +44,8 @@ extension StreamRendererTests {
         r.params.sharpness = 0
         r.display(try mlFrame(width: 1280, height: 720))
         let out = try render(r, size: (2560, 1440))
-        #expect(r.mlActive == r.mlSupported || isVirtualMachine)
-        // GitHub's runners are VMs: the ML scaler reports itself supported there but can't run.
-        guard r.mlActive else { // older macOS, an unsupported Mac or a VM: the plain pipeline
-            #expect(r.inputSize == (1280, 720))
-            return
-        }
+        #expect(r.mlActive == r.mlSupported)
+        guard r.mlSupported else { return } // older macOS / unsupported Mac / a VM: plain pipeline
         #expect(r.inputSize == (1920, 1080)) // 1.5× before the rest of the pipeline
         // Flat areas keep their brightness through the model.
         #expect(abs(pixel(out, width: 2560, x: 300, y: 700).g - 86) <= 6, "\(pixel(out, width: 2560, x: 300, y: 700))")
@@ -98,8 +94,7 @@ extension StreamRendererTests {
         r.params.compare = true
         r.display(try mlFrame(width: 1280, height: 720))
         let out = try render(r, size: (2560, 1440))
-        #expect(r.mlActive || isVirtualMachine)
-        guard r.mlActive else { return }
+        #expect(r.mlActive)
         // Left half: the raw stream (dark); right half: processed (light) — split at the center line.
         #expect(abs(pixel(out, width: 2560, x: 300, y: 700).g - 86) <= 6)
         #expect(abs(pixel(out, width: 2560, x: 2200, y: 700).g - 168) <= 6)

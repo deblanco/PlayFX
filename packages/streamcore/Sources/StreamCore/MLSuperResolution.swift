@@ -9,7 +9,10 @@ import VideoToolbox
 final class MLSuperResolution {
     /// Whether this OS and Mac can run it at all.
     static var isAvailable: Bool {
-        if #available(macOS 26.0, iOS 26.0, *) { return VTLowLatencySuperResolutionScalerConfiguration.isSupported }
+        // Not in a virtual machine: VideoToolbox reports it supported there, but it never runs.
+        if #available(macOS 26.0, iOS 26.0, *) {
+            return !isVirtualMachine && VTLowLatencySuperResolutionScalerConfiguration.isSupported
+        }
         return false
     }
 
