@@ -2,7 +2,7 @@ import Foundation
 
 // Frame pacing: when each decoded (or generated) image goes on screen. Frames are shown by a clock built
 // from their stream index, not when they happen to arrive, so network jitter neither drops nor bunches
-// them. Pure value types with time passed in; the renderer owns them. See docs/frame-interpolation.md.
+// them. Pure value types with time passed in; the renderer owns them. See docs/FRAME_INTERPOLATION.md.
 
 /// Timestamps for stream frames from their index and arrival (in seconds, on the host clock).
 ///

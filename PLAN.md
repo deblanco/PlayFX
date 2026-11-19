@@ -165,7 +165,7 @@ Work items:
     quit's own cleanup no longer brings back the idle pattern, and is ignored if a newer session started).
   - ℹ️ The dev autoplay harness re-plays when Home remounts (dev-only, harmless).
   - ✅ **View** (requested): the split-screen switch became a three-way choice in Settings → Picture —
-    **Original** (the stream as it arrives: no clean-up, upscaling, sharpening, ML or smooth motion; colors
+    **Original** (the stream as it arrives: no clean-up, upscaling, sharpening, ML or frame interpolation; colors
     kept), **Split** (both halves) and **Enhanced** (the picture settings, the default). Saved; the pipeline
     strip shows every stage off in Original.
   - Note: the split screen now compares *baseline vs. all current picture settings* (upscaler included)
@@ -186,7 +186,17 @@ Work items:
   per frame (6.1 → 11.4 ms median; GPU time barely moves — the model runs off the GPU), so it's **off by
   default** and the UI states the latency. The full (non-low-latency) VT scaler was ruled out: model
   download, cross-frame optical flow, offline-oriented. The compare baseline stays the raw stream.)*
-- Not planned: MetalFX temporal / frame interpolation (need engine motion vectors + depth).
+- Not planned: MetalFX temporal upscaling (needs engine motion vectors + depth).
+- ✅ **Frame interpolation** (was "Smooth motion"; requested): reworked after the benchmark showed it adding
+  nothing (30 fps in, 31 shown).
+  - Frames are shown by a stream clock built from libchiaki's frame index, with an eased, stated delay.
+  - In-between images are made on their own lane (VideoToolbox, Neural Engine), sized to fit the time.
+  - Still areas are blended back; scene cuts and empty outputs are skipped.
+  - Presentations are counted from the presented callback.
+  - Bench, live on Sidecar: 30 fps in → 57–59 shown/s with jitter, about 40–45 ms delay.
+  - MetalFX frame interpolation was measured (zero motion, media-engine motion, optical flow) and isn't
+    worth its GPU time. See [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md).
+  - Not yet checked on the PS5.
 
 ### P1 — making a stream feel complete
 
@@ -233,7 +243,7 @@ Work items:
   (`LSApplicationCategoryType` games, now in the desktop `Info.plist`) it at least stops opening the
   Games app. Keyboard H still sends PS. **Mute** isn't exposed by GameController.
 - ✅ **Settings profiles**: a profile holds the stream and picture settings (resolution, frame rate, codec,
-  bitrate, HDR, view, upscaler, sharpening, cleanup, ML, Smooth motion, colors); app preferences stay put.
+  bitrate, HDR, view, upscaler, sharpening, cleanup, ML, frame interpolation, colors); app preferences stay put.
   Built-in **Recommended** (1080p60 · MetalFX · sharpness 0.3, also what a new install starts with); the
   user saves the current settings under a name, switches, deletes. Settings → Profile; stored in
   `psrp.profiles`. "Custom" when the settings match no profile.
@@ -269,7 +279,7 @@ Work items:
   (rgba16F) textures through clean-up / MetalFX (HDR processing mode) / sharpen, the PQ curve turned into
   light (203 nits = SDR white = 1.0) in BT.2020, and an EDR layer (`extendedLinearITUR_2020`) so highlights
   go brighter than white on XDR / HDR displays (macOS clips beyond the display's headroom). It switches
-  back to SDR for SDR frames or the backdrop. ML upscaling and Smooth motion only take 8-bit frames, so they
+  back to SDR for SDR frames or the backdrop. ML upscaling and frame interpolation only take 8-bit frames, so they
   sit out in HDR. The stats line says "HDR" while it's on. Unit test: a 1000-nit HDR10 frame renders at
   ~4.9× SDR white. `psrp stream --hdr` for CLI checks (`/frameinfo` shows the curve).
 - 🔶 **Login PIN (console passcode) flow.** Plumbed end to end but not verified on a console that

@@ -10,7 +10,7 @@ import VideoToolbox
 /// goes without its image (counted). Per pair: skip across a scene cut; make the image at the size the
 /// renderer asks for (scaling down first and back up after when that is smaller than the frames); then
 /// blend areas that didn't change between the two frames back from them, since generated images are
-/// lossy there (a HUD, subtitles). See docs/frame-interpolation.md.
+/// lossy there (a HUD, subtitles). See docs/FRAME_INTERPOLATION.md.
 final class InterpolationLane {
     struct Image {
         let buffer: CVPixelBuffer

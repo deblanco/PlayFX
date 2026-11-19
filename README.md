@@ -77,6 +77,9 @@ Pairing keys are saved to `~/.config/psrp/config.json`. Keep that file private.
 A development build of the app can also be driven over HTTP (settings, play, button presses, stats)
 with the [dev control port](docs/dev-control.md).
 
+How frame interpolation and frame pacing work, what was measured, and how to bench them without a
+console (`psrp interpolate`, `psrp play`): [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md).
+
 ## License
 
 PlayFX is free software under the [GNU AGPL-3.0](LICENSE). It links
