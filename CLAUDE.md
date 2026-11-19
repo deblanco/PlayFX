@@ -30,7 +30,10 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 - Every package keeps line, branch and function coverage at or above **80%**; the coverage commands
   fail below that. New code ships with tests.
   - TypeScript: `vitest` + `@effect/vitest`, `bun run test:coverage` (thresholds in `vitest.config.ts`).
-  - Swift: `swift test --enable-code-coverage` via `packages/streamcore/scripts/coverage.sh`.
+  - Swift: `swift test --enable-code-coverage` via `packages/streamcore/scripts/coverage.sh`. CI runs in a
+    VM, where VideoToolbox frame interpolation and ML upscaling are off; `STREAMCORE_SIMULATE_VM=1` before
+    the script shows locally what CI's coverage sees. Hardware engines are injected so the logic around
+    them is tested in both.
   - Rust: `cargo llvm-cov` via `bun run --cwd apps/desktop coverage:rust`.
 - Code that can only run against real hardware (a console, a GPU display link, a gamepad) is kept in
   thin adapters; the logic around it is extracted and unit-tested.

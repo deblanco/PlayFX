@@ -92,7 +92,9 @@ public final class FrameInterpolator {
 }
 
 /// Whether this Mac is a virtual machine, where some VideoToolbox processors don't really run.
+/// `STREAMCORE_SIMULATE_VM=1` makes a real Mac behave like one, to see locally what CI's coverage sees.
 let isVirtualMachine: Bool = {
+    if ProcessInfo.processInfo.environment["STREAMCORE_SIMULATE_VM"] == "1" { return true }
     var present: Int32 = 0
     var size = MemoryLayout<Int32>.size
     return sysctlbyname("kern.hv_vmm_present", &present, &size, nil, 0) == 0 && present == 1

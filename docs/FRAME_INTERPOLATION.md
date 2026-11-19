@@ -180,8 +180,14 @@ The rungs are the stream's own size, then 1280×720 and 960×544 where those are
 Each size's model is built by its first image (1–2 s), on the lane's queue, so a change of size costs one
 or two late images rather than a stall.
 
-**Why 960×544, not 960×540:** VideoToolbox's fast path wants both sides a multiple of 16. At 960×540 and
-854×480 it returns success with an all-zero image, which shows as green. Measured:
+**Why 960×544, not 960×540:** VideoToolbox's fast path (at or below 1280×720) wants both sides a multiple
+of 16. At 960×540, 854×480 and 640×360 it returns success with an all-zero image, which shows as green.
+So on the fast path a stream's own size is rounded down too (a 540p stream works at 960×528, 360p at
+640×352), and the lane scales back to the frame's size. 1920×1080, on the slow path, is fine as it is.
+
+The lane checks VideoToolbox's own image for emptiness, before the still-area blend. After the blend,
+still areas come from the real frames and would hide an empty image: a first version checked the blended
+result and let partly green images through. Measured:
 
 | Working size | p50 per image | Output |
 |---|---|---|
@@ -190,6 +196,7 @@ or two late images rather than a stall.
 | 960×544 | 6.6 ms | correct |
 | 960×540 | 0.1 ms | **empty** |
 | 854×480 | 0.1 ms | **empty** |
+| 640×360 | — | **empty** |
 
 ### Counting what reached the screen (`PresentationCounts`)
 

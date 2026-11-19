@@ -121,8 +121,34 @@ extension StreamRendererTests {
     }
 }
 
+/// Stands in for VideoToolbox in the lane's tests: the newer frame as the middle one (or an all-zero image,
+/// or nothing), optionally taking a while.
+final class StandInMaker: MiddleFrameMaker {
+    enum Output { case newer, zeros, none }
+    let output: Output
+    let delay: TimeInterval
+    init(_ output: Output = .newer, delay: TimeInterval = 0) {
+        self.output = output
+        self.delay = delay
+    }
+    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer? {
+        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        switch output {
+        case .newer: return current
+        case .zeros:
+            return try? makeNV12(width: CVPixelBufferGetWidth(current), height: CVPixelBufferGetHeight(current), y: 0, cb: 0, cr: 0)
+        case .none: return nil
+        }
+    }
+}
+
 @Suite struct InterpolationLaneTests {
     let device = MTLCreateSystemDefaultDevice()
+
+    func lane(_ maker: StandInMaker = StandInMaker()) throws -> InterpolationLane {
+        let device = try #require(device)
+        return try #require(InterpolationLane(device: device, engine: { maker }))
+    }
 
     /// A dark 640×360 frame with a bright bar from x (and a fixed textured patch top-left, which never moves).
     func frame(bar x: Int, background: UInt8 = 40) throws -> CVPixelBuffer {
@@ -140,8 +166,7 @@ extension StreamRendererTests {
     }
 
     @Test func makesImagesAwayFromTheCallerKeepingStillAreas() throws {
-        guard FrameInterpolator.isAvailable, let device else { return }
-        let lane = try #require(InterpolationLane(device: device))
+        let lane = try lane()
         var made: [InterpolationLane.Image] = []
         lane.onImage = { made.append($0) }
         let a = try frame(bar: 200), b = try frame(bar: 300)
@@ -157,8 +182,7 @@ extension StreamRendererTests {
     }
 
     @Test func makesSmallerImagesWhenAskedAndScalesThemBack() throws {
-        guard FrameInterpolator.isAvailable, let device else { return }
-        let lane = try #require(InterpolationLane(device: device))
+        let lane = try lane()
         var made: [InterpolationLane.Image] = []
         lane.onImage = { made.append($0) }
         lane.prepare(size: (320, 180))
@@ -176,8 +200,7 @@ extension StreamRendererTests {
     }
 
     @Test func skipsCutsAndPairsWhileBusy() throws {
-        guard FrameInterpolator.isAvailable, let device else { return }
-        let lane = try #require(InterpolationLane(device: device))
+        let lane = try lane(StandInMaker(delay: 0.05)) // slow enough that pairs arrive while busy
         var made = 0
         lane.onImage = { _ in made += 1 }
         lane.submit(previous: try frame(bar: 200, background: 20), current: try frame(bar: 200, background: 230),
@@ -192,5 +215,26 @@ extension StreamRendererTests {
         #expect(accepted < 3 && lane.busyPairs == 3 - accepted)
         lane.resetCounts()
         #expect(lane.busyPairs == 0 && lane.cutPairs == 0)
+    }
+
+    @Test func dropsASizeThatComesOutEmpty() throws {
+        // VideoToolbox can report success and write nothing (at 960×540, say): never shown, size dropped.
+        let lane = try lane(StandInMaker(.zeros))
+        var made = 0
+        lane.onImage = { _ in made += 1 }
+        let a = try frame(bar: 200, background: 0), b = try frame(bar: 220, background: 0) // not a cut
+        #expect(!lane.isBroken((640, 360)))
+        lane.submit(previous: a, current: b, time: 1, size: (640, 360))
+        lane.waitUntilIdle()
+        #expect(made == 0 && lane.isBroken((640, 360)))
+    }
+
+    @Test func anEngineThatGivesNothingGivesNoImage() throws {
+        let lane = try lane(StandInMaker(.none))
+        var made = 0
+        lane.onImage = { _ in made += 1 }
+        lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), time: 1, size: (640, 360))
+        lane.waitUntilIdle()
+        #expect(made == 0 && !lane.isBroken((640, 360)))
     }
 }

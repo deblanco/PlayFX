@@ -104,6 +104,9 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         #expect(RungSelector(width: 1920, height: 1080).rungs.map(\.height) == [1080, 720, 544])
         #expect(RungSelector(width: 1280, height: 720).rungs.map(\.width) == [1280, 960])
         #expect(RungSelector(width: 960, height: 540).rungs.map(\.width) == [960])
+        // Sides not a multiple of 16 come out empty from VideoToolbox: the stream's own size rounds down.
+        #expect(RungSelector(width: 960, height: 540).rungs.map(\.height) == [528])
+        #expect(RungSelector(width: 640, height: 360).rungs.map(\.height) == [352])
     }
 
     @Test func stepsDownAtOnceAndUpOnlyWithRoomAfterAWhile() {

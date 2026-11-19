@@ -157,10 +157,13 @@ struct RungSelector {
     private var blockedUntil: [Int: Double] = [:]
     private var since = 0.0
 
-    /// The rungs for a stream: its own size, then 1280×720 and 960×544 where they are smaller. (The
-    /// Neural Engine's fast path wants both sides a multiple of 16; 960×540 comes out empty.)
+    /// The rungs for a stream: its own size, then 1280×720 and 960×544 where they are smaller. At or below
+    /// 1280×720 (VideoToolbox's fast path) both sides must be a multiple of 16, so a stream's own size is
+    /// rounded down there and the lane scales back to the frame's size: otherwise VideoToolbox writes an empty
+    /// image (measured at 960×540, 854×480 and 640×360; 1920×1080, on the slow path, is fine).
     init(width: Int, height: Int) {
-        var list = [(width, height)]
+        let fastPath = width * height <= 1280 * 720
+        var list = [fastPath ? (width & ~15, height & ~15) : (width, height)]
         for r in [(1280, 720), (960, 544)] where r.0 * r.1 < width * height { list.append(r) }
         rungs = list
     }
