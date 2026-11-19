@@ -28,9 +28,9 @@ jobs:
         id: chiaki-rev
         run: echo "rev=$(git rev-parse HEAD:third_party/chiaki-ng)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache libchiaki
+      - name: Restore libchiaki
         id: chiaki
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             packages/streamcore/vendor
@@ -40,6 +40,16 @@ jobs:
       - name: Build libchiaki
         if: steps.chiaki.outputs.cache-hit != 'true'
         run: packages/streamcore/scripts/build-chiaki.sh
+
+      # Saved right away, so a later failing step doesn't throw away a 10-minute build.
+      - name: Save libchiaki
+        if: steps.chiaki.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            packages/streamcore/vendor
+            packages/streamcore/Sources/CChiaki/include/chiaki
+          key: ${{ steps.chiaki.outputs.cache-primary-key }}
 
       - name: Swift tests and coverage
         run: packages/streamcore/scripts/coverage.sh
