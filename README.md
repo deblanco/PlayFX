@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/desktop/src-tauri/icons/icon.png" alt="PlayFX icon" width="160">
+</p>
+
 # PlayFX
 
 A PS5 / PS4 Remote Play client for macOS. It streams your console to the Mac with hardware HEVC
