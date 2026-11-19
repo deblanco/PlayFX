@@ -135,7 +135,17 @@ public final class StreamSession {
     }
     /// Called from the video thread with every decoded frame.
     /// Each decoded frame with its place in the stream (counting frames lost on the way), for pacing.
-    public var onFrame: ((CVPixelBuffer, UInt64?) -> Void)?
+    /// Set on the main thread after libchiaki has started (its video thread reads it): behind a lock, boxed
+    /// like `onEvent`'s handler.
+    public var onFrame: ((CVPixelBuffer, UInt64?) -> Void)? {
+        get { frameHandler.withLock { $0?.call } }
+        set { frameHandler.withLock { $0 = newValue.map(FrameHandler.init) } }
+    }
+    private final class FrameHandler: @unchecked Sendable {
+        let call: (CVPixelBuffer, UInt64?) -> Void
+        init(_ call: @escaping (CVPixelBuffer, UInt64?) -> Void) { self.call = call }
+    }
+    private let frameHandler = OSAllocatedUnfairLock<FrameHandler?>(initialState: nil)
     /// The index of the last frame handed to the decoder.
     private var frameIndex: UInt64 = 0
 
@@ -172,7 +182,7 @@ public final class StreamSession {
                 _stats.width = CVPixelBufferGetWidth(frame)
                 _stats.height = CVPixelBufferGetHeight(frame)
             }
-            onFrame?(frame, index)
+            frameHandler.withLock { $0 }?.call(frame, index)
         }
 
         var config = PsrpSessionConfig()

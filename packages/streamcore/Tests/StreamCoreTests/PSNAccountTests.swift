@@ -85,6 +85,32 @@ extension Serial {
             #expect(PSNError.signInExpired.errorDescription?.contains("expired") == true)
         }
 
+        @Test func aPassingFailureKeepsTheSignIn() async {
+            // A server error or rate limit says nothing about the refresh token: keep it for the next try.
+            let tokens = PSNTokens(accessToken: "old", refreshToken: "r", expiresAt: start)
+            let (account, store) = account(tokens)
+            await #expect(throws: ConsoleError.self) {
+                try await withStub({ _ in (503, Data(#"{"error":"server_error"}"#.utf8)) }) { try await account.validAccessToken() }
+            }
+            #expect(store.tokens == tokens)
+        }
+
+        @Test func oneRefreshAtATime() async throws {
+            let (account, store) = account(PSNTokens(accessToken: "old", refreshToken: "r", expiresAt: start))
+            var calls = 0
+            let lock = NSLock()
+            let tokens = try await withStub({ _ in
+                lock.withLock { calls += 1 }
+                Thread.sleep(forTimeInterval: 0.1)
+                return (200, Data(#"{"access_token":"new","refresh_token":"r2","expires_in":3600}"#.utf8))
+            }) {
+                async let a = account.validAccessToken()
+                async let b = account.validAccessToken()
+                return try await [a, b]
+            }
+            #expect(tokens == ["new", "new"] && calls == 1 && store.tokens?.refreshToken == "r2")
+        }
+
         @Test func listsConsolesWithAValidToken() async throws {
             let (account, _) = account(PSNTokens(accessToken: "a", refreshToken: "r", expiresAt: start.addingTimeInterval(600)))
             var usedToken: String?

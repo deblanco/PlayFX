@@ -1,3 +1,4 @@
+import os
 import CChiaki
 import Foundation
 import Security
@@ -139,21 +140,42 @@ public final class PSNAccount {
             throw PSNAuth.failure(reply)
         }
         let id = try await PSNAuth.accountId(accessToken: tokens.accessToken)
+        try Task.checkCancellation() // the caller gave up: don't sign in behind its back
         try store.save(tokens)
         Log.info(.psn, "Signed in; access token valid until \(tokens.expiresAt)")
         return id
     }
 
     /// An access token valid for at least a minute, refreshing (and saving) it when needed. Throws
-    /// `.signInExpired` — and forgets the tokens — when Sony no longer accepts the refresh token.
+    /// `.signInExpired` — and forgets the tokens — only when Sony says the refresh token is no good
+    /// (`invalid_grant`); any other failure (a server error, rate limiting) keeps them for the next try.
     /// `forceRefresh`: get a new one even if this one hasn't expired (PSN can revoke tokens early).
+    /// One refresh at a time: a caller arriving during one waits for it (Sony may rotate the refresh
+    /// token, so a second refresh with the old one would fail and sign the user out).
     public func validAccessToken(forceRefresh: Bool = false) async throws -> String {
         guard let tokens = store.load() else { throw PSNError.notSignedIn }
         guard forceRefresh || tokens.needsRefresh(at: now()) else { return tokens.accessToken }
-        Log.info(.psn, forceRefresh ? "Refreshing the PSN token (PSN rejected the current one)"
-                                    : "Refreshing the PSN token (expires \(tokens.expiresAt))")
+        let refresh = refreshing.withLock { current -> Task<String, Error> in
+            if let current { return current }
+            let task = Task { try await self.refresh(tokens, forced: forceRefresh) }
+            current = task
+            return task
+        }
+        defer { refreshing.withLock { if $0 == refresh { $0 = nil } } }
+        return try await refresh.value
+    }
+
+    private let refreshing = OSAllocatedUnfairLock<Task<String, Error>?>(initialState: nil)
+
+    private func refresh(_ tokens: PSNTokens, forced: Bool) async throws -> String {
+        Log.info(.psn, forced ? "Refreshing the PSN token (PSN rejected the current one)"
+                              : "Refreshing the PSN token (expires \(tokens.expiresAt))")
         let reply = try await PSNAuth.json(PSNAuth.refreshRequest(refreshToken: tokens.refreshToken))
         guard let fresh = PSNTokens(reply: reply, now: now()) else {
+            guard reply["error"] as? String == "invalid_grant" else {
+                Log.warning(.psn, "PSN couldn't refresh the token right now: \(PSNAuth.describe(reply))")
+                throw ConsoleError.message("PlayStation Network didn't answer properly. Try again in a moment.")
+            }
             Log.error(.psn, "PSN refused the token refresh, signing out: \(PSNAuth.describe(reply))")
             store.clear()
             throw PSNError.signInExpired

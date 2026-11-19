@@ -255,7 +255,7 @@ Work items:
   touchpad ids are stable per finger and two fingers track. All elements opt out of macOS system
   gestures. **PS button**: macOS never delivers it to the app; with a game-category app in front
   (`LSApplicationCategoryType` games, now in the desktop `Info.plist`) it at least stops opening the
-  Games app. Keyboard H still sends PS. **Mute** isn't exposed by GameController.
+  Games app. The Mac keyboard's P sends PS (the web UI's keymap). **Mute** isn't exposed by GameController.
 - ✅ **Settings profiles**: a profile holds the stream and picture settings (resolution, frame rate, codec,
   bitrate, HDR, view, upscaler, sharpening, cleanup, ML, frame interpolation, colors); app preferences stay put.
   Built-in **Recommended** (1080p60 · MetalFX · sharpness 0.3, also what a new install starts with); the

@@ -17,6 +17,30 @@ import Testing
         store.remove("missing")
         #expect(store.get("consoles") == nil && store.get("accountId") == "abc=")
     }
+
+    @Test func anUnreadableFileIsNeverWrittenOver() throws {
+        // Saving one console's keys over a file that didn't decode would delete every other one.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("playfx-secrets-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("{not json".utf8).write(to: url)
+        let store = FileSecretStore(url: url)
+        #expect(store.get("consoles") == nil)
+        #expect(throws: (any Error).self) { try store.set("consoles", "x") }
+        store.remove("consoles")
+        #expect(try String(contentsOf: url, encoding: .utf8) == "{not json")
+    }
+
+    @Test func privateFilesAreNeverReadableByOthers() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("playfx-private-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("keys.json")
+        try PrivateFile.write(Data("a".utf8), to: url)
+        try PrivateFile.write(Data("b".utf8), to: url) // replaces
+        #expect(try String(contentsOf: url, encoding: .utf8) == "b")
+        let attributes = { (path: String) in try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int }
+        #expect(try attributes(url.path) == 0o600 && attributes(folder.path) == 0o700)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["keys.json"]) // no temp left
+    }
 }
 
 extension Serial {

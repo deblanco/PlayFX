@@ -1,4 +1,5 @@
 #if os(macOS)
+import os
 import AppKit
 
 // C ABI for the Tauri (Rust) host. JSON in/out keeps the boundary small.
@@ -238,19 +239,32 @@ public func sc_psn_login_url() -> UnsafeMutablePointer<CChar> { cString(PSNAuth.
 @_cdecl("sc_psn_redirect_url")
 public func sc_psn_redirect_url() -> UnsafeMutablePointer<CChar> { cString(PSNAuth.redirectURL) }
 
+/// Runs async work from a blocking C entry point: its result, or `timedOut` after `timeout` seconds, when
+/// the work is cancelled so it can't finish later behind the caller's back (a sign-in that "timed out" then
+/// saving tokens anyway). The result is kept behind a lock: the work finishes on another thread.
+func blocking<T: Sendable>(timeout: TimeInterval = 30, timedOut: String,
+                           _ work: @escaping @Sendable () async throws -> T) -> Result<T, Error> {
+    let result = OSAllocatedUnfairLock<Result<T, Error>?>(initialState: nil)
+    let done = DispatchSemaphore(value: 0)
+    let task = Task.detached {
+        let outcome: Result<T, Error>
+        do { outcome = .success(try await work()) } catch { outcome = .failure(error) }
+        result.withLock { if $0 == nil { $0 = outcome } }
+        done.signal()
+    }
+    if done.wait(timeout: .now() + timeout) == .timedOut {
+        task.cancel()
+        result.withLock { if $0 == nil { $0 = .failure(ConsoleError.message(timedOut)) } }
+    }
+    return result.withLock { $0 ?? .failure(ConsoleError.message(timedOut)) }
+}
+
 /// `redirect`: the redirect URL containing ?code=… → {"accountId"} or {"error"}.
 @_cdecl("sc_psn_account_id")
 public func sc_psn_account_id(_ redirect: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
     guard let code = PSNAuth.code(fromRedirect: String(cString: redirect)) else { return failure("No sign-in code in URL") }
-    let done = DispatchSemaphore(value: 0)
-    var result: Result<String, Error> = .failure(ConsoleError.message("PSN sign-in timed out"))
-    Task.detached {
-        // Also keeps the tokens (Keychain) for playing over the internet.
-        do { result = .success(try await PSNAccount.shared.signIn(code: code)) } catch { result = .failure(error) }
-        done.signal()
-    }
-    _ = done.wait(timeout: .now() + 30)
-    switch result {
+    // Also keeps the tokens (Keychain) for playing over the internet.
+    switch blocking(timedOut: "PSN sign-in timed out", { try await PSNAccount.shared.signIn(code: code) }) {
     case .success(let id): return json(["accountId": id])
     case .failure(let e): return failure(e.localizedDescription)
     }
@@ -263,14 +277,7 @@ public func sc_psn_signed_in() -> Bool { PSNAccount.shared.signedIn }
 /// Blocking. The PS5s on the PSN account → [{"name","duid","remotePlay"}] or {"error"}.
 @_cdecl("sc_psn_consoles")
 public func sc_psn_consoles() -> UnsafeMutablePointer<CChar> {
-    let done = DispatchSemaphore(value: 0)
-    var result: Result<[PSNConsole], Error> = .failure(ConsoleError.message("PSN didn't answer"))
-    Task.detached {
-        do { result = .success(try await PSNAccount.shared.consoles()) } catch { result = .failure(error) }
-        done.signal()
-    }
-    _ = done.wait(timeout: .now() + 30)
-    switch result {
+    switch blocking(timedOut: "PSN didn't answer", { try await PSNAccount.shared.consoles() }) {
     case .success(let consoles): return json(encodable: consoles)
     case .failure(let e): return failure(e.localizedDescription)
     }
@@ -280,14 +287,7 @@ public func sc_psn_consoles() -> UnsafeMutablePointer<CChar> {
 /// For the host to hand straight back in sc_session_start's "remote"; never shown to the web UI.
 @_cdecl("sc_psn_access_token")
 public func sc_psn_access_token() -> UnsafeMutablePointer<CChar> {
-    let done = DispatchSemaphore(value: 0)
-    var result: Result<String, Error> = .failure(ConsoleError.message("PSN didn't answer"))
-    Task.detached {
-        do { result = .success(try await PSNAccount.shared.validAccessToken()) } catch { result = .failure(error) }
-        done.signal()
-    }
-    _ = done.wait(timeout: .now() + 30)
-    switch result {
+    switch blocking(timedOut: "PSN didn't answer", { try await PSNAccount.shared.validAccessToken() }) {
     case .success(let token): return json(["token": token])
     case .failure(let e): return failure(e.localizedDescription)
     }
@@ -468,7 +468,8 @@ public func sc_session_set_controller(_ buttons: UInt32, _ l2: UInt8, _ r2: UInt
     state.leftY = leftY
     state.rightX = rightX
     state.rightY = rightY
-    session?.setController(state)
+    // The Mac keyboard as a controller (the web UI's mapping): merged with the pad, not instead of it.
+    if let input { input.setKeys(state) } else { session?.setController(state) }
 }
 
 /// The Mac's pointer as a touchpad finger: `down` = a finger at (x, y), 0–1 from the top-left of the

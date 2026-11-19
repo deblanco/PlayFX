@@ -25,6 +25,16 @@ import Testing
         #expect(state == .unavailable)
         #expect(microphonePayload(.denied)["state"] as? String == "denied")
     }
+
+    @Test func aStartAfterStopDoesNothing() {
+        // The permission prompt was still open when the stream ended: the user's Allow arrives after stop()
+        // and must not start feeding a session that's gone.
+        let mic = Microphone()
+        mic.stop()
+        var fed = false
+        #expect(mic.begin { _ in fed = true } == .off)
+        #expect(!fed)
+    }
 }
 
 @Suite struct HapticsRumbleTests {

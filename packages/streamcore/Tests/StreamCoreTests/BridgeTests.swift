@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 import Testing
 @testable import StreamCore
 
@@ -36,6 +37,21 @@ extension Serial {
             // Other tests log in parallel; look at this test's messages only.
             let mine = receivedLogs.lines.filter { $0.contains("refresh failed") || $0.contains("detailed") }
             #expect(mine == ["2 psn refresh failed: refresh_token=<redacted>", "0 session detailed now"])
+        }
+
+        @Test func blockingCallsReturnOrGiveUpAndCancel() throws {
+            #expect(try blocking(timedOut: "late") { 42 }.get() == 42)
+            #expect(throws: ConsoleError.self) { try blocking(timedOut: "late") { throw ConsoleError.message("no") }.get() }
+            // Too slow: the caller gets the timeout, and the work is cancelled, not left to finish later.
+            let cancelled = OSAllocatedUnfairLock(initialState: false)
+            let slow = blocking(timeout: 0.1, timedOut: "late") { () async throws -> Int in
+                do { try await Task.sleep(for: .seconds(5)) } catch { cancelled.withLock { $0 = true }; throw error }
+                return 1
+            }
+            #expect(throws: (any Error).self) { try slow.get() }
+            if case .failure(let error) = slow { #expect(error.localizedDescription == "late") }
+            Thread.sleep(forTimeInterval: 0.2)
+            #expect(cancelled.withLock { $0 })
         }
 
         @Test func psnURLs() throws {

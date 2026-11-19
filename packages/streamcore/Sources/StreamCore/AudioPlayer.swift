@@ -8,12 +8,47 @@ public final class AudioPlayer {
     private var source: AVAudioSourceNode?
     private var lock = os_unfair_lock()
     private var ring = AudioRing()
+    /// Engine changes come from libchiaki's audio thread (`configure`) and the host's command thread
+    /// (`apply`); AVAudioEngine can't take them at once. Recursive: `configure` applies the output.
+    private let control = NSRecursiveLock()
+    /// While the output is the system default, the device macOS switches to is followed (setting the unit's
+    /// device once would pin it to whatever was the default then).
+    private var followingDefault = true
+    private var defaultListener: AudioObjectPropertyListenerBlock?
 
-    public init() {}
+    public init() {
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.defaultOutputChanged() }
+        var address = Self.defaultOutputAddress
+        if AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, listener) == noErr {
+            defaultListener = listener
+        }
+    }
 
-    deinit { stop() }
+    deinit {
+        if let defaultListener {
+            var address = Self.defaultOutputAddress
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, defaultListener)
+        }
+        stop()
+    }
+
+    private static var defaultOutputAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal,
+                                   mElement: kAudioObjectPropertyElementMain)
+    }
+
+    /// The user switched the Mac's output: follow it if that's what was chosen.
+    private func defaultOutputChanged() {
+        control.lock()
+        defer { control.unlock() }
+        guard followingDefault, source != nil else { return }
+        setDevice(Self.systemDefaultOutput())
+        Log.info(.session, "Sound output: following the system default to its new device")
+    }
 
     public func configure(channels: Int, sampleRate: Double) {
+        control.lock()
+        defer { control.unlock() }
         stop()
         os_unfair_lock_lock(&lock)
         ring = AudioRing(channels: channels, sampleRate: sampleRate)
@@ -40,23 +75,32 @@ public final class AudioPlayer {
     /// Volume at once; a different output device restarts the engine briefly. A device that's no longer
     /// connected falls back to the system default.
     public func apply(_ output: AudioOutput) {
+        control.lock()
+        defer { control.unlock() }
         engine.mainMixerNode.outputVolume = output.volume
         let wanted = output.deviceUID.flatMap(AudioOutput.deviceID(uid:))
-        guard wanted != appliedDevice, let unit = engine.outputNode.audioUnit else { return }
-        var device = wanted ?? Self.systemDefaultOutput()
+        followingDefault = wanted == nil
+        guard wanted != appliedDevice else { return }
+        let status = setDevice(wanted ?? Self.systemDefaultOutput())
+        if status == noErr { appliedDevice = wanted }
+        Log.info(.session, "Sound output: \(output.deviceUID == nil ? "system default" : "chosen device")\(status == noErr ? "" : " (failed: \(status))")")
+    }
+
+    /// Points the output unit at `device`, pausing the engine around it. Under `control`.
+    @discardableResult
+    private func setDevice(_ device: AudioDeviceID) -> OSStatus {
+        guard let unit = engine.outputNode.audioUnit else { return kAudioUnitErr_Uninitialized }
+        var device = device
         let running = engine.isRunning
         if running { engine.pause() }
         let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
                                           &device, UInt32(MemoryLayout<AudioDeviceID>.size))
-        if status == noErr { appliedDevice = wanted }
         if running { try? engine.start() }
-        Log.info(.session, "Sound output: \(output.deviceUID == nil ? "system default" : "chosen device")\(status == noErr ? "" : " (failed: \(status))")")
+        return status
     }
 
     private static func systemDefaultOutput() -> AudioDeviceID {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal,
-                                                 mElement: kAudioObjectPropertyElementMain)
+        var address = defaultOutputAddress
         var id = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id)
@@ -70,6 +114,8 @@ public final class AudioPlayer {
     }
 
     public func stop() {
+        control.lock()
+        defer { control.unlock() }
         if let source {
             engine.stop()
             engine.detach(source)

@@ -78,7 +78,7 @@ public struct ControllerState: Equatable, Sendable {
     ]
 }
 
-/// Reads physical gamepads (DualSense, DualShock 4, Xbox, MFi) and the keyboard via
+/// Reads physical gamepads (DualSense, DualShock 4, Xbox, MFi) via
 /// GameController, merging them into one ControllerState.
 public final class ControllerInput {
     /// Called on the main queue whenever the merged state changes.
@@ -98,11 +98,7 @@ public final class ControllerInput {
         observers.append(nc.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] n in
             (n.object as? GCController).map { self?.attach($0) }
         })
-        observers.append(nc.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { [weak self] n in
-            (n.object as? GCKeyboard).map { self?.attach($0) }
-        })
         GCController.controllers().forEach(attach)
-        GCKeyboard.coalesced.map(attach)
     }
 
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
@@ -134,11 +130,12 @@ public final class ControllerInput {
         }
     }
 
-    func attach(_ keyboard: GCKeyboard) {
-        keyboard.keyboardInput?.keyChangedHandler = { [weak self] input, _, _, _ in
-            self?.keyState = Self.state(from: input)
-            self?.emit()
-        }
+    /// The Mac keyboard as a controller, from the web UI (which knows when keys belong to a text field, a
+    /// dialog or the settings instead): merged with the pad. Reading the keyboard here too (GameController
+    /// sees every key, even while typing in the console's text field) sent H as PS while typing "hello".
+    public func setKeys(_ keys: ControllerState) {
+        keyState = keys
+        emit()
     }
 
     private func emit() {
@@ -149,13 +146,15 @@ public final class ControllerInput {
         onChange?(s)
     }
 
-    /// Gamepad and keyboard combined: buttons OR'd, triggers maxed, keyboard WASD overrides the left stick.
+    /// Gamepad and keyboard combined: buttons OR'd, triggers maxed, a keyboard stick (WASD, IJKL) in use
+    /// overrides the pad's.
     static func merge(pad: ControllerState, keys: ControllerState) -> ControllerState {
         var s = pad
         s.buttons |= keys.buttons
         s.l2 = max(s.l2, keys.l2)
         s.r2 = max(s.r2, keys.r2)
         if keys.leftX != 0 || keys.leftY != 0 { s.leftX = keys.leftX; s.leftY = keys.leftY }
+        if keys.rightX != 0 || keys.rightY != 0 { s.rightX = keys.rightX; s.rightY = keys.rightY }
         return s
     }
 
@@ -186,35 +185,6 @@ public final class ControllerInput {
         s.leftY = axis(-pad.leftThumbstick.yAxis.value)
         s.rightX = axis(pad.rightThumbstick.xAxis.value)
         s.rightY = axis(-pad.rightThumbstick.yAxis.value)
-        return s
-    }
-
-    /// Keyboard fallback: arrows = D-pad, WASD = left stick, Enter/Space = ✕, Backspace/Esc = ○,
-    /// Q = □, E = △, 1/2 = L1/R1, 3/4 = L2/R2, Tab = Options, H = PS, T = touchpad.
-    private static func state(from kb: GCKeyboardInput) -> ControllerState {
-        state(isKeyDown: { kb.button(forKeyCode: $0)?.isPressed ?? false })
-    }
-
-    static func state(isKeyDown down: (GCKeyCode) -> Bool) -> ControllerState {
-        var s = ControllerState()
-        func set(_ pressed: Bool, _ button: PsrpButton) { if pressed { s.buttons |= UInt32(button.rawValue) } }
-        set(down(.returnOrEnter) || down(.spacebar), PSRP_BTN_CROSS)
-        set(down(.deleteOrBackspace) || down(.escape), PSRP_BTN_CIRCLE)
-        set(down(.keyQ), PSRP_BTN_SQUARE)
-        set(down(.keyE), PSRP_BTN_TRIANGLE)
-        set(down(.leftArrow), PSRP_BTN_DPAD_LEFT)
-        set(down(.rightArrow), PSRP_BTN_DPAD_RIGHT)
-        set(down(.upArrow), PSRP_BTN_DPAD_UP)
-        set(down(.downArrow), PSRP_BTN_DPAD_DOWN)
-        set(down(.one), PSRP_BTN_L1)
-        set(down(.two), PSRP_BTN_R1)
-        set(down(.tab), PSRP_BTN_OPTIONS)
-        set(down(.keyH), PSRP_BTN_PS)
-        set(down(.keyT), PSRP_BTN_TOUCHPAD)
-        s.l2 = down(.three) ? 255 : 0
-        s.r2 = down(.four) ? 255 : 0
-        s.leftX = (down(.keyD) ? Int16.max : 0) + (down(.keyA) ? -Int16.max : 0)
-        s.leftY = (down(.keyS) ? Int16.max : 0) + (down(.keyW) ? -Int16.max : 0)
         return s
     }
 

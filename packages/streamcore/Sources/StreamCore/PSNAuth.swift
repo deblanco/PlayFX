@@ -109,6 +109,8 @@ public enum PSNAuth {
 
     static func json(_ req: URLRequest) async throws -> [String: Any] {
         let what = "\(req.httpMethod ?? "GET") \(req.url?.host ?? "")\(req.url?.path ?? "")"
+        var req = req
+        req.timeoutInterval = 20 // inside the bridge's 30 s wait, so a slow request fails rather than outlives it
         let (data, response) = try await urlSession.data(for: req)
         Log.debug(.psn, "\(what) → HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

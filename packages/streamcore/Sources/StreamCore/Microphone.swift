@@ -38,6 +38,11 @@ public final class Microphone: @unchecked Sendable {
     private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PSRP_MIC_SAMPLE_RATE),
                                        channels: 2, interleaved: true)!
     private var running = false
+    /// Set by `stop()`, for good: a start still waiting for the permission prompt finds it and doesn't
+    /// begin (the session it would feed may be gone by then). `gate` orders the two, which run on
+    /// different threads.
+    private var closed = false
+    private let gate = NSLock()
 
     /// Asks for permission if needed, then starts; `done` gets the resulting state (on any queue).
     func start(frames: @escaping (UnsafePointer<Int16>) -> Void, done: @escaping (State) -> Void) {
@@ -52,7 +57,10 @@ public final class Microphone: @unchecked Sendable {
         }
     }
 
-    private func begin(_ frames: @escaping (UnsafePointer<Int16>) -> Void) -> State {
+    func begin(_ frames: @escaping (UnsafePointer<Int16>) -> Void) -> State {
+        gate.lock()
+        defer { gate.unlock() }
+        guard !closed else { return .off }
         guard !running else { return .on }
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -90,6 +98,9 @@ public final class Microphone: @unchecked Sendable {
     }
 
     func stop() {
+        gate.lock()
+        defer { gate.unlock() }
+        closed = true
         guard running else { return }
         running = false
         engine.inputNode.removeTap(onBus: 0)

@@ -69,35 +69,30 @@ public final class FileSecretStore: SecretStore {
         }
     }
 
-    private func all() -> [String: String] {
-        guard let data = try? Data(contentsOf: url),
-              let values = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
-        return values
+    /// Everything stored; empty when there's no file yet. A file that exists but can't be read or decoded
+    /// throws: writing over it would silently delete every other console's pairing keys.
+    private func all() throws -> [String: String] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        return try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
     }
 
-    private func write(_ values: [String: String]) throws {
-        let fm = FileManager.default
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                               attributes: [.posixPermissions: 0o700])
-        try JSONEncoder().encode(values).write(to: url, options: .atomic)
-        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    }
-
-    public func get(_ key: String) -> String? { lock.withLock { all()[key] } }
+    public func get(_ key: String) -> String? { lock.withLock { (try? all())?[key] } }
 
     public func set(_ key: String, _ value: String) throws {
         try lock.withLock {
-            var values = all()
+            var values = try all()
             values[key] = value
-            try write(values)
+            try PrivateFile.write(JSONEncoder().encode(values), to: url)
         }
     }
 
     public func remove(_ key: String) {
         lock.withLock {
-            var values = all()
+            guard var values = try? all() else {
+                return Log.error(.session, "Secrets file unreadable; not removing \(key) (that would rewrite it)")
+            }
             guard values.removeValue(forKey: key) != nil else { return }
-            try? write(values)
+            try? PrivateFile.write(JSONEncoder().encode(values), to: url)
         }
     }
 }

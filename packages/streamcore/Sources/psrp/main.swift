@@ -39,15 +39,9 @@ struct Config: Codable {
         (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Config.self, from: $0) } ?? Config()
     }
     func save() throws {
-        try FileManager.default.createDirectory(at: Self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        // Created 0600 (not chmod-ed after writing, which left the pairing keys readable for a moment).
-        guard FileManager.default.createFile(atPath: Self.url.path, contents: try enc.encode(self),
-                                             attributes: [.posixPermissions: 0o600]) else {
-            throw fail("Couldn't write \(Self.url.path)")
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.url.path) // an older file
+        try PrivateFile.write(enc.encode(self), to: Self.url) // the pairing keys: never readable by anyone else
     }
     func console(host: String?) throws -> ConsoleCredentials {
         if let host {

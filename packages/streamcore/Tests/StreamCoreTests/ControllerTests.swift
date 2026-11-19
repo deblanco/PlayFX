@@ -21,26 +21,19 @@ import Testing
         #expect(ControllerInput.axis(0.5) == Int16(0.5 * Float(Int16.max)))
     }
 
-    @Test func keyboardMapping() {
-        let pressed: Set<GCKeyCode> = [.spacebar, .escape, .keyQ, .keyE, .leftArrow, .rightArrow, .upArrow, .downArrow,
-                                       .one, .two, .tab, .keyH, .keyT, .three, .keyD, .keyW]
-        let s = ControllerInput.state(isKeyDown: { pressed.contains($0) })
-        let expected: [PsrpButton] = [PSRP_BTN_CROSS, PSRP_BTN_CIRCLE, PSRP_BTN_SQUARE, PSRP_BTN_TRIANGLE,
-                                      PSRP_BTN_DPAD_LEFT, PSRP_BTN_DPAD_RIGHT, PSRP_BTN_DPAD_UP, PSRP_BTN_DPAD_DOWN,
-                                      PSRP_BTN_L1, PSRP_BTN_R1, PSRP_BTN_OPTIONS, PSRP_BTN_PS, PSRP_BTN_TOUCHPAD]
-        #expect(s.buttons == expected.map(bit).reduce(0, |))
-        #expect(s.l2 == 255)
-        #expect(s.r2 == 0)
-        #expect(s.leftX == Int16.max)
-        #expect(s.leftY == -Int16.max)
-
-        let other = ControllerInput.state(isKeyDown: { [.returnOrEnter, .deleteOrBackspace, .four, .keyA, .keyS].contains($0) })
-        #expect(other.buttons == bit(PSRP_BTN_CROSS) | bit(PSRP_BTN_CIRCLE))
-        #expect(other.r2 == 255)
-        #expect(other.leftX == -Int16.max)
-        #expect(other.leftY == Int16.max)
-
-        #expect(ControllerInput.state(isKeyDown: { _ in false }) == ControllerState())
+    @Test func keysFromTheWebUIMergeWithThePad() {
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        var keys = ControllerState()
+        keys.buttons = bit(PSRP_BTN_SQUARE)
+        keys.rightX = Int16.max // L on the keyboard: the right stick
+        input.setKeys(keys)
+        #expect(sent.last?.buttons == bit(PSRP_BTN_SQUARE) && sent.last?.rightX == Int16.max)
+        input.setKeys(ControllerState())
+        #expect(sent.last == ControllerState())
+        input.setKeys(ControllerState()) // nothing changed: nothing sent
+        #expect(sent.count == 2)
     }
 
     @Test func mergeCombinesPadAndKeyboard() {

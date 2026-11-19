@@ -1,6 +1,7 @@
 import AudioToolbox
 import CoreAudio
 import Foundation
+import os
 
 /// Where and how loud the stream's sound plays. Applies to the playing stream at once and to every later
 /// one. `deviceUID` nil = the system's default output (follows it when the user switches in macOS).
@@ -13,7 +14,12 @@ public struct AudioOutput: Codable, Equatable, Sendable {
         self.deviceUID = deviceUID
     }
 
-    nonisolated(unsafe) public static var current = AudioOutput()
+    /// Set from the host's command thread, read by libchiaki's audio thread: behind a lock.
+    public static var current: AudioOutput {
+        get { currentState.withLock { $0 } }
+        set { currentState.withLock { $0 = newValue } }
+    }
+    private static let currentState = OSAllocatedUnfairLock(initialState: AudioOutput())
 
     /// An output device macOS knows about.
     public struct Device: Codable, Equatable, Sendable {
