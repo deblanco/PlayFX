@@ -67,7 +67,18 @@ const useKeyboardController = (enabled: boolean): void => {
     const send = (): void => {
       runtime.runFork(Effect.ignore(actions.setController(controllerStateFrom(pressed))))
     }
+    const clear = (): void => {
+      if (pressed.size === 0) return
+      pressed.clear()
+      send()
+    }
     const down = (event: KeyboardEvent): void => {
+      // A shortcut (⌘⇧4, ⌘Z…) isn't gameplay, and macOS sends no key-up for a key pressed with ⌘ held:
+      // it would stay held on the console. Let the shortcut through and let go of everything.
+      if (event.metaKey || event.ctrlKey) {
+        clear()
+        return
+      }
       if (!isControllerKey(event.code)) return
       event.preventDefault()
       if (event.repeat || pressed.has(event.code)) return
@@ -77,11 +88,6 @@ const useKeyboardController = (enabled: boolean): void => {
     const up = (event: KeyboardEvent): void => {
       if (!pressed.delete(event.code)) return
       event.preventDefault()
-      send()
-    }
-    const clear = (): void => {
-      if (pressed.size === 0) return
-      pressed.clear()
       send()
     }
     window.addEventListener("keydown", down)
@@ -151,9 +157,22 @@ export const StreamView = ({
   const toggleFullscreen = () => {
     run(actions.toggleFullscreen, { onSuccess: setFullscreen })
   }
+  // The window can go fullscreen without the button (the green button, ⌃⌘F, a previous stream): read it,
+  // now and on every resize, so the button's label is never the opposite of what it does.
+  useEffect(() => {
+    const sync = () => {
+      run(actions.fullscreenState, { onSuccess: (state) => { if (Option.isSome(state)) setFullscreen(state.value) } })
+    }
+    sync()
+    window.addEventListener("resize", sync)
+    return () => { window.removeEventListener("resize", sync) }
+  }, [run])
   // Double-clicking the video (not the HUD or the settings) toggles fullscreen, as in video players.
   const onDoubleClick = useEffectEvent((event: MouseEvent) => {
-    if (event.target instanceof Element && event.target.closest("header, [role=dialog]") !== null) return
+    // Only the video: not the HUD, a dialog (including the rest-mode alert), the console's keyboard bar or
+    // the connecting screen, where a double click selects text or presses a button.
+    if (event.target instanceof Element
+      && event.target.closest("header, [role=dialog], [role=alertdialog], [data-no-fullscreen]") !== null) return
     if (event.altKey) return // ⌥-clicks press the touchpad
     toggleFullscreen()
   })
@@ -164,8 +183,6 @@ export const StreamView = ({
   }, [])
 
   useFork(useMemo(() => actions.pollStats(setStats, settings.height), [settings.height]))
-  // Off while the login-PIN dialog or the settings are open, so typing there isn't read as gameplay.
-  useKeyboardController(Option.isNone(loginPin) && !settingsOpen && Option.isNone(keyboard))
 
   const hudHidden = idle && !settingsOpen
   const fade = cn("transition-opacity duration-500", hudHidden && "opacity-0")
@@ -175,6 +192,11 @@ export const StreamView = ({
   const stop = () => { run(actions.stop, { onSuccess: end, onFailure: end }) }
   // Once streaming, Stop asks whether to put the console in rest mode too.
   const [askingRest, setAskingRest] = useState(false)
+  // Off while anything else takes the keyboard (the login PIN, the settings, the console's text field, the
+  // rest-mode dialog) and before the stream is up, so typing or Enter on a button isn't read as gameplay.
+  useKeyboardController(
+    connected && Option.isNone(loginPin) && !settingsOpen && Option.isNone(keyboard) && !askingRest,
+  )
   const requestStop = () => {
     if (connected) setAskingRest(true)
     else stop()

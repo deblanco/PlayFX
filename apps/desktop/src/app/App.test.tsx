@@ -598,9 +598,13 @@ describe("settings", () => {
     expect(screen.queryByRole("region", { name: "Get started" })).not.toBeInTheDocument()
   })
 
-  it("toasts startup failures", async () => {
-    renderApp(fakeCore({ rendererStatus: Effect.fail(coreError("renderer_status", "no renderer")) }))
+  it("toasts startup failures, and still shows the saved settings", async () => {
+    // A native failure must not leave the UI on the defaults: the next change would save them over these.
+    renderApp(fakeCore({ rendererStatus: Effect.fail(coreError("renderer_status", "no renderer")) }), {
+      settings: { ...defaultSettings, height: 720, fps: 30 },
+    })
     expect(await screen.findByText("no renderer")).toBeInTheDocument()
+    expect(await screen.findByText(/720p · 30 fps/)).toBeInTheDocument()
   })
 })
 
@@ -1060,6 +1064,14 @@ describe("streaming", () => {
     expect(screen.queryByRole("textbox", { name: "Text for Living Room" })).not.toBeInTheDocument()
   })
 
+  it("gives the microphone button back when the request fails", async () => {
+    const { core } = await startStreaming(fakeCore({ setMicrophone: vi.fn(() => Effect.fail(coreError("set_microphone", "gone"))) }))
+    await userEvent.click(screen.getByRole("button", { name: "Mic" }))
+    expect(await screen.findByText("gone")).toBeInTheDocument()
+    await waitFor(() => { expect(screen.getByRole("button", { name: "Mic" })).toBeEnabled() })
+    expect(core.service.setMicrophone).toHaveBeenCalledWith(true)
+  })
+
   it("turns the microphone on for voice chat, and explains when it can't", async () => {
     const { core } = await startStreaming()
     await userEvent.click(screen.getByRole("button", { name: "Mic" }))
@@ -1168,6 +1180,21 @@ describe("streaming", () => {
     expect(core.state.fullscreen).toBe(false)
   })
 
+  it("keeps the fullscreen button right when the window changes on its own", async () => {
+    const { core } = await startStreaming()
+    expect(screen.getByRole("button", { name: "Fullscreen" })).toBeInTheDocument()
+    core.state.fullscreen = true // the green button
+    fireEvent(window, new Event("resize"))
+    expect(await screen.findByRole("button", { name: "Exit fullscreen" })).toBeInTheDocument()
+  })
+
+  it("doesn't toggle fullscreen from a double click in the rest-mode dialog", async () => {
+    const { core } = await startStreaming()
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    fireEvent.doubleClick(await screen.findByRole("alertdialog"))
+    expect(core.state.fullscreen).toBe(false)
+  })
+
   it("leaves the cursor visible once the stream view is gone", async () => {
     await startStreaming()
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
@@ -1207,6 +1234,23 @@ describe("keyboard controller", () => {
       const released = vi.mocked(core.service.setController).mock.lastCall?.[0]
       expect(released?.buttons).toBe(0)
     })
+  })
+
+  it("lets go of every key on a ⌘ shortcut, which never sends its key-up", async () => {
+    const { core } = await startStreaming()
+    fireEvent.keyDown(window, { code: "Digit4" }) // R2
+    await waitFor(() => { expect(vi.mocked(core.service.setController).mock.lastCall?.[0].r2).toBe(255) })
+    fireEvent.keyDown(window, { code: "Digit4", metaKey: true, shiftKey: true }) // ⌘⇧4: a screenshot
+    await waitFor(() => { expect(vi.mocked(core.service.setController).mock.lastCall?.[0].r2).toBe(0) })
+  })
+
+  it("leaves the keyboard to the rest-mode dialog", async () => {
+    const { core } = await startStreaming()
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+    await screen.findByRole("alertdialog")
+    vi.mocked(core.service.setController).mockClear()
+    fireEvent.keyDown(window, { code: "Enter" }) // the dialog's button, not ✕ on the console
+    expect(core.service.setController).not.toHaveBeenCalledWith(expect.objectContaining({ buttons: 1 }))
   })
 
   it("does not capture keys while the login PIN dialog is open", async () => {

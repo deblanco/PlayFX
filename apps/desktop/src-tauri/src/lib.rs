@@ -243,6 +243,13 @@ fn set_render_params<R: Runtime>(app: AppHandle<R>, params: Value) -> Result<(),
     }
 }
 
+/// Whether the main window is in native fullscreen: the user can also get there with the green button or
+/// ⌃⌘F, so the UI asks instead of remembering what it last asked for.
+#[tauri::command(async)]
+fn fullscreen_state<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    app.get_webview_window("main").ok_or("no main window")?.is_fullscreen().map_err(error_text)
+}
+
 /// Toggles native fullscreen on the main window; replies with the new state. Reads the window's actual
 /// state, so it stays right when the user also uses the green button.
 #[tauri::command(async)]
@@ -415,6 +422,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         secret_remove,
         set_render_params,
         toggle_fullscreen,
+        fullscreen_state,
         psn_signed_in,
         psn_consoles,
         psn_sign_out,

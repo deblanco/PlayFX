@@ -80,18 +80,24 @@ export const saveAccountId = (raw: string): Effect.Effect<string, ValidationErro
 export const signOut: Effect.Effect<void, StorageError | CoreError, Preferences | Core> = Effect.gen(function* () {
   const prefs = yield* Preferences
   const core = yield* Core
-  yield* prefs.setAccountId(Option.none())
+  // The native sign-out first: if it fails, nothing changed (the UI still says signed in, and it is).
+  // The other way round, a failure left the UI signed in with the account ID already gone.
   yield* core.psnSignOut
+  yield* prefs.setAccountId(Option.none())
 })
 
 /** The PSN device IDs of the paired consoles PSN can reach (hostId → duid); empty when not signed in
  * for internet play, or when PSN can't be reached. */
 export const psnReachable = (paired: PairedConsoles): Effect.Effect<Readonly<Record<string, string>>, never, Core> =>
+  askPsn(paired).pipe(Effect.orElseSucceed(() => ({})))
+
+/** What PSN says now; fails when PSN can't be asked. */
+const askPsn = (paired: PairedConsoles): Effect.Effect<Readonly<Record<string, string>>, CoreError, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
     if (!(yield* core.psnSignedIn)) return {}
     return psnDeviceIds(paired, yield* core.psnConsoles)
-  }).pipe(Effect.orElseSucceed(() => ({})))
+  })
 
 /** The console's PSN device ID if it can be reached over the internet right now (asks PSN). */
 export const psnDuidFor = (console: PairedConsole): Effect.Effect<string | undefined, never, Core> =>
@@ -376,15 +382,23 @@ export const openLogsFolder: Effect.Effect<void, CoreError, Core> = Effect.flatM
 export const openSourceCode: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openSourceCode)
 
 /** Loads saved settings and applies the saved picture settings to the renderer. */
-export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Preferences> = Effect.gen(function* () {
+/** The saved settings. Read on their own, so a native failure in `applyStartup` can't leave the UI on the
+ * defaults, where the next change would save them over the user's settings. */
+export const loadSettings: Effect.Effect<Settings, StorageError, Preferences> = Effect.flatMap(Preferences, (prefs) => prefs.settings)
+
+/** Applies saved settings to the native side (picture, logs, sound); replies with what this Mac can do. */
+export const applyStartup = (settings: Settings): Effect.Effect<Capabilities, CoreError, Core> => Effect.gen(function* () {
   const core = yield* Core
-  const prefs = yield* Preferences
-  const settings = yield* prefs.settings
   const status = yield* core.rendererStatus
   yield* core.setRenderParams(renderParams(settings))
   yield* applyDetailedLogs(settings.detailedLogs)
   yield* Effect.ignore(applyAudio(settings))
-  return { settings, capabilities: { metalfx: status.metalfxSupported, ml: status.mlSupported, interpolation: status.interpolationSupported } }
+  return { metalfx: status.metalfxSupported, ml: status.mlSupported, interpolation: status.interpolationSupported }
+})
+
+export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Preferences> = Effect.gen(function* () {
+  const settings = yield* loadSettings
+  return { settings, capabilities: yield* applyStartup(settings) }
 })
 
 /** Persists new settings and applies their picture part to the renderer (cheap, and always the latest
@@ -422,8 +436,11 @@ export const pollPsnReachable = (
   paired: PairedConsoles,
   report: (reachable: Readonly<Record<string, string>>) => void,
 ): Effect.Effect<number, never, Core> =>
-  psnReachable(paired).pipe(
+  // A round where PSN can't be asked reports nothing: the last answer stands (one network blip used to
+  // mark every console unreachable over the internet until the next round, a minute later).
+  askPsn(paired).pipe(
     Effect.flatMap((reachable) => Effect.sync(() => { report(reachable) })),
+    Effect.ignore,
     Effect.repeat(Schedule.spaced(psnPollInterval)),
   )
 
@@ -529,6 +546,11 @@ export const sleepAndStop: Effect.Effect<void, CoreError, Core> = Effect.gen(fun
 
 /** Enters or leaves fullscreen; succeeds with whether the window is now fullscreen. */
 export const toggleFullscreen: Effect.Effect<boolean, CoreError, Core> = Effect.flatMap(Core, (core) => core.toggleFullscreen)
+
+/** Whether the window is fullscreen now; nothing when it can't be read (the label just stays as it was). */
+export const fullscreenState: Effect.Effect<Option.Option<boolean>, never, Core> = Effect.option(
+  Effect.flatMap(Core, (core) => core.fullscreenState),
+)
 
 /** Sends a controller state to the console (keyboard-as-controller). */
 export const setController = (state: ControllerState): Effect.Effect<void, CoreError, Core> =>

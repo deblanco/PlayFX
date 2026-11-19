@@ -31,6 +31,7 @@ export const ConsoleKeyboard = ({ consoleName, text, onDone }: ConsoleKeyboardPr
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-14 flex justify-center px-6">
       <form
+        data-no-fullscreen
         aria-label={`Typing for ${consoleName}`}
         className="pointer-events-auto flex w-full max-w-xl animate-in items-center gap-3 rounded-2xl border border-white/12 bg-glass py-2.5 pr-3 pl-4 text-white shadow-2xl backdrop-blur-xl duration-300 fade-in slide-in-from-bottom-4 motion-reduce:animate-none"
         onSubmit={(event) => {

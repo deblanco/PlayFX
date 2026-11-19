@@ -30,6 +30,7 @@
     "allow-secret-remove",
     "allow-set-render-params",
     "allow-toggle-fullscreen",
+    "allow-fullscreen-state",
     "allow-psn-signed-in",
     "allow-psn-consoles",
     "allow-psn-sign-out",

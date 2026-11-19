@@ -31,6 +31,15 @@ describe("account", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("keeps the account when the native sign-out fails", () => {
+    const { layer } = setup(fakeCore({ psnSignOut: Effect.fail(new CoreError({ command: "psn_sign_out", message: "keychain" })) }), { accountId })
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(actions.signOut)
+      expect(error.message).toBe("keychain")
+      expect(yield* actions.loadAccount).toEqual(Option.some(accountId)) // still signed in, as the UI says
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("rejects an invalid account ID", () => {
     const { layer } = setup()
     return Effect.gen(function* () {
@@ -506,6 +515,29 @@ describe("internet play", () => {
       const fiber = yield* Effect.forkChild(actions.pollPsnReachable({ HOST1: pairedPs5 }, (r) => reports.push(r)))
       yield* Effect.yieldNow
       expect(reports).toEqual([{ HOST1: "aa" }])
+      yield* TestClock.adjust(actions.psnPollInterval)
+      expect(reports).toHaveLength(2)
+      yield* Fiber.interrupt(fiber)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("keeps the last PSN answer when a round fails", () => {
+    let fail = false
+    const core = fakeCore({
+      psnConsoles: Effect.suspend(() =>
+        fail ? Effect.fail(new CoreError({ command: "psn_consoles", message: "blip" })) : Effect.succeed([{ name: "Living Room", duid: "aa", remotePlay: true }]),
+      ),
+    })
+    core.state.psnSignedIn = true
+    const { layer } = setup(core)
+    return Effect.gen(function* () {
+      const reports: Readonly<Record<string, string>>[] = []
+      const fiber = yield* Effect.forkChild(actions.pollPsnReachable({ HOST1: pairedPs5 }, (r) => reports.push(r)))
+      yield* Effect.yieldNow
+      fail = true
+      yield* TestClock.adjust(actions.psnPollInterval)
+      expect(reports).toEqual([{ HOST1: "aa" }]) // the blip reported nothing: still reachable
+      fail = false
       yield* TestClock.adjust(actions.psnPollInterval)
       expect(reports).toHaveLength(2)
       yield* Fiber.interrupt(fiber)

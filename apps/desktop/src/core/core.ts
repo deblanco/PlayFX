@@ -83,6 +83,8 @@ export class Core extends Context.Service<
     readonly diagnostics: Effect.Effect<Diagnostics, CoreError>
     /** Toggles native fullscreen; succeeds with the new state. */
     readonly toggleFullscreen: Effect.Effect<boolean, CoreError>
+    /** Whether the window is fullscreen now (the green button and ⌃⌘F change it too). */
+    readonly fullscreenState: Effect.Effect<boolean, CoreError>
     readonly rendererStatus: Effect.Effect<RendererStatus, CoreError>
     readonly onStreamEvent: (handler: (event: StreamEvent) => void) => Effect.Effect<() => void, CoreError>
     readonly onPsnAccount: (handler: (event: PsnAccountEvent) => void) => Effect.Effect<() => void, CoreError>
@@ -173,6 +175,7 @@ export const CoreLive = Layer.effect(
       setRenderParams: (params) =>
         Semaphore.withPermit(renderParamsInOrder, Effect.asVoid(call(unit, "set_render_params", { params }))),
       toggleFullscreen: call(Schema.Boolean, "toggle_fullscreen"),
+      fullscreenState: call(Schema.Boolean, "fullscreen_state"),
       setDetailedLogs: (on) => Effect.asVoid(call(unit, "set_detailed_logs", { on })),
       openLogsFolder: Effect.asVoid(call(unit, "open_logs_folder")),
       openSourceCode: Effect.asVoid(call(unit, "open_source_code")),

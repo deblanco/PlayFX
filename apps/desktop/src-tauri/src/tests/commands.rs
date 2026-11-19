@@ -376,6 +376,7 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     ok("psn_sign_out", json!({}));
     ok("diagnostics", json!({}));
     ok("toggle_fullscreen", json!({}));
+    assert_eq!(ok("fullscreen_state", json!({})), json!(false));
 }
 
 /// StreamCore's log entries land in the app's log under `streamcore::<area>`.

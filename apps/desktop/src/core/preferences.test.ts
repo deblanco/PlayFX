@@ -350,3 +350,60 @@ describe("settings saved before the rename to Frame interpolation", () => {
     expect(renamedSettingKeys(null)).toBe(null)
   })
 })
+
+describe("damaged stored data", () => {
+  it.effect("keeps every setting that still decodes when one doesn't", () =>
+    Effect.gen(function* () {
+      const prefs = yield* Preferences
+      const settings = yield* prefs.settings
+      expect(settings.height).toBe(720) // kept
+      expect(settings.fps).toBe(30) // kept
+      expect(settings.bitrate).toBe(defaultSettings.bitrate) // 12345 isn't a bitrate this version offers
+    }).pipe(
+      Effect.provide(withMemory({ "psrp.settings": JSON.stringify({ ...defaultSettings, height: 720, fps: 30, bitrate: 12345 }) })),
+    ),
+  )
+
+  it.effect("keeps the profiles that decode", () =>
+    Effect.gen(function* () {
+      const prefs = yield* Preferences
+      const profiles = yield* prefs.profiles
+      expect(profiles.map((p) => p.name)).toEqual(["Good"])
+    }).pipe(
+      Effect.provide(
+        withMemory({
+          "psrp.profiles": JSON.stringify([
+            { name: "Good", settings: { ...defaultSettings, height: 720 } },
+            { name: 42, settings: "broken" },
+          ]),
+        }),
+      ),
+    ),
+  )
+
+  it.effect("never drops a pairing that doesn't decode when saving another", () =>
+    Effect.gen(function* () {
+      const prefs = yield* Preferences
+      expect(Object.keys(yield* prefs.paired)).toEqual([living.hostId])
+      yield* prefs.savePaired(bedroom)
+      const stored: unknown = JSON.parse(Option.getOrThrow(yield* rawGet("psrp.consoles")))
+      expect(stored).toMatchObject({ ODD: { hostId: "ODD", credentials: "from a future version" } })
+      expect(Object.keys(yield* prefs.paired).sort()).toEqual([bedroom.hostId, living.hostId].sort())
+    }).pipe(
+      Effect.provide(
+        withMemory({
+          "psrp.consoles": JSON.stringify({ [living.hostId]: living, ODD: { hostId: "ODD", credentials: "from a future version" } }),
+        }),
+      ),
+    ),
+  )
+
+  it.effect("reads nothing usable as the defaults", () =>
+    Effect.gen(function* () {
+      const prefs = yield* Preferences
+      expect(yield* prefs.settings).toEqual(defaultSettings)
+      expect(yield* prefs.profiles).toEqual([])
+      expect(yield* prefs.paired).toEqual({})
+    }).pipe(Effect.provide(withMemory({ "psrp.settings": "not json", "psrp.profiles": "{}", "psrp.consoles": "[1]" }))),
+  )
+})

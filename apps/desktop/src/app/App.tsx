@@ -65,10 +65,10 @@ export const App = () => {
   const stableTimer = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
 
   useEffect(() => {
-    run(actions.startup, {
-      onSuccess: (startup) => {
-        setSettings(startup.settings)
-        setCapabilities(startup.capabilities)
+    run(actions.loadSettings, {
+      onSuccess: (saved) => {
+        setSettings(saved)
+        run(actions.applyStartup(saved), { onSuccess: setCapabilities })
       },
     })
   }, [run])
@@ -151,9 +151,16 @@ export const App = () => {
       reconnecting: why,
       autoReconnects: session.autoReconnects + (why === "dropped" ? 1 : 0),
     })
-    cancelBackground()
+    // A reconnect already under way is interrupted first and only then the new attempt starts (which
+    // replaces any session itself). Cancelling it on the side (interrupt, then stop) raced the new attempt:
+    // that stop could land after the new session started and end it.
+    const previous = reconnectFiber.current
+    reconnectFiber.current = null
+    if (stableTimer.current) runtime.runFork(Fiber.interrupt(stableTimer.current))
+    stableTimer.current = null
+    const attempt = actions.reconnect(console, settings, session.psnDuid)
     reconnectFiber.current = runtime.runFork(
-      Effect.match(actions.reconnect(console, settings, session.psnDuid), {
+      Effect.match(previous ? Effect.andThen(Fiber.interrupt(previous), attempt) : attempt, {
         onSuccess: () => {
           reconnectFiber.current = null
           setSession((s) => s && { ...s, connected: true, reconnecting: false, startedWith: streamOptions(settings) })
@@ -265,7 +272,9 @@ export const App = () => {
           onMicToggle={() => {
             const on = session.mic === "off"
             setSession((s) => s && { ...s, mic: on ? "pending" : "off" })
-            run(actions.setMicrophone(on))
+            // The outcome comes as a "microphone" event; if the request itself fails none will, so the
+            // button isn't left disabled on "pending".
+            run(actions.setMicrophone(on), { onFailure: () => { setSession((s) => s && { ...s, mic: "off" }) } })
           }}
           onKeyboardDone={() => { setSession((s) => s && { ...s, keyboard: Option.none() }) }}
           settings={settings}

@@ -1,6 +1,6 @@
-import { Context, Effect, Layer, Option, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema, Semaphore } from "effect"
 import { StorageError } from "./errors"
-import { defaultSettings, isAccountId, PairedConsoles, Profiles, Settings, type PairedConsole, type Profile } from "./schema"
+import { defaultSettings, isAccountId, PairedConsole, type PairedConsoles, Profile, Settings } from "./schema"
 
 /** String key/value storage (localStorage in the app, a Map in tests). */
 export class KeyValueStore extends Context.Service<
@@ -104,30 +104,73 @@ export const renamedSettingKeys = (json: unknown): unknown => {
   return { ...rest, frameInterpolation: smoothMotion }
 }
 
-const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore["Service"]) => {
+const parseJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
 
-    /** Reads JSON under `key` from `from`, after `migrate` renames old keys; missing or corrupt data
-     * yields `fallback`. */
-    const read = <A>(schema: Schema.Codec<A, unknown>, key: string, fallback: A, from = store, migrate = (json: unknown) => json) =>
-      from.get(key).pipe(
-        Effect.map((raw) =>
-          Option.match(raw, {
-            onNone: () => fallback,
-            onSome: (text) =>
-              Option.getOrElse(
-                Option.flatMap(Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(text), (json) =>
-                  Schema.decodeUnknownOption(schema)(migrate(json)),
-                ),
-                () => fallback,
-              ),
+/** Stored settings, field by field: a value that doesn't decode (from another version, or hand-edited) falls
+ * back to its default and the rest are kept. Decoding them as one let a single bad value reset everything,
+ * and the next change saved the defaults over the user's settings. */
+export const settingsFrom = (json: unknown): Settings => {
+  const whole = Schema.decodeUnknownOption(Settings)(json)
+  if (Option.isSome(whole) || !isRecord(json)) return Option.getOrElse(whole, () => defaultSettings)
+  const merged: Record<string, unknown> = { ...defaultSettings }
+  for (const [key, field] of Object.entries(Settings.fields)) {
+    if (!(key in json)) continue
+    const value = Schema.decodeUnknownOption(field)(json[key])
+    if (Option.isSome(value)) merged[key] = value.value
+  }
+  return Option.getOrElse(Schema.decodeUnknownOption(Settings)(merged), () => defaultSettings)
+}
+
+/** Stored profiles, one by one: a profile that doesn't decode is left out, not the whole list. */
+export const profilesFrom = (json: unknown): readonly Profile[] =>
+  Array.isArray(json)
+    ? json.flatMap((p: unknown) => {
+        const migrated = isRecord(p) ? { ...p, settings: renamedSettingKeys(p["settings"]) } : p
+        return Option.toArray(Schema.decodeUnknownOption(Profile)(migrated))
+      })
+    : []
+
+/** Stored pairings, entry by entry: the ones that decode, and the ones that don't kept as they are, so a
+ * write puts them back untouched. Decoding them as one lost every console's pairing keys for one bad entry,
+ * and the next pairing saved over them. */
+export const pairingsFrom = (json: unknown): { readonly valid: PairedConsoles; readonly unreadable: Readonly<Record<string, unknown>> } => {
+  const valid: Record<string, PairedConsole> = {}
+  const unreadable: Record<string, unknown> = {}
+  if (isRecord(json)) {
+    for (const [hostId, entry] of Object.entries(json)) {
+      Option.match(Schema.decodeUnknownOption(PairedConsole)(entry), {
+        onSome: (console) => { valid[hostId] = console },
+        onNone: () => { unreadable[hostId] = entry },
+      })
+    }
+  }
+  return { valid, unreadable }
+}
+
+const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore["Service"], pairing: Semaphore.Semaphore) => {
+
+    /** The JSON stored under `key` in `from`, turned into a value by `decode`; nothing, or text that
+     * isn't JSON gives `decode(undefined)`. */
+    const read = <A>(key: string, decode: (json: unknown) => A, from = store) =>
+      Effect.map(from.get(key), (raw) => decode(Option.getOrUndefined(Option.flatMap(raw, parseJson))))
+
+    const write = (key: string, value: unknown, to = store) => to.set(key, JSON.stringify(value))
+
+    const pairings = read(keys.consoles, pairingsFrom, secret)
+    const paired = Effect.map(pairings, (p) => p.valid)
+    /** Changes the pairings one change at a time (pairing, forgetting and the scan's address updates
+     * read, change and write the whole set: interleaved, one would undo another), putting entries that
+     * don't decode back untouched. */
+    const changePaired = (change: (all: PairedConsoles) => Option.Option<PairedConsoles>) =>
+      Semaphore.withPermit(
+        pairing,
+        Effect.flatMap(pairings, ({ valid, unreadable }) =>
+          Option.match(change(valid), {
+            onNone: () => Effect.void,
+            onSome: (next) => write(keys.consoles, { ...unreadable, ...next }, secret),
           }),
         ),
       )
-
-    const write = (key: string, value: unknown, to = store) => to.set(key, JSON.stringify(value))
-    const writePaired = (value: PairedConsoles) => write(keys.consoles, value, secret)
-
-    const paired = read(PairedConsoles, keys.consoles, {}, secret)
 
     /** A stored account ID that isn't a valid one (corrupt or hand-edited) reads as signed out. */
     const decodeAccountId = Schema.decodeUnknownOption(Schema.String.check(Schema.makeFilter((id: string) => isAccountId(id))))
@@ -137,32 +180,29 @@ const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore[
       setAccountId: (id) =>
         Option.match(id, { onNone: () => secret.remove(keys.accountId), onSome: (v) => secret.set(keys.accountId, v) }),
       paired,
-      savePaired: (console) =>
-        Effect.flatMap(paired, (all) => writePaired({ ...all, [console.hostId]: console })),
+      savePaired: (console) => changePaired((all) => Option.some({ ...all, [console.hostId]: console })),
       forget: (hostId) =>
-        Effect.flatMap(paired, (all) => {
+        changePaired((all) => {
           const { [hostId]: _removed, ...rest } = all
-          return writePaired(rest)
+          return Option.some(rest)
         }),
       refreshAddresses: (seen) =>
-        Effect.flatMap(paired, (all) => {
+        changePaired((all) => {
           const moved = seen.filter((s) => {
             const p = all[s.hostId]
             return p !== undefined && p.credentials.address !== s.address
           })
-          if (moved.length === 0) return Effect.void
+          if (moved.length === 0) return Option.none()
           const next = { ...all }
           for (const s of moved) {
             const p = next[s.hostId]
             if (p) next[s.hostId] = { ...p, credentials: { ...p.credentials, address: s.address } }
           }
-          return writePaired(next)
+          return Option.some(next)
         }),
-      settings: read(Settings, keys.settings, defaultSettings, store, renamedSettingKeys),
+      settings: read(keys.settings, (json) => settingsFrom(renamedSettingKeys(json))),
       saveSettings: (settings) => write(keys.settings, settings),
-      profiles: read(Profiles, keys.profiles, [], store, (json) =>
-        Array.isArray(json) ? json.map((p: unknown) => (isRecord(p) ? { ...p, settings: renamedSettingKeys(p["settings"]) } : p)) : json,
-      ),
+      profiles: read(keys.profiles, profilesFrom),
       saveProfiles: (profiles) => write(keys.profiles, profiles),
     } satisfies Preferences["Service"]
 }
@@ -172,7 +212,7 @@ export const PreferencesLive = Layer.effect(
   Preferences,
   Effect.gen(function* () {
     const store = yield* KeyValueStore
-    return makePreferences(store, store)
+    return makePreferences(store, store, yield* Semaphore.make(1))
   }),
 )
 
@@ -182,6 +222,6 @@ export const SecurePreferencesLive = Layer.effect(
   Effect.gen(function* () {
     const store = yield* KeyValueStore
     const secrets = yield* SecretStore
-    return makePreferences(store, migratingSecrets(secrets, store))
+    return makePreferences(store, migratingSecrets(secrets, store), yield* Semaphore.make(1))
   }),
 )

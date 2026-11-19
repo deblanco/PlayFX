@@ -28,6 +28,7 @@ fn main() {
         "secret_remove",
         "set_render_params",
         "toggle_fullscreen",
+        "fullscreen_state",
         "psn_signed_in",
         "psn_consoles",
         "psn_sign_out",

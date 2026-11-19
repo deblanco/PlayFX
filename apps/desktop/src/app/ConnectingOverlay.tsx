@@ -111,6 +111,7 @@ export const ConnectingOverlay = ({ consoleName, route, stage, reconnecting, onC
   return (
     <div className="pointer-events-none fixed inset-0 flex items-center justify-center p-6">
       <section
+        data-no-fullscreen
         aria-labelledby="connecting-title"
         className="pointer-events-auto w-full max-w-sm rounded-2xl border border-white/10 bg-glass p-6 text-white shadow-2xl backdrop-blur-xl"
       >

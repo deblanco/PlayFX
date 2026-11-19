@@ -144,6 +144,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
       logFolder: "/Users/me/Library/Logs/dev.deblanco.playfx",
       recentLog: "[INFO] Stream connected",
     })),
+    fullscreenState: Effect.sync(() => state.fullscreen),
     toggleFullscreen: Effect.sync(() => {
       state.fullscreen = !state.fullscreen
       return state.fullscreen
