@@ -299,6 +299,11 @@ public func sc_psn_sign_out() { PSNAccount.shared.signOut() }
 
 // MARK: Session (main)
 
+/// The session whose events reach the host; 0 while there is none. A replaced or stopped session keeps
+/// reporting while it winds down (its "Stopped" quit, a late "connected"), and the host took those for the
+/// current session's: it ended a new stream because the one it replaced had quit.
+private let reporting = OSAllocatedUnfairLock(initialState: (current: UInt64(0), last: UInt64(0)))
+
 /// `request`: {"credentials": ConsoleCredentials, "options": StreamSession.Options} → {"ok":true} or {"error"}.
 @_cdecl("sc_session_start")
 public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
@@ -313,11 +318,16 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         s.onFrame = { frame, index in renderer?.display(frame, index: index) }
         let haptics = Rumble()
         let adaptive = AdaptiveTriggers()
+        let number = reporting.withLock { state in
+            state.last += 1
+            state.current = state.last
+            return state.last
+        }
         s.onEvent = { [weak s] event in
             if case .rumble(let left, let right) = event { haptics.apply(left: left, right: right) }
             if case .hapticRumble(let left, let right) = event { haptics.applyHaptics(left: left, right: right) }
             if case .triggerEffects(let left, let right) = event { adaptive.apply(left: left, right: right) }
-            if let payload = eventPayload(event) { emit(payload) }
+            if let payload = eventPayload(event), reporting.withLock({ $0.current == number }) { emit(payload) }
             // Clean up after a quit, unless the host has already moved on to another session. The last
             // frame stays up: the host may reconnect (busy console, dropped stream) or go home.
             if case .quit = event {
@@ -416,6 +426,7 @@ func cleanUpAfterQuit(of quitted: StreamSession) {
 /// Ends the current session. `idle` brings back the test pattern (the host went home); otherwise the
 /// last frame stays on screen.
 private func endSession(idle: Bool) {
+    reporting.withLock { $0.current = 0 } // before stopping: its quit comes while it stops
     input = nil
     session?.stop()
     session = nil

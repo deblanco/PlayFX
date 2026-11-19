@@ -124,4 +124,5 @@ final class LockedLines: @unchecked Sendable {
     private var _lines: [String] = []
     func append(_ s: String) { lock.withLock { _lines.append(s) } }
     var lines: [String] { lock.withLock { _lines } }
+    func clear() { lock.withLock { _lines.removeAll() } }
 }

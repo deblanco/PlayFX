@@ -172,6 +172,17 @@ extension Serial {
             sc_session_stop() // the host went home: idle pattern back
             if let r = renderer { #expect(r.showsTestPattern) }
 
+            // Only the current session's events reach the host: not the "Stopped" quit of one that was
+            // replaced (the UI ended the new stream on it), nor that of one the host stopped.
+            let silent = fakeCredentials(address: "192.0.2.1") // TEST-NET: never answers
+            let quiet = #"{"credentials":\#(json(silent)),"options":\#(json(options))}"#
+            receivedEvents.clear()
+            #expect(try call(sc_session_start, quiet)["ok"] as? Bool == true)
+            #expect(try call(sc_session_start, quiet)["ok"] as? Bool == true) // replaces the first
+            sc_session_stop()
+            try await Task.sleep(for: .milliseconds(300))
+            #expect(!receivedEvents.lines.contains { $0.contains(#""type":"quit""#) })
+
             // A quit's late cleanup must not end a session started after it.
             #expect(try call(sc_session_start, request)["ok"] as? Bool == true)
             weak let started = session
