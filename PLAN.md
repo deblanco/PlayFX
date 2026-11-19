@@ -315,7 +315,7 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   repo public (or publish the source) with the first public build.
 - ✅ **Sony ToS note.** README: unofficial client, own consoles and account, PSN sign-in only through
   Sony's page, no credentials shipped. NOTICE and the app's About text: not affiliated with Sony.
-- 🔶 **Packaging** *(built and launched; Developer ID certificate in the keychain; notarization needs the `playfx` notarytool profile)*: bundle ID
+- 🔶 **Packaging** *(built and launched; Developer ID certificate in the keychain; notarization profile `playfx` in the keychain: an App Store Connect API key, Developer access)*: bundle ID
   `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
   `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
   Terminal), `.app` + `.dmg` (7.3 MB). The binary links only system libraries (`/usr/lib/swift` is part of

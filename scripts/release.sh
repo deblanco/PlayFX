@@ -5,8 +5,10 @@
 # One-time setup:
 #   1. A "Developer ID Application" certificate for your team in the login keychain
 #      (Xcode → Settings → Accounts → Manage Certificates → + → Developer ID Application).
-#   2. Notary credentials kept in the keychain (an app-specific password from account.apple.com):
-#        xcrun notarytool store-credentials playfx --apple-id YOU@EXAMPLE.COM --team-id K579SJ8947
+#   2. Notary credentials kept in the keychain: an App Store Connect API key with Developer access
+#      (App Store Connect → Users and Access → Integrations → Team Keys; the .p8 downloads once):
+#        xcrun notarytool store-credentials playfx --key AuthKey_<KEYID>.p8 --key-id <KEYID> --issuer <ISSUER>
+#      then delete the .p8; the profile keeps the key in the keychain.
 #
 # Usage: scripts/release.sh            (SIGNING_IDENTITY / NOTARY_PROFILE override the defaults)
 set -euo pipefail
