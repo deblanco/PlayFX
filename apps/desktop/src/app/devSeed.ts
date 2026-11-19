@@ -17,17 +17,22 @@ export const useDevAutoplay = (rows: readonly ConsoleRow[], onPlay: (console: Pa
   }, [rows, onPlay])
 }
 
+interface DevSeed {
+  readonly accountId: string
+  readonly consoles: Record<string, unknown>
+  readonly settings?: unknown
+}
+
 /// Dev-only E2E helper: preloads the app's local storage so it starts already paired with a
 /// real console, for testing the streaming path end to end without the pairing UI. Completely
 /// inert unless BOTH `import.meta.env.DEV` and `VITE_PSRP_SEED` are set, so it never affects a
 /// production build. The seed file is gitignored and holds private registration keys.
 export const seedDevStorage = async (): Promise<void> => {
   if (!import.meta.env.DEV || import.meta.env["VITE_PSRP_SEED"] !== "1") return
-  const seed = (await import("./dev-seed.local.json")).default as {
-    readonly accountId: string
-    readonly consoles: Record<string, unknown>
-    readonly settings?: unknown
-  }
+  // A glob, not an import: the file only exists on a developer's Mac, and a clean checkout must build.
+  const load = import.meta.glob<{ readonly default: DevSeed }>("./dev-seed.local.json")["./dev-seed.local.json"]
+  if (load === undefined) return
+  const seed = (await load()).default
   const put = (key: string, value: string): void => {
     if (localStorage.getItem(key) === null) localStorage.setItem(key, value)
   }
