@@ -4,7 +4,7 @@ import Foundation
 import Metal
 import StreamCore
 
-// psrp interpolate <in.mov> [--out out.mov] [--frames N]
+// psrp interpolate <in.mov> [--out out.mov] [--frames N] [--engine vt|metalfx] [--flow-scale 0.5] [--motion-scale S]
 // A bench for frame interpolation without a console: reads a video's frames as the decoder hands them over
 // (NV12 IOSurfaces), makes the frame halfway between each pair with StreamCore's interpolator, times
 // every one (wall clock and GPU), and writes real, in-between, real… at twice the frame rate to look at.
@@ -30,10 +30,46 @@ func interpolate(_ args: Args) throws {
     var writer: BenchWriter?
     if let out = args["out"] { writer = try BenchWriter(url: URL(fileURLWithPath: out)) }
 
+    let engine = args["engine"] ?? "vt"
+    var metalFX: AnyObject?
+    if engine == "metalfx" {
+        guard #available(macOS 26.0, *) else { throw fail("MetalFX frame interpolation needs macOS 26") }
+        let w = Int(track.naturalSize.width), h = Int(track.naturalSize.height)
+        let made = MetalFXInterpolatorBench(device: device, width: w, height: h,
+                                            flowScale: Double(args["flow-scale"] ?? "") ?? 0.5,
+                                            motionScale: args["motion-scale"].flatMap(Float.init))
+        guard let made else { throw fail("MetalFX frame interpolation couldn't start") }
+        metalFX = made
+        print("engine: MetalFX, optical flow at \(made.flowWidth)x\(made.flowHeight), motion scale \(made.motionScale)")
+    } else {
+        print("engine: VideoToolbox low-latency frame interpolation")
+    }
+
     let interpolator = FrameInterpolator()
     var previous: CVPixelBuffer?
     var wall: [Double] = [], gpu: [Double] = [], misses = 0, pairs = 0, index = 0
     while index < limit, let sample = output.copyNextSampleBuffer(), let frame = CMSampleBufferGetImageBuffer(sample) {
+        if #available(macOS 26.0, *), let bench = metalFX as? MetalFXInterpolatorBench {
+            defer { previous = frame; index += 1 }
+            guard let cb = queue.makeCommandBuffer(), let result = bench.buffer(kCVPixelFormatType_32BGRA, bench.width, bench.height),
+                  let real = bench.bgra(frame) else { throw fail("no buffers") }
+            let start = DispatchTime.now().uptimeNanoseconds
+            let made = bench.encode(cb, frame, into: result)
+            cb.commit()
+            cb.waitUntilCompleted()
+            if let error = cb.error { throw fail("GPU error: \(error)") }
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
+            if previous != nil {
+                pairs += 1
+                if made {
+                    wall.append(ms)
+                    gpu.append((cb.gpuEndTime - cb.gpuStartTime) * 1000)
+                    writer?.append(result, at: 2 * index - 1)
+                } else { misses += 1 }
+            }
+            writer?.append(real, at: 2 * index)
+            continue
+        }
         defer { previous = frame; index += 1 }
         guard let previous else { writer?.append(frame, at: 0); continue }
         guard let cb = queue.makeCommandBuffer() else { throw fail("no command buffer") }
