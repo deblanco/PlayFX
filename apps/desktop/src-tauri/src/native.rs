@@ -56,6 +56,11 @@ pub trait NativeCore: Send + Sync {
     fn secret_get(&self, key: &str) -> String;
     /// The Mac's sound outputs as [{"uid", "name"}].
     fn audio_devices(&self) -> String;
+    /// AirDrop and Handoff's peer-to-peer Wi-Fi (AWDL) as JSON: {"state"}.
+    fn peer_wifi_status(&self) -> String;
+    /// Pauses AWDL (blocks on the administrator password prompt) or lets it back: {"state", "outcome"} or
+    /// {"error"}. Never on the main thread.
+    fn set_peer_wifi_paused(&self, paused: bool) -> String;
     /// Sound volume and output device ({"volume", "deviceUID"?}) for this stream and later ones.
     fn set_audio_output(&self, request: &str) -> String;
     fn secret_set(&self, key: &str, value: &str) -> String;

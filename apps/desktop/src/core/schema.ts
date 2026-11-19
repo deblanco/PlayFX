@@ -216,6 +216,17 @@ export const Diagnostics = Schema.Struct({
 })
 export type Diagnostics = typeof Diagnostics.Type
 
+/** AirDrop and Handoff's peer-to-peer Wi-Fi (AWDL), which takes the Mac's radio off the network's channel
+ * about once a second: none on this Mac, on, off (not by PlayFX), or kept off by PlayFX while it's open. */
+export const PeerWifiState = Schema.Literals(["absent", "active", "off", "paused"])
+export type PeerWifiState = typeof PeerWifiState.Type
+
+export const PeerWifiStatus = Schema.Struct({ state: PeerWifiState })
+
+/** After asking to pause or resume: the state now, and whether the password prompt was dismissed. */
+export const PeerWifiReply = Schema.Struct({ state: PeerWifiState, outcome: Schema.Literals(["done", "cancelled"]) })
+export type PeerWifiReply = typeof PeerWifiReply.Type
+
 /** A sound output on the Mac. */
 export const AudioDevice = Schema.Struct({ uid: Schema.String, name: Schema.String })
 export type AudioDevice = typeof AudioDevice.Type

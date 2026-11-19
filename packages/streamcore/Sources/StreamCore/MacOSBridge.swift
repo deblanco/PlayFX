@@ -159,6 +159,29 @@ public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
     ])
 }
 
+/// AirDrop and Handoff's peer-to-peer Wi-Fi (AWDL): {"state": "absent" | "active" | "off" | "paused"}.
+@_cdecl("sc_peer_wifi_status")
+public func sc_peer_wifi_status() -> UnsafeMutablePointer<CChar> {
+    json(["state": PeerWifi.state.rawValue])
+}
+
+/// Pauses AWDL (asking for the administrator password) or lets it back. Blocks while the password prompt is
+/// open, so not on the main thread. {"state", "outcome": "done" | "cancelled"}, or {"error"}.
+@_cdecl("sc_peer_wifi_set_paused")
+public func sc_peer_wifi_set_paused(_ paused: Bool) -> UnsafeMutablePointer<CChar> {
+    guard paused else {
+        PeerWifi.resume()
+        return json(["state": PeerWifi.state.rawValue, "outcome": "done"])
+    }
+    switch PeerWifi.pause() {
+    case .done: return json(["state": PeerWifi.state.rawValue, "outcome": "done"])
+    case .cancelled: return json(["state": PeerWifi.state.rawValue, "outcome": "cancelled"])
+    case .failed(let message):
+        Log.warning(.session, "Couldn't pause AirDrop and Handoff: \(message)")
+        return failure("Couldn't pause AirDrop and Handoff: \(message)")
+    }
+}
+
 /// Whether HDR10 frames are on screen (EDR output).
 @_cdecl("sc_hdr_active")
 public func sc_hdr_active() -> Bool {

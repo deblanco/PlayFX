@@ -34,6 +34,8 @@ unsafe extern "C" {
     pub fn sc_session_stats() -> *mut c_char;
     pub fn sc_secret_get(key: *const c_char) -> *mut c_char;
     pub fn sc_audio_devices() -> *mut c_char;
+    pub fn sc_peer_wifi_status() -> *mut c_char;
+    pub fn sc_peer_wifi_set_paused(paused: bool) -> *mut c_char;
     pub fn sc_set_audio_output(request: *const c_char) -> *mut c_char;
     pub fn sc_secret_set(key: *const c_char, value: *const c_char) -> *mut c_char;
     pub fn sc_secret_remove(key: *const c_char);
@@ -104,6 +106,12 @@ impl NativeCore for MacCore {
     }
     fn audio_devices(&self) -> String {
         take(unsafe { sc_audio_devices() })
+    }
+    fn peer_wifi_status(&self) -> String {
+        take(unsafe { sc_peer_wifi_status() })
+    }
+    fn set_peer_wifi_paused(&self, paused: bool) -> String {
+        take(unsafe { sc_peer_wifi_set_paused(paused) })
     }
     fn set_audio_output(&self, request: &str) -> String {
         let request = cstr(request);

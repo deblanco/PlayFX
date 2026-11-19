@@ -70,6 +70,10 @@ fn mac_core_without_session_or_renderer() {
     core.set_microphone(false);
     core.set_detailed_logs(false);
     assert!(reply(&core.audio_devices()).is_ok());
+    // AirDrop and Handoff: reading is harmless, and letting them back when PlayFX never paused them changes
+    // nothing. (Pausing would open the password prompt, so it isn't called here.)
+    assert!(reply(&core.peer_wifi_status()).map(|v| v["state"].is_string()).unwrap_or(false));
+    assert_eq!(reply(&core.set_peer_wifi_paused(false)).map(|v| v["outcome"].clone()), Ok(json!("done")));
     // Read-only: whether a PSN sign-in is kept, and a key no one ever writes.
     let _ = core.psn_signed_in();
     assert_eq!(reply(&core.secret_get("playfx-test-never-written")), Ok(json!({"value": null})));

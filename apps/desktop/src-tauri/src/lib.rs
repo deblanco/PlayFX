@@ -248,6 +248,20 @@ fn audio_devices<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     reply(&core(&app).audio_devices())
 }
 
+/// AirDrop and Handoff's peer-to-peer Wi-Fi: whether it's on, off or paused by PlayFX.
+#[tauri::command(async)]
+fn peer_wifi_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    reply(&core(&app).peer_wifi_status())
+}
+
+/// Pauses AirDrop and Handoff while PlayFX is open, or lets them back. Pausing waits on the macOS password
+/// prompt, so this runs off the main thread (async command), never through `on_main`.
+#[tauri::command(async)]
+fn set_peer_wifi_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Result<Value, String> {
+    log::info!("{} AirDrop and Handoff", if paused { "Pausing" } else { "Resuming" });
+    reply(&core(&app).set_peer_wifi_paused(paused))
+}
+
 #[tauri::command(async)]
 fn set_audio_output<R: Runtime>(app: AppHandle<R>, output: Value) -> Result<Value, String> {
     reply(&core(&app).set_audio_output(&output.to_string()))
@@ -359,6 +373,8 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_microphone,
         secret_get,
         audio_devices,
+        peer_wifi_status,
+        set_peer_wifi_paused,
         set_audio_output,
         secret_set,
         secret_remove,

@@ -197,6 +197,20 @@ Work items:
   - MetalFX frame interpolation was measured (zero motion, media-engine motion, optical flow) and isn't
     worth its GPU time. See [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md).
   - Not yet checked on the PS5.
+- ✅ **Network** (requested): see [docs/NETWORK.md](docs/NETWORK.md).
+  - **Cause found:** AirDrop and Handoff (AWDL) stall the Mac's Wi-Fi about 90 ms every second. Pings to
+    the PS5 peaked at 105 ms; with AWDL off, 21 ms.
+  - **Steady Wi-Fi** (Home and Settings → Stream) pauses AWDL while PlayFX is open: one password prompt,
+    and a root helper that ends on quit or crash.
+  - **libchiaki now comes from our fork** (deblanco/chiaki-ng, branch `playfx`), with four fixes: false
+    packet loss on wrap, a 4 MB receive buffer, Wi-Fi priority marking, and gap-block acks.
+  - **Threads:** libchiaki's receive and input threads run at user-interactive QoS.
+  - **Result** (1080p60, AWDL on): lateness behind the stream clock went from 219–555 ms to 9.5 ms, and
+    lost frames from 2–15 to 0.
+  - **Open:**
+    - the pacing clock should re-anchor when lateness stays high;
+    - the 33 ms reorder wait from PR #817 is untested;
+    - the stream with Steady Wi-Fi on hasn't been measured yet.
 
 ### P1 — making a stream feel complete
 

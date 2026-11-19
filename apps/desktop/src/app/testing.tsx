@@ -10,6 +10,7 @@ import type {
   PairedConsole,
   PsnAccountEvent,
   DevCommand,
+  PeerWifiState,
   PsnConsole,
   RendererStatus,
   RenderParams,
@@ -72,7 +73,14 @@ type CoreService = Core["Service"]
 
 /** A Core whose replies are mutable state, recording calls and letting tests fire events. */
 export const fakeCore = (overrides: Partial<CoreService> = {}) => {
-  const state = { discovered: [ps5] as readonly DiscoveredConsole[], status: status(), fullscreen: false, psnSignedIn: false, psnConsoles: [] as readonly PsnConsole[] }
+  const state = {
+    discovered: [ps5] as readonly DiscoveredConsole[],
+    status: status(),
+    fullscreen: false,
+    psnSignedIn: false,
+    psnConsoles: [] as readonly PsnConsole[],
+    peerWifi: "active" as PeerWifiState,
+  }
   const counts = { discover: 0, psnLogin: 0, stopStream: 0, sleepConsole: 0, openLogsFolder: 0, openSourceCode: 0 }
   const streamHandlers = new Set<(event: StreamEvent) => void>()
   const psnHandlers = new Set<(event: PsnAccountEvent) => void>()
@@ -106,6 +114,14 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     keyboardSetText: vi.fn<CoreService["keyboardSetText"]>(() => Effect.void),
     keyboardDone: vi.fn<CoreService["keyboardDone"]>(() => Effect.void),
     setMicrophone: vi.fn<CoreService["setMicrophone"]>(() => Effect.void),
+    peerWifiStatus: Effect.sync(() => state.peerWifi),
+    // Pausing as if the password were given.
+    setPeerWifiPaused: vi.fn<CoreService["setPeerWifiPaused"]>((paused) =>
+      Effect.sync(() => {
+        state.peerWifi = paused ? "paused" : "active"
+        return { state: state.peerWifi, outcome: "done" as const }
+      }),
+    ),
     audioDevices: Effect.succeed([
       { uid: "BuiltInSpeakerDevice", name: "MacBook Pro Speakers" },
       { uid: "AirPods", name: "AirPods Pro" },

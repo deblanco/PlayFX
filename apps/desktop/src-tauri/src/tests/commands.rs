@@ -178,6 +178,16 @@ fn audio_output_commands() {
 }
 
 #[test]
+fn peer_wifi_commands() {
+    let core = ok_reply();
+    let app = mock(core);
+    assert_eq!(peer_wifi_status(app.handle().clone()), Ok(json!({"state": "active"})));
+    assert_eq!(set_peer_wifi_paused(app.handle().clone(), true), Ok(json!({"ok": true})));
+    assert_eq!(core.calls(), ["set_peer_wifi_paused true"]);
+    assert_eq!(set_peer_wifi_paused(mock(err_reply()).handle().clone(), false), Err("nope".into()));
+}
+
+#[test]
 fn secrets_go_through_the_native_store() {
     let core = FakeCore::default().leak();
     let app = mock(core);
@@ -350,6 +360,8 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     ok("secret_get", json!({"key": "consoles"}));
     ok("secret_remove", json!({"key": "consoles"}));
     ok("audio_devices", json!({}));
+    ok("peer_wifi_status", json!({}));
+    ok("set_peer_wifi_paused", json!({"paused": false}));
     ok("set_audio_output", json!({"output": {"volume": 0.5}}));
     assert_eq!(ok("psn_signed_in", json!({})), json!(true));
     ok("psn_consoles", json!({}));

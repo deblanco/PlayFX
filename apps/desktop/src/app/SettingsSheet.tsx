@@ -9,6 +9,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { SteadyWifiSection } from "./SteadyWifi"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { bitrates, defaultSettings, type AudioDevice, type Profile, type Settings } from "@/core/schema"
 import { toast } from "sonner"
@@ -404,6 +405,7 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
   const bitrateIndex = Math.max(0, bitrates.indexOf(settings.bitrate))
   return (
     <>
+      <SteadyWifiSection />
       <Segmented
         label="Resolution"
         value={String(settings.height)}

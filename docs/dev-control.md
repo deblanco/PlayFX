@@ -82,9 +82,20 @@ stream on a 60 or 75 Hz display, or a 60 fps stream on a 120 Hz one.
   "hdrActive": false,
   "displayMs": 9.8,
   "shownFps": 60,
+  "pacing": { "generatedFps": 0, "skippedFrames": 3, "skippedInterpolations": 0, "delayMs": 11.5,
+              "latenessMs": 9.5, "costMs": 0, "clockRestarts": 0, "size": "" },
   "stream": { "active": true, "width": 1920, "height": 1080, "framesDecoded": 5400, "framesLost": 0, "rttMs": 4.2 }
 }
 ```
+
+`pacing` is the frame pacing (see [FRAME_INTERPOLATION.md](FRAME_INTERPOLATION.md)):
+
+- `delayMs`: how far behind the stream clock images are shown.
+- `latenessMs`: the 90th percentile of how late frames arrive behind that clock. It's the network and
+  thread side of the delay; [NETWORK.md](NETWORK.md) uses it.
+- `costMs` and `size`: an in-between image's cost and the size it's made at.
+- `skippedFrames` and `skippedInterpolations`: images that were due but never shown.
+- `clockRestarts`: how often the stream clock started over.
 
 `shownFps` counts the new images put on screen each second. With Frame interpolation it's higher than the
 stream's frame rate, which is how you can tell frame generation is working.

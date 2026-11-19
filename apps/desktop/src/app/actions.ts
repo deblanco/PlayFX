@@ -15,6 +15,8 @@ import {
   type PointerTouch,
   type PairedConsole,
   type PairedConsoles,
+  type PeerWifiReply,
+  type PeerWifiState,
   type PsnAccountEvent,
   type Settings,
   type StreamEvent,
@@ -203,6 +205,23 @@ export const pollDiscovery = (report: (outcome: ScanOutcome) => void): Effect.Ef
     Effect.flatMap((outcome) => Effect.sync(() => { report(outcome); })),
     Effect.repeat(Schedule.spaced(discoveryInterval)),
   )
+
+// ---------- AirDrop & Handoff (peer-to-peer Wi-Fi) ----------
+
+export const peerWifiInterval = "3 seconds"
+
+/** Reads whether AirDrop and Handoff are taking the Wi-Fi now and every 3 s (macOS switches them on and off
+ * by itself), reporting each reading. A failed reading is skipped: the next one comes soon. */
+export const pollPeerWifi = (report: (state: PeerWifiState) => void): Effect.Effect<number, never, Core> =>
+  Effect.flatMap(Core, (core) => core.peerWifiStatus).pipe(
+    Effect.flatMap((state) => Effect.sync(() => { report(state) })),
+    Effect.ignore,
+    Effect.repeat(Schedule.spaced(peerWifiInterval)),
+  )
+
+/** Pauses AirDrop and Handoff while PlayFX is open (macOS asks for the password), or lets them back. */
+export const setPeerWifiPaused = (paused: boolean): Effect.Effect<PeerWifiReply, CoreError, Core> =>
+  Effect.flatMap(Core, (core) => core.setPeerWifiPaused(paused))
 
 /** Pairs with a console using the PIN it shows; returns the updated paired list. */
 export const pair = (

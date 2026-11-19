@@ -27,6 +27,21 @@
     @keyframes flow {
         to { stroke-dashoffset: -16; }
     }
+    /* A link that stalls once a second (what AWDL does to the radio): the flow halts for a beat, then
+       surges to catch up, so it covers the same distance per second as the steady flow. */
+    --animate-stutter: stutter 1s infinite;
+    @keyframes stutter {
+        0% { stroke-dashoffset: 0; animation-timing-function: linear; }
+        22% { stroke-dashoffset: 0; animation-timing-function: cubic-bezier(0.15, 0.75, 0.35, 1); }
+        100% { stroke-dashoffset: -16; }
+    }
+    /* One light crossing the link when it's made steady. */
+    --animate-steady: steady 0.9s cubic-bezier(0.3, 0, 0.2, 1) 1 forwards;
+    @keyframes steady {
+        0% { offset-distance: 0%; opacity: 0; }
+        12% { opacity: 1; }
+        100% { offset-distance: 100%; opacity: 0; }
+    }
 }
 
 @theme inline {

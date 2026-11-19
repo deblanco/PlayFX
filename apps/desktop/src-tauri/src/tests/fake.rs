@@ -69,6 +69,13 @@ impl NativeCore for FakeCore {
     fn psn_signed_in(&self) -> bool {
         self.psn_signed_in
     }
+    fn peer_wifi_status(&self) -> String {
+        r#"{"state":"active"}"#.into()
+    }
+    fn set_peer_wifi_paused(&self, paused: bool) -> String {
+        self.log(format!("set_peer_wifi_paused {paused}"));
+        self.reply.clone()
+    }
     fn audio_devices(&self) -> String {
         r#"[{"uid":"BuiltInSpeakerDevice","name":"MacBook Pro Speakers"}]"#.into()
     }

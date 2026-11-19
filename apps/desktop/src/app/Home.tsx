@@ -14,6 +14,7 @@ import { GetStarted } from "./GetStarted"
 import { useRun } from "./runtime"
 import { isIpv4, streamSummary, type Capabilities } from "./format"
 import { Segmented, SettingsSheet, type SettingsTab } from "./SettingsSheet"
+import { SteadyWifiRow } from "./SteadyWifi"
 
 const connectionDescription: Readonly<Record<Settings["connection"], string>> = {
   auto: "Tries your home network first, and goes through PSN if the console can't be reached there.",
@@ -80,6 +81,7 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
               />
             )}
           </div>
+          <SteadyWifiRow />
           <Separator />
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground tabular-nums">{streamSummary(settings)}</p>

@@ -21,10 +21,27 @@ adaptive triggers, touchpad and motion.
 - **Controllers:** DualSense, DualShock 4, Xbox and MFi pads through GameController, with rumble, adaptive
   triggers, touchpad and motion. The Mac keyboard works as a controller, and the trackpad works as the
   touchpad (hold ⌥ Option).
+- **Steady Wi-Fi:** pauses AirDrop and Handoff while PlayFX is open. They take the Mac's Wi-Fi off your
+  network for about 90 ms every second, and the stream stalls with it (see below).
 - **Status:** an on-screen stats line (frame rate, bitrate, latency, lost frames); pairing keys are
   kept in the macOS Keychain (release builds).
 
 See [PLAN.md](PLAN.md) for what's verified on hardware and what's next.
+
+## Playing over Wi-Fi
+
+AirDrop, Handoff, Universal Control and wireless Sidecar run over AWDL, a peer-to-peer Wi-Fi link that
+shares the Mac's single radio. While it's on, the radio leaves your network's channel about once a second.
+Measured from a Mac to a PS5, the worst ping went from about 100 ms, once every second, to 21 ms with AWDL
+off.
+
+- Turn on **Steady Wi-Fi**, on Home or in Settings → Stream. macOS asks for your password once. AirDrop
+  and Handoff come back when you turn it off or quit PlayFX.
+- Or by hand: `sudo ifconfig awdl0 down`. Use `sudo ifconfig awdl0 up` to undo it; macOS also brings it
+  back by itself after a while.
+- Put the Mac and the PS5 on the same network, wire the PS5 if you can, and use 5 or 6 GHz on the Mac.
+
+The details and the measurements are in [docs/NETWORK.md](docs/NETWORK.md).
 
 ## Layout
 
@@ -79,6 +96,9 @@ with the [dev control port](docs/dev-control.md).
 
 How frame interpolation and frame pacing work, what was measured, and how to bench them without a
 console (`psrp interpolate`, `psrp play`): [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md).
+
+What makes a stream stutter on the network, and what PlayFX does about it:
+[docs/NETWORK.md](docs/NETWORK.md).
 
 ## License
 

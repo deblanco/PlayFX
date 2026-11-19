@@ -18,6 +18,9 @@ import {
   type RenderParams,
   PsnConsole,
   Diagnostics,
+  PeerWifiReply,
+  PeerWifiStatus,
+  type PeerWifiState,
 } from "./schema"
 import { TauriBridge } from "./tauri"
 
@@ -60,6 +63,10 @@ export class Core extends Context.Service<
     /** The Mac's sound outputs, and where and how loud the stream plays (applied at once). */
     readonly audioDevices: Effect.Effect<readonly AudioDevice[], CoreError>
     readonly setAudioOutput: (volume: number, deviceUID: string | undefined) => Effect.Effect<void, CoreError>
+    /** AirDrop and Handoff's peer-to-peer Wi-Fi (AWDL). */
+    readonly peerWifiStatus: Effect.Effect<PeerWifiState, CoreError>
+    /** Pauses it while PlayFX is open (macOS asks for the administrator password) or lets it back. */
+    readonly setPeerWifiPaused: (paused: boolean) => Effect.Effect<PeerWifiReply, CoreError>
     /** The native secret store (Keychain in release builds, a 0600 file in development). */
     readonly secretGet: (key: string) => Effect.Effect<Option.Option<string>, CoreError>
     readonly secretSet: (key: string, value: string) => Effect.Effect<void, CoreError>
@@ -155,6 +162,8 @@ export const CoreLive = Layer.effect(
             output: deviceUID === undefined ? { volume } : { volume, deviceUID },
           }),
         ),
+      peerWifiStatus: Effect.map(call(PeerWifiStatus, "peer_wifi_status"), (reply) => reply.state),
+      setPeerWifiPaused: (paused) => call(PeerWifiReply, "set_peer_wifi_paused", { paused }),
       secretGet: (key) =>
         Effect.map(call(Schema.Struct({ value: Schema.NullOr(Schema.String) }), "secret_get", { key }), (r) =>
           Option.fromNullishOr(r.value),
