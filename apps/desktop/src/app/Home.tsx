@@ -73,6 +73,8 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
             <p className="text-xs text-muted-foreground">{connectionDescription[settings.connection]}</p>
             {settings.connection === "local" && (
               <ConsoleAddress
+                // Keyed by the saved address: when it changes underneath (settings loading), the field restarts from it.
+                key={settings.consoleAddress}
                 value={settings.consoleAddress}
                 onChange={(consoleAddress) => { onSettingsChange({ ...settings, consoleAddress }) }}
               />

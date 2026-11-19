@@ -1349,6 +1349,11 @@ describe("console IP on the home network", () => {
     fireEvent.blur(field) // nothing new to save
   })
 
+  it("keeps the last address typed for next time", async () => {
+    renderApp(fakeCore(), { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "local", consoleAddress: "192.168.1.20" } })
+    expect(await screen.findByLabelText("Console IP address")).toHaveValue("192.168.1.20")
+  })
+
   it("asks the console at that address directly, and lists it", async () => {
     const core = fakeCore({
       discover: Effect.succeed([]),
