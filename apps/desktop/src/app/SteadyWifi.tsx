@@ -1,5 +1,5 @@
 import { Gamepad2, Laptop } from "lucide-react"
-import { useCallback, useId, useMemo, useState } from "react"
+import { createContext, use, useCallback, useId, useMemo, useState, type ReactNode } from "react"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import type { PeerWifiState } from "@/core/schema"
@@ -20,26 +20,42 @@ export interface PeerWifi {
 }
 
 /** The state of AirDrop and Handoff, kept current while mounted, and the switch to pause them. */
-export const usePeerWifi = (): PeerWifi => {
+const usePeerWifi = (): PeerWifi => {
   const run = useRun()
-  const [state, setState] = useState<PeerWifiState | undefined>(undefined)
-  const [pending, setPending] = useState(false)
-  useFork(useMemo(() => actions.pollPeerWifi(setState), []))
+  const [reading, setReading] = useState<PeerWifiState | undefined>(undefined)
+  // While a change is in flight, what it started from: readings taken meanwhile (the prompt can stay open
+  // for minutes) don't move the switch; the change's reply has the last word.
+  const [pending, setPending] = useState<{ readonly from: PeerWifiState | undefined } | undefined>(undefined)
+  useFork(useMemo(() => actions.pollPeerWifi(setReading), []))
   const setPaused = useCallback(
     (paused: boolean) => {
-      setPending(true)
+      setPending({ from: reading })
       run(actions.setPeerWifiPaused(paused), {
         // A dismissed prompt changes nothing, and the reply's state already says so.
         onSuccess: (reply) => {
-          setState(reply.state)
-          setPending(false)
+          setReading(reply.state)
+          setPending(undefined)
         },
-        onFailure: () => { setPending(false) },
+        onFailure: () => { setPending(undefined) },
       })
     },
-    [run],
+    [run, reading],
   )
-  return { state, pending, setPaused }
+  return { state: pending === undefined ? reading : pending.from, pending: pending !== undefined, setPaused }
+}
+
+const PeerWifiContext = createContext<PeerWifi | null>(null)
+
+/** One reading and one switch for the whole app: the Home row and the Settings section (on Home and while
+ * streaming) show the same state, and a pause started in one disables the other. */
+export const PeerWifiProvider = ({ children }: { readonly children: ReactNode }) => (
+  <PeerWifiContext value={usePeerWifi()}>{children}</PeerWifiContext>
+)
+
+const usePeerWifiContext = (): PeerWifi => {
+  const wifi = use(PeerWifiContext)
+  if (wifi === null) throw new Error("Steady Wi-Fi needs a <PeerWifiProvider> above it")
+  return wifi
 }
 
 /** Whether there's anything to show: AWDL exists and is on, or PlayFX is keeping it off. */
@@ -129,7 +145,7 @@ const textFor = (wifi: PeerWifi, state: "active" | "paused" | "off") =>
 
 /** Home: one row, shown only while AirDrop and Handoff are on or paused by PlayFX. */
 export const SteadyWifiRow = () => {
-  const wifi = usePeerWifi()
+  const wifi = usePeerWifiContext()
   const id = useId()
   if (!showsSteadyWifi(wifi.state)) return null
   const paused = wifi.state === "paused"
@@ -157,7 +173,7 @@ export const SteadyWifiRow = () => {
 
 /** Settings → Stream: the same switch with what it measured and what it costs. */
 export const SteadyWifiSection = () => {
-  const wifi = usePeerWifi()
+  const wifi = usePeerWifiContext()
   const id = useId()
   if (wifi.state === undefined || wifi.state === "absent") return null
   const state = wifi.state

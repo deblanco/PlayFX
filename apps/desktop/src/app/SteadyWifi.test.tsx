@@ -6,11 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { CoreError } from "@/core/errors"
 import type { PeerWifiReply } from "@/core/schema"
 import { RuntimeProvider } from "./runtime"
-import { LinkLine, linkPath, showsSteadyWifi, SteadyWifiRow, SteadyWifiSection } from "./SteadyWifi"
+import { LinkLine, linkPath, PeerWifiProvider, showsSteadyWifi, SteadyWifiRow, SteadyWifiSection } from "./SteadyWifi"
 import { accountId, fakeCore, pairedPs5, renderApp, testRuntime, type FakeCore } from "./testing"
 
 const renderWith = (core: FakeCore, element: React.ReactNode) =>
-  render(<RuntimeProvider runtime={testRuntime(core)}>{element}</RuntimeProvider>)
+  render(
+    <RuntimeProvider runtime={testRuntime(core)}>
+      <PeerWifiProvider>{element}</PeerWifiProvider>
+    </RuntimeProvider>,
+  )
 
 const steadySwitch = () => screen.getByRole("switch")
 
@@ -52,6 +56,33 @@ describe("Steady Wi-Fi", () => {
     expect(steadySwitch()).not.toBeChecked()
   })
 
+  it("keeps Home and Settings in step, and ignores readings while the prompt is open", async () => {
+    const answer = Effect.runSync(Deferred.make<PeerWifiReply>())
+    const core = fakeCore({ setPeerWifiPaused: vi.fn(() => Deferred.await(answer)) })
+    renderWith(
+      core,
+      <>
+        <SteadyWifiRow />
+        <SteadyWifiSection />
+      </>,
+    )
+    await waitFor(() => { expect(screen.getAllByRole("switch")).toHaveLength(2) })
+    const [row, section] = screen.getAllByRole("switch")
+    if (!row || !section) throw new Error("no switches")
+    await userEvent.click(section)
+    // A pause started in Settings disables the Home switch too.
+    await waitFor(() => { expect(row).toBeDisabled() })
+    // Meanwhile a reading says "paused" (macOS sees the marker): the switches don't move.
+    core.state.peerWifi = "paused"
+    await Effect.runPromise(Effect.sleep("3100 millis"))
+    expect(row).not.toBeChecked()
+    expect(screen.getAllByText("Waiting for your password")).toHaveLength(2)
+    const paused: PeerWifiReply = { state: "paused", outcome: "done" }
+    Effect.runSync(Deferred.succeed(answer, paused))
+    await waitFor(() => { expect(row).toBeChecked() })
+    expect(section).toBeChecked()
+  }, 10_000)
+
   it("shows a failure and lets the user try again", async () => {
     const error = vi.spyOn(toast, "error")
     const core = fakeCore({
@@ -89,10 +120,9 @@ describe("Steady Wi-Fi", () => {
   })
 
   it("leaves Settings alone on a Mac without AirDrop's Wi-Fi", async () => {
-    const core = fakeCore()
-    core.state.peerWifi = "absent"
-    const { container } = renderWith(core, <SteadyWifiSection />)
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    const reads = vi.fn(() => "absent" as const) // counted, to know when the reading has happened
+    const { container } = renderWith(fakeCore({ peerWifiStatus: Effect.sync(reads) }), <SteadyWifiSection />)
+    await waitFor(() => { expect(reads).toHaveBeenCalled() })
     expect(container).toBeEmptyDOMElement()
   })
 

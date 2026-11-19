@@ -182,9 +182,12 @@ fn peer_wifi_commands() {
     let core = ok_reply();
     let app = mock(core);
     assert_eq!(peer_wifi_status(app.handle().clone()), Ok(json!({"state": "active"})));
-    assert_eq!(set_peer_wifi_paused(app.handle().clone(), true), Ok(json!({"ok": true})));
+    let pause = |app: &tauri::App<tauri::test::MockRuntime>, paused| {
+        tauri::async_runtime::block_on(set_peer_wifi_paused(app.handle().clone(), paused))
+    };
+    assert_eq!(pause(&app, true), Ok(json!({"ok": true})));
     assert_eq!(core.calls(), ["set_peer_wifi_paused true"]);
-    assert_eq!(set_peer_wifi_paused(mock(err_reply()).handle().clone(), false), Err("nope".into()));
+    assert_eq!(pause(&mock(err_reply()), false), Err("nope".into()));
 }
 
 #[test]

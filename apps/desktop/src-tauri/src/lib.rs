@@ -255,11 +255,15 @@ fn peer_wifi_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
 }
 
 /// Pauses AirDrop and Handoff while PlayFX is open, or lets them back. Pausing waits on the macOS password
-/// prompt, so this runs off the main thread (async command), never through `on_main`.
-#[tauri::command(async)]
-fn set_peer_wifi_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Result<Value, String> {
+/// prompt for as long as it's open, so the native call runs on the blocking pool, not on an async worker
+/// (a sync command marked `async` would) and never through `on_main`.
+#[tauri::command]
+async fn set_peer_wifi_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Result<Value, String> {
     log::info!("{} AirDrop and Handoff", if paused { "Pausing" } else { "Resuming" });
-    reply(&core(&app).set_peer_wifi_paused(paused))
+    let text = tauri::async_runtime::spawn_blocking(move || core(&app).set_peer_wifi_paused(paused))
+        .await
+        .map_err(error_text)?;
+    reply(&text)
 }
 
 #[tauri::command(async)]

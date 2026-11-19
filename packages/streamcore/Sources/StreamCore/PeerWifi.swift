@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// AWDL, the peer-to-peer Wi-Fi behind AirDrop, Handoff, Universal Control and wireless Sidecar.
 ///
@@ -31,10 +32,27 @@ public enum PeerWifi {
     /// The interface's name.
     static let interface = "awdl0"
 
-    /// While this file exists the helper keeps AWDL off. Per process, so a crashed run's leftover can't
-    /// make a later one think it's paused, and two copies of PlayFX can't stop each other's helper.
-    /// Numeric parts only, so it can go into the root helper's command line as is.
-    nonisolated(unsafe) static var markerPath = "/tmp/playfx-awdl-\(getuid())-\(getpid())"
+    /// While this file exists the helper keeps AWDL off. In the user's own temporary folder (not the shared
+    /// /tmp, where another account could create or hold the name), and per process, so a crashed run's
+    /// leftover can't make a later one think it's paused. Removed when PlayFX exits.
+    nonisolated(unsafe) static var markerPath = (NSTemporaryDirectory() as NSString).appendingPathComponent("playfx-awdl-\(getpid())")
+
+    /// Waits between checks while the helper brings AWDL back. Replaced in tests.
+    nonisolated(unsafe) static var wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+
+    /// True while the password prompt is open: the marker already exists (the helper needs it from its
+    /// first check) but nothing is paused yet.
+    private static let pausing = OSAllocatedUnfairLock(initialState: false)
+
+    /// Removes the marker when PlayFX exits normally (the helper also stops on its own once PlayFX is gone).
+    private static let removeMarkerOnExit: Void = {
+        atexit { try? FileManager.default.removeItem(atPath: PeerWifi.markerPath) }
+    }()
+
+    /// Whether a path can go into the root helper's command line as is: no spaces, quotes or shell syntax.
+    static func isPlainPath(_ path: String) -> Bool {
+        path.hasPrefix("/") && path.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "/._-".contains($0)) }
+    }
 
     /// Runs an AppleScript (`osascript -e`); returns its exit status and error output. Replaced in tests.
     nonisolated(unsafe) static var runAppleScript: (String) -> (status: Int32, error: String) = { script in
@@ -63,7 +81,8 @@ public enum PeerWifi {
 
     /// The state now.
     public static var state: State {
-        state(interfaceUp: interfaceUp(), markerExists: FileManager.default.fileExists(atPath: markerPath))
+        let ours = FileManager.default.fileExists(atPath: markerPath) && !pausing.withLock { $0 }
+        return state(interfaceUp: interfaceUp(), markerExists: ours)
     }
 
     /// The state from the interface's flags and our marker. While the marker exists the helper is keeping
@@ -90,10 +109,15 @@ public enum PeerWifi {
     }
 
     /// Pauses AWDL until `resume()` or PlayFX quits. Asks for the administrator password (or Touch ID).
-    /// Nothing to do when it's already off.
+    /// Also when it reads as off at this instant: macOS switches it off and on by itself, so it would
+    /// come back unwatched. Nothing to do without AWDL, or when it's paused already.
     public static func pause() -> Outcome {
-        guard state == .active else { return .done }
+        guard [.active, .off].contains(state) else { return .done }
         let marker = markerPath
+        guard isPlainPath(marker) else { return .failed("Unexpected temporary folder \(marker)") }
+        _ = removeMarkerOnExit
+        pausing.withLock { $0 = true }
+        defer { pausing.withLock { $0 = false } }
         guard FileManager.default.createFile(atPath: marker, contents: nil) else {
             return .failed("Couldn't create \(marker)")
         }
@@ -108,8 +132,17 @@ public enum PeerWifi {
         return .done
     }
 
-    /// Lets AirDrop and Handoff back: the helper switches AWDL on and exits within half a second.
-    public static func resume() {
+    /// Lets AirDrop and Handoff back: the helper switches AWDL on and exits within half a second. Waits
+    /// (up to 1.5 s) until it has, so the state returned is what follows, not the moment in between.
+    @discardableResult
+    public static func resume() -> State {
+        guard FileManager.default.fileExists(atPath: markerPath) else { return state }
         try? FileManager.default.removeItem(atPath: markerPath)
+        var checks = 0
+        while interfaceUp() == false, checks < 15 {
+            wait(0.1)
+            checks += 1
+        }
+        return state
     }
 }

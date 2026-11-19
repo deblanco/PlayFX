@@ -59,7 +59,7 @@ works like this:
 2. **A small helper keeps it off.** The script starts a root `sh` loop in the background:
 
    ```sh
-   while [ -e /tmp/playfx-awdl-<uid>-<pid> ] && /bin/kill -0 <pid> 2>/dev/null; do
+   while [ -e $TMPDIR/playfx-awdl-<pid> ] && /bin/kill -0 <pid> 2>/dev/null; do
      /sbin/ifconfig awdl0 down; /bin/sleep 0.5
    done; /sbin/ifconfig awdl0 up
    ```
@@ -71,10 +71,22 @@ works like this:
 
    A crash therefore never leaves AirDrop off.
 
-**Safety.** The root command is built only from fixed text and numbers (the user ID and the process ID).
-Nothing from the user, a file or the network goes into it. The marker is only ever tested for existence,
-never read or written, by the root side. It's per process: a leftover from a crashed run can't make a new
-run think it's paused, and two copies of PlayFX can't stop each other's helper.
+**Safety.** The root command is built only from fixed text, the process ID and the marker's path. Nothing
+from the user, a file or the network goes into it, and the path is refused unless it's plain letters,
+digits and `/._-`.
+
+The marker lives in the user's own temporary folder, not the shared `/tmp`, where another account could
+create or hold the name. The root side only ever tests whether it exists; it never reads or writes it.
+It's per process, so a crashed run's leftover can't make a new run think it's paused, and two copies of
+PlayFX can't stop each other's helper. PlayFX removes it when it exits.
+
+**State while changing.** The password prompt can stay open for minutes. While it is, the state still
+reads `active`, even though the marker already exists for the helper's first check. Turning the switch off
+waits (up to 1.5 s) until the helper has brought AWDL back, so the reply isn't the moment in between.
+
+Asked to pause, PlayFX pauses even when AWDL reads as off at that instant, because macOS turns it off and
+on by itself. The Home row and the Settings section share one state, so a change started in one disables
+the other.
 
 **State.** `PeerWifi.state` reads `awdl0`'s `IFF_UP` flag (no rights needed) and our marker:
 

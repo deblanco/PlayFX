@@ -10,21 +10,26 @@ extension Serial {
             var up: Bool? = true
             var scripts: [String] = []
             var reply: (status: Int32, error: String) = (0, "")
+            /// What `state` said while the password prompt was open.
+            var stateDuringPrompt: PeerWifi.State?
+            var waits = 0
             let marker = FileManager.default.temporaryDirectory.appendingPathComponent("playfx-awdl-test-\(UUID().uuidString)").path
-            private let saved = (PeerWifi.interfaceUp, PeerWifi.runAppleScript, PeerWifi.markerPath)
+            private let saved = (PeerWifi.interfaceUp, PeerWifi.runAppleScript, PeerWifi.markerPath, PeerWifi.wait)
 
             init() {
                 PeerWifi.markerPath = marker
                 PeerWifi.interfaceUp = { [unowned self] in up }
                 PeerWifi.runAppleScript = { [unowned self] script in
                     scripts.append(script)
+                    stateDuringPrompt = PeerWifi.state
                     return reply
                 }
+                PeerWifi.wait = { [unowned self] _ in waits += 1 }
             }
 
             deinit {
                 try? FileManager.default.removeItem(atPath: marker)
-                (PeerWifi.interfaceUp, PeerWifi.runAppleScript, PeerWifi.markerPath) = saved
+                (PeerWifi.interfaceUp, PeerWifi.runAppleScript, PeerWifi.markerPath, PeerWifi.wait) = saved
             }
 
             var markerExists: Bool { FileManager.default.fileExists(atPath: marker) }
@@ -51,6 +56,8 @@ extension Serial {
         @Test func asksOnceAndStartsTheHelperAsRoot() {
             let fixture = Fixture()
             #expect(PeerWifi.pause() == .done)
+            // While the prompt was open nothing was paused yet, though the marker already existed.
+            #expect(fixture.stateDuringPrompt == .active)
             #expect(fixture.markerExists)
             #expect(PeerWifi.state == .paused)
             let script = fixture.scripts.first ?? ""
@@ -63,9 +70,43 @@ extension Serial {
             // Already paused: no second prompt.
             #expect(PeerWifi.pause() == .done)
             #expect(fixture.scripts.count == 1)
-            PeerWifi.resume()
+            #expect(PeerWifi.resume() == .active)
             #expect(!fixture.markerExists)
             #expect(PeerWifi.state == .active)
+        }
+
+        @Test func resumingWaitsUntilAWDLIsBack() {
+            let fixture = Fixture()
+            #expect(PeerWifi.pause() == .done)
+            fixture.up = false // held down by the helper
+            // The helper switches it back on a few checks after the marker goes.
+            var checks = 0
+            PeerWifi.interfaceUp = {
+                checks += 1
+                return checks > 3
+            }
+            #expect(PeerWifi.resume() == .active) // not "off", the moment in between
+            #expect(fixture.waits == 3)
+            // A helper that never brings it back: give up after 1.5 s and say what's true.
+            PeerWifi.interfaceUp = { false }
+            FileManager.default.createFile(atPath: fixture.marker, contents: nil)
+            #expect(PeerWifi.resume() == .off)
+            #expect(fixture.waits == 3 + 15)
+            // Nothing of ours to resume: no waiting.
+            #expect(PeerWifi.resume() == .off)
+            #expect(fixture.waits == 18)
+        }
+
+        @Test func onlyPlainPathsReachTheRootCommand() {
+            #expect(PeerWifi.isPlainPath("/var/folders/7h/x_y-1/T/playfx-awdl-42"))
+            #expect(!PeerWifi.isPlainPath("relative/path"))
+            #expect(!PeerWifi.isPlainPath("/tmp/a b"))
+            #expect(!PeerWifi.isPlainPath("/tmp/a';rm -rf /;'"))
+            #expect(!PeerWifi.isPlainPath("/tmp/ä"))
+            let fixture = Fixture()
+            PeerWifi.markerPath = "/tmp/has space"
+            #expect(PeerWifi.pause() == .failed("Unexpected temporary folder /tmp/has space"))
+            #expect(fixture.scripts.isEmpty)
         }
 
         @Test func aDismissedPromptChangesNothing() {
@@ -87,10 +128,17 @@ extension Serial {
             #expect(PeerWifi.pause() == .failed("Couldn't create /nonexistent-folder/marker"))
         }
 
-        @Test func leavesItAloneWhenItIsNotOn() {
+        @Test func pausesEvenWhenMacOSHasItOffForAMoment() {
+            // macOS switches AWDL off and on by itself: asked to pause, keep it off from now on.
             let fixture = Fixture()
             fixture.up = false
             #expect(PeerWifi.pause() == .done)
+            #expect(fixture.scripts.count == 1)
+            #expect(PeerWifi.state == .paused)
+        }
+
+        @Test func leavesItAloneWithoutAWDL() {
+            let fixture = Fixture()
             fixture.up = nil
             #expect(PeerWifi.pause() == .done)
             #expect(fixture.scripts.isEmpty)

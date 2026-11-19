@@ -169,10 +169,7 @@ public func sc_peer_wifi_status() -> UnsafeMutablePointer<CChar> {
 /// open, so not on the main thread. {"state", "outcome": "done" | "cancelled"}, or {"error"}.
 @_cdecl("sc_peer_wifi_set_paused")
 public func sc_peer_wifi_set_paused(_ paused: Bool) -> UnsafeMutablePointer<CChar> {
-    guard paused else {
-        PeerWifi.resume()
-        return json(["state": PeerWifi.state.rawValue, "outcome": "done"])
-    }
+    guard paused else { return json(["state": PeerWifi.resume().rawValue, "outcome": "done"]) }
     switch PeerWifi.pause() {
     case .done: return json(["state": PeerWifi.state.rawValue, "outcome": "done"])
     case .cancelled: return json(["state": PeerWifi.state.rawValue, "outcome": "cancelled"])
