@@ -108,6 +108,12 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   reconnects at once ("Your network changed. Reconnecting…") instead of waiting for the stream to time
   out; going offline alone does nothing. Not verified on hardware: switching networks mid-stream would cut
   the remote session used to develop this, so it's unit-tested only.)*
+  - ✅ **A stopped picture reconnects too** (2026-11-20, requested): seen live over the internet route, 95% of
+    the video was lost while the sound went on, and chiaki waited forever for a keyframe that never arrived
+    whole; the picture stayed frozen. The app now watches the decoded frame count while connected: no new
+    frame for 5 s (the console sends frames all the time, even for a still scene, and a lost frame recovers
+    within a second) reconnects with "The picture stopped. Reconnecting…", counted with the dropped-connection
+    reconnects (3 in a row, then home with the reason). Unit-tested; not yet seen on a real stall.
 
 
 ### P1 — Picture quality & full stream configuration (next up)
