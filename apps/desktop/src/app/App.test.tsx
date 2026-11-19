@@ -1244,6 +1244,26 @@ describe("keyboard controller", () => {
     await waitFor(() => { expect(vi.mocked(core.service.setController).mock.lastCall?.[0].r2).toBe(0) })
   })
 
+  it("holds PS from the HUD's PS button while the pointer is down", async () => {
+    const { core } = await startStreaming()
+    const ps = 1 << 15
+    const button = screen.getByRole("button", { name: "PS button" })
+    fireEvent.keyDown(window, { code: "ArrowUp" }) // held on the keyboard meanwhile: merged, not replaced
+    fireEvent.pointerDown(button)
+    await waitFor(() => { expect(vi.mocked(core.service.setController).mock.lastCall?.[0].buttons).toBe(ps | (1 << 6)) })
+    fireEvent.pointerUp(button)
+    await waitFor(() => { expect(vi.mocked(core.service.setController).mock.lastCall?.[0].buttons).toBe(1 << 6) })
+    vi.mocked(core.service.setController).mockClear()
+    fireEvent.pointerLeave(button) // already let go: nothing more to send
+    expect(core.service.setController).not.toHaveBeenCalled()
+  })
+
+  it("has no PS button while the settings take the input", async () => {
+    await startStreaming()
+    await userEvent.click(screen.getByRole("button", { name: /Settings/ }))
+    expect(screen.queryByRole("button", { name: "PS button" })).not.toBeInTheDocument()
+  })
+
   it("leaves the keyboard to the rest-mode dialog", async () => {
     const { core } = await startStreaming()
     await userEvent.click(screen.getByRole("button", { name: "Stop" }))

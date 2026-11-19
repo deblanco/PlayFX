@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect"
 import { Maximize, Mic, MicOff, Minimize, SlidersHorizontal } from "lucide-react"
-import { useEffect, useEffectEvent, useId, useMemo, useState } from "react"
+import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,10 +57,15 @@ const useHiddenCursor = (hidden: boolean): void => {
   }, [hidden])
 }
 
+/** Presses (`true`) or lets go of a key's control from outside the keyboard, e.g. the HUD's PS button. */
+type PressKey = (code: string, down: boolean) => void
+
 /** Keyboard-as-controller: forwards key state to the console while `enabled`. Mainly for testing
- * gameplay without a physical pad. Fire-and-forget (a dead session is handled by the quit event). */
-const useKeyboardController = (enabled: boolean): void => {
+ * gameplay without a physical pad. Fire-and-forget (a dead session is handled by the quit event).
+ * Returns a way to press a key's control from the HUD, merged with the keys held (does nothing while off). */
+const useKeyboardController = (enabled: boolean): PressKey => {
   const runtime = useRuntime()
+  const press = useRef<PressKey>(() => undefined)
   useEffect(() => {
     if (!enabled) return
     const pressed = new Set<string>()
@@ -90,16 +95,24 @@ const useKeyboardController = (enabled: boolean): void => {
       event.preventDefault()
       send()
     }
+    press.current = (code, held) => {
+      if (held ? pressed.has(code) : !pressed.has(code)) return
+      if (held) pressed.add(code)
+      else pressed.delete(code)
+      send()
+    }
     window.addEventListener("keydown", down)
     window.addEventListener("keyup", up)
     window.addEventListener("blur", clear)
     return () => {
+      press.current = () => undefined
       window.removeEventListener("keydown", down)
       window.removeEventListener("keyup", up)
       window.removeEventListener("blur", clear)
       runtime.runFork(Effect.ignore(actions.setController(idleController)))
     }
   }, [enabled, runtime])
+  return (code, down) => { press.current(code, down) }
 }
 
 interface StreamViewProps {
@@ -194,9 +207,8 @@ export const StreamView = ({
   const [askingRest, setAskingRest] = useState(false)
   // Off while anything else takes the keyboard (the login PIN, the settings, the console's text field, the
   // rest-mode dialog) and before the stream is up, so typing or Enter on a button isn't read as gameplay.
-  useKeyboardController(
-    connected && Option.isNone(loginPin) && !settingsOpen && Option.isNone(keyboard) && !askingRest,
-  )
+  const controlling = connected && Option.isNone(loginPin) && !settingsOpen && Option.isNone(keyboard) && !askingRest
+  const pressKey = useKeyboardController(controlling)
   const requestStop = () => {
     if (connected) setAskingRest(true)
     else stop()
@@ -293,6 +305,12 @@ export const StreamView = ({
         </Button>
       </header>
       {settings.view === "split" && connected && <CompareLabels />}
+      {controlling && (
+        <PsButton
+          className={cn(fade, hudHidden && "pointer-events-none", settings.view === "split" ? "bottom-14" : "bottom-6")}
+          onPress={(down) => { pressKey("KeyP", down) }}
+        />
+      )}
       {mic === "on" && hudHidden && (
         // The HUD faded: the microphone being live must still be obvious.
         <span
@@ -340,6 +358,30 @@ const StatsLine = ({ rows }: { readonly rows: readonly StatRow[] }) =>
       <span className={cn(row.warn && "text-signal")}>{row.inline}</span>
     </span>
   ))
+
+/** macOS never hands the pad's PS button to apps, so the HUD has one: held while the pointer is down, as
+ * on the pad (a short press opens the control center, a long one goes home). Above the split-screen labels
+ * when they show. */
+const PsButton = ({ className, onPress }: { readonly className: string; readonly onPress: (down: boolean) => void }) => (
+  <button
+    type="button"
+    aria-label="PS button"
+    tabIndex={-1} // never focused: Enter and Space belong to the keyboard controller
+    data-no-fullscreen
+    className={cn(
+      "fixed left-1/2 flex size-14 -translate-x-1/2 items-center justify-center rounded-full border border-white/25",
+      "bg-black/35 text-lg font-semibold tracking-tight text-white/80 shadow-lg backdrop-blur-md select-none",
+      "hover:bg-black/50 hover:text-white active:scale-95 active:bg-white/20",
+      className,
+    )}
+    onPointerDown={() => { onPress(true) }}
+    onPointerUp={() => { onPress(false) }}
+    onPointerLeave={() => { onPress(false) }}
+    onPointerCancel={() => { onPress(false) }}
+  >
+    PS
+  </button>
+)
 
 /** Names the two halves of the split-screen comparison, on either side of the divider (the
  * video's center), so both stay visible with the settings sheet open. */
