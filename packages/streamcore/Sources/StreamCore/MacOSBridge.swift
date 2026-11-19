@@ -315,6 +315,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         let adaptive = AdaptiveTriggers()
         s.onEvent = { [weak s] event in
             if case .rumble(let left, let right) = event { haptics.apply(left: left, right: right) }
+            if case .hapticRumble(let left, let right) = event { haptics.applyHaptics(left: left, right: right) }
             if case .triggerEffects(let left, let right) = event { adaptive.apply(left: left, right: right) }
             if let payload = eventPayload(event) { emit(payload) }
             // Clean up after a quit, unless the host has already moved on to another session. The last
@@ -347,7 +348,7 @@ func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
     case .loginPinRequested(let incorrect): return ["type": "loginPin", "incorrect": incorrect]
     case .nickname(let name): return ["type": "nickname", "name": name]
     case .keyboard(let change, let text): return ["type": "keyboard", "change": change.rawValue, "text": text]
-    case .rumble, .triggerEffects: return nil
+    case .rumble, .hapticRumble, .triggerEffects: return nil
     }
 }
 

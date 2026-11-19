@@ -108,12 +108,55 @@ public final class Rumble {
 
     public init() {}
 
+    /// How long haptics-made rumble lasts without a refresh. The shim repeats it every 50 ms while the
+    /// console's haptics stream keeps coming; when an effect ends the console just stops sending.
+    static let hapticsTimeout: TimeInterval = 0.15
+
+    /// The connected controllers (replaced in tests).
+    nonisolated(unsafe) static var controllers: () -> [GCController] = { GCController.controllers() }
+
+    /// The levels last sent to the controllers. On `queue`.
+    private var lastLevels = Levels(left: 0, right: 0)
+    /// The levels the controllers play now, once what was asked so far is applied (tests, diagnosis).
+    var levels: Levels { queue.sync { lastLevels } }
+    /// Until when the haptics-made rumble playing now lasts; nil when the console's rumble is playing.
+    private var hapticsUntil: TimeInterval?
+
+    /// Whether haptics-made rumble is over: it was due a refresh by now and none came.
+    static func hapticsExpired(until: TimeInterval?, now: TimeInterval) -> Bool {
+        until.map { now >= $0 } ?? false
+    }
+
     /// Applies the console's motor levels to every connected controller. Thread-safe.
     public func apply(left: UInt8, right: UInt8) {
         let levels = Levels(left: left, right: right)
         queue.async { [self] in
-            for controller in GCController.controllers() { drive(controller, levels) }
+            hapticsUntil = nil
+            send(levels)
         }
+    }
+
+    /// Applies levels made from the DualSense haptics stream; they end by themselves unless refreshed within
+    /// `hapticsTimeout`. Thread-safe.
+    public func applyHaptics(left: UInt8, right: UInt8) {
+        let levels = Levels(left: left, right: right)
+        queue.async { [self] in
+            let silent = levels == Levels(left: 0, right: 0)
+            hapticsUntil = silent ? nil : ProcessInfo.processInfo.systemUptime + Self.hapticsTimeout
+            send(levels)
+            guard !silent else { return }
+            queue.asyncAfter(deadline: .now() + Self.hapticsTimeout + 0.01) { [self] in
+                guard Self.hapticsExpired(until: hapticsUntil, now: ProcessInfo.processInfo.systemUptime) else { return }
+                hapticsUntil = nil
+                send(Levels(left: 0, right: 0))
+            }
+        }
+    }
+
+    /// On `queue`.
+    private func send(_ levels: Levels) {
+        lastLevels = levels
+        for controller in Self.controllers() { drive(controller, levels) }
     }
 
     /// Stops all rumble (e.g. when the session ends).

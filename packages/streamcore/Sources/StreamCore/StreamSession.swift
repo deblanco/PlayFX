@@ -69,7 +69,11 @@ public final class StreamSession {
         case remoteProgress(RemoteStage)
         case quit(reason: String, error: Bool, kind: QuitKind)
         case loginPinRequested(incorrect: Bool)
+        /// The console's rumble: lasts until it says otherwise.
         case rumble(left: UInt8, right: UInt8)
+        /// Rumble made from the DualSense haptics stream: repeated while it lasts, and over when it stops
+        /// coming (the console sends nothing once an effect ends).
+        case hapticRumble(left: UInt8, right: UInt8)
         /// DualSense adaptive-trigger effects for the left (L2) and right (R2) triggers.
         case triggerEffects(left: TriggerEffect, right: TriggerEffect)
         case nickname(String)
@@ -341,6 +345,7 @@ extension StreamSession.Event {
         case PSRP_EVENT_QUIT.rawValue: self = .quit(reason: text, error: a != 0, kind: StreamSession.QuitKind(code: b))
         case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: self = .loginPinRequested(incorrect: a != 0)
         case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
+        case PSRP_EVENT_HAPTIC_RUMBLE.rawValue: self = .hapticRumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
         case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)
         case PSRP_EVENT_KEYBOARD.rawValue:
             let change: StreamSession.KeyboardChange = switch UInt32(a) {

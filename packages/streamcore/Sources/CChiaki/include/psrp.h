@@ -92,6 +92,9 @@ typedef enum {
     PSRP_EVENT_NICKNAME = 5,          // message = console nickname
     PSRP_EVENT_REMOTE_PROGRESS = 6,   // a = PsrpRemoteStage (connecting over the internet)
     PSRP_EVENT_KEYBOARD = 7,          // a = PsrpKeyboardChange; message = the field's text (open/change)
+    PSRP_EVENT_HAPTIC_RUMBLE = 8,     // a = left, b = right, from the DualSense haptics stream. The console
+                                      // stops sending it when an effect ends (no silence follows), so it is
+                                      // repeated every 50 ms while it lasts and expires when it isn't.
 } PsrpEventType;
 
 /// The console's text keyboard: a field was focused (open, with its text), the console changed the text,

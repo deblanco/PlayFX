@@ -35,6 +35,36 @@ import Testing
         #expect(Rumble.renewAfter < Rumble.eventDuration)
     }
 
+    @Test func hapticsRumbleEndsWhenTheHapticsStop() {
+        // The console sends nothing (not silence) once a haptic effect ends: the rumble must end anyway.
+        let rumble = Rumble()
+        rumble.applyHaptics(left: 200, right: 100)
+        #expect(rumble.levels == .init(left: 200, right: 100))
+        Thread.sleep(forTimeInterval: Rumble.hapticsTimeout + 0.1)
+        #expect(rumble.levels == .init(left: 0, right: 0))
+    }
+
+    @Test func hapticsRumbleLastsWhileItKeepsComing() {
+        let rumble = Rumble()
+        for _ in 0..<8 { // refreshed every 50 ms, as the shim does, for 0.4 s: longer than the timeout
+            rumble.applyHaptics(left: 120, right: 0)
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        #expect(rumble.levels == .init(left: 120, right: 0))
+        rumble.applyHaptics(left: 0, right: 0) // a silent packet stops it at once
+        #expect(rumble.levels == .init(left: 0, right: 0))
+    }
+
+    @Test func theConsolesOwnRumbleDoesNotExpire() {
+        let rumble = Rumble()
+        rumble.applyHaptics(left: 90, right: 0)
+        rumble.apply(left: 60, right: 30) // the console's rumble takes over: it lasts until the console ends it
+        Thread.sleep(forTimeInterval: Rumble.hapticsTimeout + 0.1)
+        #expect(rumble.levels == .init(left: 60, right: 30))
+        #expect(!Rumble.hapticsExpired(until: nil, now: 100))
+        #expect(Rumble.hapticsExpired(until: 1, now: 1) && !Rumble.hapticsExpired(until: 2, now: 1))
+    }
+
     @Test func noControllersIsANoOp() {
         let rumble = Rumble()
         rumble.apply(left: 255, right: 255)

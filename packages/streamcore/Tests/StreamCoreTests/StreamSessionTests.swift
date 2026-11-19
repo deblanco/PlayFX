@@ -26,6 +26,7 @@ import Testing
         guard case .loginPinRequested(true) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 1) else { Issue.record("pin"); return }
         guard case .loginPinRequested(false) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 0) else { Issue.record("pin"); return }
         guard case .rumble(255, 0) = event(PSRP_EVENT_RUMBLE, 300, -5) else { Issue.record("rumble"); return }
+        guard case .hapticRumble(40, 7) = event(PSRP_EVENT_HAPTIC_RUMBLE, 40, 7) else { Issue.record("haptic rumble"); return }
         guard case .nickname("PS5-1") = event(PSRP_EVENT_NICKNAME, 0, 0, "PS5-1") else { Issue.record("nickname"); return }
         #expect(Event(type: 99, a: 0, b: 0, message: "") == nil)
     }

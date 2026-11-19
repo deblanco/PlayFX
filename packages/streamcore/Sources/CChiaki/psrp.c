@@ -7,6 +7,7 @@
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/orientation.h>
 #include <chiaki/session.h>
+#include <chiaki/time.h>
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -322,6 +323,7 @@ struct PsrpSession {
     bool mic_connected;
     /// The last rumble derived from the DualSense haptics stream (only changes are reported).
     uint8_t haptic_left, haptic_right;
+    uint64_t haptic_sent_ms; // when the levels were last sent (repeated while packets keep coming)
     PsrpCallbacks cb;
     char host[256];
     ChiakiConnectInfo info;
@@ -432,10 +434,15 @@ static void session_haptics_cb(uint8_t *buf, size_t buf_size, void *user) {
     if (!s->cb.event || buf_size < 4 || buf_size % 4 != 0) return;
     uint8_t left, right;
     psrp_haptics_to_rumble((const int16_t *)buf, buf_size / 4, &left, &right);
-    if (left == s->haptic_left && right == s->haptic_right) return;
+    // Unchanged levels are repeated at most every 50 ms: the receiver stops the rumble when they stop
+    // coming, since the console sends nothing (not silence) once an effect is over.
+    uint64_t now = chiaki_time_now_monotonic_ms();
+    bool same = left == s->haptic_left && right == s->haptic_right;
+    if (same && (left == 0 && right == 0 || now - s->haptic_sent_ms < 50)) return;
     s->haptic_left = left;
     s->haptic_right = right;
-    s->cb.event(s->cb.user, PSRP_EVENT_RUMBLE, left, right, NULL);
+    s->haptic_sent_ms = now;
+    s->cb.event(s->cb.user, PSRP_EVENT_HAPTIC_RUMBLE, left, right, NULL);
 }
 
 /// Creates and starts the chiaki session from `s->info`. Callers hold `s->lock` (remote) or own `s` alone.
