@@ -152,6 +152,10 @@ public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
         "skippedFrames": renderer?.skippedFrames ?? 0,
         "skippedInterpolations": renderer?.skippedInterpolations ?? 0,
         "delayMs": renderer?.pacingDelayMilliseconds ?? 0,
+        "latenessMs": renderer?.pacingParts.latenessMs ?? 0,
+        "costMs": renderer?.pacingParts.costMs ?? 0,
+        "clockRestarts": renderer?.pacingParts.restarts ?? 0,
+        "size": renderer?.interpolationSize.map { "\($0.width)x\($0.height)" } ?? "",
     ])
 }
 

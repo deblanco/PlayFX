@@ -110,6 +110,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         var rungs: RungSelector?
         var lastReal: (frame: CVPixelBuffer, time: Double)?
         var nextIndex: UInt64 = 0
+        /// Times the clock started over (a gap, a jump, or frames far ahead of it).
+        var restarts = 0
         init(fps: Double) { clock = StreamClock(fps: fps) }
     }
     private let pacing = OSAllocatedUnfairLock(initialState: Pacing(fps: 60))
@@ -141,6 +143,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
     /// How far behind the stream clock images are shown now (ms): jitter cover, plus interpolation's time.
     public var pacingDelayMilliseconds: Double { pacing.withLock { $0.planner.delay * 1000 } }
+    /// What the delay is made of, for diagnosis: lateness behind the clock (p90, ms), the in-between
+    /// image's cost (p90, ms), and how often the clock started over.
+    public var pacingParts: (latenessMs: Double, costMs: Double, restarts: Int) {
+        pacing.withLock { ($0.planner.jitter * 1000, $0.planner.generationCost * 1000, $0.restarts) }
+    }
     /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
     public var displayMilliseconds: Double { displayTime.withLock { $0 } }
     private let displayTime = OSAllocatedUnfairLock<Double>(initialState: 0)
@@ -305,11 +312,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                     stamp = p.clock.time(index: i, arrival: arrival) ?? (arrival, true)
                 }
                 if stamp.restarted {
+                    p.restarts += 1
                     p.timeline.clear()
                     p.lastReal = nil
                 }
                 p.planner.observe(lateness: arrival - stamp.time)
                 let delay = p.planner.update(interval: p.clock.interval, interpolating: wanted)
+                Self.trace("\(i) \(arrival) \(stamp.time) \(stamp.restarted ? 1 : 0) \(delay) \(wanted ? 1 : 0)") // TEMP-TRACE
                 // After a start or a break the frame shows at once; later ones keep to the clock.
                 let time = stamp.restarted ? arrival - delay : stamp.time
                 p.timeline.add(TimedImage(image: frame, time: time, generated: false, arrival: arrival))
@@ -333,6 +342,14 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         for size in pair.prepare.dropFirst() { lane.prepare(size: size) }
         lane.submit(previous: pair.previous, current: frame, time: pair.time, size: pair.size)
     }
+
+    // TEMP-TRACE: per-frame pacing trace for diagnosis; not to be committed.
+    private static let traceHandle: FileHandle? = {
+        guard let path = ProcessInfo.processInfo.environment["STREAMCORE_PACING_TRACE"] else { return nil }
+        FileManager.default.createFile(atPath: path, contents: nil)
+        return FileHandle(forWritingAtPath: path)
+    }()
+    private static func trace(_ line: String) { traceHandle?.write((line + "\n").data(using: .utf8)!) }
 
     /// Waits until the interpolation lane has finished the pair in hand (tests).
     func waitForInterpolation() { lane?.waitUntilIdle() }

@@ -123,12 +123,15 @@ struct DelayPlanner {
         if costs.count > 60 { costs.removeFirst(costs.count - 60) }
     }
 
+    /// The 90th percentile of recent lateness behind the clock (0 before any).
+    var jitter: Double { Self.percentile(lateness, 0.9) }
+
     /// The 90th percentile of recent generation cost (0 before any).
     var generationCost: Double { Self.percentile(costs, 0.9) }
 
     /// The delay wanted now, eased from the current one; call once per stream frame.
     mutating func update(interval: Double, interpolating: Bool) -> Double {
-        var wanted = Self.percentile(lateness, 0.9) + margin
+        var wanted = jitter + margin
         if interpolating { wanted += interval / 2 + generationCost }
         let step = wanted > delay ? min(wanted - delay, 0.001) : max(wanted - delay, -0.00025)
         delay = max(0, delay + step)

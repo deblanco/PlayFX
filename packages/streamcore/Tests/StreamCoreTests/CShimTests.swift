@@ -38,6 +38,17 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
     }
 
     /// libchiaki's ChiakiQuitReason values (session.h; "values must not change" upstream).
+    @Test func runsTheFrameAndInputThreadsAsUserInteractive() {
+        // ChiakiThreadName values (third_party/chiaki-ng/lib/include/chiaki/thread.h, in order from 0).
+        let discovery: Int32 = 2, takion: Int32 = 4, takionSend: Int32 = 5, feedback: Int32 = 8, session: Int32 = 9,
+            gkcrypt: Int32 = 11
+        for name in [takion, takionSend, gkcrypt, feedback] {
+            #expect(psrp_thread_qos(name) == QOS_CLASS_USER_INTERACTIVE.rawValue)
+        }
+        #expect(psrp_thread_qos(session) == QOS_CLASS_USER_INITIATED.rawValue)
+        #expect(psrp_thread_qos(discovery) == QOS_CLASS_DEFAULT.rawValue)
+    }
+
     @Test func classifiesQuitReasons() {
         let (stopped, inUse, ctrlUnknown, streamUnknown, remoteDisconnected, remoteShutdown) = (1, 4, 7, 10, 11, 12)
         #expect(psrp_quit_kind(Int32(inUse)) == PSRP_QUIT_BUSY)

@@ -12,6 +12,7 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <pthread.h>
+#include <pthread/qos.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +52,38 @@ static void log_forward(ChiakiLogLevel level, const char *msg, void *user) {
     else chiaki_log_cb_print(level, msg, NULL);
 }
 
-static void lib_init_once(void) { chiaki_lib_init(); }
+unsigned int psrp_thread_qos(int name) {
+    switch (name) {
+    // On the path of every frame and every button press: receiving and decrypting packets, resending,
+    // sending controller state. They must not wait behind background work or sit on efficiency cores.
+    case CHIAKI_THREAD_NAME_TAKION:
+    case CHIAKI_THREAD_NAME_TAKION_SEND:
+    case CHIAKI_THREAD_NAME_GKCRYPT:
+    case CHIAKI_THREAD_NAME_FEEDBACK:
+        return QOS_CLASS_USER_INTERACTIVE;
+    // The session itself, but not per frame.
+    case CHIAKI_THREAD_NAME_SESSION:
+    case CHIAKI_THREAD_NAME_CTRL:
+    case CHIAKI_THREAD_NAME_CONGESTION:
+    case CHIAKI_THREAD_NAME_RUDP_SEND:
+    case CHIAKI_THREAD_NAME_HOLEPUNCH:
+        return QOS_CLASS_USER_INITIATED;
+    default:
+        return QOS_CLASS_DEFAULT;
+    }
+}
+
+/// libchiaki calls this at the start of each of its threads.
+static void thread_started(ChiakiThreadName name, void *user) {
+    (void)user;
+    qos_class_t qos = (qos_class_t)psrp_thread_qos((int)name);
+    if (qos != QOS_CLASS_DEFAULT) pthread_set_qos_class_self_np(qos, 0);
+}
+
+static void lib_init_once(void) {
+    chiaki_lib_init();
+    chiaki_thread_set_affinity_cb(thread_started, NULL);
+}
 
 void psrp_init(PsrpLogCallback cb, void *user, uint32_t level_mask) {
     pthread_once(&g_once, lib_init_once);

@@ -1,3 +1,4 @@
 [submodule "third_party/chiaki-ng"]
 	path = third_party/chiaki-ng
-	url = https://github.com/streetpea/chiaki-ng.git
+	url = https://github.com/deblanco/chiaki-ng.git
+	branch = playfx

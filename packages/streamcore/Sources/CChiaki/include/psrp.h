@@ -22,6 +22,10 @@ typedef void (*PsrpLogCallback)(int level, const char *message, void *user);
 /// (later calls only update the callback and mask).
 void psrp_init(PsrpLogCallback cb, void *user, uint32_t level_mask);
 
+/// The QoS class (a `qos_class_t`) libchiaki's thread `name` (a `ChiakiThreadName`) runs at: user-interactive
+/// for those on the path of every frame and button press. Applied as each thread starts.
+unsigned int psrp_thread_qos(int name);
+
 // ---------------------------------------------------------------------------------------------
 // Discovery
 // ---------------------------------------------------------------------------------------------
