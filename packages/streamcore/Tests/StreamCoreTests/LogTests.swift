@@ -33,6 +33,42 @@ import Testing
         #expect(Log.level(chiaki: error, "Discovery Service failed to send ping for PS5") == .debug)
         #expect(Log.level(chiaki: error, "Session request connect failed") == .error)
     }
+
+    /// Lines copied from a detailed log of a real session (2026-11-20).
+    @Test(arguments: [
+        "Added reference P frame 4711",
+        "StreamConnection received data with msg.type == 16",
+        "Sending Congestion Control Packet, received: 106, lost: 0",
+        "StreamConnection sent heartbeat",
+        "Takion received data ack with cumulative_seq_num = 0x2fa1, a_rwnd = 0x19000, gap_ack_blocks_count = 0, dup_tsns_count = 0",
+        "Pushed seq num 0x2fa1 into Takion Send Buffer",
+        "Acked seq num 0x2fa1 from Takion Send Buffer",
+        "Ctrl received message of type 0xfe, size 0",
+        "Ctrl sending message type 0xfe, size 0",
+        "websocket_thread_func: Received PONG.",
+        // A protocol hexdump: the header, its column line, and its rows.
+        "Sending Message:",
+        "Receiving message:",
+        "offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef",
+        "     0 c0 12 24 4f 24 4f 02 30 1c 91 00 00 00 00 01 fe ..$O$O.0........",
+        "    10 00 00                                           ..              ",
+        "c0 12 24 4f",
+    ])
+    func dropsLibchiakiChatterAndHexdumps(line: String) {
+        #expect(!Log.keeps(chiaki: line))
+    }
+
+    @Test(arguments: [
+        "StreamConnection received connection quality: target_bitrate=19417000, upstream_bitrate=0, upstream_loss=0.0000, disable_upstream_audio=0, rtt=103.5, loss=0",
+        "StreamConnection measured bitrate: 7.4646 MBit/s",
+        "Frame Processor received 2+1 / 3+1 units, attempting FEC",
+        "FEC successful",
+        "Ctrl received Heartbeat, sending reply",
+        "Session request connect failed",
+    ])
+    func keepsWhatSaysSomething(line: String) {
+        #expect(Log.keeps(chiaki: line))
+    }
 }
 
 extension Serial {

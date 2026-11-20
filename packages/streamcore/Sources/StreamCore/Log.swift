@@ -44,6 +44,7 @@ public enum Log {
             : UInt32(PSRP_LOG_INFO.rawValue) | UInt32(PSRP_LOG_WARNING.rawValue) | UInt32(PSRP_LOG_ERROR.rawValue)
         psrp_init({ level, message, _ in
             let text = message.map { String(cString: $0) } ?? ""
+            guard Log.keeps(chiaki: text) else { return }
             Log.write(Log.level(chiaki: level, text), .chiaki, text)
         }, nil, mask)
     }
@@ -74,6 +75,25 @@ public enum Log {
             return .debug
         }
         return level(chiaki: chiaki)
+    }
+
+    /// libchiaki's per-frame and per-packet chatter, dropped even from detailed logs: at 60 fps it's
+    /// thousands of lines a minute, which rotated a whole session out of the log file within half an
+    /// hour and left nothing but these lines. What's useful about it is in the stats.
+    private static let chatter = [
+        "Added reference ", "StreamConnection received data with msg.type", "Sending Congestion Control Packet",
+        "StreamConnection sent heartbeat", "Takion received data ack", "Pushed seq num ", "Acked seq num ",
+        "Ctrl received message of type", "Ctrl sending message type", "websocket_thread_func:",
+    ]
+
+    /// Hexdumps of protocol messages ("Sending Message:" then "offset 0 1 2 …" and rows of hex bytes):
+    /// they can carry session material that `redact` can't recognise, so they never leave this file.
+    private static let hexdump = try! NSRegularExpression(pattern: #"^(Sending Message:|Receiving message:|offset 0 +1 +2 |\s*[0-9a-f]+( [0-9a-f]{2})+\s|[0-9a-f]{2}( [0-9a-f]{2})*$)"#)
+
+    /// Whether a libchiaki message goes to the log at all.
+    static func keeps(chiaki message: String) -> Bool {
+        if chatter.contains(where: { message.hasPrefix($0) }) { return false }
+        return hexdump.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)) == nil
     }
 
     static func level(chiaki: Int32) -> Level {
