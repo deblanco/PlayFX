@@ -72,10 +72,16 @@ public final class AdaptiveTriggers {
     /// Thread-safe; GameController is driven on the main queue.
     public func apply(left: TriggerEffect, right: TriggerEffect) {
         DispatchQueue.main.async {
-            for pad in PadHardware.controllers().compactMap({ $0.extendedGamepad as? GCDualSenseGamepad }) {
-                Self.set(pad.leftTrigger, left)
-                Self.set(pad.rightTrigger, right)
-            }
+            guard !PadQuiet.isEnding else { return } // the process is ending with its pads quiet
+            Self.applyNow(left: left, right: right)
+        }
+    }
+
+    /// On the main queue.
+    static func applyNow(left: TriggerEffect, right: TriggerEffect) {
+        for pad in PadHardware.controllers().compactMap({ $0.extendedGamepad as? GCDualSenseGamepad }) {
+            set(pad.leftTrigger, left)
+            set(pad.rightTrigger, right)
         }
     }
 

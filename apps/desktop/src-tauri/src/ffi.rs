@@ -21,6 +21,7 @@ unsafe extern "C" {
     pub fn sc_pacing_stats() -> *mut c_char;
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
     pub fn sc_session_stop();
+    pub fn sc_quiet_pads();
     pub fn sc_session_sleep();
     pub fn sc_session_request_keyframe();
     pub fn sc_latency_test(trials: i32) -> *mut c_char;
@@ -45,6 +46,7 @@ unsafe extern "C" {
     pub fn sc_set_event_callback(cb: Option<extern "C" fn(*const c_char)>);
     pub fn sc_set_log_callback(cb: Option<extern "C" fn(i32, *const c_char, *const c_char)>, detailed: bool);
     pub fn sc_set_log_detailed(detailed: bool);
+    pub fn sc_install_signal_handlers();
     pub fn sc_discover(timeout_ms: i32) -> *mut c_char;
     pub fn sc_register(request: *const c_char) -> *mut c_char;
     pub fn sc_wakeup(credentials: *const c_char) -> bool;
@@ -145,6 +147,9 @@ impl NativeCore for MacCore {
     }
     fn session_stop(&self) {
         unsafe { sc_session_stop() }
+    }
+    fn quiet_pads(&self) {
+        unsafe { sc_quiet_pads() }
     }
     fn discover_host(&self, host: &str, timeout_ms: i32) -> String {
         take(unsafe { sc_discover_host(cstr(host).as_ptr(), timeout_ms) })

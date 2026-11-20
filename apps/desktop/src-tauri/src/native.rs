@@ -70,6 +70,9 @@ pub trait NativeCore: Send + Sync {
     // main thread
     fn session_start(&self, request: &str) -> String;
     fn session_stop(&self);
+    /// The app is quitting: leaves every pad quiet (rumble, trigger effects, DualSense haptics stay on the pad
+    /// after the process that started them is gone).
+    fn quiet_pads(&self);
     /// Puts the console in rest mode (it ends the session itself).
     fn session_sleep(&self);
     /// Asks the console for a keyframe; no-op without a session.

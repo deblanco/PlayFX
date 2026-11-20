@@ -124,6 +124,9 @@ impl NativeCore for FakeCore {
     fn session_stop(&self) {
         self.log("session_stop".into());
     }
+    fn quiet_pads(&self) {
+        self.log("quiet_pads".into());
+    }
     fn set_login_pin(&self, pin: &str) {
         self.log(format!("set_login_pin {pin}"));
     }

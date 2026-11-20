@@ -449,6 +449,19 @@ public func sc_session_stop() {
     endSession(idle: true)
 }
 
+/// The app is quitting: leaves every pad quiet (rumble, trigger effects, DualSense haptics), which would
+/// otherwise keep playing after the app is gone. (main)
+@_cdecl("sc_quiet_pads")
+public func sc_quiet_pads() {
+    PadQuiet.now()
+}
+
+/// Leaves the pads quiet when the app is ended by SIGTERM, SIGINT or SIGHUP too (see PadQuiet). Once, at start.
+@_cdecl("sc_install_signal_handlers")
+public func sc_install_signal_handlers() {
+    PadQuiet.installSignalHandlers()
+}
+
 /// Ends `quitted` if it is still the current session (a newer one may have replaced it meanwhile).
 func cleanUpAfterQuit(of quitted: StreamSession) {
     if session === quitted { endSession(idle: false) }

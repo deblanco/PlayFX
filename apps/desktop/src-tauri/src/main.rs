@@ -7,6 +7,7 @@
 fn main() {
     desktop_lib::with_commands(tauri::Builder::default().plugin(desktop_lib::log_plugin()))
         .setup(|app| desktop_lib::attach_streamcore(app))
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(desktop_lib::on_run_event);
 }

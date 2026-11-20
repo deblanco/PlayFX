@@ -525,6 +525,12 @@ requests and a bug report. Plan: `~/.claude/plans/we-must-also-be-fancy-pearl.md
   tab's Upscale card says "not needed". Unit-tested.
 - 🔶 **Light bar colour and player number** from the console (`PadLight`); `psrp pad` has `/light` and
   `/player`. Unit-tested; **check on the pad**, then in a game that sets the light bar.
+- 🔶 **The pad is left quiet when PlayFX ends** (bug: after `pkill` mid-effect the pad kept rumbling and kept
+  its trigger effect): `PadQuiet` stops the rumble (waiting up to 0.3 s for the haptic engines), the DualSense
+  haptics output and the trigger effects on quit (Tauri's exit event → `sc_quiet_pads`), on SIGTERM, SIGINT
+  and SIGHUP (handlers on a queue of their own), and in `psrp stream` / `psrp pad`; nothing drives a pad
+  after that. A session ending already stopped them. SIGKILL and crashes can't be handled. Unit-tested with
+  stand-ins; **to check on the pad**: `pkill` PlayFX mid-rumble and mid-trigger-effect, and ⌘Q.
 - 🔶 **Real haptics over Bluetooth**: HID report 0x32 (`BluetoothHaptics.swift`), after USB, before rumble.
   Report and pacer unit-tested. **To check on the pad**: whether macOS takes the write while GameController
   holds the pad, and whether the pad plays at full level without the "effects" setup report Veyra sends

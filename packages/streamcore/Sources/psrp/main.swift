@@ -279,7 +279,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         }
         log("[event] \(text)")
         ctl.queue.async { ctl.events.append(text) }
-        if case .quit = event { exit(0) }
+        if case .quit = event { PadQuiet.now(); exit(0) }
     }
 
     if let path = args["frame-log"] { try logFrames(session, to: path) }
@@ -287,11 +287,9 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
     let port = UInt16(args["port"] ?? "") ?? 7777
     try serve(port: port) { handle(path: $0, query: $1, ctl) }
     log("Control API: http://127.0.0.1:\(port)/status  (/snapshot.png, /press?buttons=cross, /quit)")
-    signal(SIGINT, SIG_IGN)
-    let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-    sigint.setEventHandler { session.stop(); exit(0) }
-    sigint.resume()
-    withExtendedLifetime(sigint) { dispatchMain() }
+    // Ctrl-C (or SIGTERM, SIGHUP): stop the session and leave the pad quiet (its DualSense haptics).
+    PadQuiet.installSignalHandlers { session.stop() }
+    dispatchMain()
 }
 
 let ciContext = CIContext()
@@ -458,7 +456,7 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
             ctl.session.sleepConsole()
             return ok()
         case "/quit":
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { ctl.session.stop(); exit(0) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { ctl.session.stop(); PadQuiet.now(); exit(0) }
             return ok()
         default:
             return (404, "text/plain", Data("not found\n".utf8))

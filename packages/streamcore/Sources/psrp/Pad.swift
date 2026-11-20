@@ -129,7 +129,7 @@ final class PadProbe {
             log("[pad] player \(n + 1)")
             return text("ok")
         case "/quit":
-            DispatchQueue.main.async { self.triggers.reset(); self.rumble.stop(); self.light.reset() }
+            DispatchQueue.main.async { self.light.reset(); PadQuiet.now() }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { exit(0) }
             return text("bye")
         default:
@@ -148,6 +148,7 @@ func pad(_ args: Args) throws {
     let probe = PadProbe()
     let port = UInt16(args["port"] ?? "") ?? 7778
     try serve(port: port) { probe.handle(path: $0, query: $1) }
+    PadQuiet.installSignalHandlers() // Ctrl-C mid-effect leaves the pad quiet
     log("Pad probe: http://127.0.0.1:\(port)/state  (/rumble?l=200&r=0, /trigger?side=r&effect=weapon, /light?r=255&g=0&b=0, /player?n=0, /quit)")
     // GameController delivers on the main run loop. --foreground: a regular, frontmost app, which is
     // what system-gesture opt-outs (PS button) apply to.

@@ -106,7 +106,7 @@ public final class Rumble {
     private let queue = DispatchQueue(label: "streamcore.rumble")
     private var actuators: [ObjectIdentifier: [GCHapticsLocality: Actuator]] = [:]
 
-    public init() {}
+    public init() { PadQuiet.register(self) }
 
     /// How long haptics-made rumble lasts without a refresh. The shim repeats it every 50 ms while the
     /// console's haptics stream keeps coming; when an effect ends the console just stops sending.
@@ -156,15 +156,35 @@ public final class Rumble {
     /// On `queue`.
     private func send(_ levels: Levels) {
         lastLevels = levels
+        guard !PadQuiet.isEnding else { return } // the process is ending with its pads quiet
         for controller in Self.controllers() { drive(controller, levels) }
     }
 
     /// Stops all rumble (e.g. when the session ends).
-    public func stop() {
+    public func stop() { _ = stopAll() }
+
+    /// Stops all rumble; returns the haptic engines that played it.
+    private func stopAll() -> [CHHapticEngine] {
         queue.sync {
+            let engines = actuators.values.flatMap(\.values).map(\.engine)
             actuators.values.forEach { $0.values.forEach { $0.set(0) } }
             actuators = [:]
+            return engines
         }
+    }
+
+    /// How long the process waits, when it ends, for the haptic engines to say they stopped.
+    static let quietTimeout: TimeInterval = 0.3
+
+    /// Stops all rumble and waits (at most `quietTimeout`) for the engines to stop: the process is ending, and a
+    /// player it leaves running keeps the pad rumbling.
+    func quiet() {
+        let stopped = DispatchGroup()
+        for engine in stopAll() {
+            stopped.enter()
+            engine.stop { _ in stopped.leave() }
+        }
+        _ = stopped.wait(timeout: .now() + Self.quietTimeout)
     }
 
     private func drive(_ controller: GCController, _ levels: Levels) {
@@ -179,3 +199,5 @@ public final class Rumble {
         }
     }
 }
+
+extension Rumble: PadOutput {}

@@ -116,6 +116,20 @@ fn session_commands_reach_the_core() {
 }
 
 #[test]
+fn quitting_the_app_leaves_the_pads_quiet() {
+    let core = FakeCore::default().leak();
+    let app = mock(core);
+    on_run_event(app.handle(), tauri::RunEvent::Ready);
+    on_run_event(app.handle(), tauri::RunEvent::MainEventsCleared);
+    assert!(core.calls().is_empty()); // only on exit
+    on_run_event(app.handle(), tauri::RunEvent::Exit);
+    assert_eq!(core.calls(), ["quiet_pads"]);
+    // Before StreamCore is attached (no core managed yet): nothing to quiet, and no panic.
+    let bare = with_commands(mock_builder()).build(mock_context(noop_assets())).expect("mock app");
+    on_run_event(bare.handle(), tauri::RunEvent::Exit);
+}
+
+#[test]
 fn renderer_status_reports_core_state() {
     let core =
         FakeCore { metalfx: true, mode: 0, gpu_ms: 2.5, ml: (true, true), interpolation: (true, false), stats: r#"{"active":true}"#.into(), ..Default::default() }

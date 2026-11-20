@@ -73,6 +73,8 @@ final class DualSenseHaptics: @unchecked Sendable {
     /// Looking at the devices and opening one takes milliseconds: not on libchiaki's receive thread.
     private let queue = DispatchQueue(label: "streamcore.haptics", qos: .userInitiated)
 
+    init() { PadQuiet.register(self) }
+
     /// Waits for a device check under way (tests).
     func waitUntilIdle() { queue.sync {} }
 
@@ -168,6 +170,11 @@ final class DualSenseHaptics: @unchecked Sendable {
         }
         return previous
     }
+}
+
+extension DualSenseHaptics: PadOutput {
+    /// The process is ending: stops playing on the pad, as when the session ends.
+    func quiet() { stop() }
 }
 
 /// 3 kHz stereo haptics → 48 kHz, linearly between samples (16 out per sample in), as floats in -1…1.

@@ -14,7 +14,7 @@ use native::{
     NativeCore, PointerTouch,
 };
 use serde_json::Value;
-use tauri::{AppHandle, Builder, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Builder, Emitter, Manager, RunEvent, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
 
 const PSN_WINDOW: &str = "psn-login";
 
@@ -443,6 +443,18 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     ])
 }
 
+/// The app's run events (called from `main.rs`). On exit, however the app was quit, the pads are left quiet: a
+/// rumble or trigger effect playing would otherwise outlast the app. Exit comes on the main thread, where
+/// StreamCore drives the controllers. (Signals are handled in StreamCore, see `attach_streamcore`.)
+pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: RunEvent) {
+    if let RunEvent::Exit = event
+        && let Some(core) = app.try_state::<CoreHandle>()
+    {
+        log::info!("Quitting: leaving the controllers quiet");
+        core.0.quiet_pads();
+    }
+}
+
 /// The dev control port's view of the app (debug builds only; see docs/dev-control.md).
 #[cfg(debug_assertions)]
 struct AppDevHost<R: Runtime>(AppHandle<R>);
@@ -501,6 +513,8 @@ pub fn attach_streamcore(app: &tauri::App) -> Result<(), Box<dyn std::error::Err
         unsafe { ffi::sc_set_event_callback(Some(on_stream_event)) };
         // Detailed logs start off (the web UI switches them on from its saved preference).
         unsafe { ffi::sc_set_log_callback(Some(on_native_log), std::env::var_os("PSRP_VERBOSE").is_some()) };
+        // Ended by SIGTERM, SIGINT or SIGHUP, StreamCore leaves the pads quiet first (SIGKILL can't be caught).
+        unsafe { ffi::sc_install_signal_handlers() };
         let window = app.get_webview_window("main").ok_or("no main window")?;
         if !unsafe { ffi::sc_attach_macos_window(window.ns_window()?) } {
             log::error!("StreamCore: failed to attach the Metal view");

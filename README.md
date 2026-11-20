@@ -31,7 +31,8 @@ adaptive triggers, touchpad and motion.
   with. One-time setup: in Audio MIDI Setup, set the DualSense's output to 4 channels (Quadraphonic); if
   it's left at 2, the log says so and rumble is used. Over Bluetooth the stream goes to the pad in HID
   reports (built, not yet verified on a pad); if that doesn't open, it becomes rumble. The light bar colour
-  and player number follow the game.
+  and player number follow the game. When PlayFX quits, or is ended by SIGTERM, SIGINT or SIGHUP, it stops
+  the rumble, trigger effects and haptics first, so the pad doesn't keep playing them.
 - **Steady Wi-Fi:** pauses AirDrop and Handoff while PlayFX is open. They take the Mac's Wi-Fi off your
   network for about 90 ms every second, and the stream stalls with it (see below).
 - **Status:** an on-screen stats line (frame rate, bitrate, latency, lost frames); pairing keys are

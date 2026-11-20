@@ -181,6 +181,19 @@ extension Serial {
             }
         }
 
+        @Test func theProcessEndingStopsThemOnThePad() {
+            withStandIns {
+                defer { PadQuiet.ending.withLock { $0 = false } }
+                let haptics = DualSenseHaptics()
+                devices.withLock { $0 = [quad] }
+                _ = push(haptics, at: 0)
+                #expect(haptics.isPlaying)
+                PadQuiet.now() // the app quitting, or a signal
+                #expect(!haptics.isPlaying && opened.withLock { $0.last?.stopped.withLock { $0 } == true })
+                #expect(!push(haptics, at: 100)) // and they don't start again
+            }
+        }
+
         @Test func sendsToAPadOnBluetoothWhenNoUSBPadCanPlay() {
             withStandIns {
                 let haptics = DualSenseHaptics()
