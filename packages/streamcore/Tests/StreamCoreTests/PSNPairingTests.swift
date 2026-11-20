@@ -58,8 +58,10 @@ import Testing
         #expect(session.stops.withLock { $0 } == 1)
     }
 
-    /// libchiaki (fork: "Session: keep a failed PSN registration's quit reason") ends a refused registration
-    /// with its reason, an unanswered one as a plain stop: the user is told which.
+    /// libchiaki (fork: "Session: keep a failed PSN registration's quit reason", "Regist: end a PSN registration
+    /// at once on a stop, and say when the console never answered") ends a refused registration with its reason,
+    /// one the console never answered with another, and one it gave up waiting for as a plain stop: the user is
+    /// told which.
     @Test func aRefusalIsToldApartFromNoAnswer() {
         func failure(_ quit: PSNPairing.Report) -> String {
             do {
@@ -69,6 +71,8 @@ import Testing
         }
         #expect(failure(.quit(reason: PSNPairing.psnRegistFailed, error: true))
             .hasPrefix("The PS5 didn't accept pairing through PSN."))
+        #expect(failure(.quit(reason: PSNPairing.psnRegistUnanswered, error: true))
+            .hasPrefix("The PS5 didn't answer pairing through PSN."))
         #expect(failure(.quit(reason: "Stopped", error: false)).hasPrefix("The PS5 didn't answer through PSN."))
     }
 
@@ -76,6 +80,11 @@ import Testing
         #expect(PSNPairing.failureMessage(reason: "Stopped", error: false).hasPrefix("The PS5 didn't answer through PSN."))
         #expect(PSNPairing.failureMessage(reason: PSNPairing.psnRegistFailed + ": details", error: true)
             .contains("signed in with the PS5 user's account"))
+        let unanswered = PSNPairing.failureMessage(reason: PSNPairing.psnRegistUnanswered, error: true)
+        for advice in ["it's on", "Remote Play is turned on", "online", "signed in to PSN with the account"] {
+            #expect(unanswered.contains(advice))
+        }
+        #expect(!unanswered.contains("didn't accept"))
         let shim = "PSN couldn't reach your PS5. Check that it's on. (Host is down)"
         #expect(PSNPairing.failureMessage(reason: shim, error: true) == shim) // already says what to do
     }

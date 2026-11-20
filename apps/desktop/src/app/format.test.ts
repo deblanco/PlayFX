@@ -331,6 +331,14 @@ describe("quitMessage", () => {
       ),
     )
   })
+
+  it("tells a console that never answered the PSN registration from one that refused it", () => {
+    const unanswered = quitMessage({ type: "quit", reason: "The Console didn't answer the Registration using PSN", error: true })
+    expect(Option.getOrThrow(unanswered)).toMatch(/^The console didn't answer through PSN\. .*Remote Play is turned on/)
+    expect(quitMessage({ type: "quit", reason: "The Console Registration using PSN has failed", error: true })).toEqual(
+      Option.some("PSN couldn't set up the connection to the console. Try again, or sign in to PSN again."),
+    )
+  })
 })
 
 describe("ML super-resolution", () => {

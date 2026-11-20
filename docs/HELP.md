@@ -117,6 +117,7 @@ Pairing without a code (through PSN) has its own messages:
 | Message | What to do |
 |---|---|
 | "The PS5 didn't answer through PSN." | Check the PS5 is on, or in rest mode with Stay Connected to the Internet on, and try again. |
+| "The PS5 didn't answer pairing through PSN." | PSN found the PS5, but it didn't take the pairing up. Check that it's on, that Remote Play is turned on, and that it's online and signed in to PSN with the account you signed in with in PlayFX. |
 | "The PS5 didn't accept pairing through PSN." | Check that Remote Play is on, and that you signed in with the account of the PS5 user. |
 | "PSN didn't finish pairing in time." | Check the PS5 is on, and try again. |
 | "Remote Play is off on …" | On the PS5, turn on Settings › System › Remote Play › Enable Remote Play. |

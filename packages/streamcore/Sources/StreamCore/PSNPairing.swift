@@ -103,15 +103,22 @@ public final class PSNPairing: @unchecked Sendable {
         if first { finished.signal() }
     }
 
-    /// libchiaki's quit reason (Session.c's quit reason strings) when it ended without the keys.
+    /// libchiaki's quit reasons (Session.c's quit reason strings) when it ended without the keys: the console
+    /// answered the registration and then refused it or stopped, or it never answered.
     static let psnRegistFailed = "The Console Registration using PSN has failed"
+    static let psnRegistUnanswered = "The Console didn't answer the Registration using PSN"
 
     /// What to tell the user when the session ended without registering.
     static func failureMessage(reason: String, error: Bool) -> String {
         if !error {
-            // A clean stop with neither the keys nor a failed registration: rare, as libchiaki waits for it to end.
+            // A clean stop with neither the keys nor a failed registration: libchiaki gave up after its 10 s wait.
             return "The PS5 didn't answer through PSN. Check that it's on, or in rest mode with \"Stay connected "
                 + "to the internet\" on, and try again."
+        }
+        if reason.hasPrefix(psnRegistUnanswered) {
+            // PSN reached it, but its Remote Play never took the registration up
+            return "The PS5 didn't answer pairing through PSN. Check that it's on, that Remote Play is turned on, "
+                + "and that it's online and signed in to PSN with the account you signed in with here, then try again."
         }
         if reason.hasPrefix(psnRegistFailed) {
             return "The PS5 didn't accept pairing through PSN. Check that Remote Play is on and that you signed in "

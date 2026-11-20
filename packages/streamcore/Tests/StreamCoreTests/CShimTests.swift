@@ -56,8 +56,9 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
         for dropped in [ctrlUnknown, streamUnknown] {
             #expect(psrp_quit_kind(Int32(dropped)) == PSRP_QUIT_DROPPED)
         }
-        // The console ending the session on purpose (with a reason) isn't a drop.
-        for final in [0, 2, 3, 5, 6, 8, 9, remoteDisconnected, remoteShutdown, 13] {
+        // The console ending the session on purpose (with a reason) isn't a drop, nor is a failed PSN registration
+        // (13: refused or stopped, 14: never answered).
+        for final in [0, 2, 3, 5, 6, 8, 9, remoteDisconnected, remoteShutdown, 13, 14] {
             #expect(psrp_quit_kind(Int32(final)) == PSRP_QUIT_FINAL)
         }
     }

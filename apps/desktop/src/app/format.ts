@@ -432,6 +432,8 @@ const quitReasons: Readonly<Record<string, string>> = {
   "RP-Version mismatch": "The console's Remote Play version isn't supported. Update the console's system software.",
   "Ctrl failed to connect": "The console stopped answering while connecting. Try again.",
   "The Console Registration using PSN has failed": "PSN couldn't set up the connection to the console. Try again, or sign in to PSN again.",
+  "The Console didn't answer the Registration using PSN":
+    "The console didn't answer through PSN. Check that it's on, that Remote Play is turned on, and that it's online and signed in to PSN with your account.",
 }
 
 /** Toast text for a `quit` event, if the stream ended because of an error. */

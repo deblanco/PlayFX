@@ -3,9 +3,11 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20 (since v0.2.0: the Wi-Fi stall warning from the stream itself). For release v0.2.0:
-the v0.1.0 crash fix, pairing through PSN without a code and the pairing help, profiles from Home and in game,
-the Help page, stats as rates, and ML upscaling at every stream resolution, on by default and on its own lane.
+Last updated 2026-11-20 (since v0.2.0: the Wi-Fi stall warning from the stream itself; Cancel during a PSN
+pairing's registration ends it at once, and a PS5 that PSN reached but that never answers the registration gets
+its own message (PSN_REGIST_UNANSWERED)). For release v0.2.0: the v0.1.0 crash fix, pairing through PSN without
+a code and the pairing help, profiles from Home and in game, the Help page, stats as rates, and ML upscaling at
+every stream resolution, on by default and on its own lane.
 
 ---
 
@@ -51,7 +53,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   login via Sony's own page.
 - Tests + gates (2026-11-20): TS 358 tests (98% lines), Swift 314 tests (89% lines; 83% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
-  own unit tests 123/123. Each package's gate fails below 80%; CI runs them all on every push. No test
+  own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
 
@@ -502,10 +504,13 @@ Work items:
   again with its code; Remote Play version mismatch (`0x80108b11`) → update; anything else (an unusable
   reply too) → the old sentence without "the account ID". A PS4 gets "Add Device". Swift, Rust and the UI
   pass the message through unchanged. Verified by unit tests (the mapping; a pairing against loopback ends
-  in "didn't answer"), not on a console. **Needs a console session:** trigger each case once (mistyped code,
-  expired code, another PSN account, Pair Device closed, Local Network denied) and record the real codes
-  from the log ("Reported Application Reason"): it isn't sure `0x80108b09` is the only wrong-code reason,
-  nor which error a denied Local Network permission gives.
+  in "didn't answer"), not on a console. Pairing through PSN tells the same two apart (2026-11-20): a PS5 that
+  never answered the registration gets "didn't answer pairing through PSN" rather than "didn't accept" (see
+  "Pair without a PIN through PSN"; fork unit tests against a loopback stand-in console for both cases).
+  **Needs a console session:** trigger each case once (mistyped code, expired code, another PSN account, Pair
+  Device closed, Local Network denied) and record the real codes from the log ("Reported Application Reason"):
+  it isn't sure `0x80108b09` is the only wrong-code reason, nor which error a denied Local Network permission
+  gives.
 - 🔶 **Pair without a PIN through PSN.** PIN-less pairing built; **needs a hardware check: does a PSN
   registration's key work for streams on the home network** (chiaki-ng relies on it). Every internet session
   already registers the Mac with the PS5 over PSN with no PIN; with `auto_regist` libchiaki stops right after
@@ -514,13 +519,22 @@ Work items:
   a new `registered` callback (keys, nickname, MAC, PS5), with a "registering" progress stage; StreamCore's
   `PSNPairing` runs it, treats a quit without the keys as a failure with a next step (a refused registration
   apart from no answer: fork commit "Session: keep a failed PSN registration's quit reason", as libchiaki
-  turned every failed PSN registration into a clean stop), and cancels it (while the PSN token is fetched too;
+  turned every failed PSN registration into a clean stop; and since 2026-11-20 a PS5 that PSN reached but that
+  never answered the registration apart from one that refused it: it used to get "didn't accept pairing", and
+  now gets "didn't answer pairing through PSN" with what to check, on, Remote Play on, online and signed in to
+  PSN with the same account; fork commit "Regist: end a PSN registration at once on a stop, and say when the
+  console never answered" gives it its own quit reason, `PSN_REGIST_UNANSWERED`, from the registration's
+  `console_answered`, which the PSN path sets once the console answers the RUDP init; internet play's toast
+  says the same), and cancels it (while the PSN token is fetched too;
   a Cancel during the registration used to hang the pairing for good, as did a PS5 slower than libchiaki's 10 s
   wait and, by a race, a success: libchiaki joined its registration thread while holding the state mutex that
   thread's last callback takes. Fork commit "Session: don't hold the state mutex while waiting for the PSN
   registration to end", with a loopback test that deadlocked before it; internet sessions stopped while
-  registering hung the same way. A Cancel there now ends when the registration does, within about 12 s, as a
-  stop doesn't interrupt its RUDP steps);
+  registering hung the same way. A Cancel there now ends at once (2026-11-20): the registration's RUDP steps
+  waited on a stop pipe nothing stopped, so a Cancel took up to 3 s, and up to 12 s with a console answering
+  slowly; they wait on the registration's own now, in the fork commit above, whose loopback test ends a
+  stopped registration in ~2 ms and failed before it at 3 s. Verified by the fork's unit tests and StreamCore's
+  mapping tests, not on a console);
   `sc_psn_pair` / `sc_psn_pair_cancel`, the Tauri commands `pair_psn` / `cancel_psn_pair` (the PSN token stays
   native), and `Core.pairPsn` (progress from "psnPairProgress" stream events; interrupting it cancels). In the
   UI, after the PSN sign-in, the account's unpaired PS5s get "Pair (no code needed)": on the row of the console
@@ -841,4 +855,6 @@ requests and a bug report.
    denied Local Network permission. *(P2)*
 10. Pairing through PSN on the console: pair with no code, then check the keys stream on the home network, over
    the internet, and that the console merges with its discovered row (see "Pair without a PIN through PSN").
-   *(P0)*
+   ~~Cancel ending at once, and its own message for a PS5 that never answers~~ (done 2026-11-20, fork and
+   unit tests); on the console: a Cancel mid-pairing ends at once, and a PS5 signed in to another PSN account
+   gets "didn't answer pairing through PSN" or "didn't accept" (which one isn't known yet). *(P0)*
