@@ -94,6 +94,12 @@ describe("Settings", () => {
     expect(Schema.decodeUnknownSync(Settings)(defaultSettings)).toEqual(defaultSettings)
   })
 
+  it("turns ML upscaling on unless saved settings turned it off", () => {
+    const { mlUpscale: _ml, ...older } = defaultSettings
+    expect(Schema.decodeUnknownSync(Settings)(older).mlUpscale).toBe(true)
+    expect(Schema.decodeUnknownSync(Settings)({ ...older, mlUpscale: false }).mlUpscale).toBe(false)
+  })
+
   it("accepts every supported resolution, frame rate and upscaler", () => {
     for (const height of [540, 720, 1080])
       for (const fps of [30, 60])

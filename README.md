@@ -88,7 +88,7 @@ VideoToolbox decode ─▶ ML super-resolution ─▶ YCbCr → RGB ─▶ clean
 | Stage | What it does | Default |
 |---|---|---|
 | **Decode** | VideoToolbox, in hardware. 8-bit NV12 for SDR, 10-bit for HDR. | — |
-| **ML upscaling first** | Apple's low-latency ML super-resolution (`VTLowLatencySuperResolutionScaler`, macOS 26+) on the decoded frame, before anything else. The biggest visible gain at 720p (much crisper hair and edges), but it adds about 5.5 ms per frame, and it takes inputs up to 1280 px wide only, so 1080p streams can't use it. | off |
+| **ML upscaling first** | Apple's low-latency ML super-resolution (`VTLowLatencySuperResolutionScaler`, macOS 26+) on the decoded frame, before anything else. Runs whenever the window is larger than the stream. The model takes sides up to 1280 px that are multiples of 16, so 1080p goes through in two overlapping 1088×1088 tiles and 540p is padded to 544 rows. The biggest visible gain of the pipeline (much crisper hair and edges); it adds about 6 ms per frame at 720p and 11 ms at 1080p. | on |
 | **Colors in** | The YCbCr matrix (BT.601/709/2020), range (limited/full) and chroma siting are read from every frame, with manual overrides. Chroma is brought to full size with a bicubic (Catmull-Rom, "Sharp") or bilinear ("Smooth") filter. | Auto, Sharp |
 | **Clean-up** | One compute pass at the stream's own size, before upscaling. **Blockiness** smooths small steps on HEVC's 8×8 block grid; **Banding** removes contours in gradients (fog, skies) and adds a faint dither. Both 0–1. | off |
 | **Upscale** | MetalFX spatial upscaling to the window's size, or bilinear. Letterboxed to the stream's aspect ratio. | MetalFX |
@@ -98,12 +98,15 @@ VideoToolbox decode ─▶ ML super-resolution ─▶ YCbCr → RGB ─▶ clean
 The whole pipeline measured 2.9 ms of GPU time per frame for 720p → window with MetalFX, sharpening
 and the split view on, well inside a 60 fps frame. The stats line shows the live GPU time.
 
+How ML upscaling takes 1080p (two overlapping tiles), the sizes Apple's model really accepts, and what it
+costs: [docs/ML_UPSCALING.md](docs/ML_UPSCALING.md).
+
 **View** compares the result with the raw stream: **Original** (no clean-up, upscaling, sharpening, ML
 or interpolation), **Split** (Original on the left, your settings on the right, with a divider), and
 **Enhanced** (your settings, the default).
 
 **Profiles** keep a set of stream and picture settings under a name. The built-in **Recommended**
-profile (1080p60 · MetalFX · sharpness 0.3) is what a new install starts with. **Save as…** also replaces a
+profile (1080p60 · MetalFX · sharpness 0.3 · ML upscaling) is what a new install starts with. **Save as…** also replaces a
 saved profile: pick it, and Save becomes Replace.
 
 ### HDR

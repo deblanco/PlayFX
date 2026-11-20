@@ -33,7 +33,8 @@ import Testing
         #expect(state(false, true, false, 1280, 720, true, false) == .off)
         #expect(state(true, true, true, 1280, 720, true, false) == .on)
         #expect(state(true, false, false, 1280, 720, true, false) == .unsupported)
-        #expect(state(true, true, false, 1920, 1080, true, false) == .streamTooLarge)
+        #expect(state(true, true, false, 2560, 1440, true, false) == .streamTooLarge)
+        #expect(state(true, true, false, 1920, 1080, true, false) == .notLarger) // 1080p goes through in tiles
         #expect(state(true, true, false, 1280, 720, true, false) == .notLarger)
         #expect(state(true, true, false, 1280, 720, false, false) == .hdr) // 10-bit: the model takes 8-bit only
         #expect(state(true, true, false, 960, 540, true, true) == .streamTooLarge) // a size the model refused

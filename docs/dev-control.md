@@ -56,7 +56,7 @@ The ones that matter for picture work:
 | `view` | `"original"` (the raw stream), `"split"` (original beside enhanced), `"enhanced"` | At once |
 | `upscaler` | `"metalfx"`, `"bilinear"` | At once |
 | `sharpness`, `deblock`, `deband` | 0–1 | At once |
-| `mlUpscale` | `true`/`false`: Apple ML super-resolution before upscaling (streams up to 720p) | At once |
+| `mlUpscale` | `true`/`false`: Apple ML super-resolution before upscaling (1080p in two tiles) | At once |
 | `frameInterpolation` | `true`/`false`: frame generation, images between the game's pictures, one per screen refresh | At once |
 | `showStats` | `true`/`false`: keep the stats line on screen | At once |
 | `height` | `540`, `720`, `1080` | On reconnect |
@@ -111,7 +111,7 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
   `interpolation`: `off`, `on`, `unsupported` (this Mac or macOS), `screen` (the screen doesn't refresh
   often enough for the game's rate), `still` (on, but the game holds its picture). `upscale`: `metalfx`, `bilinear` (chosen), `notLarger` (MetalFX only
   enlarges, and the picture on screen isn't larger than the stream), `unsupported`, `failed`. `ml`: `off`,
-  `on`, `unsupported`, `streamTooLarge` (only 720p and lower, or a size the model refused), `notLarger`,
+  `on`, `unsupported`, `streamTooLarge` (larger than 1080p, or a size the model refused), `notLarger`,
   `hdr` (the model takes 8-bit frames only).
 - `displayHz`: the screen's measured refresh rate. `streamFps`: the rate interpolation works from (the
   game's once measured). `gameFps`: the game's own rate, repeats left out. `repeatedFrames`: stream frames

@@ -497,10 +497,12 @@ describe("settings", () => {
       expect(core.service.setRenderParams).toHaveBeenCalled()
     })
     const sheet = await openSettings("Picture")
-    await userEvent.click(sheet.getByRole("switch", { name: /ML upscaling first/ }))
-    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ mlUpscale: true }))
+    const toggle = sheet.getByRole("switch", { name: /ML upscaling first/ })
+    expect(toggle).toBeChecked() // on by default
     const pipeline = within(sheet.getByRole("navigation", { name: "Picture pipeline" }))
     expect(pipeline.getByRole("button", { name: /Upscale/ })).toHaveTextContent("ML + MetalFX")
+    await userEvent.click(toggle)
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ mlUpscale: false }))
   })
 
   it("disables MetalFX when the GPU doesn't support it", async () => {
@@ -834,7 +836,7 @@ describe("streaming", () => {
     const view = within(sheet.getByRole("radiogroup", { name: "View" }))
     await userEvent.click(view.getByRole("radio", { name: "Original" }))
     expect(core.service.setRenderParams).toHaveBeenLastCalledWith(
-      picture({ upscaler: "bilinear", sharpness: 0, compare: false }),
+      picture({ upscaler: "bilinear", sharpness: 0, mlUpscale: false, compare: false }),
     )
     expect(screen.queryByLabelText("Split-screen comparison")).not.toBeInTheDocument()
     await userEvent.click(view.getByRole("radio", { name: "Split" }))
@@ -1394,7 +1396,7 @@ describe("settings profiles", () => {
     await waitFor(() => {
       expect(profile()).toHaveValue("Recommended")
     })
-    expect(sheet.getByText("1080p60 · MetalFX · sharpness 0.3")).toBeInTheDocument()
+    expect(sheet.getByText("1080p60 · MetalFX · sharpness 0.3 · ML upscaling")).toBeInTheDocument()
 
     // A change of a picture setting makes it a custom mix.
     nudge("Sharpness", "ArrowRight", 2)

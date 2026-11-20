@@ -4,7 +4,7 @@ Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
 Last updated 2026-11-20, after frame generation from the game's rate (the playhead), the hardware round on the
-PS5 and the review of that work.
+PS5, the review of that work, and ML upscaling at every stream resolution (on by default).
 
 ---
 
@@ -48,7 +48,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 311 tests (97% lines), Swift 274 tests (88% lines; 84% as CI's VM sees
+- Tests + gates (2026-11-20): TS 312 tests (97% lines), Swift 282 tests (88% lines; 83% as CI's VM sees
   it), Rust 53 tests (88% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 123/123. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run).
@@ -199,6 +199,11 @@ Work items:
   per frame (6.1 → 11.4 ms median; GPU time barely moves — the model runs off the GPU), so it's **off by
   default** and the UI states the latency. The full (non-low-latency) VT scaler was ruled out: model
   download, cross-frame optical flow, offline-oriented. The compare baseline stays the raw stream.)*
+  *Follow-up: on by default, and every resolution now takes it. The model fails on sides that aren't multiples
+  of 16 even where it reports them supported (1080, 540), so 540p is padded to 544 rows and 1080p goes through
+  in two overlapping 1088×1088 tiles cut and joined with blits in the same command buffer: ~6 ms per frame at
+  720p, ~11 ms at 1080p measured in the renderer. Verified in tests (1080p tiles, 540p padding, the cut on
+  plain Metal for CI's VM); **left: a live 1080p stream on the PS5**. Details: `docs/ML_UPSCALING.md`.*
 - Not planned: MetalFX temporal upscaling (needs engine motion vectors + depth).
 - ✅ **Frame interpolation** (was "Smooth motion"; requested): reworked after the benchmark showed it adding
   nothing (30 fps in, 31 shown).
@@ -549,7 +554,7 @@ requests and a bug report.
   FRAME_INTERPOLATION.md. To check: 30-in-60 on the 75 Hz external screen.
 - ✅ **Stats say why a step is idle, and count the generated frames** (requested; also the "MetalFX
   selected, stats say Bilinear" report, which is MetalFX only enlarging, with a 1080p stream on a 1080p
-  screen): `Bilinear (no upscale needed)`, `ML idle (only for 720p and lower)`, `+30 generated (2 missed)`,
+  screen): `Bilinear (no upscale needed)`, `ML idle (not for this stream size)`, `+30 generated (2 missed)`,
   `no interpolation: 60 fps on a 60 Hz screen`, `30 fps game · 60 fps stream · 60 shown`; the Picture
   tab's Upscale card says "not needed". Seen live on the PS5: game 30 · stream 60 · ~100 shown on 120 Hz.
 - 🔶 **Light bar colour and player number** from the console (`PadLight`); `psrp pad` has `/light` and
@@ -610,7 +615,7 @@ requests and a bug report.
    [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG). Left: `release.sh`
    surviving a notarytool status timeout and stapling the `.app` too. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
-   in 60, ~100 shown/s); left: the 75 Hz external screen; a stream measured with Steady Wi-Fi on (only pings
+   in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on a live 1080p stream in a window larger than 1920×1080; a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; the light bar in a game that sets it; Bluetooth
    haptics in Astro's Playroom.
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the
