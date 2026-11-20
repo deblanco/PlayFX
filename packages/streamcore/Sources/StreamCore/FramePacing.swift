@@ -323,32 +323,31 @@ struct ContentRate {
 /// Even times for the game's pictures. They reach the stream on its frame grid, so a 40 fps game's arrive
 /// 16.7 and 33.3 ms apart, though the game made them 25 ms apart; frames made between them would move
 /// unevenly. Once the rate is known this puts each picture on an even grid at that rate, never earlier than
-/// its own time (it can't show before it arrives), starting over when the cadence breaks.
+/// its own time (it can't show before it arrives), starting over when the cadence breaks. Each picture is one
+/// interval after the grid's last point, not a count of them after where it began: the measured interval
+/// wobbles a little from picture to picture, and a count would multiply that.
 struct CadenceClock {
     private var anchor = 0.0
-    private var count = 0
     private var anchored = false
     private var last = -Double.infinity
 
-    mutating func reset() { anchored = false; count = 0 }
+    mutating func reset() { anchored = false }
 
     /// The time to show a picture whose stream-clock time is `time`, for a game `interval` apart (nil: unknown).
     mutating func time(for time: Double, interval: Double?) -> Double {
         guard let interval, interval > 0 else { reset(); last = time; return time }
         if anchored {
-            count += 1
-            var expected = anchor + Double(count) * interval
+            let expected = anchor + interval
             if abs(time - expected) > interval * 0.6 {
                 anchored = false // the cadence broke (a pause, a rate change): start over at this picture
             } else {
                 // Never before its own time: move the grid later when a picture is later than it.
-                if time > expected { anchor += time - expected; expected = time }
-                last = max(expected, last + 1e-6)
+                anchor = max(expected, time)
+                last = max(anchor, last + 1e-6)
                 return last
             }
         }
         anchor = time
-        count = 0
         anchored = true
         last = max(time, last + 1e-6)
         return last

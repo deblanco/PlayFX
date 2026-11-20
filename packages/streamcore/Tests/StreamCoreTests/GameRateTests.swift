@@ -114,6 +114,24 @@ import Testing
         #expect(cadence.time(for: 2.5, interval: nil) == 2.5)
     }
 
+    @Test(arguments: [[1.0, 2], [1, 1, 2], [2]])
+    func keepsTheGridEvenWithTheMeasuredRate(cadenceFrames: [Double]) {
+        // As the renderer drives it: ContentRate's measured interval, which wobbles from picture to picture
+        // when the cadence doesn't divide its window, fed into the clock for every new picture.
+        var rate = ContentRate()
+        var cadence = CadenceClock()
+        var arrival = 0.0
+        var times: [Double] = []
+        for k in 0..<600 {
+            rate.add(time: arrival)
+            times.append(cadence.time(for: arrival, interval: rate.interval))
+            arrival += (cadenceFrames[k % cadenceFrames.count]) / 60
+        }
+        let expected = cadenceFrames.reduce(0, +) / Double(cadenceFrames.count) / 60
+        let gaps = zip(times.dropFirst(), times).map { $0 - $1 }.dropFirst(60)
+        for gap in gaps { #expect(abs(gap - expected) < 0.002, "\(1 / expected) fps: \(gap * 1000) ms") }
+    }
+
     @Test func stampsEachImageWithItsOwnMomentBetweenTwoPictures() {
         // Halves: one image, halfway in time too.
         let half = InBetween.images(start: 1, end: 1 + 1.0 / 30, steps: 1)
