@@ -119,6 +119,19 @@ describe("home: discovery", () => {
     expect(screen.queryByRole("button", { name: "Open Local Network settings" })).not.toBeInTheDocument()
   })
 
+  it("says what to check when paired consoles are listed but none is on this network", async () => {
+    const core = fakeCore()
+    core.state.discovered = []
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    const item = await consoleItem()
+    expect(item.getByText("offline")).toBeInTheDocument()
+    const help = within(await screen.findByRole("region", { name: "No consoles on this network yet" }))
+    expect(help.getByText("Any VPN on this Mac is off.")).toBeInTheDocument()
+    expect(help.getByRole("button", { name: "Open Local Network settings" })).toBeInTheDocument()
+    expect(help.getByLabelText("Console IP address")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Console missing? Add it by IP" })).not.toBeInTheDocument()
+  })
+
   it("reports discovery failures but still lists paired consoles as offline", async () => {
     const core = fakeCore({ discover: Effect.fail(coreError("discover", "no network")) })
     renderApp(core, { paired: [pairedPs5] })

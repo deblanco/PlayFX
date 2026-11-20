@@ -177,9 +177,11 @@ export const ConsoleList = ({
           </li>
         ))}
       </ul>
-      {rows.length === 0 ? (
+      {/* Paired consoles stay listed when they aren't here: whether discovery found any decides the help. */}
+      {discovered.length === 0 ? (
         <NoConsoles
           scanned={scanned}
+          listed={rows.length > 0}
           address={consoleAddress}
           onAddressChange={onConsoleAddressChange}
           onOpenLocalNetwork={() => { run(actions.openLocalNetworkSettings) }}

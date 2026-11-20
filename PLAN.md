@@ -427,12 +427,13 @@ Work items:
   actions, PSNAuth, bridge). **Needs a PS5 and a PS4 to confirm** the menu names as the current firmware
   shows them, and how long the code really lasts.
 - ✅ **"No consoles found" help** (2026-11-20, from the pairing review): while the first scan runs, the empty
-  console list says "Looking for consoles on this network…"; once a scan finished with nothing it shows what
-  to check (the PS5 on, or in rest mode with Stay Connected to the Internet; the same network as the Mac, not
-  a guest Wi-Fi; no VPN; PlayFX allowed on the local network, with **Open Local Network settings**, a new
+  console list says "Looking for consoles on this network…"; once a scan found nothing on the network (also
+  when paired consoles are listed but none is here: "No consoles on this network yet") it shows what to check
+  (the PS5 on, or in rest mode with Stay Connected to the Internet; the same network as the Mac, not a guest
+  Wi-Fi; no VPN; PlayFX allowed on the local network, with **Open Local Network settings**, a new
   `open_local_network_settings` command that opens System Settings › Privacy & Security › Local Network at a
   fixed URL) and "Your PS5 on another network or behind a second router? Enter its IP." with the console IP
-  field, whatever the Connect mode. With consoles listed, the field sits folded under the list ("Console
+  field, whatever the Connect mode. With a console found here, the field sits folded under the list ("Console
   missing? Add it by IP"), open when an IP is saved. Every scan now asks a saved IP directly, not only in
   Home network mode, so a console paired through the IP field plays in Automatic too. Checked by unit tests
   (App: calm then help, the button, the field saving, the help hiding, playing in Automatic; actions: the IP

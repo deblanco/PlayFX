@@ -12,13 +12,15 @@ interface AddressProps {
   readonly onAddressChange: (address: string) => void
 }
 
-/** Nothing in the list. Calm while the first scan runs; after it, what to check and the console's IP. */
+/** No console on this network (paired ones may still be `listed`). Calm while the first scan runs; after it,
+ * what to check and the console's IP. */
 export const NoConsoles = ({
   scanned,
+  listed,
   address,
   onAddressChange,
   onOpenLocalNetwork,
-}: AddressProps & { readonly scanned: boolean; readonly onOpenLocalNetwork: () => void }) => {
+}: AddressProps & { readonly scanned: boolean; readonly listed: boolean; readonly onOpenLocalNetwork: () => void }) => {
   if (!scanned) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-dashed border-white/15 p-3 text-xs text-muted-foreground">
@@ -33,7 +35,7 @@ export const NoConsoles = ({
       className="flex flex-col gap-3 rounded-lg border border-dashed border-white/15 p-3 animate-in fade-in duration-300 motion-reduce:animate-none"
     >
       <div className="flex flex-col gap-0.5">
-        <h3 id="no-consoles" className="text-sm text-white">No consoles found yet</h3>
+        <h3 id="no-consoles" className="text-sm text-white">{listed ? "No consoles on this network yet" : "No consoles found yet"}</h3>
         <p className="text-xs text-muted-foreground">PlayFX keeps looking. If your PS5 doesn't show up, check that:</p>
       </div>
       <ul className="flex flex-col gap-2">
