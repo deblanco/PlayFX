@@ -10,6 +10,8 @@ import StreamCore
 //   /rumble?l=0-255&r=0-255&ms=800           heavy (left) / light (right) motor, then off
 //   /trigger?side=l|r|both&effect=off|feedback|weapon|vibration[&start=0.2&end=0.6&strength=1&freq=0.3]
 //   /trigger?side=r&mode=0x25&p=0x04,0x01,0x07   raw DualSense effect (mode + params), through the decoder
+//   /light?r=0-255&g=0-255&b=0-255           light bar colour, as a game sets it over Remote Play
+//   /player?n=0-3                            player number lights, as the console counts (0 = player 1)
 //   /quit
 //
 // Findings on macOS 27 (DualSense over Bluetooth): the PS button never reaches the app; it opens the Games
@@ -20,6 +22,7 @@ final class PadProbe {
     let input = ControllerInput()
     let rumble = Rumble()
     let triggers = AdaptiveTriggers()
+    let light = PadLight()
     var state = ControllerState()
     var left = TriggerEffect.off, right = TriggerEffect.off
     private var lastLine = ""
@@ -114,8 +117,19 @@ final class PadProbe {
             }
             log("[pad] trigger \(side): \(effect)")
             return text("\(side): \(effect)")
+        case "/light":
+            let c = { (k: String) in UInt8(query[k] ?? "") ?? 0 }
+            light.setColor(red: c("r"), green: c("g"), blue: c("b"))
+            log("[pad] light bar \(c("r")), \(c("g")), \(c("b"))")
+            return text("ok")
+        case "/player":
+            // As the console counts: 0 = player 1.
+            let n = Int(query["n"] ?? "") ?? 0
+            light.setPlayer(n)
+            log("[pad] player \(n + 1)")
+            return text("ok")
         case "/quit":
-            DispatchQueue.main.async { self.triggers.reset(); self.rumble.stop() }
+            DispatchQueue.main.async { self.triggers.reset(); self.rumble.stop(); self.light.reset() }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { exit(0) }
             return text("bye")
         default:
@@ -134,7 +148,7 @@ func pad(_ args: Args) throws {
     let probe = PadProbe()
     let port = UInt16(args["port"] ?? "") ?? 7778
     try serve(port: port) { probe.handle(path: $0, query: $1) }
-    log("Pad probe: http://127.0.0.1:\(port)/state  (/rumble?l=200&r=0, /trigger?side=r&effect=weapon, /quit)")
+    log("Pad probe: http://127.0.0.1:\(port)/state  (/rumble?l=200&r=0, /trigger?side=r&effect=weapon, /light?r=255&g=0&b=0, /player?n=0, /quit)")
     // GameController delivers on the main run loop. --foreground: a regular, frontmost app, which is
     // what system-gesture opt-outs (PS button) apply to.
     if args.has("foreground") {

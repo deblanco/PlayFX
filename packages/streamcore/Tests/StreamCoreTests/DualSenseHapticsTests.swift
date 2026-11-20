@@ -107,10 +107,23 @@ extension Serial {
         let quad = DualSenseHaptics.Device(id: 7, name: "DualSense Wireless Controller", outputChannels: 4)
         let devices = OSAllocatedUnfairLock<[DualSenseHaptics.Device]>(initialState: [])
         let opened = OSAllocatedUnfairLock<[StandInOutput]>(initialState: [])
+        let bluetooth = OSAllocatedUnfairLock<BluetoothPad?>(initialState: nil)
+        let openedBluetooth = OSAllocatedUnfairLock<[StandInOutput]>(initialState: [])
 
         func withStandIns(failOpen: Bool = false, _ body: () throws -> Void) rethrows {
             let (realDevices, realOpen) = (DualSenseHaptics.devices, DualSenseHaptics.open)
-            defer { (DualSenseHaptics.devices, DualSenseHaptics.open) = (realDevices, realOpen) }
+            let (realPad, realOpenBluetooth) = (DualSenseHaptics.bluetoothPad, DualSenseHaptics.openBluetooth)
+            defer {
+                (DualSenseHaptics.devices, DualSenseHaptics.open) = (realDevices, realOpen)
+                (DualSenseHaptics.bluetoothPad, DualSenseHaptics.openBluetooth) = (realPad, realOpenBluetooth)
+            }
+            DualSenseHaptics.bluetoothPad = { [bluetooth] in bluetooth.withLock { $0 } }
+            DualSenseHaptics.openBluetooth = { [openedBluetooth] _, _ in
+                if failOpen { return nil }
+                let output = StandInOutput()
+                openedBluetooth.withLock { $0.append(output) }
+                return output
+            }
             DualSenseHaptics.devices = { [devices] in devices.withLock { $0 } }
             DualSenseHaptics.open = { [opened] _, _ in
                 if failOpen { return nil }
@@ -165,6 +178,42 @@ extension Serial {
                 #expect(!haptics.isPlaying && opened.withLock { $0.last?.stopped.withLock { $0 } == true })
                 #expect(!push(haptics, at: 100)) // a stopped session never opens the pad again
                 #expect(!haptics.isPlaying)
+            }
+        }
+
+        @Test func sendsToAPadOnBluetoothWhenNoUSBPadCanPlay() {
+            withStandIns {
+                let haptics = DualSenseHaptics()
+                bluetooth.withLock { $0 = BluetoothPad(name: "DualSense Wireless Controller", id: 42, device: nil) }
+                _ = push(haptics, at: 0)
+                #expect(haptics.isPlaying && openedBluetooth.withLock { $0.count } == 1)
+                // The 3 kHz audio goes to the Bluetooth queue as it comes, not to the USB output's buffer.
+                #expect(push(haptics, at: 0.5))
+                #expect(haptics.bluetoothQueue.levels(now: 0.5).queued == 30 && haptics.buffer.bufferedFrames == 0)
+                _ = push(haptics, at: 2)
+                #expect(openedBluetooth.withLock { $0.count } == 1) // the same pad: kept open
+
+                // A pad plugged in over USB (with 4 channels) takes over.
+                devices.withLock { $0 = [quad] }
+                _ = push(haptics, at: 4)
+                #expect(opened.withLock { $0.count } == 1 && openedBluetooth.withLock { $0[0].stopped.withLock { $0 } })
+                #expect(push(haptics, at: 4.5) && haptics.buffer.bufferedFrames > 0)
+
+                // Unplugged, and the Bluetooth pad gone too: rumble.
+                devices.withLock { $0 = [] }
+                bluetooth.withLock { $0 = nil }
+                _ = push(haptics, at: 7)
+                #expect(!haptics.isPlaying)
+            }
+        }
+
+        @Test func staysOnRumbleWhenTheBluetoothPadCantBeOpened() {
+            withStandIns(failOpen: true) {
+                let haptics = DualSenseHaptics()
+                bluetooth.withLock { $0 = BluetoothPad(name: "DualSense", id: 1, device: nil) }
+                _ = push(haptics, at: 0)
+                _ = push(haptics, at: 2) // tried again, said once
+                #expect(!haptics.isPlaying && !push(haptics, at: 2.5))
             }
         }
 

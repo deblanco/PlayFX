@@ -3,11 +3,11 @@ import CoreAudio
 import Foundation
 import os
 
-/// Real DualSense haptics for a pad on USB. The console drives the DualSense's two voice-coil motors with an
-/// audio stream (stereo, 3 kHz). On USB the pad is also a 4-channel sound device whose channels 3 and 4 are
-/// those motors, so the stream is played there as it is: the feel PS5 games are made for, where Bluetooth
-/// pads only get it as rumble. Needs the pad's sound set to 4 channels ("Quadraphonic" in Audio MIDI Setup),
-/// which is how chiaki-ng plays it too.
+/// Real DualSense haptics. The console drives the DualSense's two voice-coil motors with an audio stream
+/// (stereo, 3 kHz). On USB the pad is also a 4-channel sound device whose channels 3 and 4 are those motors,
+/// so the stream is played there as it is (needs the pad's sound set to 4 channels, "Quadraphonic" in Audio
+/// MIDI Setup, which is how chiaki-ng plays it too). On Bluetooth it goes to the pad in HID reports (see
+/// BluetoothHaptics.swift). Without either, the caller plays it as rumble.
 final class DualSenseHaptics: @unchecked Sendable {
     struct Device: Equatable {
         let id: AudioDeviceID
@@ -17,40 +17,59 @@ final class DualSenseHaptics: @unchecked Sendable {
 
     enum Choice: Equatable {
         case play(Device)
+        /// No USB pad to play on, but a DualSense on Bluetooth.
+        case bluetooth(BluetoothPad)
         /// A DualSense whose sound is set to 2 channels: the motors aren't reachable until it's set to 4.
         case stereoOnly(Device)
         case none
     }
 
-    /// A DualSense's sound device, if one is plugged in with the motors' channels available.
-    static func choose(_ devices: [Device]) -> Choice {
+    /// A DualSense's sound device, if one is plugged in with the motors' channels available; else a pad on
+    /// Bluetooth (a USB pad set to 2 channels comes first: it can be fixed, and is what the player plugged in).
+    static func choose(_ devices: [Device], bluetooth: BluetoothPad? = nil) -> Choice {
         let pads = devices.filter { $0.name.localizedCaseInsensitiveContains("DualSense") }
         if let pad = pads.first(where: { $0.outputChannels >= 4 }) { return .play(pad) }
-        return pads.first.map(Choice.stereoOnly) ?? .none
+        if let pad = pads.first { return .stereoOnly(pad) }
+        return bluetooth.map(Choice.bluetooth) ?? .none
+    }
+
+    /// Where the stream goes now.
+    enum Route: Equatable {
+        case usb(Device)
+        case bluetooth(BluetoothPad)
     }
 
     /// Something playing the buffer on a device (the CoreAudio output; stand-ins in tests).
     protocol Output: AnyObject { func stop() }
 
-    /// The Mac's sound output devices (replaced in tests).
-    nonisolated(unsafe) static var devices: () -> [Device] = HapticsDevices.all
+    /// The Mac's sound output devices (replaced in tests; none in a test run, see `PadHardware`).
+    nonisolated(unsafe) static var devices: () -> [Device] = { PadHardware.allowed ? HapticsDevices.all() : [] }
     /// Opens an output playing `buffer` on the device (replaced in tests).
     nonisolated(unsafe) static var open: (Device, HapticsBuffer) -> Output? = { device, buffer in
         HapticsOutputUnit(device: device, buffer: buffer)
+    }
+    /// A DualSense on Bluetooth, and a sender of the queue's audio to it (replaced in tests).
+    nonisolated(unsafe) static var bluetoothPad: () -> BluetoothPad? = { PadHardware.allowed ? BluetoothPad.find() : nil }
+    nonisolated(unsafe) static var openBluetooth: (BluetoothPad, BluetoothHapticsQueue) -> Output? = { pad, queue in
+        BluetoothHapticsSender(pad: pad, queue: queue)
     }
     /// How often the devices are looked at again: a pad plugged in, or unplugged, mid-stream.
     static let recheckInterval: TimeInterval = 2
 
     private struct State {
         var output: Output?
-        var device: Device?
+        var route: Route?
         var checkedAt = -TimeInterval.infinity
         var warnedStereo = false
+        /// A Bluetooth pad that wouldn't open is said once, not every check.
+        var warnedBluetooth = false
     }
     /// Only `push` uses it, always from libchiaki's one haptics thread.
     private var upsampler = HapticsUpsampler()
     private let state = OSAllocatedUnfairLock(initialState: State())
     let buffer = HapticsBuffer()
+    /// The 3 kHz audio as it comes, for a pad on Bluetooth.
+    let bluetoothQueue = BluetoothHapticsQueue()
     /// Looking at the devices and opening one takes milliseconds: not on libchiaki's receive thread.
     private let queue = DispatchQueue(label: "streamcore.haptics", qos: .userInitiated)
 
@@ -65,14 +84,18 @@ final class DualSenseHaptics: @unchecked Sendable {
     /// One frame of the haptics stream (interleaved stereo at 3 kHz), from libchiaki's thread. Returns whether
     /// it was played on a pad; if not, the caller makes rumble from it.
     func push(_ samples: UnsafeBufferPointer<Int16>, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
-        let (playing, due) = state.withLock { state -> (Bool, Bool) in
+        let (route, due) = state.withLock { state -> (Route?, Bool) in
             let due = now - state.checkedAt >= Self.recheckInterval
             if due { state.checkedAt = now }
-            return (state.output != nil, due)
+            return (state.output == nil ? nil : state.route, due)
         }
         if due { queue.async { [weak self] in self?.refresh() } }
-        if playing { buffer.append(upsampler.upsample(samples)) }
-        return playing
+        switch route {
+        case .usb: buffer.append(upsampler.upsample(samples))
+        case .bluetooth: bluetoothQueue.append(samples, now: now)
+        case nil: break
+        }
+        return route != nil
     }
 
     /// Stops playing (the session ended).
@@ -80,7 +103,7 @@ final class DualSenseHaptics: @unchecked Sendable {
         let output = state.withLock { state -> Output? in
             defer {
                 state.output = nil
-                state.device = nil
+                state.route = nil
                 state.checkedAt = .infinity // and no more checks
             }
             return state.output
@@ -91,9 +114,15 @@ final class DualSenseHaptics: @unchecked Sendable {
     /// Starts playing on a pad that was plugged in, or stops when it's gone. On `queue`; the device is opened
     /// outside the lock, so the receive thread never waits for it.
     private func refresh() {
-        let choice = Self.choose(Self.devices())
-        guard let current = state.withLock({ $0.checkedAt == .infinity ? nil : Optional($0.device) }) else { return }
-        let opened: Output? = if case .play(let device) = choice, device != current { Self.open(device, buffer) } else { nil }
+        let devices = Self.devices()
+        // Only looked for when no USB pad can play: listing HID devices isn't free.
+        let choice = Self.choose(devices, bluetooth: Self.choose(devices) == .none ? Self.bluetoothPad() : nil)
+        guard let current = state.withLock({ $0.checkedAt == .infinity ? nil : Optional($0.route) }) else { return }
+        let opened: Output? = switch choice {
+        case .play(let device) where current != .usb(device): Self.open(device, buffer)
+        case .bluetooth(let pad) where current != .bluetooth(pad): Self.openBluetooth(pad, bluetoothQueue)
+        default: nil
+        }
         let previous = state.withLock { state -> Output? in
             guard state.checkedAt != .infinity else { return opened } // stopped meanwhile: close what was opened
             return apply(choice, opened: opened, to: &state)
@@ -105,26 +134,37 @@ final class DualSenseHaptics: @unchecked Sendable {
     private func apply(_ choice: Choice, opened: Output?, to state: inout State) -> Output? {
         let previous = state.output
         switch choice {
-        case .play(let device) where device == state.device:
+        case .play(let device) where state.route == .usb(device):
+            return nil
+        case .bluetooth(let pad) where state.route == .bluetooth(pad):
             return nil
         case .play(let device):
             state.output = opened
-            state.device = opened == nil ? nil : device
+            state.route = opened == nil ? nil : .usb(device)
             Log.info(.input, opened == nil ? "DualSense haptics: couldn't open \(device.name)"
                                            : "DualSense haptics: playing on \(device.name) (USB)")
+        case .bluetooth(let pad):
+            state.output = opened
+            state.route = opened == nil ? nil : .bluetooth(pad)
+            if opened != nil {
+                Log.info(.input, "DualSense haptics: playing on \(pad.name) (Bluetooth)")
+            } else if !state.warnedBluetooth {
+                state.warnedBluetooth = true
+                Log.warning(.input, "DualSense haptics: couldn't open \(pad.name) on Bluetooth; playing them as rumble")
+            }
         case .stereoOnly(let device):
             if previous != nil { Log.info(.input, "DualSense haptics: back to rumble") }
             state.output = nil
-            state.device = nil
+            state.route = nil
             if !state.warnedStereo {
                 state.warnedStereo = true
                 Log.warning(.input, "\(device.name) is on USB with 2-channel sound: set it to 4 channels (Quadraphonic) in "
                     + "Audio MIDI Setup for its real haptics. Playing them as rumble meanwhile.")
             }
         case .none:
-            if previous != nil { Log.info(.input, "DualSense haptics: pad unplugged, back to rumble") }
+            if previous != nil { Log.info(.input, "DualSense haptics: pad gone, back to rumble") }
             state.output = nil
-            state.device = nil
+            state.route = nil
         }
         return previous
     }

@@ -64,7 +64,7 @@ fn link_streamcore() {
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
     for fw in [
         "CoreServices", "SystemConfiguration", "Security", "Metal", "MetalKit", "MetalFX", "QuartzCore",
-        "VideoToolbox", "CoreMedia", "CoreVideo", "AVFoundation", "GameController", "CoreImage",
+        "VideoToolbox", "CoreMedia", "CoreVideo", "AVFoundation", "GameController", "CoreImage", "IOKit",
     ] {
         println!("cargo:rustc-link-lib=framework={fw}");
     }

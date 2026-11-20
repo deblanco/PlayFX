@@ -112,8 +112,8 @@ public final class Rumble {
     /// console's haptics stream keeps coming; when an effect ends the console just stops sending.
     static let hapticsTimeout: TimeInterval = 0.15
 
-    /// The connected controllers (replaced in tests).
-    nonisolated(unsafe) static var controllers: () -> [GCController] = { GCController.controllers() }
+    /// The connected controllers (replaced in tests; none in a test run, see `PadHardware`).
+    nonisolated(unsafe) static var controllers: () -> [GCController] = PadHardware.controllers
 
     /// The levels last sent to the controllers. On `queue`.
     private var lastLevels = Levels(left: 0, right: 0)
