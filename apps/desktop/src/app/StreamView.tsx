@@ -119,6 +119,8 @@ const useKeyboardController = (enabled: boolean): PressKey => {
 interface StreamViewProps {
   /** The console's name, as last reported by the stream. */
   readonly title: string
+  /** A PS5 (else a PS4), for naming it in the passcode prompt. */
+  readonly ps5: boolean
   /** Set while the console waits for its login PIN. */
   readonly loginPin: Option.Option<{ readonly incorrect: boolean }>
   /** Set while the console's text keyboard is open, with the field's text. */
@@ -144,6 +146,7 @@ interface StreamViewProps {
 
 export const StreamView = ({
   title,
+  ps5,
   loginPin,
   keyboard = Option.none(),
   onKeyboardDone = () => undefined,
@@ -352,7 +355,7 @@ export const StreamView = ({
         <ConsoleKeyboard consoleName={title} text={keyboard.value} onDone={onKeyboardDone} />
       )}
       {Option.isSome(loginPin) && (
-        <LoginPinPrompt incorrect={loginPin.value.incorrect} onSubmitted={onLoginPinSubmitted} onCancel={stop} />
+        <LoginPinPrompt ps5={ps5} incorrect={loginPin.value.incorrect} onSubmitted={onLoginPinSubmitted} onCancel={stop} />
       )}
     </>
   )
@@ -405,12 +408,13 @@ const CompareLabels = () => (
 )
 
 interface LoginPinPromptProps {
+  readonly ps5: boolean
   readonly incorrect: boolean
   readonly onSubmitted: () => void
   readonly onCancel: () => void
 }
 
-const LoginPinPrompt = ({ incorrect, onSubmitted, onCancel }: LoginPinPromptProps) => {
+const LoginPinPrompt = ({ ps5, incorrect, onSubmitted, onCancel }: LoginPinPromptProps) => {
   const run = useRun()
   const id = useId()
   const [pin, setPin] = useState("")
@@ -420,7 +424,7 @@ const LoginPinPrompt = ({ incorrect, onSubmitted, onCancel }: LoginPinPromptProp
         <CardHeader>
           <CardTitle id={`${id}-title`}>Console passcode</CardTitle>
           <CardDescription>
-            {incorrect ? "Wrong passcode. " : ""}Enter your PS5 user's passcode (4 digits), not the pairing code.
+            {incorrect ? "Wrong passcode. " : ""}Enter your {ps5 ? "PS5" : "PS4"} user's passcode (4 digits), not the pairing code.
           </CardDescription>
         </CardHeader>
         <CardContent>

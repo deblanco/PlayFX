@@ -306,6 +306,7 @@ const Screens = () => {
       {session?.started === true ? (
         <StreamView
           title={session.title}
+          ps5={session.console.credentials.ps5}
           loginPin={session.loginPin}
           keyboard={session.keyboard}
           mic={session.mic}

@@ -23,8 +23,8 @@ const consoleItem = async (name = "Living Room") => {
 
 /** Renders the app with a paired, ready console and starts streaming it. */
 /** Plays the paired console; `connected` also reports the stream as up (otherwise it stays connecting). */
-const startStreaming = async (core = fakeCore(), { connected = true, testClock = false } = {}) => {
-  const app = renderApp(core, { accountId, paired: [pairedPs5] }, { testClock })
+const startStreaming = async (core = fakeCore(), { connected = true, testClock = false, paired = pairedPs5 } = {}) => {
+  const app = renderApp(core, { accountId, paired: [paired] }, { testClock })
   const item = await consoleItem()
   await userEvent.click(item.getByRole("button", { name: "Play" }))
   await screen.findByRole("button", { name: "Stop" })
@@ -846,6 +846,16 @@ describe("streaming", () => {
     await userEvent.click(dialog.getByRole("button", { name: "Stop" }))
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     expect(core.counts.stopStream).toBe(1)
+  })
+
+  it("names a PS4 in the passcode prompt when streaming one", async () => {
+    const ps4 = { ...pairedPs5, credentials: { ...pairedPs5.credentials, ps5: false } }
+    const { core } = await startStreaming(fakeCore(), { paired: ps4 })
+    act(() => {
+      core.emitStream({ type: "loginPin", incorrect: false })
+    })
+    const dialog = within(await screen.findByRole("dialog"))
+    expect(dialog.getByText("Enter your PS4 user's passcode (4 digits), not the pairing code.")).toBeInTheDocument()
   })
 
   it("stops the stream from the HUD, even if stopping fails", async () => {
