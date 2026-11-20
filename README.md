@@ -11,6 +11,11 @@ adaptive triggers, touchpad and motion.
 > PlayFX is an independent project. It is not affiliated with, endorsed by or sponsored by Sony
 > Interactive Entertainment. "PlayStation", "PS5" and "DualSense" are trademarks of their owners.
 
+![PlayFX streaming a PS5 game, with the stats line and the controls at the top](docs/images/stream.jpg)
+
+**[Download the latest release](https://github.com/deblanco/PlayFX/releases/latest)** (signed and notarized,
+Apple silicon, macOS 13 or later).
+
 ## Features
 
 - **Connect:** finds consoles on the local network, wakes them from rest, pairs with a PIN, and plays
@@ -62,6 +67,17 @@ The console sends at most 1080p, so most of the picture's quality is decided bef
 PlayFX asks for as much as the console will send, then cleans up, upscales and sharpens each frame on
 the GPU. Picture settings apply to the next frame. Stream settings apply on the next connection; the HUD
 offers **Reconnect** when one changes.
+
+![The Settings sheet over a live stream in Split view: the stream as it arrives on the left, with the
+picture steps on the right](docs/images/settings-split.jpg)
+
+*Settings → Picture, in Split view: the left half is the stream as it arrives, the right half has the
+picture steps applied, and the strip at the top shows which steps are on.*
+
+![The same 720p frame, as it arrives (left) and with ML super-resolution and MetalFX (right)](docs/images/ml-upscaling.jpg)
+
+*A 720p stream as it arrives (left) and with ML super-resolution, MetalFX and sharpening (right), zoomed in:
+the sign's text and the jacket's texture come back.*
 
 ### What the console sends (Settings → Stream)
 
