@@ -261,10 +261,10 @@ describe("quitMessage", () => {
 
 describe("ML super-resolution", () => {
   const ml = { ...defaultSettings, mlUpscale: true, height: 720 } as const
-  it("applies to 720p and lower streams when the Mac supports it", () => {
+  it("applies to every stream resolution when the Mac supports it", () => {
     expect(mlApplies(ml, { metalfx: true, ml: true, interpolation: false })).toBe(true)
     expect(mlApplies({ ...ml, height: 540 }, { metalfx: true, ml: true, interpolation: false })).toBe(true)
-    expect(mlApplies({ ...ml, height: 1080 }, { metalfx: true, ml: true, interpolation: false })).toBe(false)
+    expect(mlApplies({ ...ml, height: 1080 }, { metalfx: true, ml: true, interpolation: false })).toBe(true)
     expect(mlApplies(ml, { metalfx: true, ml: false, interpolation: false })).toBe(false)
     expect(mlApplies({ ...ml, mlUpscale: false }, { metalfx: true, ml: true, interpolation: false })).toBe(false)
   })
@@ -298,7 +298,7 @@ describe("pipelineStages", () => {
   it("lists the picture steps in render order with their values", () => {
     expect(view(pipelineStages(defaultSettings, { metalfx: true, ml: true, interpolation: false }))).toEqual([
       ["cleanup", "Off", false],
-      ["upscale", "MetalFX", true],
+      ["upscale", "ML + MetalFX", true],
       ["sharpen", "30%", true],
       ["color", "Accurate", true],
     ])
@@ -315,9 +315,9 @@ describe("pipelineStages", () => {
   it("unlights the upscale step and says why when the renderer reports it idle", () => {
     const caps = { metalfx: true, ml: true, interpolation: false }
     const [, upscale] = pipelineStages(defaultSettings, caps, "not needed")
-    expect(upscale).toMatchObject({ value: "MetalFX", active: false, note: "not needed" })
-    // Bilinear chosen: nothing is idle, so no note.
-    const [, bilinear] = pipelineStages({ ...defaultSettings, upscaler: "bilinear" }, caps, "not needed")
+    expect(upscale).toMatchObject({ value: "ML + MetalFX", active: false, note: "not needed" })
+    // Bilinear chosen, ML off: nothing is idle, so no note.
+    const [, bilinear] = pipelineStages({ ...defaultSettings, upscaler: "bilinear", mlUpscale: false }, caps, "not needed")
     expect(bilinear).toEqual({ id: "upscale", name: "Upscale", value: "Bilinear", active: false })
   })
 })
@@ -445,7 +445,7 @@ describe("statRows", () => {
     expect(find(at1080({ upscale: "unsupported" }), "Upscaler")?.inline).toBe("MetalFX (MetalFX unavailable)")
     expect(find(at1080({ upscale: "failed" }), "Upscaler")).toMatchObject({ warn: true })
     expect(find(at1080({ upscale: "bilinear" }), "Upscaler")?.inline).toBe("MetalFX")
-    expect(find(at1080({ ml: "streamTooLarge" }), "ML upscaling")?.inline).toBe("ML idle (only for 720p and lower)")
+    expect(find(at1080({ ml: "streamTooLarge" }), "ML upscaling")?.inline).toBe("ML idle (not for this stream size)")
     expect(find(at1080({ ml: "notLarger" }), "ML upscaling")?.inline).toBe("ML idle (no upscale needed)")
     expect(find(at1080({ ml: "unsupported" }), "ML upscaling")?.inline).toBe("ML idle (unavailable on this Mac)")
     expect(find(at1080({ ml: "hdr" }), "ML upscaling")?.inline).toBe("ML idle (not for HDR)")

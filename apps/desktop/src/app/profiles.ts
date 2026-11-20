@@ -21,7 +21,7 @@ export const profileSettings = (s: Settings): ProfileSettings => ({
   accurateColor: s.accurateColor,
 })
 
-/** The built-in profile, which new installs start with: 1080p60, MetalFX, sharpness 0.3. */
+/** The built-in profile, which new installs start with: 1080p60, MetalFX, sharpness 0.3, ML upscaling. */
 export const recommended: Profile = { name: "Recommended", settings: profileSettings(defaultSettings) }
 
 /** Built-in profiles first, then the user's. */

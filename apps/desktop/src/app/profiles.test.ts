@@ -16,7 +16,7 @@ import {
 describe("profiles", () => {
   it("starts from the Recommended profile: 1080p60, MetalFX, sharpness 0.3", () => {
     expect(recommended.settings).toMatchObject({ height: 1080, fps: 60, upscaler: "metalfx", sharpness: 0.3, view: "enhanced" })
-    expect(profileSummary(recommended)).toBe("1080p60 · MetalFX · sharpness 0.3")
+    expect(profileSummary(recommended)).toBe("1080p60 · MetalFX · sharpness 0.3 · ML upscaling")
     expect(isBuiltIn(recommended)).toBe(true)
     expect(Option.getOrUndefined(matchingProfile(defaultSettings, allProfiles([])))?.name).toBe("Recommended")
   })

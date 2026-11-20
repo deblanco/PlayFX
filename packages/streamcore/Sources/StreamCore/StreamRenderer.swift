@@ -37,7 +37,7 @@ public struct RenderParams: Codable, Equatable, Sendable {
     public var deblock: Float = 0
     /// Smooths banding in gradients (with a touch of dither) before the upscale: 0 = off … 1 = strongest.
     public var deband: Float = 0
-    /// Apple's ML super-resolution on the decoded frame first (macOS 26+, streams up to 1280 px wide).
+    /// Apple's ML super-resolution on the decoded frame first (macOS 26+, 1080p and lower streams).
     public var mlUpscale = false
     /// "Frame interpolation": an interpolated frame between each pair of stream frames (macOS 26+), when the
     /// screen refreshes at least twice as fast as the stream. Adds one screen refresh of latency.
@@ -778,8 +778,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         if ran { return .on }
         guard supported else { return .unsupported }
         guard eightBit else { return .hdr } // the model takes 8-bit frames only
-        // Apple's model takes frames up to 1280 px per side (720p and lower streams), and not every size.
-        if refused || max(width, height) > MLSuperResolution.maxInputSide { return .streamTooLarge }
+        // Apple's model takes 1080p and lower streams (larger ones in tiles), and not every size.
+        if refused || MLSuperResolution.tiling(width: width, height: height) == nil { return .streamTooLarge }
         return .notLarger
     }
 
@@ -915,7 +915,7 @@ public struct PipelineState: Sendable, Equatable {
         case metalfx, bilinear, notLarger, unsupported, failed
     }
     public enum ML: String, Sendable {
-        /// Turned off; ran; not available; the stream's size isn't one the model takes (larger than 720p, or
+        /// Turned off; ran; not available; the stream's size isn't one the model takes (larger than 1080p, or
         /// refused); the picture on screen isn't larger than the stream; an HDR (10-bit) stream.
         case off, on, unsupported, streamTooLarge, notLarger, hdr
     }

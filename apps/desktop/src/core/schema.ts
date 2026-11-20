@@ -78,7 +78,7 @@ export const RenderParams = Schema.Struct({
   deblock: Strength,
   /** Smooths banding in gradients before the upscale. */
   deband: Strength,
-  /** Apple's ML super-resolution on the decoded frame first (720p and lower, macOS 26+). */
+  /** Apple's ML super-resolution on the decoded frame first (1080p and lower, macOS 26+). */
   mlUpscale: Schema.Boolean,
   /** An interpolated frame between stream frames when the screen is fast enough (macOS 26+). */
   frameInterpolation: Schema.Boolean,
@@ -103,7 +103,7 @@ export const Settings = Schema.Struct({
   sharpness: since(Strength, 0.3),
   deblock: since(Strength, 0),
   deband: since(Strength, 0),
-  mlUpscale: since(Schema.Boolean, false),
+  mlUpscale: since(Schema.Boolean, true),
   frameInterpolation: since(Schema.Boolean, false),
   view: since(PictureView, "enhanced"),
   colorMatrix: since(ColorMatrix, "auto"),
@@ -167,7 +167,7 @@ export const defaultSettings: Settings = {
   sharpness: 0.3,
   deblock: 0,
   deband: 0,
-  mlUpscale: false,
+  mlUpscale: true,
   frameInterpolation: false,
   view: "enhanced",
   colorMatrix: "auto",

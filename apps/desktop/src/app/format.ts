@@ -151,7 +151,7 @@ const mlRow = (pacing: PacingStats | null): StatRow | undefined => {
     off: undefined,
     on: undefined,
     unsupported: "unavailable on this Mac",
-    streamTooLarge: "only for 720p and lower",
+    streamTooLarge: "not for this stream size",
     notLarger: "no upscale needed",
     hdr: "not for HDR",
   }[pacing.ml]
@@ -371,9 +371,9 @@ export interface Capabilities {
   readonly interpolation: boolean
 }
 
-/** ML super-resolution only takes streams up to 1280 px wide, i.e. 720p and lower. */
+/** ML super-resolution takes every stream resolution (1080p in two tiles) where the Mac supports it. */
 export const mlApplies = (settings: Settings, capabilities: Capabilities): boolean =>
-  settings.mlUpscale && capabilities.ml && settings.height <= 720
+  settings.mlUpscale && capabilities.ml
 
 export type StageId = "cleanup" | "upscale" | "sharpen" | "color"
 
