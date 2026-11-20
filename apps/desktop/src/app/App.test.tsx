@@ -662,7 +662,10 @@ describe("settings", () => {
     const { unmount } = renderApp(fakeCore(), { accountId })
     const guide = await screen.findByRole("region", { name: "Get started" })
     expect(within(guide).getByText("Pair your PS5").closest("li")).toHaveAttribute("aria-current", "step")
-    expect(within(guide).getAllByLabelText("Done")).toHaveLength(2)
+    // Signing in says nothing about the PS5's settings: that step stays open, not ticked off.
+    expect(within(guide).getAllByLabelText("Done")).toHaveLength(1)
+    expect(within(guide).getByText("Get your PS5 ready")).not.toHaveClass("line-through")
+    expect(within(guide).getByText(/Settings › System › Remote Play › Enable Remote Play/)).toBeInTheDocument()
     unmount()
     renderApp(fakeCore(), { accountId, paired: [pairedPs5] })
     await consoleItem()
@@ -680,6 +683,9 @@ describe("settings", () => {
     const guide = screen.getByRole("region", { name: "Get started" })
     expect(within(guide).getByText("Play").closest("li")).toHaveAttribute("aria-current", "step")
     expect(within(guide).getByText("Press Play. PlayFX wakes your PS5 if it's in rest mode.")).toBeInTheDocument()
+    // Pairing worked, so the PS5 was ready: that step ticks off and folds away.
+    expect(within(guide).getAllByLabelText("Done")).toHaveLength(3)
+    expect(within(guide).queryByText(/Enable Remote Play/)).not.toBeInTheDocument()
     await userEvent.click(item.getByRole("button", { name: "Play" }))
     await waitFor(() => {
       expect(core.streamListeners()).toBe(1)

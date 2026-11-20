@@ -413,7 +413,8 @@ Work items:
 - ✅ **Pairing guide and copy** (2026-11-20, from the pairing review): the guide starts with "Get your PS5
   ready" — Settings › System › Remote Play › Enable Remote Play, and for waking from rest mode Stay Connected
   to the Internet and Enable Turning On PS5 from Network under Settings › System › Power Saving › Features
-  Available in Rest Mode — then Sign in, Pair, Play. It now stays after pairing, with Play as the step to
+  Available in Rest Mode — then Sign in, Pair, Play. The app can't see those settings, so that step stays
+  open (not ticked off by signing in) until a pairing works. The guide now stays after pairing, with Play as the step to
   take, until the first Play leaves Home. The pair form names Pair Device (Link Device on some versions), the
   PS4 path (Settings › Remote Play Connection Settings › Add Device) for a PS4, says it's the 8-digit pairing
   code, not the console passcode, and that the code is valid for about 5 minutes. The login PIN dialog is now
