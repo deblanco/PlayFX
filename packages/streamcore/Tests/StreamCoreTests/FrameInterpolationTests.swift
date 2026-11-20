@@ -36,6 +36,16 @@ import Testing
         cb3.commit()
         cb3.waitUntilCompleted()
         #expect(quarters.count == 3)
+        // Back to halves, then quarters again (a ProMotion screen changing its rate): the sessions are kept,
+        // so neither switch starts a new one (each would build its model for a second or two).
+        let started = interpolator.sessionsStarted
+        for phases: [Float] in [[0.5], [0.25, 0.5, 0.75], [0.5]] {
+            let cbn = try #require(queue.makeCommandBuffer())
+            #expect(interpolator.encode(cbn, previous: dark, current: bright, phases: phases, steps: phases.count == 1 ? 1 : 2) != nil)
+            cbn.commit()
+            cbn.waitUntilCompleted()
+        }
+        #expect(interpolator.sessionsStarted == started && started == 2)
         // A phase that isn't one of the processor's points isn't asked for.
         let cb4 = try #require(queue.makeCommandBuffer())
         #expect(interpolator.encode(cb4, previous: dark, current: bright, phases: [0.3], steps: 2) == nil)

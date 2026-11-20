@@ -217,6 +217,10 @@ Work items:
     is tested in CI's VM too.
   - Review fixes: the size climbs back up after a spike; a late in-between image never shows after a
     newer one; the extra delay only while images are being made; 10-bit HDR frames aren't sent to the lane.
+  - Halves and quarters each keep their own VideoToolbox session (2026-11-20): the release on a ProMotion screen
+    rebuilt the model every 20–60 s as the screen's rate moved and the choice flipped (seen in the log: "at halves"
+    then "at quarters" in the same second), each rebuild a second or two with no images, which made most of a
+    session's "missed" count. Both are prepared up front now and switching costs nothing.
   - The clock slides through a late stretch instead of starting over (2026-11-20): its phase moves up to 8%
     of a frame per frame when frames come far from it, so the in-between images and the playhead's place are
     kept. It starts over only after a gap, and the playhead then goes on from the new frame, never back.

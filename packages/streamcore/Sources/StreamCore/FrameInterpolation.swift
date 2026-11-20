@@ -35,9 +35,18 @@ public final class FrameInterpolator {
     /// 60 Hz screen that misses a picture in 11 (1.09×).
     static let keepRatio = 1.1
 
-    private var session: AnyObject? // VTFrameProcessor on macOS 26+
-    private var size: (width: Int, height: Int, steps: Int)?
-    private var pool: CVPixelBufferPool?
+    /// A running VideoToolbox session and its output buffers.
+    private struct Running {
+        let processor: AnyObject // VTFrameProcessor on macOS 26+
+        let pool: CVPixelBufferPool
+    }
+    /// One session per number of points (halves, quarters) for `size`, kept while the size stays: the renderer
+    /// moves between halves and quarters as the screen's rate moves (a ProMotion screen), and a new session
+    /// builds its model for a second or two with no images meanwhile.
+    private var sessions: [Int: Running] = [:]
+    private var size: (width: Int, height: Int)?
+    /// Sessions started so far (tests: switching back and forth mustn't start new ones).
+    private(set) var sessionsStarted = 0
     private var failed: Set<String> = []
     private var timestamp: Int64 = 0
 
@@ -62,7 +71,8 @@ public final class FrameInterpolator {
         timestamp += scale
         var outputs: [CVPixelBuffer] = []
         var destinations: [VTFrameProcessorFrame] = []
-        guard let processor = session as? VTFrameProcessor, let pool else { return nil }
+        guard let running = sessions[steps], let processor = running.processor as? VTFrameProcessor else { return nil }
+        let pool = running.pool
         for phase in phases {
             var output: CVPixelBuffer?
             guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output) == kCVReturnSuccess, let output,
@@ -90,9 +100,12 @@ public final class FrameInterpolator {
         return phase > 0 && phase < 1 && abs(scaled - scaled.rounded()) < 1e-4
     }
 
-    /// Starts the session (building the model, 1–2 s the first time for a size) ahead of the first pair.
+    /// Starts the sessions for halves and quarters (building each model, 1–2 s the first time for a size) ahead
+    /// of the first pair, so neither the first pair nor a later switch between them waits for one.
     public func prepare(width: Int, height: Int) {
-        if #available(macOS 26.0, iOS 26.0, *), Self.isAvailable { _ = start(width: width, height: height, steps: 1) }
+        if #available(macOS 26.0, iOS 26.0, *), Self.isAvailable {
+            for steps in [1, 2] { _ = start(width: width, height: height, steps: steps) }
+        }
     }
 
     /// A session for this size and number of points, started if needed; false when it can't run at this size.
@@ -100,21 +113,23 @@ public final class FrameInterpolator {
     private func start(width w: Int, height h: Int, steps: Int) -> Bool {
         let sizeKey = "\(w)x\(h)"
         guard !failed.contains("\(sizeKey)/\(steps)") else { return false }
-        if size?.width == w, size?.height == h, size?.steps == steps { return true }
-        end()
+        if size?.width != w || size?.height != h {
+            end()
+            size = (w, h)
+        }
+        if sessions[steps] != nil { return true }
         var newPool: CVPixelBufferPool?
         let processor = VTFrameProcessor()
         guard let config = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: steps),
               (try? processor.startSession(configuration: config)) != nil,
               CVPixelBufferPoolCreate(nil, nil, Self.metalCompatible(config.destinationPixelBufferAttributes) as CFDictionary,
-                                      &newPool) == kCVReturnSuccess else {
+                                      &newPool) == kCVReturnSuccess, let newPool else {
             failed.insert("\(sizeKey)/\(steps)")
             Log.warning(.renderer, "Frame interpolation couldn't start for \(sizeKey) streams (\(steps == 1 ? "halves" : "quarters"))")
             return false
         }
-        session = processor
-        pool = newPool
-        size = (w, h, steps)
+        sessions[steps] = Running(processor: processor, pool: newPool)
+        sessionsStarted += 1
         Log.info(.renderer, "Frame interpolation on for \(sizeKey) streams, at \(steps == 1 ? "halves" : "quarters")")
         return true
     }
@@ -126,9 +141,10 @@ public final class FrameInterpolator {
     }
 
     private func end() {
-        if #available(macOS 26.0, iOS 26.0, *) { (session as? VTFrameProcessor)?.endSession() }
-        session = nil
-        pool = nil
+        if #available(macOS 26.0, iOS 26.0, *) {
+            for running in sessions.values { (running.processor as? VTFrameProcessor)?.endSession() }
+        }
+        sessions.removeAll()
         size = nil
     }
 }
