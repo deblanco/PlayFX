@@ -62,7 +62,12 @@ public final class KeychainTokenStore: PSNTokenStore {
             add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
             status = SecItemAdd(add as CFDictionary, nil)
         }
-        guard status == errSecSuccess else { throw ConsoleError.message("Couldn't save the PSN sign-in (Keychain error \(status))") }
+        guard status == errSecSuccess else { throw Self.saveFailed(status) }
+    }
+
+    /// Also a sign-in's reason, which the app puts after "PSN sign-in failed:".
+    static func saveFailed(_ status: OSStatus) -> ConsoleError {
+        .message("The Keychain couldn't save the PSN tokens (error \(status))")
     }
 
     public func clear() { SecItemDelete(query as CFDictionary) }

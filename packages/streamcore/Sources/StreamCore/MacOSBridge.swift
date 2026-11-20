@@ -271,12 +271,15 @@ func blocking<T: Sendable>(timeout: TimeInterval = 30, timedOut: String,
     return result.withLock { $0 ?? .failure(ConsoleError.message(timedOut)) }
 }
 
+/// sc_psn_account_id's reason when PSN doesn't answer. The app says "PSN sign-in failed:" before it.
+let psnSignInTimedOut = "PlayStation Network didn't answer in time"
+
 /// `redirect`: the redirect URL containing ?code=… → {"accountId"} or {"error"}.
 @_cdecl("sc_psn_account_id")
 public func sc_psn_account_id(_ redirect: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
     guard let code = PSNAuth.code(fromRedirect: String(cString: redirect)) else { return failure("No sign-in code in URL") }
     // Also keeps the tokens (Keychain) for playing over the internet.
-    switch blocking(timedOut: "PSN sign-in timed out", { try await PSNAccount.shared.signIn(code: code) }) {
+    switch blocking(timedOut: psnSignInTimedOut, { try await PSNAccount.shared.signIn(code: code) }) {
     case .success(let id): return json(["accountId": id])
     case .failure(let e): return failure(e.localizedDescription)
     }

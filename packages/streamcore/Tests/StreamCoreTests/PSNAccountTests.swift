@@ -194,5 +194,13 @@ extension Serial {
             store.clear()
             #expect(store.load() == nil)
         }
+
+        @Test func signInReasonsDontRepeatThePrefix() {
+            // The app shows "PSN sign-in failed: <reason>", so a reason mustn't say it again.
+            let keychain = KeychainTokenStore.saveFailed(-25308).localizedDescription
+            #expect(keychain == "The Keychain couldn't save the PSN tokens (error -25308)")
+            #expect(psnSignInTimedOut == "PlayStation Network didn't answer in time")
+            for reason in [keychain, psnSignInTimedOut] { #expect(!reason.localizedCaseInsensitiveContains("sign-in")) }
+        }
     }
 }

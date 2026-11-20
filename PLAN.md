@@ -420,7 +420,8 @@ Work items:
   code, not the console passcode, and that the code is valid for about 5 minutes. The login PIN dialog is now
   "Console passcode": the PS5 user's 4-digit passcode, not the pairing code. Badges say "rest mode" instead of
   "standby" (the internal value is unchanged); one arrow style (›) in the UI. A failed PSN sign-in says
-  "PSN sign-in failed" once (StreamCore now gives only Sony's reason; `psrp account-id` prints that reason
+  "PSN sign-in failed" once (StreamCore now gives only the reason: Sony's, "PlayStation Network didn't answer
+  in time", or "The Keychain couldn't save the PSN tokens (error N)"; `psrp account-id` prints that reason
   alone) and tells the user to sign in again and check the Mac is online. Checked by unit tests (App,
   actions, PSNAuth, bridge). **Needs a PS5 and a PS4 to confirm** the menu names as the current firmware
   shows them, and how long the code really lasts.
