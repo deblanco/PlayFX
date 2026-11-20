@@ -199,7 +199,9 @@ A game slower than the stream reaches the Mac with each picture repeated (30 fps
   median would say 30 or 60 for 40 fps's 1/2/1/2 rhythm; the mean says 40. `gameFps` in the stats.
 - **Even times** (`CadenceClock`, while interpolating): the pictures reach the stream on its 60 fps grid
   (40 fps arrives 16.7 and 33.3 ms apart), so they are put on an even grid at the game's rate, never earlier
-  than their own time, starting over when the cadence breaks.
+  than their own time, starting over when the cadence breaks: a picture further off the grid than one stream
+  frame and 0.6 of the game's interval. The stream frame is the most its grid can move a picture (13.3 ms for
+  50 fps in 60, beyond 0.6 of 20 ms); a pause, a jump or a faster game goes further.
 - **Not across a still stretch**: a pair more than 4.5 stream intervals apart (a paused game) gets no images,
   and the game's rate starts over after it (the pause isn't its rate). While the game holds its picture,
   `interpolation` says `still` instead of `on`, so the stats line doesn't flag "+0 generated".

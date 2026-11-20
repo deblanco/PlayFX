@@ -104,17 +104,33 @@ import Testing
         var cadence = CadenceClock()
         // 40 fps on a 60 fps stream grid: 0, 16.7, 50, 66.7, 100 ms … become 25 ms apart, never earlier.
         let arrivals = [0.0, 1, 3, 4, 6, 7, 9].map { $0 / 60 }
-        let times = arrivals.map { cadence.time(for: $0, interval: 1.0 / 40) }
+        let times = arrivals.map { cadence.time(for: $0, interval: 1.0 / 40, streamInterval: 1.0 / 60) }
         for (time, arrival) in zip(times, arrivals) { #expect(time >= arrival - 1e-9) }
         let gaps = zip(times.dropFirst(), times).map { $0 - $1 }
         for gap in gaps.dropFirst() { #expect(abs(gap - 0.025) < 0.0005, "\(gaps)") }
         // A break in the cadence (a pause) starts over at the picture.
-        #expect(cadence.time(for: 2.0, interval: 1.0 / 40) == 2.0)
+        #expect(cadence.time(for: 2.0, interval: 1.0 / 40, streamInterval: 1.0 / 60) == 2.0)
         // Unknown rate: the picture's own time.
-        #expect(cadence.time(for: 2.5, interval: nil) == 2.5)
+        #expect(cadence.time(for: 2.5, interval: nil, streamInterval: 1.0 / 60) == 2.5)
     }
 
-    @Test(arguments: [[1.0, 2], [1, 1, 2], [2]])
+    @Test func keepsA50FpsGridThroughAPictureAStreamFrameAhead() {
+        var cadence = CadenceClock()
+        // 50 fps on a 60 fps stream grid: 0, 16.7, 33.3, 50, 66.7, 100 ms … The fifth picture is 13.3 ms ahead
+        // of the grid's 80 ms: the stream's grid, not a break. All stay 20 ms apart.
+        let arrivals = [0.0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 12].map { $0 / 60 }
+        let times = arrivals.map { cadence.time(for: $0, interval: 1.0 / 50, streamInterval: 1.0 / 60) }
+        for (time, arrival) in zip(times, arrivals) { #expect(time >= arrival - 1e-9) }
+        let gaps = zip(times.dropFirst(), times).map { $0 - $1 }
+        for gap in gaps { #expect(abs(gap - 0.02) < 1e-6, "\(gaps.map { $0 * 1000 })") }
+        // A picture more than a stream frame ahead of the grid (19 ms: a jump) starts over at its own time.
+        let last = times.last ?? 0
+        #expect(cadence.time(for: last + 0.001, interval: 1.0 / 50, streamInterval: 1.0 / 60) == last + 0.001)
+        // So does one far behind (a pause).
+        #expect(cadence.time(for: last + 0.5, interval: 1.0 / 50, streamInterval: 1.0 / 60) == last + 0.5)
+    }
+
+    @Test(arguments: [[1.0, 2], [1, 1, 2], [2], [1, 1, 1, 1, 2]])
     func keepsTheGridEvenWithTheMeasuredRate(cadenceFrames: [Double]) {
         // As the renderer drives it: ContentRate's measured interval, which wobbles from picture to picture
         // when the cadence doesn't divide its window, fed into the clock for every new picture.
@@ -124,12 +140,39 @@ import Testing
         var times: [Double] = []
         for k in 0..<600 {
             rate.add(time: arrival)
-            times.append(cadence.time(for: arrival, interval: rate.interval))
+            times.append(cadence.time(for: arrival, interval: rate.interval, streamInterval: 1.0 / 60))
             arrival += (cadenceFrames[k % cadenceFrames.count]) / 60
         }
         let expected = cadenceFrames.reduce(0, +) / Double(cadenceFrames.count) / 60
         let gaps = zip(times.dropFirst(), times).map { $0 - $1 }.dropFirst(60)
         for gap in gaps { #expect(abs(gap - expected) < 0.002, "\(1 / expected) fps: \(gap * 1000) ms") }
+    }
+
+    @Test func startsTheGridOverWhenTheGameSpeedsUpBeforeTheMeasuredRateDoes() {
+        // 40 fps, then 60: ContentRate still measures about 25 ms for a while, so the grid is out of date. The
+        // pictures it keeps are shown at most a stream frame after they arrive, it starts over within three of
+        // them, and once the measured rate has caught up they're 16.7 ms apart.
+        var rate = ContentRate()
+        var cadence = CadenceClock()
+        var arrival = 0.0
+        for k in 0..<120 {
+            rate.add(time: arrival)
+            _ = cadence.time(for: arrival, interval: rate.interval, streamInterval: 1.0 / 60)
+            arrival += Double(k % 2 + 1) / 60
+        }
+        var lates: [Double] = []
+        var times: [Double] = []
+        for _ in 0..<60 {
+            rate.add(time: arrival)
+            let time = cadence.time(for: arrival, interval: rate.interval, streamInterval: 1.0 / 60)
+            lates.append(time - arrival)
+            times.append(time)
+            arrival += 1.0 / 60
+        }
+        for late in lates { #expect(late >= 0 && late <= 1.0 / 60 + 1e-9, "\(late * 1000) ms") }
+        #expect(lates[1...3].contains { $0 < 1e-9 }, "\(lates.map { $0 * 1000 })")
+        let gaps = zip(times.dropFirst(), times).map { $0 - $1 }.dropFirst(ContentRate.window)
+        for gap in gaps { #expect(abs(gap - 1.0 / 60) < 1e-6, "\(gap * 1000) ms") }
     }
 
     @Test func stampsEachImageWithItsOwnMomentBetweenTwoPictures() {

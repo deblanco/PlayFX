@@ -325,7 +325,9 @@ struct ContentRate {
 /// unevenly. Once the rate is known this puts each picture on an even grid at that rate, never earlier than
 /// its own time (it can't show before it arrives), starting over when the cadence breaks. Each picture is one
 /// interval after the grid's last point, not a count of them after where it began: the measured interval
-/// wobbles a little from picture to picture, and a count would multiply that.
+/// wobbles a little from picture to picture, and a count would multiply that. A picture can sit up to one
+/// stream frame off the game's grid (13.3 ms for 50 fps in 60), so only one further off than that, and than
+/// 0.6 of the game's interval, has broken the cadence.
 struct CadenceClock {
     private var anchor = 0.0
     private var anchored = false
@@ -333,12 +335,13 @@ struct CadenceClock {
 
     mutating func reset() { anchored = false }
 
-    /// The time to show a picture whose stream-clock time is `time`, for a game `interval` apart (nil: unknown).
-    mutating func time(for time: Double, interval: Double?) -> Double {
+    /// The time to show a picture whose stream-clock time is `time`, for a game `interval` apart (nil: unknown),
+    /// on a stream `streamInterval` apart.
+    mutating func time(for time: Double, interval: Double?, streamInterval: Double) -> Double {
         guard let interval, interval > 0 else { reset(); last = time; return time }
         if anchored {
             let expected = anchor + interval
-            if abs(time - expected) > interval * 0.6 {
+            if abs(time - expected) > max(interval * 0.6, streamInterval) {
                 anchored = false // the cadence broke (a pause, a rate change): start over at this picture
             } else {
                 // Never before its own time: move the grid later when a picture is later than it.

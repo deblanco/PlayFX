@@ -432,7 +432,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 // the frame shows at once: the playhead goes on from it, falling back to its delay by slowing down.
                 var time = stamp.time
                 if wanted, !stamp.restarted {
-                    time = p.cadence.time(for: time, interval: p.content.interval)
+                    time = p.cadence.time(for: time, interval: p.content.interval, streamInterval: p.clock.interval)
                 } else {
                     p.cadence.reset()
                 }

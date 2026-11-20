@@ -754,7 +754,15 @@ requests and a bug report.
   picture over the internet.
 - ✅ **Frame generation from the game's rate** (2026-11-20): GTA VI measured as 30 fps in the 60 fps stream;
   repeats detected from their mean change; images placed by the playhead (see FRAME_INTERPOLATION.md).
-  Smoother and less lag in play.
+  Smoother and less lag in play. A 50 fps game in the 60 fps stream keeps its even grid (v0.2.1): a picture
+  up to 13.3 ms ahead of the grid, as the stream's grid puts it, started the grid over and showed 6.7 ms
+  after the last instead of 20; it now starts over only beyond one stream frame (and 0.6 of the game's
+  interval). Verified in unit tests (`GameRateTests`: 50 fps with a fixed and with the measured rate, which
+  failed before; a picture more than a stream frame ahead (a jump) and a pause still start over; a game going
+  from 40 to 60 fps, with the measured rate behind it, keeps two pictures on the old grid, each at most a
+  stream frame late, then starts over; 30/40/45 fps keep their grids); not yet seen in a 50 fps game. Left:
+  the grid never moves earlier, so after that change it can stay a little behind the pictures (6 ms; 2 ms
+  with the old rule) until the next break.
 - ✅ **Logs keep a whole session**: chiaki's per-frame and per-packet lines (99% of a detailed log) and its
   protocol hexdumps (which can carry session material) no longer reach the log.
 - 🔶 **Frames skipped without packet loss** on the 75 Hz screen (1,379 → 1,530 in one session): to trace with
@@ -802,10 +810,11 @@ requests and a bug report.
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
    haptics in Astro's Playroom.
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the
-   stall itself is open); ~~the worst-tile quality score (from PushFPS)~~ (done 2026-11-20); the 50 fps cadence (a picture up to
-   13 ms ahead of the grid still re-anchors it); the PR #817 reorder-wait test (needs the console); ~~tests for
-   the reconnect race and the audio output following the system default~~ (done 2026-11-20); the chiaki-ng
-   upstream PR (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer tuning.
+   stall itself is open); ~~the worst-tile quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps
+   cadence~~ (done 2026-11-20 in unit tests; a 50 fps game is left to see); the PR #817 reorder-wait test
+   (needs the console); ~~tests for the reconnect race and the audio output following the system default~~
+   (done 2026-11-20); the chiaki-ng upstream PR (needs the user's OK); echo cancellation for the microphone;
+   audio jitter-buffer tuning.
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
    a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
    Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the
