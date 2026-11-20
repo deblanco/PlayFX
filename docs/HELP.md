@@ -90,8 +90,10 @@ While PlayFX looks, the list says "Looking for consoles on this network…". If 
   Privacy & Security › Local Network) and turn PlayFX on.
 - **Another subnet:** if the console is behind a second router, or on another part of the network, type
   its address in **Console IP address**. Find it on the PS5 in Settings › Network › Connection Status.
-  With consoles already listed, the field is under "Console missing? Add it by IP". PlayFX asks that
-  address on every scan.
+  If PlayFX found a console on this network, the field is under "Console missing? Add it by IP";
+  otherwise it's in the "No consoles…" box below the list. In Connect › Internet, with consoles listed
+  through PSN, neither shows: choose Home network or Automatic to get the field. PlayFX asks that address on
+  every scan.
 
 Away from home, the console won't show up on the local network. Play a paired PS5 with Connect ›
 Internet instead.
