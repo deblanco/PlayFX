@@ -533,14 +533,14 @@ describe("statRows", () => {
       .toMatchObject({ value: "Idle: 60 fps on a 75 Hz screen", inline: "no interpolation: 60 fps on a 75 Hz screen", warn: false })
     // The screen's rate isn't measured yet: nothing to say.
     expect(find(at1080({ interpolation: "screen", displayHz: 0 }), "Frame interpolation")).toBeUndefined()
-    expect(find(at1080({ interpolation: "unsupported" }), "Frame interpolation")?.inline).toBe("interpolation unavailable on this Mac")
+    expect(find(at1080({ interpolation: "unsupported" }), "Frame interpolation")?.inline).toBe("interpolation unavailable")
     expect(find(at1080({ interpolation: "off" }), "Frame interpolation")).toBeUndefined()
     // A paused game: nothing to make, no warning.
     expect(find(at1080({ interpolation: "still" }), "Frame interpolation"))
       .toMatchObject({ inline: "no interpolation: still picture", warn: false })
-    // Its video processor kept failing: off until the app restarts, and flagged.
+    // Its engine kept failing (off until the app restarts) or no size works: flagged.
     expect(find(at1080({ interpolation: "failed" }), "Frame interpolation"))
-      .toEqual({ label: "Frame interpolation", value: "Off: video processor failed", inline: "interpolation off: video processor failed", warn: true })
+      .toEqual({ label: "Frame interpolation", value: "Off: kept failing", inline: "interpolation off: it kept failing", warn: true })
   })
 
   it("names a game slower than the stream, and what the screen shows", () => {

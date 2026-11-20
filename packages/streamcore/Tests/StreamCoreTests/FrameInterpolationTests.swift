@@ -144,7 +144,8 @@ extension StreamRendererTests {
 /// Stands in for VideoToolbox in the lane's tests: the newer frame as the middle one (or an all-zero image,
 /// or nothing), optionally taking a while.
 final class StandInMaker: MiddleFrameMaker {
-    enum Output { case newer, zeros, none }
+    /// The newer frame, an all-zero (empty) image, a flat grey of this luma, or nothing.
+    enum Output { case newer, zeros, flat(UInt8), none }
     let output: Output
     let delay: TimeInterval
     private(set) var prepared: [String] = []
@@ -163,6 +164,9 @@ final class StandInMaker: MiddleFrameMaker {
         case .zeros:
             let zeros = try? makeNV12(width: CVPixelBufferGetWidth(current), height: CVPixelBufferGetHeight(current), y: 0, cb: 0, cr: 0)
             return zeros.map { image in phases.map { _ in image } }
+        case .flat(let y):
+            let flat = try? makeNV12(width: CVPixelBufferGetWidth(current), height: CVPixelBufferGetHeight(current), y: y, cb: 128, cr: 128)
+            return flat.map { image in phases.map { _ in image } }
         case .none: return nil
         }
     }
@@ -192,7 +196,7 @@ final class StandInMaker: MiddleFrameMaker {
     }
 
     @Test func makesImagesAwayFromTheCallerKeepingStillAreas() throws {
-        let lane = try lane()
+        let lane = try lane(StandInMaker(.flat(128))) // an image unlike either frame, so the blend shows
         var made: [InterpolationLane.Image] = []
         lane.onImage = { made.append($0) }
         let a = try frame(bar: 200), b = try frame(bar: 300)
@@ -201,10 +205,12 @@ final class StandInMaker: MiddleFrameMaker {
         let image = try #require(made.first)
         #expect(image.time == 1.5 && image.cost > 0 && image.size == (640, 360) && image.warmingUp && image.last)
         #expect(CVPixelBufferGetWidth(image.buffer) == 640)
-        // The "HUD" didn't change between the frames, so it comes back exactly (not the model's version).
+        // The "HUD" didn't change between the frames, so it comes back exactly (not the model's version); where the
+        // bar moved, the model's image.
         for (x, y) in [(10, 10), (55, 31), (90, 50)] {
             #expect(abs(Int(luma(image.buffer, x, y)) - Int(luma(a, x, y))) <= 1, "(\(x), \(y))")
         }
+        #expect(abs(Int(luma(image.buffer, 230, 200)) - 128) <= 1 && abs(Int(luma(image.buffer, 320, 200)) - 128) <= 1)
     }
 
     @Test func makesAnImageForEachRefreshBetweenThePair() throws {

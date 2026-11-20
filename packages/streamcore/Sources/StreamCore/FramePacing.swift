@@ -186,6 +186,8 @@ struct RungSelector {
     /// Whether smaller sizes are tried (SDR pairs) or the frame's own is the only one (HDR pairs).
     let scales: Bool
     private(set) var current = 0
+    /// Every size turned out not to work: no images for this stream (`markBroken` had nowhere left to go).
+    private(set) var exhausted = false
     private var lastCost: [Int: Double] = [:]
     private var blockedUntil: [Int: Double] = [:]
     private var since = 0.0
@@ -210,7 +212,10 @@ struct RungSelector {
     /// False when there is none left.
     mutating func markBroken() -> Bool {
         blockedUntil[current] = .infinity
-        guard current + 1 < rungs.count else { return false }
+        guard current + 1 < rungs.count else {
+            exhausted = true
+            return false
+        }
         current += 1
         return true
     }

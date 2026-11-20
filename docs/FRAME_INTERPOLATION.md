@@ -392,8 +392,9 @@ time, dev only.
   may have been a passing fault.
 - Three failures within a minute, or ten in a run, turn the feature off until the app restarts, instead of
   starting processor after processor. The picture goes on without it (real frames, MetalFX or bilinear),
-  and the stats line says "interpolation off: video processor failed" (`interpolation: "failed"`) or "ML
-  off (video processor failed)" (`ml: "failed"`).
+  and the stats line says "interpolation off: it kept failing" (`interpolation: "failed"`, which also covers
+  MetalFX's HDR engine and a stream with no size left that works) or "ML off (video processor failed)"
+  (`ml: "failed"`).
 - Turning the feature off retires every processor still running for it, on the spot: the renderer stops
   calling the lanes once the feature is off, so waiting for the next call would keep their sessions (both
   step counts at every prepared size, every ML tile) until the app quits. `VideoProcessorHealth` keeps a
@@ -479,31 +480,61 @@ pairs get one image (`HDRFrameInterpolator.maxSteps`); where SDR would make quar
 120 Hz screen), HDR makes halves. **Failures:** GPU work that can't be encoded or ends in a command-buffer
 error counts against its own budget (`VideoProcessorHealth.hdrInterpolation`, the same 3-a-minute or 10-a-run
 rule as VideoToolbox's), after which it's `failed` for the run; VideoToolbox's on SDR streams isn't touched.
-A size MetalFX can't be set up for is never tried again. **No shared events:** MetalFX makes no Metal shared
-event per call, unlike VideoToolbox's Metal call (`SharedEventTests`).
+An Objective-C exception from MetalFX's encode quarantines that interpolator, as VideoToolbox's processors are
+(kept for good and never called again, counted as a failure), and the next pair sets up a fresh one. A size
+MetalFX can't be set up for is never tried again. HDR pairs have one size, the stream's own: when the lane drops
+it (5 pairs in a row with no image, MetalFX refusing the size among them), there's nowhere smaller to go, and the
+renderer reports `failed` instead of `on` with nothing made (a dropped size stays dropped for the run); the same
+holds for SDR once all its sizes are dropped. The lane's empty-image check (for VideoToolbox's silent failures) doesn't
+apply to HDR images: MetalFX's failures come back as command-buffer errors, and in full range black is code 0, so
+a fade to black would read as empty. **Memory:** HDR engines (MetalFX, three float images, a pool, the last frame
+of the stream) are let go when the stream turns SDR and when a new stream starts. **No shared events:** MetalFX
+makes no Metal shared event per call, unlike VideoToolbox's Metal call (`SharedEventTests`).
+
+**10-bit SDR:** with HDR on in Settings, an SDR game still decodes to 10-bit frames (`x420`, not PQ). Neither
+engine takes them (VideoToolbox: 8-bit only; the HDR engine: PQ only), so interpolation reports `unsupported` for
+such a stream and changes nothing about it (repeats show as they come, no game grid), rather than `on` with no
+images. Routing them through the HDR engine (gamma-encoded R'G'B' is perceptual like PQ) is possible but not
+built or measured.
 
 ### Measured through the app's code
 
-The same scene drawn into `x420` frames (by the unit tests' generator) and run through `HDRFrameInterpolator`,
-scored in R'G'B' from the output codes, 32 px tiles, against a cross-fade of the frames' codes:
+The same scene drawn into `x420` frames (by the unit tests' generator), 9 frames, and its 8 pairs run through
+`HDRFrameInterpolator` in turn (the first without history), each midpoint scored against the true in-between
+picture in R'G'B' from the output codes, next to a cross-fade of the frames: mean PSNR over the pairs, the worst
+32 px tile over all of them, and the mean around the fast square (where it was and is, with a 50 px margin). To
+rerun it (about a minute, on a Mac with MetalFX's frame interpolator):
 
-| Size | MetalFX mean · worst tile | Cross-fade mean · worst tile | Around the moving square |
+```sh
+cd packages/streamcore
+STREAMCORE_HDR_QUALITY=1 scripts/test.sh --filter hdrQualityTable
+```
+
+| Size | MetalFX mean · worst tile | Cross-fade mean · worst tile | Around the square, MetalFX vs cross-fade |
 |---|---|---|---|
-| 1920×1080 | 44.4 · 20.0 dB | 43.3 · 20.3 dB | 30.1 vs 25.6 dB |
-| 1280×720 | 40.6 · 23.6 dB | 43.4 · 21.9 dB | |
-| 960×540 | 38.5 · 26.3 dB | 43.3 · 22.9 dB | 29.1 vs 25.6 dB |
+| 1920×1080 | 43.4 · 15.9 dB | 43.4 · 19.3 dB | 27.2 vs 25.1 dB |
+| 1280×720 | 40.6 · 18.6 dB | 43.5 · 21.9 dB | 26.2 vs 25.1 dB |
+| 960×540 | 39.0 · 20.3 dB | 43.4 · 22.9 dB | 27.0 vs 25.1 dB |
 
-At 1080p (what the PS5 sends) it's about 1 dB better than a cross-fade over the frame, as in the spike, and
-3–4.5 dB better around the fast square. At smaller sizes the whole-frame score drops below the cross-fade:
-the panning texture picks up small blob artifacts, while the moving square is still better. The YCbCr round
-trip alone costs nothing visible (67 dB over the frame). The whole pair through the app's code, 1080p, wall
-clock: 4.9 ms median.
+M2 Pro, 2026-11-20. At 1080p (what the PS5 sends) it's level with a cross-fade over the frame and about 2 dB
+better around the fast square, but its worst tile is 3.4 dB under the cross-fade's. At smaller sizes the
+whole-frame score drops below the cross-fade (the panning texture picks up small blob artifacts), while the
+square is still better. It differs from the spike's 45.0 vs 44.4 dB (64 px tiles, 40 pairs): the spike drew the
+scene straight into float R'G'B', here it goes through 10-bit 4:2:0 codes both ways. The YCbCr round trip alone costs
+little (65–68 dB over the frame). The whole pair through the app's code, 1080p, wall clock: 4.9 ms median
+(`metalFXCostAt1080p`). Earlier figures in this section (44.4 vs 43.3 dB at 1080p) came from a one-off harness
+that wasn't kept; these replace them.
 
 Unit tests: the round trip lands on the same codes (±1) in limited and full range; luma detail survives pixel
 for pixel and chroma stays at its siting; attachments are copied; history only across following pairs; no
-quarters, no SDR frames, no mixed sizes; a size MetalFX refuses isn't retried; failures turn it off for the
-run; the lane routes HDR, SDR and mixed pairs and blends still areas on 10-bit planes; the renderer reports
-`on` / `unsupported` per stream kind and shows an HDR in-between image before the new frame. On a Mac with
+quarters, no SDR frames, no mixed sizes; one engine follows a change of size; a size MetalFX refuses isn't
+retried; failures (encode refused, a command buffer that doesn't complete) turn it off for the run; an exception
+quarantines the interpolator and the next pair gets a fresh one; the lane routes HDR, SDR and mixed pairs, lets
+go of HDR engines at a switch to SDR or a new stream, doesn't take a dark full-range image for an empty one, and
+blends still areas on 10-bit planes against an engine image unlike either frame (4 codes apart: the frames'
+average; 40 apart: the engine's); the renderer asks the HDR engine for halves only at 120 Hz (SDR: quarters),
+reports `on` / `unsupported` per stream kind, `unsupported` for 10-bit SDR frames (whose repeats still show),
+`failed` once HDR's only size is dropped, and shows an HDR in-between image before the new frame. On a Mac with
 MetalFX (skipped in CI's VMs): the midpoint beats a cross-fade around the square by more than 1 dB, the sun's
 core stays above 1000 nits, no NaN or infinity, 1080p under 12.5 ms, and 200 pairs make no shared event.
 
@@ -668,8 +699,9 @@ Unit tests (`swift test`) cover:
   the truth yet. MetalGoose reports the fast path as 3–7 dB further from the real frame than the slow one.
 - **HDR frame generation isn't verified on the PS5 yet.** Everything in "HDR" is offscreen, on synthetic HDR
   frames. The check left: an HDR game with frame interpolation on (Silent Hill 2 on the XDR display), at 30
-  fps on 60 and 120 Hz. Below 1080p, MetalFX with no motion given scores under a plain cross-fade over the
-  whole synthetic frame (still better around the fast object); the repeat detector's thresholds were measured
+  fps on 60 and 120 Hz. On the synthetic scene, MetalFX with no motion given is level with a plain cross-fade
+  over the whole frame at 1080p (and worse in its worst tile), under it below 1080p, and better around the fast
+  object at every size; the repeat detector's thresholds were measured
   on SDR frames and are applied to PQ codes as they are.
 - **The test clips** are a mostly still scene and a synthetic pan. Fast, uneven motion (a turning camera,
   explosions) is where every engine is weakest, and is not in the numbers above.

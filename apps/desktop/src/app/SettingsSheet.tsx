@@ -282,7 +282,7 @@ const PicturePanel = ({ settings, capabilities, upscaleIdle, set }: {
         label="Frame interpolation"
         description={
           capabilities.interpolation
-            ? "Makes images between the game’s own frames, one for each screen refresh: a 30 fps game looks like 60 on a 60 Hz screen and 120 on ProMotion, even inside a 60 fps stream. Frames show about 40 ms later at 30 fps, so it suits slower games."
+            ? "Makes images between the game’s own frames, one for each screen refresh: a 30 fps game looks like 60 on a 60 Hz screen and 120 on ProMotion (60 in HDR), even inside a 60 fps stream. Frames show about 40 ms later at 30 fps, so it suits slower games."
             : "Needs macOS 26 on a supported Mac."
         }
         checked={settings.frameInterpolation}

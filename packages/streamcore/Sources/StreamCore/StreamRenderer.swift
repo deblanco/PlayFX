@@ -118,6 +118,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             upscaleGeneration.withLock { $0 += 1 }
             pacing.withLock { $0 = Pacing(fps: newValue) }
             lane?.resetCounts()
+            lane?.releaseHDREngines()
             upscaleLane?.reset()
         }
     }
@@ -127,6 +128,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         var timeline = FrameTimeline<CVPixelBuffer>(capacity: 16)
         var planner = DelayPlanner()
         var rungs: RungSelector?
+        /// Whether an engine here takes the stream's frames (the newest one's kind; nil before any): not 10-bit SDR
+        /// frames (the HDR setting on, an SDR game), which neither does.
+        var taken: Bool?
         var lastReal: (frame: CVPixelBuffer, time: Double)?
         var nextIndex: UInt64 = 0
         /// The newest frame's arrival, and what it was when the lane last made an image (nil before any).
@@ -251,9 +255,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
 
     /// `upscaler`: what ML upscaling runs (nil: none on this Mac); `stallLimit`: see `UpscaleLane`; `interpolation`:
-    /// whether frame interpolation can run on SDR and HDR streams (tests: as if it couldn't).
+    /// whether frame interpolation can run on SDR and HDR streams (tests: as if it couldn't); `engines`: the lane's,
+    /// VideoToolbox's and MetalFX's unless given (tests: stand-ins).
     init?(inputWidth: Int, inputHeight: Int, upscaler: FrameUpscaler?, stallLimit: Double = 15,
-          interpolation: (sdr: Bool, hdr: Bool) = (FrameInterpolator.isAvailable, HDRFrameInterpolator.isAvailable)) {
+          interpolation: (sdr: Bool, hdr: Bool) = (FrameInterpolator.isAvailable, HDRFrameInterpolator.isAvailable),
+          engines: (sdr: (() -> MiddleFrameMaker)?, hdr: (() -> MiddleFrameMaker)?) = (nil, nil)) {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: shaderSource, options: nil),
@@ -310,7 +316,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
         sdrInterpolationSupported = interpolation.sdr
         hdrInterpolationSupported = interpolation.hdr
-        self.lane = interpolation.sdr || interpolation.hdr ? InterpolationLane(device: device) : nil
+        self.lane = interpolation.sdr || interpolation.hdr
+            ? InterpolationLane(device: device, engine: engines.sdr, hdrEngine: engines.hdr) : nil
         self.upscaleLane = upscaler.map { UpscaleLane(engine: $0, stallLimit: stallLimit) }
         Log.info(.renderer, "Renderer on \(device.name): MetalFX \(metalFXSupported ? "yes" : "no"), "
             + "ML super-resolution \(upscaleLane != nil ? "yes" : "no")")
@@ -494,7 +501,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// the path with ML off. A frame `display` classified is a new picture if the clock starts over at it.
     private func intake(_ frame: CVPixelBuffer, decoded: CVPixelBuffer, index i: UInt64, arrival: Double, decodedAt: Double,
                         repeated known: Bool? = nil) {
-        let wanted = interpolating.withLock { $0 }
+        // HDR frames go to MetalFX's engine, 8-bit ones to VideoToolbox's; others (10-bit SDR) to neither, and for them
+        // nothing changes for interpolation's sake (repeats show, no game grid).
+        let hdr = FrameColor.isHDR(frame)
+        let takes = hdr ? hdrInterpolationSupported : Self.interpolates(frame) && sdrInterpolationSupported
+        let wanted = interpolating.withLock { $0 } && takes
         let before = pacing.withLock { p in
             defer { p.lastDecoded = decoded }
             return p.lastDecoded
@@ -502,12 +513,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         // Compared outside the lock: it reads both frames' luma on the CPU (8 or 10 bits; nil across a switch between them).
         // Skipped when `display` already classified this frame, so the detector moves once.
         let difference = known != nil ? nil : before.flatMap { InterpolationLane.difference($0, decoded) }
-        // HDR frames go to MetalFX's engine, 8-bit ones to VideoToolbox's; others (10-bit SDR) to neither.
-        let hdr = FrameColor.isHDR(frame)
-        let takes = hdr ? hdrInterpolationSupported : Self.interpolates(frame) && sdrInterpolationSupported
         let pair: (previous: CVPixelBuffer, between: [InBetween.Image], steps: Int, size: (width: Int, height: Int),
                    prepare: [(width: Int, height: Int)])? =
             pacing.withLock { p in
+                p.taken = takes
                 guard let stamp = p.clock.time(index: i, arrival: arrival) else { return nil }
                 // A gap or a jump of frames (a late stretch only slides the clock): no images across it, and the
                 // game's rate and cadence start over. What's in the timeline stays, and so does the playhead's
@@ -562,7 +571,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 let width = CVPixelBufferGetWidth(frame), height = CVPixelBufferGetHeight(frame)
                 // Not across a still stretch (a paused game sends repeats for seconds): there's no motion to
                 // fill in, and the images would spread one step over the whole pause.
-                guard wanted, takes, let last = p.lastReal, time - last.time <= p.clock.interval * Self.stillGap,
+                guard wanted, let last = p.lastReal, time - last.time <= p.clock.interval * Self.stillGap,
                       CVPixelBufferGetWidth(last.frame) == width, CVPixelBufferGetHeight(last.frame) == height else { return nil }
                 var prepare: [(width: Int, height: Int)] = []
                 // Sizes from the decoded frame: an upscaled one is scaled back down to them (VideoToolbox's fast
@@ -906,16 +915,20 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         if lastDraw > 0 { displayInterval = Self.smoothedInterval(displayInterval, now - lastDraw) }
         lastDraw = now
         let refreshInterval = displayInterval
-        let (interval, streamInterval, gameInterval, still) = pacing.withLock { p in
-            p.refreshInterval = InBetween.fastest(p.refreshInterval, refreshInterval)
-            return (p.sourceInterval, p.clock.interval, p.content.interval, now - p.lastPicture > p.clock.interval * Self.stillGap)
-        }
         // For the stream as it is now: VideoToolbox's engine on SDR, MetalFX's on HDR.
         let hdr = hdrActive
+        let (interval, streamInterval, gameInterval, still, taken, exhausted) = pacing.withLock { p in
+            p.refreshInterval = InBetween.fastest(p.refreshInterval, refreshInterval)
+            // No size works for this kind of stream (HDR has only its own): off for it, as when the engine keeps failing.
+            let exhausted = p.rungs.map { $0.exhausted && $0.scales != hdr } ?? false
+            return (p.sourceInterval, p.clock.interval, p.content.interval, now - p.lastPicture > p.clock.interval * Self.stillGap,
+                    p.taken ?? true, exhausted)
+        }
         var state = Self.interpolationState(enabled: params.frameInterpolation,
-                                            supported: hdr ? hdrInterpolationSupported : sdrInterpolationSupported,
-                                            failed: (hdr ? lane?.hdrHasFailed : lane?.hasFailed) ?? false, streamInterval: interval,
-                                            displayInterval: displayInterval, current: interpolating.withLock { $0 })
+                                            supported: (hdr ? hdrInterpolationSupported : sdrInterpolationSupported) && taken,
+                                            failed: (hdr ? lane?.hdrHasFailed : lane?.hasFailed) ?? false || exhausted,
+                                            streamInterval: interval, displayInterval: displayInterval,
+                                            current: interpolating.withLock { $0 })
         let wanted = state == .on
         // Nothing to make while the game holds its picture; said apart from "not making any".
         if wanted, still { state = .still }
@@ -942,7 +955,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
 
     /// Whether in-between images can be made and shown, and if not, why; `current`: whether they are now;
-    /// `failed`: whether it's off for the rest of the run (its video processor kept failing).
+    /// `failed`: whether it's off for the rest of the run (its engine kept failing) or for this stream (no size works
+    /// for it; the lane keeps sizes that didn't work dropped for the run).
     static func interpolationState(enabled: Bool, supported: Bool, failed: Bool = false, streamInterval: Double,
                                    displayInterval: Double, current: Bool = false) -> PipelineState.Interpolation {
         guard enabled else { return .off }
@@ -1100,9 +1114,10 @@ struct PresentationCounts {
 /// What the optional picture steps are doing, so the app can say why one that's turned on is idle.
 public struct PipelineState: Sendable, Equatable {
     public enum Interpolation: String, Sendable {
-        /// Turned off; making in-between images; this Mac or OS can't (for the stream as it is: SDR or HDR);
-        /// the screen doesn't refresh often enough per frame of the game to show them; on, but the game holds
-        /// its picture (nothing to make); off until the app restarts, because its engine kept failing.
+        /// Turned off; making in-between images; this Mac or OS can't (for the stream as it is: SDR or HDR), or no
+        /// engine takes its frames (10-bit SDR: the HDR setting on, an SDR game); the screen doesn't refresh often
+        /// enough per frame of the game to show them; on, but the game holds its picture (nothing to make); off
+        /// because its engine kept failing (until the app restarts) or no size works for this stream.
         case off, on, unsupported, screen, still, failed
     }
     public enum Upscale: String, Sendable {

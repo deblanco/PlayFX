@@ -13,7 +13,8 @@ import VideoToolbox
 /// lossy there (a HUD, subtitles). See docs/FRAME_INTERPOLATION.md.
 /// What makes the image halfway between two frames: VideoToolbox's frame interpolation for SDR pairs and MetalFX's
 /// (`HDRFrameInterpolator`) for HDR ones in the app, stand-ins in tests (CI's virtual machines have neither), so the
-/// lane's own work (routing, cuts, scaling, blending, empty-image checks, busy pairs) is tested everywhere.
+/// lane's own work (routing, cuts, scaling, blending, empty-image checks, busy pairs) is tested everywhere. HDR engines
+/// are let go when the stream turns SDR or a new one starts (`releaseHDREngines`).
 protocol MiddleFrameMaker: AnyObject {
     /// The images at `phases` between the two frames (points of `steps`: see `FrameInterpolator.make`), made by
     /// the time it returns.
@@ -111,7 +112,8 @@ final class InterpolationLane {
     /// time; see `InBetween`); false when the lane is still busy with the last one. `done` is called on the
     /// lane's queue when the pair is over, with its images or without (a cut, a failure), before the lane
     /// takes another. HDR pairs go to the HDR engine, others to VideoToolbox's; a pair with one of each (the moment
-    /// the stream switches) gets no images, like a cut, and the HDR engine starts afresh after it.
+    /// the stream switches) gets no images, like a cut, and the HDR engine starts afresh after it (from HDR to SDR,
+    /// it's let go: see `releaseHDREngines`).
     @discardableResult
     func submit(previous: CVPixelBuffer, current: CVPixelBuffer, between: [InBetween.Image], steps: Int,
                 size: (width: Int, height: Int), done: (() -> Void)? = nil) -> Bool {
@@ -129,8 +131,10 @@ final class InterpolationLane {
             }
             let t0 = CACurrentMediaTime()
             let hdr = FrameColor.isHDR(current)
-            if FrameColor.isHDR(previous) != hdr || Self.isCut(previous, current) {
+            let switched = FrameColor.isHDR(previous) != hdr
+            if switched || Self.isCut(previous, current) {
                 for (key, engine) in interpolators where key.hasSuffix(Self.hdrSuffix) { engine.reset() }
+                if switched, !hdr { dropHDREngines() }
                 state.withLock { $0.cutPairs += 1 }
                 return
             }
@@ -177,6 +181,12 @@ final class InterpolationLane {
 
     /// Starts the counts over (a new stream).
     func resetCounts() { state.withLock { $0.busyPairs = 0; $0.cutPairs = 0; $0.failedPairs = 0 } }
+
+    /// Lets go of the HDR engines and what they hold (MetalFX, its float images, the last frame of the stream before):
+    /// a new stream, or the stream back to SDR. An HDR pair after it sets one up again.
+    func releaseHDREngines() { queue.async { [self] in dropHDREngines() } }
+
+    private func dropHDREngines() { interpolators = interpolators.filter { !$0.key.hasSuffix(Self.hdrSuffix) } }
 
     /// Waits until the pair in hand (if any) is done; for tests and shutdown.
     func waitUntilIdle() { queue.sync {} }
@@ -227,8 +237,10 @@ final class InterpolationLane {
         stages.interpolate = lap()
         // VideoToolbox can report success and write nothing (sizes it doesn't take); never show that.
         // Checked on the engine's own image: after the blend, still areas come from the real frames and would
-        // hide an empty one.
-        guard !Self.isEmpty(first) else {
+        // hide an empty one. Not on HDR images: MetalFX's failures come back as command-buffer errors, and its image
+        // is converted to codes that are never all zero in video range, while in full range black is zero (a fade
+        // to black would read as empty).
+        guard hdr || !Self.isEmpty(first) else {
             state.withLock { _ = $0.broken.insert(Self.key(size, hdr: hdr)) }
             Log.warning(.renderer, "Frame interpolation made an empty image at \(size.width)x\(size.height); not using that size")
             return nil

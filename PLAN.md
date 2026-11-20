@@ -5,8 +5,10 @@ Status legend: ✅ done · 🔶 partial · ❌ not started.
 
 Last updated 2026-11-20, after frame generation on HDR streams: MetalFX's frame interpolator makes the in-between
 images where VideoToolbox's can't (10-bit frames), built and tested offscreen on synthetic HDR frames, not yet on
-the console. Before that, a repeated picture is no longer run through ML super-resolution (a 30 fps game in a
-60 fps stream was upscaling every frame, then throwing the repeat away). Previously, after release v0.2.1: VideoToolbox no longer leaks a Metal shared event per frame
+the console, then its review fixes (exception quarantine, honest `failed` / `unsupported` states, engines let go,
+a rerunnable quality table). Before that, a repeated picture is no longer run through ML super-resolution (a 30 fps
+game in a 60 fps stream was upscaling every frame, then throwing the repeat away). Previously, after release v0.2.1:
+VideoToolbox no longer leaks a Metal shared event per frame
 (the crash 10–40 minutes into a session with frame interpolation or ML upscaling on), and a video processor that
 fails is restarted, or its feature turned off, instead of ending the app. Release v0.2.1: the Wi-Fi stall warning from the stream
 itself; Cancel during a PSN pairing's registration ends it at once, and a PS5 that PSN reached but that never
@@ -60,7 +62,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 386 tests (90% lines; 88% as CI's VM sees
+- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 395 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -272,11 +274,20 @@ Work items:
     resets the history. The stats follow the stream: `on`, or `unsupported` where MetalFX's interpolator can't run
     (CI's VMs). Repeats are now told apart in HDR too (10-bit luma read by its high byte). Verified offscreen on
     this M2 Pro (no console): codes round-trip within ±1 (limited and full range); on the spike's synthetic scene
-    at 1080p the midpoint scores 44.4 dB against a cross-fade's 43.3, 30.1 vs 25.6 around the fast square, the
-    2600-nit core survives (2248 nits at 540p), no NaN; 4.9 ms a 1080p pair, wall clock; 200 pairs make no Metal
-    shared event. Below 1080p it scores under a cross-fade over the whole frame (still better on the square).
-    Unit tests with stand-ins for MetalFX cover the round trip, history, failures, routing and the stats in CI's
-    VM. **Left: an HDR game with frame interpolation on, on the console** (see section 4). See
+    at 1080p, 8 pairs (`STREAMCORE_HDR_QUALITY=1 … --filter hdrQualityTable` reruns it), the midpoint is level
+    with a cross-fade over the frame (43.4 dB both), 27.2 vs 25.1 dB around the fast square, worst 32 px tile
+    15.9 vs 19.3; the 2600-nit core survives (2248 nits at 540p), no NaN; 4.9 ms a 1080p pair, wall clock; 200
+    pairs make no Metal shared event. Below 1080p it scores under a cross-fade over the whole frame (still better
+    on the square). Unit tests with stand-ins for MetalFX cover the round trip, history, failures, routing and the
+    stats in CI's VM. Review fixes (2026-11-20, same tests and gates): an Objective-C exception from MetalFX
+    quarantines that interpolator (never called again) and the next pair gets a fresh one; a command buffer that
+    doesn't complete is tested; the engine's output buffers follow the frame size; HDR engines are let go when the
+    stream turns SDR or a new one starts; the empty-image check skips HDR images (full-range black is 0); once the
+    stream's only size (HDR) or every size (SDR) is dropped, the state says `failed`, not `on` with nothing made;
+    10-bit SDR frames (HDR on, SDR game), which neither engine takes, report `unsupported` and keep their repeats;
+    the stats row says "Off: kept failing", and the setting says 60 on ProMotion in HDR. Tests added for each,
+    and the still-area blend test now uses an engine image unlike either frame, with the 10-bit thresholds.
+    **Left: an HDR game with frame interpolation on, on the console** (see section 4). See
     [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md), "HDR".
 - ✅ **Network** (requested): see [docs/NETWORK.md](docs/NETWORK.md).
   - **Cause found:** AirDrop and Handoff (AWDL) stall the Mac's Wi-Fi about 90 ms every second. Pings to
@@ -962,7 +973,9 @@ requests and a bug report.
    new since 2026-11-20 and only tested offscreen: `pacing.interpolation` reads `on` (not `failed`), about 60
    shown/s for a 30 fps game on 60 Hz and on 120 Hz (halves only in HDR), highlights still above SDR white in the
    in-between images, no colour shift between real and generated images, and `costMs` near 5 ms at 1080p. Also
-   whether a 720p HDR stream looks worse with it than without (it scored under a cross-fade there). *(P1)*
+   whether a 1080p HDR stream looks better with it than without (it was only level with a cross-fade over the
+   synthetic frame, better on the moving object) and a 720p one not worse (it scored under a cross-fade there);
+   and an SDR game with HDR on reads `unsupported`. *(P1)*
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
    itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
    quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a

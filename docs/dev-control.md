@@ -116,9 +116,11 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
   of frames; a late stretch only slides it).
 - `interpolation`, `upscale`, `ml`: what each optional step is doing, and why one that's on is idle.
   `interpolation`: `off`, `on`, `unsupported` (this Mac or macOS, for the stream as it is: VideoToolbox's frame
-  interpolation for SDR, MetalFX's for HDR), `screen` (the screen doesn't refresh often enough for the game's
-  rate), `still` (on, but the game holds its picture), `failed` (off until the app restarts: its engine kept
-  failing, VideoToolbox's processor on SDR or MetalFX's GPU work on HDR, each with its own budget). `upscale`: `metalfx`, `bilinear` (chosen), `notLarger` (MetalFX only
+  interpolation for SDR, MetalFX's for HDR; or frames neither takes: 10-bit SDR, when HDR is on in Settings and
+  the game is SDR), `screen` (the screen doesn't refresh often enough for the game's rate), `still` (on, but the
+  game holds its picture), `failed` (off until the app restarts: its engine kept failing, VideoToolbox's processor
+  on SDR or MetalFX's GPU work on HDR, each with its own budget; or no size works for this stream, as when
+  MetalFX can't run at an HDR stream's size, its only one). `upscale`: `metalfx`, `bilinear` (chosen), `notLarger` (MetalFX only
   enlarges, and the picture on screen isn't larger than the stream), `unsupported`, `failed`. `ml`: `off`,
   `on`, `unsupported`, `streamTooLarge` (larger than 1080p, or a size the model refused), `notLarger`,
   `hdr` (the model takes 8-bit frames only), `failed` (off until the app restarts: its processor kept failing),

@@ -35,6 +35,8 @@ final class HDRFrameInterpolator: MiddleFrameMaker {
     private let available: Bool
     /// Makes the midpoint maker for a frame size: MetalFX in the app, a stand-in in tests.
     private let makeMidpoint: (MTLDevice, Int, Int) -> MidpointEncoder?
+    /// Commits a pair's command buffer and waits for it (tests: leaves it unfinished, as a GPU error would).
+    private let finish: (MTLCommandBuffer) -> Void
     private lazy var gpu = GPU(device: device)
     /// What's set up for the current frame size: the midpoint maker, two R'G'B' images (the pair, used in turn so the
     /// last pair's newer frame needn't be converted again) and MetalFX's output.
@@ -50,19 +52,22 @@ final class HDRFrameInterpolator: MiddleFrameMaker {
     /// The last pair's newer frame (held, so its buffer can't come back as another frame) and which R'G'B' image holds
     /// it: a pair that starts from it goes on with MetalFX's history; any other pair starts afresh.
     private var history: (frame: CVPixelBuffer, slot: Int)?
-    private var pools: [OSType: CVPixelBufferPool] = [:]
+    /// Output buffers per size and format.
+    private var pools: [String: CVPixelBufferPool] = [:]
     /// Pairs started without history (the first, or after a gap, a cut or a reset); for tests.
     private(set) var freshStarts = 0
     /// The last midpoint as MetalFX made it (R'G'B', PQ); for tests.
     var lastMidpoint: MTLTexture? { sized?.output }
 
-    /// `available` and `makeMidpoint`: MetalFX in the app, stand-ins in tests.
+    /// `available`, `makeMidpoint` and `finish`: MetalFX and the GPU in the app, stand-ins in tests.
     init(device: MTLDevice, health: VideoProcessorHealth = .hdrInterpolation, available: Bool = HDRFrameInterpolator.isAvailable,
-         makeMidpoint: @escaping (MTLDevice, Int, Int) -> MidpointEncoder? = makeMetalFXMidpoint) {
+         makeMidpoint: @escaping (MTLDevice, Int, Int) -> MidpointEncoder? = makeMetalFXMidpoint,
+         finish: @escaping (MTLCommandBuffer) -> Void = { $0.commit(); $0.waitUntilCompleted() }) {
         self.device = device
         self.health = health
         self.available = available
         self.makeMidpoint = makeMidpoint
+        self.finish = finish
     }
 
     /// Whether it's off for the rest of the run: its GPU work kept failing.
@@ -98,14 +103,22 @@ final class HDRFrameInterpolator: MiddleFrameMaker {
         guard continuing || gpu.encodeToRGB(cb, previous, into: sized.colour[before], held: &held),
               gpu.encodeToRGB(cb, current, into: sized.colour[after], held: &held) else { return nil }
         if !continuing { freshStarts += 1 }
-        guard sized.midpoint.encode(cb, previous: sized.colour[before], current: sized.colour[after], output: sized.output,
-                                    reset: !continuing) else {
-            health.failed("couldn't encode the midpoint at \(w)x\(h)")
+        let encoded = sized.midpoint.encode(cb, previous: sized.colour[before], current: sized.colour[after], output: sized.output,
+                                            reset: !continuing)
+        guard encoded == .done else {
+            if case .threw(let reason) = encoded {
+                // An Objective-C exception may have left it holding a lock or half-made: kept for good, never called
+                // again (as VideoToolbox's processors are), and the next pair sets up a fresh one. The command buffer
+                // is never committed.
+                health.quarantine(sized.midpoint, reason: reason)
+                self.sized = nil
+            } else {
+                health.failed("couldn't encode the midpoint at \(w)x\(h)")
+            }
             return nil
         }
         guard gpu.encodeToYCbCr(cb, sized.output, into: output, color: FrameColor(current), held: &held) else { return nil }
-        cb.commit()
-        cb.waitUntilCompleted()
+        finish(cb)
         guard cb.status == .completed else {
             health.failed("GPU error at \(w)x\(h): \(cb.error.map { "\($0)" } ?? "\(cb.status)")")
             return nil
@@ -145,7 +158,8 @@ final class HDRFrameInterpolator: MiddleFrameMaker {
     }
 
     private func buffer(_ width: Int, _ height: Int, _ format: OSType) -> CVPixelBuffer? {
-        if pools[format] == nil {
+        let key = "\(width)x\(height)-\(format)"
+        if pools[key] == nil {
             var pool: CVPixelBufferPool?
             CVPixelBufferPoolCreate(nil, nil, [
                 kCVPixelBufferWidthKey: width, kCVPixelBufferHeightKey: height,
@@ -153,9 +167,9 @@ final class HDRFrameInterpolator: MiddleFrameMaker {
                 kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
                 kCVPixelBufferMetalCompatibilityKey: true,
             ] as CFDictionary, &pool)
-            pools[format] = pool
+            pools[key] = pool
         }
-        guard let pool = pools[format] else { return nil }
+        guard let pool = pools[key] else { return nil }
         var out: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
         return out
@@ -302,8 +316,9 @@ protocol MidpointEncoder: AnyObject {
     var colorUsage: MTLTextureUsage { get }
     var outputUsage: MTLTextureUsage { get }
     /// Encodes the midpoint of `previous` and `current` into `output` (all `HDRFrameInterpolator.colorFormat`, one
-    /// size); `reset`: no history to go on from (the first pair, or after a gap). False when it can't be encoded.
-    func encode(_ cb: MTLCommandBuffer, previous: MTLTexture, current: MTLTexture, output: MTLTexture, reset: Bool) -> Bool
+    /// size); `reset`: no history to go on from (the first pair, or after a gap). `.done`, `.failed` when it can't be
+    /// encoded, or `.threw` when it raised an Objective-C exception (it's never called again).
+    func encode(_ cb: MTLCommandBuffer, previous: MTLTexture, current: MTLTexture, output: MTLTexture, reset: Bool) -> ProcessorOutcome
 }
 
 /// MetalFX's maker for a frame size (macOS 26+), nil where it can't run.
@@ -351,7 +366,7 @@ final class MetalFXMidpoint: MidpointEncoder {
     var colorUsage: MTLTextureUsage { interpolator.colorTextureUsage }
     var outputUsage: MTLTextureUsage { interpolator.outputTextureUsage }
 
-    func encode(_ cb: MTLCommandBuffer, previous: MTLTexture, current: MTLTexture, output: MTLTexture, reset: Bool) -> Bool {
+    func encode(_ cb: MTLCommandBuffer, previous: MTLTexture, current: MTLTexture, output: MTLTexture, reset: Bool) -> ProcessorOutcome {
         if reset {
             let pass = MTLRenderPassDescriptor()
             pass.depthAttachment.texture = depth
@@ -362,7 +377,7 @@ final class MetalFXMidpoint: MidpointEncoder {
             pass.colorAttachments[0].loadAction = .clear
             pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
             pass.colorAttachments[0].storeAction = .store
-            guard let clear = cb.makeRenderCommandEncoder(descriptor: pass) else { return false }
+            guard let clear = cb.makeRenderCommandEncoder(descriptor: pass) else { return .failed("no clear pass") }
             clear.endEncoding()
         }
         interpolator.colorTexture = current
@@ -380,7 +395,7 @@ final class MetalFXMidpoint: MidpointEncoder {
         interpolator.jitterOffsetX = 0
         interpolator.jitterOffsetY = 0
         interpolator.shouldResetHistory = reset
-        // An Objective-C exception from inside MetalFX ends this pair (counted as a failure), not the app.
-        return playfx_catch { self.interpolator.encode(commandBuffer: cb) } == nil
+        // An Objective-C exception from inside MetalFX ends this pair (and this interpolator: see the caller), not the app.
+        return playfx_catch { self.interpolator.encode(commandBuffer: cb) }.map { .threw($0) } ?? .done
     }
 }

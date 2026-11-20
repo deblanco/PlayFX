@@ -206,6 +206,8 @@ default; turn it on in Settings › Picture.
   60 Hz screen gets nothing (the stats say so).
 - It needs macOS 26. In HDR it makes one image between two of the game's frames (MetalFX instead of the
   Neural Engine), so a 30 fps game shows at 60 even on a 120 Hz screen.
+- With HDR turned on in Settings, an SDR game still comes as 10-bit frames, which it can't take: the stats
+  say Unavailable. Turn HDR off for SDR games to use it.
 - **The cost is latency:** at 30 fps, frames show about 40 ms later. It suits slower games; for fast
   games, 60 fps without interpolation feels more responsive.
 

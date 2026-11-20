@@ -258,11 +258,12 @@ const interpolationRow = (status: RendererStatus, missedRate: number): StatRow |
   if (pacing === null) return status.interpolationActive ? statRow("Frame interpolation", "On", "frame interpolation") : undefined
   switch (pacing.interpolation) {
     case "off": return undefined
-    case "unsupported": return statRow("Frame interpolation", "Unavailable", "interpolation unavailable on this Mac")
+    case "unsupported": return statRow("Frame interpolation", "Unavailable", "interpolation unavailable")
     // The game holds its picture (a pause): nothing to make, and nothing wrong.
     case "still": return statRow("Frame interpolation", "Idle: still picture", "no interpolation: still picture")
-    // VideoToolbox's processor kept failing: off until the app restarts, the picture going on without it.
-    case "failed": return statRow("Frame interpolation", "Off: video processor failed", "interpolation off: video processor failed", true)
+    // Its engine (VideoToolbox's in SDR, MetalFX's in HDR) kept failing, off until the app restarts, or no size works
+    // for this stream: the picture goes on without it.
+    case "failed": return statRow("Frame interpolation", "Off: kept failing", "interpolation off: it kept failing", true)
     case "screen": {
       if (pacing.displayHz <= 0 || pacing.streamFps <= 0) return undefined
       const why = `${String(Math.round(pacing.streamFps))} fps on a ${String(Math.round(pacing.displayHz))} Hz screen`

@@ -114,21 +114,27 @@ enum HDRScene {
 // MARK: Stand-ins
 
 /// Stands in for MetalFX's interpolator where there is none (CI's virtual machines): copies the newer image (or
-/// refuses to encode), counting the calls and fresh starts.
+/// refuses to encode, or raises an exception as MetalFX might), counting the calls and fresh starts.
 final class StandInMidpoint: MidpointEncoder {
-    let refuses: Bool
+    enum Behaviour { case copies, refuses, throwsException }
+    let behaviour: Behaviour
     private(set) var calls = 0
     private(set) var resets = 0
-    init(refuses: Bool = false) { self.refuses = refuses }
+    init(_ behaviour: Behaviour = .copies) { self.behaviour = behaviour }
     var colorUsage: MTLTextureUsage { .shaderRead }
     var outputUsage: MTLTextureUsage { .shaderWrite }
-    func encode(_ cb: MTLCommandBuffer, previous: MTLTexture, current: MTLTexture, output: MTLTexture, reset: Bool) -> Bool {
+    func encode(_ cb: MTLCommandBuffer, previous: MTLTexture, current: MTLTexture, output: MTLTexture, reset: Bool) -> ProcessorOutcome {
         calls += 1
         if reset { resets += 1 }
-        guard !refuses, let blit = cb.makeBlitCommandEncoder() else { return false }
-        blit.copy(from: current, to: output)
-        blit.endEncoding()
-        return true
+        switch behaviour {
+        case .refuses: return .failed("refused")
+        case .throwsException: return .threw("NSInternalInconsistencyException")
+        case .copies:
+            guard let blit = cb.makeBlitCommandEncoder() else { return .failed("no blit") }
+            blit.copy(from: current, to: output)
+            blit.endEncoding()
+            return .done
+        }
     }
 }
 
@@ -280,13 +286,61 @@ final class StandInMidpoint: MidpointEncoder {
     /// alone); past it, it's off for the run.
     @Test func failuresTurnItOffForTheRun() throws {
         let health = testHealth()
-        let midpoint = StandInMidpoint(refuses: true)
+        let midpoint = StandInMidpoint(.refuses)
         let engine = try engine(midpoint, health: health)
         let a = try uniform(300, 512, 512), b = try uniform(400, 512, 512)
         for _ in 0..<3 { #expect(engine.make(previous: a, current: b, phases: [0.5], steps: 1) == nil) }
         #expect(health.failures == 3 && health.isOff && engine.hasFailed)
         #expect(engine.make(previous: a, current: b, phases: [0.5], steps: 1) == nil && midpoint.calls == 3) // not called again
         #expect(engine.lastMidpoint == nil) // its images are let go
+    }
+
+    /// An interpolator that raised an Objective-C exception may hold a lock or be half-made: it's quarantined (kept,
+    /// never called again, counted as a failure) and the next pair sets up a fresh one.
+    @Test func anExceptionQuarantinesTheInterpolator() throws {
+        let health = testHealth()
+        var made: [StandInMidpoint] = []
+        let engine = HDRFrameInterpolator(device: try #require(device), health: health, available: true) { _, _, _ in
+            let midpoint = StandInMidpoint(made.isEmpty ? .throwsException : .copies)
+            made.append(midpoint)
+            return midpoint
+        }
+        let a = try uniform(300, 512, 512), b = try uniform(400, 512, 512)
+        #expect(engine.make(previous: a, current: b, phases: [0.5], steps: 1) == nil)
+        #expect(health.quarantined == 1 && health.failures == 1 && !health.isOff && engine.lastMidpoint == nil)
+        let out = try #require(engine.make(previous: a, current: b, phases: [0.5], steps: 1)?.first)
+        #expect(made.count == 2 && made[0].calls == 1 && made[1].calls == 1 && made[1].resets == 1)
+        #expect(abs(lumaCode(out, 5, 5) - 400) <= 1)
+    }
+
+    /// A command buffer that doesn't complete (a GPU error) counts against the budget, gives no image, and the next
+    /// pair starts afresh.
+    @Test func aGPUErrorCountsAsAFailure() throws {
+        let health = testHealth(), midpoint = StandInMidpoint()
+        var fails = true
+        let engine = HDRFrameInterpolator(device: try #require(device), health: health, available: true,
+                                          makeMidpoint: { _, _, _ in midpoint }) { cb in
+            guard !fails else { return } // never committed: its status isn't `.completed`, as after an error
+            cb.commit()
+            cb.waitUntilCompleted()
+        }
+        let a = try uniform(300, 512, 512), b = try uniform(400, 512, 512), c = try uniform(500, 512, 512)
+        #expect(engine.make(previous: a, current: b, phases: [0.5], steps: 1) == nil)
+        #expect(health.failures == 1 && health.quarantined == 0)
+        fails = false
+        #expect(engine.make(previous: b, current: c, phases: [0.5], steps: 1) != nil)
+        #expect(engine.freshStarts == 2 && health.failures == 1) // no history from the pair that failed
+    }
+
+    /// One engine given frames of another size makes images of that size (its buffers aren't the first size's).
+    @Test func makesImagesAtEachFramesOwnSize() throws {
+        let engine = try engine()
+        for (width, height) in [(64, 32), (32, 16), (64, 32)] {
+            let a = try uniform(300, 512, 512, width: width, height: height), b = try uniform(600, 512, 512, width: width, height: height)
+            let out = try #require(engine.make(previous: a, current: b, phases: [0.5], steps: 1)?.first)
+            #expect(CVPixelBufferGetWidth(out) == width && CVPixelBufferGetHeight(out) == height)
+            #expect(abs(lumaCode(out, width - 1, height - 1) - 600) <= 1)
+        }
     }
 
     @Test func availabilityFollowsMetalFX() throws {
@@ -356,6 +410,84 @@ extension HDRFrameInterpolatorTests {
               + "\(String(format: "%.1f", faded)) dB; sun core \(Int(core)) nits")
     }
 
+    /// The quality table in docs/FRAME_INTERPOLATION.md ("HDR", "Measured through the app's code"): the spike's scene
+    /// at 1080p, 720p and 540p through the app's engine, each pair's midpoint scored against the true in-between
+    /// picture in R'G'B' (PQ) from the output codes, next to a cross-fade of the frames: mean PSNR over the pairs ·
+    /// worst 32 px tile, and the mean around the fast square; plus the YCbCr round trip alone. Slow (a minute in a
+    /// debug build), so only on request: `STREAMCORE_HDR_QUALITY=1 scripts/test.sh --filter hdrQualityTable`.
+    @Test func hdrQualityTable() throws {
+        guard ProcessInfo.processInfo.environment["STREAMCORE_HDR_QUALITY"] != nil, HDRFrameInterpolator.isAvailable else { return }
+        let device = try #require(device)
+        /// A frame's R'G'B' per pixel (its chroma sample's, unfiltered), from its codes.
+        func image(_ frame: CVPixelBuffer) -> [SIMD3<Float>] {
+            CVPixelBufferLockBaseAddress(frame, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(frame, .readOnly) }
+            let width = CVPixelBufferGetWidth(frame), height = CVPixelBufferGetHeight(frame)
+            let y = CVPixelBufferGetBaseAddressOfPlane(frame, 0)!.assumingMemoryBound(to: UInt16.self)
+            let c = CVPixelBufferGetBaseAddressOfPlane(frame, 1)!.assumingMemoryBound(to: UInt16.self)
+            let yRow = CVPixelBufferGetBytesPerRowOfPlane(frame, 0) / 2, cRow = CVPixelBufferGetBytesPerRowOfPlane(frame, 1) / 2
+            var out = [SIMD3<Float>](repeating: .zero, count: width * height)
+            for row in 0..<height {
+                for col in 0..<width {
+                    let l = (Float(y[row * yRow + col] >> 6) - 64) / 876
+                    let i = (row / 2) * cRow + (col / 2) * 2
+                    let cb = (Float(c[i] >> 6) - 512) / 896, cr = (Float(c[i + 1] >> 6) - 512) / 896
+                    out[row * width + col] = SIMD3(l + 1.4746 * cr, l - 0.16455 * cb - 0.57135 * cr, l + 1.8814 * cb)
+                }
+            }
+            return out
+        }
+        func psnr(_ mse: Double) -> Double { mse <= 0 ? 99 : 10 * log10(1 / mse) }
+        /// Whole-image PSNR, the worst 32 px tile's, and the region's.
+        func score(_ a: [SIMD3<Float>], _ truth: [SIMD3<Float>], width: Int, height: Int,
+                   region: (x: Range<Int>, y: Range<Int>)) -> (all: Double, worstTile: Double, region: Double) {
+            var total = 0.0, inRegion = 0.0
+            var tiles = [Double](repeating: 0, count: ((width + 31) / 32) * ((height + 31) / 32))
+            let across = (width + 31) / 32
+            for row in 0..<height {
+                for col in 0..<width {
+                    let d = a[row * width + col] - truth[row * width + col]
+                    let e = Double((d * d).sum())
+                    total += e
+                    tiles[(row / 32) * across + col / 32] += e
+                    if region.x.contains(col), region.y.contains(row) { inRegion += e }
+                }
+            }
+            let worst = tiles.enumerated().map { k, e -> Double in
+                let w = min(32, width - (k % across) * 32), h = min(32, height - (k / across) * 32)
+                return e / Double(w * h * 3)
+            }.max() ?? 0
+            return (psnr(total / Double(width * height * 3)), psnr(worst), psnr(inRegion / Double(region.x.count * region.y.count * 3)))
+        }
+        print("HDR quality through the app's code (PSNR in PQ R'G'B', dB): mean · worst 32 px tile · around the square")
+        for (width, height) in [(1920, 1080), (1280, 720), (960, 540)] {
+            let scale = Float(width) / 1920, pairs = 8
+            let engine = HDRFrameInterpolator(device: device, health: testHealth())
+            let frames = try (0...pairs).map { try HDRScene.frame(t: Float($0), width: width, height: height) }
+            let pictures = frames.map(image)
+            var made: [(all: Double, worstTile: Double, region: Double)] = [], faded = made
+            for k in 1...pairs {
+                let middle = try #require(engine.make(previous: frames[k - 1], current: frames[k], phases: [0.5], steps: 1)?.first)
+                let truth = image(try HDRScene.frame(t: Float(k) - 0.5, width: width, height: height))
+                let region = (x: Int((HDRScene.object(Float(k - 1)) - 50) * scale)..<min(width, Int((HDRScene.object(Float(k)) + 50) * scale)),
+                              y: Int(650 * scale)..<Int(750 * scale))
+                made.append(score(image(middle), truth, width: width, height: height, region: region))
+                let fade = zip(pictures[k - 1], pictures[k]).map { ($0 + $1) / 2 }
+                faded.append(score(fade, truth, width: width, height: height, region: region))
+            }
+            func line(_ s: [(all: Double, worstTile: Double, region: Double)]) -> String {
+                let n = Double(s.count)
+                return String(format: "%.1f · %.1f · %.1f", s.map(\.all).reduce(0, +) / n, s.map(\.worstTile).min() ?? 0,
+                              s.map(\.region).reduce(0, +) / n)
+            }
+            // The round trip alone: a stand-in that passes the newer frame's R'G'B' through.
+            let trip = try #require(try self.engine().make(previous: frames[0], current: frames[1], phases: [0.5], steps: 1)?.first)
+            let whole = (x: 0..<width, y: 0..<height)
+            print("  \(width)x\(height): MetalFX \(line(made)) | cross-fade \(line(faded)) | round trip "
+                  + String(format: "%.1f", score(image(trip), pictures[1], width: width, height: height, region: whole).all))
+        }
+    }
+
     /// What the app runs per HDR pair at 1080p (the size the PS5 sends), timed: comfortably inside a 60 fps game's
     /// 12.5 ms budget.
     @Test func metalFXCostAt1080p() throws {
@@ -412,6 +544,20 @@ final class CountingMaker: MiddleFrameMaker {
     func reset() { resets += 1 }
 }
 
+/// Stands in for the HDR engine with an image unlike either frame (or nothing): a flat HDR frame of the pair's size and
+/// format, these codes.
+final class FlatHDRMaker: MiddleFrameMaker {
+    let codes: (y: UInt16, cb: UInt16, cr: UInt16)?
+    init(_ codes: (y: UInt16, cb: UInt16, cr: UInt16)?) { self.codes = codes }
+    func make(previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]? {
+        guard let codes else { return nil }
+        let full = CVPixelBufferGetPixelFormatType(current) == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+        let image = try? makeHDRFrame(width: CVPixelBufferGetWidth(current), height: CVPixelBufferGetHeight(current), fullRange: full,
+                                      luma: { _, _ in codes.y }) { _, _ in (codes.cb, codes.cr) }
+        return image.map { image in phases.map { _ in image } }
+    }
+}
+
 extension InterpolationLaneTests {
     func metal() throws -> MTLDevice { try #require(device) }
 
@@ -445,25 +591,91 @@ extension InterpolationLaneTests {
         #expect(hdr.pairs == 1 && sdr.pairs == 1 && made.count == 2 && hdr.resets == 2 && sdr.resets == 0)
         #expect(lane.cutPairs == 2 && lane.failedPairs == 0 && lane.busyPairs == 0)
         // A cut between HDR frames resets it too.
+        lane.submit(previous: try hdrFrame(bar: 200), current: try hdrFrame(bar: 300), between: half, steps: 1, size: (640, 360))
+        lane.waitUntilIdle()
         lane.submit(previous: try hdrFrame(bar: 300, background: 100), current: try hdrFrame(bar: 300, background: 900),
                     between: half, steps: 1, size: (640, 360))
         lane.waitUntilIdle()
-        #expect(hdr.resets == 3 && lane.cutPairs == 3 && hdr.pairs == 1)
+        #expect(hdr.resets == 3 && lane.cutPairs == 3 && hdr.pairs == 2)
     }
 
-    /// The still-area blend on 10-bit planes: the HUD comes back exactly from the frames, the moving bar from the engine.
+    /// The still-area blend on 10-bit planes, against an engine image unlike either frame (flat luma 500, a colour):
+    /// the HUD comes back exactly from the frames; an area 4 codes apart (under 2/255 of the range) is the frames'
+    /// average; one 40 codes apart (over 8/255) and the moving bar are the engine's, luma and chroma.
     @Test func blendsStillAreasOfHDRFrames() throws {
         let lane = try #require(InterpolationLane(device: try metal(), hdrHealth: testHealth(), engine: { StandInMaker() },
-                                                  hdrEngine: { CountingMaker() }))
+                                                  hdrEngine: { FlatHDRMaker((500, 600, 450)) }))
         var made: [InterpolationLane.Image] = []
         lane.onImage = { made.append($0) }
-        let a = try hdrFrame(bar: 200), b = try hdrFrame(bar: 300)
+        func frame(bar x: Int, apart d: UInt16) throws -> CVPixelBuffer {
+            try makeHDRFrame(width: 640, height: 360, luma: { px, py in
+                if px < 100 && py < 60 { return UInt16(240 + (px * 7 + py * 13) % 480) }
+                if px >= 400 && px < 460 && py >= 100 && py < 160 { return 300 + d / 10 } // nearly still
+                if px >= 400 && px < 460 && py >= 200 && py < 260 { return 300 + d } // changed
+                return px >= x && px < x + 60 ? 800 : 200
+            }) { _, _ in (512, 512) }
+        }
+        let a = try frame(bar: 200, apart: 0), b = try frame(bar: 300, apart: 40)
         lane.submit(previous: a, current: b, between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
         lane.waitUntilIdle()
         let image = try #require(made.first).buffer
         for (x, y) in [(10, 10), (55, 31), (90, 50)] { #expect(abs(lumaCode(image, x, y) - lumaCode(a, x, y)) <= 1, "(\(x), \(y))") }
-        #expect(abs(lumaCode(image, 320, 200) - 800) <= 1 && abs(lumaCode(image, 230, 200) - 200) <= 1) // the engine's (b's)
+        #expect(abs(lumaCode(image, 430, 130) - 302) <= 1, "\(lumaCode(image, 430, 130))") // (300 + 304) / 2
+        #expect(abs(lumaCode(image, 430, 230) - 500) <= 1 && abs(lumaCode(image, 230, 200) - 500) <= 1
+                && abs(lumaCode(image, 320, 200) - 500) <= 1)
+        let still = chromaCodes(image, 10, 10), moved = chromaCodes(image, 215, 115)
+        #expect(still.cb == 512 && still.cr == 512 && abs(moved.cb - 600) <= 1 && abs(moved.cr - 450) <= 1, "\(still) \(moved)")
         #expect(FrameColor.isHDR(image))
+    }
+
+    /// The empty-image check is for VideoToolbox's silent failures: an HDR image is never taken for one, so a dark
+    /// full-range pair (black is code 0 there; a fade to black isn't a cut) gets its image and keeps its size.
+    @Test func doesNotTakeADarkHDRImageForAnEmptyOne() throws {
+        let lane = try #require(InterpolationLane(device: try metal(), health: testHealth(), hdrHealth: testHealth(),
+                                                  engine: { StandInMaker() }, hdrEngine: { FlatHDRMaker((0, 512, 512)) }))
+        var made = 0
+        lane.onImage = { _ in made += 1 }
+        let a = try makeHDRFrame(width: 64, height: 64, fullRange: true, luma: { _, _ in 20 }) { _, _ in (512, 512) }
+        let b = try makeHDRFrame(width: 64, height: 64, fullRange: true, luma: { _, _ in 0 }) { _, _ in (512, 512) }
+        #expect(InterpolationLane.isEmpty(b) && !InterpolationLane.isCut(a, b))
+        lane.submit(previous: a, current: b, between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (64, 64))
+        lane.waitUntilIdle()
+        #expect(made == 1 && !lane.isBroken((64, 64), hdr: true) && lane.failedPairs == 0)
+    }
+
+    /// HDR engines (MetalFX, its images, the last frame it holds) are let go when the stream turns SDR and when a new
+    /// stream starts; the next HDR pair sets one up again.
+    @Test func letsGoOfHDREnginesWhenTheStreamTurnsSDROrANewOneStarts() throws {
+        var built = 0
+        weak var last: CountingMaker?
+        let lane = try #require(InterpolationLane(device: try metal(), health: testHealth(), hdrHealth: testHealth(),
+                                                  engine: { StandInMaker() }, hdrEngine: {
+                                                      built += 1
+                                                      let made = CountingMaker()
+                                                      last = made
+                                                      return made
+                                                  }))
+        let half = [InBetween.Image(phase: 0.5, time: 1)]
+        func hdrPair() throws {
+            lane.submit(previous: try hdrFrame(bar: 200), current: try hdrFrame(bar: 220), between: half, steps: 1, size: (640, 360))
+            lane.waitUntilIdle()
+        }
+        try hdrPair()
+        #expect(built == 1 && last != nil)
+        // To SDR: let go. (SDR to HDR only starts it afresh.)
+        lane.submit(previous: try hdrFrame(bar: 220), current: try frame(bar: 220), between: half, steps: 1, size: (640, 360))
+        lane.waitUntilIdle()
+        #expect(last == nil)
+        try hdrPair()
+        #expect(built == 2 && last != nil)
+        lane.submit(previous: try frame(bar: 220), current: try hdrFrame(bar: 220), between: half, steps: 1, size: (640, 360))
+        lane.waitUntilIdle()
+        #expect(last?.resets == 1)
+        lane.releaseHDREngines() // a new stream
+        lane.waitUntilIdle()
+        #expect(last == nil)
+        try hdrPair()
+        #expect(built == 3)
     }
 
     /// The CPU checks read 10-bit luma by its high byte: the same thresholds as 8-bit frames.
@@ -480,10 +692,12 @@ extension InterpolationLaneTests {
 
     @Test func keepsSDRAndHDRSizesApart() throws {
         let lane = try #require(InterpolationLane(device: try metal(), health: testHealth(), hdrHealth: testHealth(),
-                                                  engine: { StandInMaker() }, hdrEngine: { StandInMaker(.zeros) }))
-        lane.submit(previous: try hdrFrame(bar: 200, background: 100), current: try hdrFrame(bar: 220, background: 100),
-                    between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
-        lane.waitUntilIdle()
+                                                  engine: { StandInMaker() }, hdrEngine: { FlatHDRMaker(nil) }))
+        for _ in 0..<5 { // a size that keeps giving nothing is dropped
+            lane.submit(previous: try hdrFrame(bar: 200, background: 100), current: try hdrFrame(bar: 220, background: 100),
+                        between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
+            lane.waitUntilIdle()
+        }
         #expect(lane.isBroken((640, 360), hdr: true) && !lane.isBroken((640, 360)))
     }
 
@@ -519,8 +733,9 @@ extension InterpolationLaneTests {
         // Over budget: there's nowhere smaller to go (MetalFX's cost at 1080p is a few ms).
         rungs.observe(cost: 0.02, budget: 0.0125, now: 1)
         #expect(rungs.size == (1920, 1080))
+        #expect(!rungs.exhausted)
         let another = rungs.markBroken()
-        #expect(!another)
+        #expect(!another && rungs.exhausted)
         // An odd size isn't rounded (that's VideoToolbox's fast path, which HDR pairs don't take).
         #expect(RungSelector(width: 1000, height: 562, scales: false).size == (1000, 562))
         #expect(RungSelector(width: 1920, height: 1080).rungs.count == 3)
@@ -572,6 +787,86 @@ extension StreamRendererTests {
         }
         #expect(r.pipeline.interpolation == (hdr ? .on : .unsupported))
         #expect(r.pipeline.ml == .off) // ML upscaling still sits out in HDR (and is off here)
+    }
+
+    /// On a 120 Hz screen a 30 fps game gets quarters in SDR, and halves in HDR (MetalFX makes the midpoint only):
+    /// what the renderer asks each engine for.
+    @Test func asksTheHDREngineForHalvesOnlyAt120Hz() throws {
+        let sdr = StandInMaker(), hdr = StandInMaker()
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: nil, interpolation: (true, true),
+                                            engines: ({ sdr }, { hdr })))
+        r.params.upscaler = .bilinear
+        r.params.frameInterpolation = true
+        r.streamFrameRate = 30
+        let frame = 1.0 / 30, refresh = 1.0 / 120
+        for k in 0..<12 {
+            let hdrFrame = k >= 6
+            if k == 6 { r.setHDR(true) }
+            r.display(hdrFrame ? try makeHDRFrame(width: 64, height: 64, y: UInt16(300 + 12 * k))
+                               : try makeNV12(width: 64, height: 64, y: UInt8(40 + 3 * k), cb: 128, cr: 128),
+                      index: UInt64(k), arrival: Double(k) * frame)
+            r.waitForInterpolation()
+            for step in 0..<4 {
+                let now = Double(k) * frame + Double(step) * refresh
+                _ = hdrFrame ? try renderHDR(r, size: (64, 64), now: now).count : try render(r, size: (64, 64), now: now).count
+            }
+        }
+        #expect(!sdr.asked.isEmpty && sdr.asked.allSatisfy { $0.steps == 2 && $0.phases == [0.25, 0.5, 0.75] }, "\(sdr.asked)")
+        #expect(!hdr.asked.isEmpty && hdr.asked.allSatisfy { $0.steps == 1 && $0.phases == [0.5] }, "\(hdr.asked)")
+        #expect(r.pipeline.interpolation == .on && r.missedInterpolations == 0)
+    }
+
+    /// HDR streams have one size: when the lane drops it (MetalFX can't be set up there, or keeps giving nothing),
+    /// interpolation says `failed` for the stream instead of `on` with nothing made, and stops waiting for images.
+    @Test func saysFailedWhenNoSizeWorksForTheStream() throws {
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: nil, interpolation: (true, true),
+                                            engines: ({ StandInMaker() }, { StandInMaker(.none) })))
+        r.params.upscaler = .bilinear
+        r.params.frameInterpolation = true
+        r.streamFrameRate = 30
+        r.setHDR(true)
+        let frame = 1.0 / 30, refresh = 1.0 / 60
+        var states: [PipelineState.Interpolation] = []
+        for k in 0..<10 {
+            r.display(try makeHDRFrame(width: 64, height: 64, y: UInt16(300 + 12 * k)), index: UInt64(k), arrival: Double(k) * frame)
+            r.waitForInterpolation()
+            _ = try renderHDR(r, size: (64, 64), now: Double(k) * frame)
+            _ = try renderHDR(r, size: (64, 64), now: Double(k) * frame + refresh)
+            states.append(r.pipeline.interpolation)
+        }
+        #expect(states.contains(.on) && states.last == .failed, "\(states)")
+        let missed = r.missedInterpolations
+        #expect(missed == 5) // the five that dropped the size; none asked for after it
+        // A new stream starts over (it may come at another size).
+        r.streamFrameRate = 30
+        _ = try renderHDR(r, size: (64, 64), now: 10 * frame)
+        #expect(r.pipeline.interpolation == .still) // on, with no picture of the new stream yet
+    }
+
+    /// With the HDR setting on, an SDR game's frames are 10-bit but not PQ: neither engine takes them, so
+    /// interpolation says `unsupported` (not `on` with nothing made), and repeats show as they come instead of being
+    /// left out for images that never come.
+    @Test func tenBitSDRFramesAreUnsupportedAndKeepTheirRepeats() throws {
+        let sdr = StandInMaker(), hdr = StandInMaker()
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: nil, interpolation: (true, true),
+                                            engines: ({ sdr }, { hdr })))
+        r.params.upscaler = .bilinear
+        r.params.sharpness = 0
+        r.params.frameInterpolation = true
+        r.streamFrameRate = 30
+        let frame = 1.0 / 30, refresh = 1.0 / 60
+        // The same luma throughout (each frame a repeat to the detector), the colour changing.
+        var shown: [Int] = []
+        for k in 0..<6 {
+            r.display(try makeHDRFrame(width: 64, height: 64, y: 500, cb: UInt16(400 + 40 * k), pq: false), index: UInt64(k),
+                      arrival: Double(k) * frame)
+            r.waitForInterpolation()
+            _ = try render(r, size: (64, 64), now: Double(k) * frame)
+            shown.append(pixel(try render(r, size: (64, 64), now: Double(k) * frame + refresh), width: 64, x: 32, y: 32).b)
+        }
+        #expect(r.pipeline.interpolation == .unsupported && r.repeatedFrames > 0)
+        #expect(sdr.asked.isEmpty && hdr.asked.isEmpty)
+        #expect(zip(shown, shown.dropFirst()).allSatisfy { $1 > $0 }, "\(shown)") // every frame shown, bluer each time
     }
 
     /// The HDR stream end to end with MetalFX: a 30 fps stream on a 60 Hz screen, a bright bar moving; an in-between
