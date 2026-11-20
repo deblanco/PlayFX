@@ -95,6 +95,29 @@ describe("consoles", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("asks a saved console IP directly in every Connect mode", () =>
+    Effect.forEach(["auto", "local", "internet"] as const, (connection) => {
+      const core = fakeCore({
+        discover: Effect.succeed([]),
+        discoverAt: vi.fn(() => Effect.succeed([{ ...ps5, address: "10.0.1.5" }])),
+      })
+      const { layer } = setup(core, { settings: { ...defaultSettings, connection, consoleAddress: " 10.0.1.5 " } })
+      return Effect.gen(function* () {
+        const result = yield* actions.scan
+        expect(core.service.discoverAt).toHaveBeenCalledWith("10.0.1.5")
+        expect(result.discovered).toEqual([{ ...ps5, address: "10.0.1.5" }])
+      }).pipe(Effect.provide(layer))
+    }))
+
+  it.effect("asks no address directly when none is saved", () => {
+    const core = fakeCore()
+    const { layer } = setup(core)
+    return Effect.gen(function* () {
+      yield* actions.scan
+      expect(core.service.discoverAt).not.toHaveBeenCalled()
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("polls discovery every 5 s and reports failures", () => {
     let fail = false
     const core = fakeCore({

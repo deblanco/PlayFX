@@ -252,6 +252,7 @@ describe("CoreLive", () => {
         set_detailed_logs: Effect.succeed(null),
         open_logs_folder: Effect.succeed(null),
         open_source_code: Effect.succeed(null),
+        open_local_network_settings: Effect.succeed(null),
         diagnostics: Effect.succeed(report),
         app_info: Effect.succeed(info),
       })
@@ -260,6 +261,7 @@ describe("CoreLive", () => {
         yield* core.setDetailedLogs(true)
         yield* core.openLogsFolder
         yield* core.openSourceCode
+        yield* core.openLocalNetworkSettings
         expect(yield* core.diagnostics).toEqual(report)
         expect(yield* core.appInfo).toEqual(info)
         expect(fake.calls[0]).toEqual({ command: "set_detailed_logs", args: { on: true } })

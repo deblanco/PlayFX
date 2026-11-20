@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import type { DiscoveredConsole, PairedConsole, PairedConsoles, Settings } from "@/core/schema"
 import * as actions from "./actions"
+import { AddByIp, NoConsoles } from "./ConsoleHelp"
 import { useDevControl } from "./devControl"
 import { useDevAutoplay } from "./devSeed"
 import { consoleRows, samePaired, type ConsoleRow } from "./format"
@@ -21,13 +22,25 @@ interface ConsoleListProps {
   readonly onPlay: (console: PairedConsole, psnDuid?: string, psnFallback?: string) => void
   /** Whether any console is paired, once the pairings have loaded. */
   readonly onPairedChange?: (paired: boolean) => void
+  /** The saved console IP ("" for none), asked directly on every scan. */
+  readonly consoleAddress: string
+  readonly onConsoleAddressChange: (address: string) => void
 }
 
-export const ConsoleList = ({ accountId, connection = "auto", onPlay, onPairedChange }: ConsoleListProps) => {
+export const ConsoleList = ({
+  accountId,
+  connection = "auto",
+  onPlay,
+  onPairedChange,
+  consoleAddress,
+  onConsoleAddressChange,
+}: ConsoleListProps) => {
   const run = useRun()
   const [discovered, setDiscovered] = useState<readonly DiscoveredConsole[]>([])
   const [paired, setPaired] = useState<PairedConsoles>({})
   const [scanMessage, setScanMessage] = useState("Searching…")
+  // Whether a scan has finished: until then an empty list is just not known yet.
+  const [scanned, setScanned] = useState(false)
   const [pairing, setPairing] = useState<string | null>(null)
   // Play on a console in rest mode wakes it first; this is the one being woken, cancellable.
   const runtime = useRuntime()
@@ -96,14 +109,13 @@ export const ConsoleList = ({ accountId, connection = "auto", onPlay, onPairedCh
     useMemo(
       () =>
         actions.pollDiscovery((outcome) => {
+          setScanned(true)
           if (outcome.ok) {
             setDiscovered(outcome.discovered)
             // Discovery hands a fresh object every scan; keeping the old one when nothing changed stops
             // the PSN poll below from restarting (and asking Sony) every few seconds.
             setPaired((current) => (samePaired(current, outcome.paired) ? current : outcome.paired))
-            setScanMessage(
-              outcome.discovered.length > 0 ? "" : "No consoles found. Check that your PS5 is on or in rest mode, on this Mac's network.",
-            )
+            setScanMessage(outcome.discovered.length > 0 ? "" : "Searching…")
           } else {
             setScanMessage(outcome.message)
           }
@@ -165,6 +177,16 @@ export const ConsoleList = ({ accountId, connection = "auto", onPlay, onPairedCh
           </li>
         ))}
       </ul>
+      {rows.length === 0 ? (
+        <NoConsoles
+          scanned={scanned}
+          address={consoleAddress}
+          onAddressChange={onConsoleAddressChange}
+          onOpenLocalNetwork={() => { run(actions.openLocalNetworkSettings) }}
+        />
+      ) : (
+        <AddByIp address={consoleAddress} onAddressChange={onConsoleAddressChange} />
+      )}
     </section>
   )
 }

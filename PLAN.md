@@ -338,9 +338,10 @@ Work items:
 - ✅ **Rest mode on Stop**: while streaming, Stop asks "Put <console> in rest mode?" (Rest mode / Leave
   it on / Keep playing). Rest mode sends libchiaki's goto-bed (`sleep_console`), waits 1.5 s for it to
   reach the console, then stops. Before the stream connects, Stop stops at once. Unverified on a console.
-- ✅ **Console IP on the home network**: with Connect set to Home network, an optional IP field; each
-  discovery round also asks that address directly (`discover` with `host`, IPs only) and merges what it
-  finds, so a console broadcast discovery can't see still shows up and plays. Unverified on a console.
+- ✅ **Console IP on the home network**: an optional IP field (since 2026-11-20 in the console list, whatever
+  the Connect mode; it used to show for Home network only); each discovery round also asks that address
+  directly (`discover` with `host`, IPs only) and merges what it finds, so a console broadcast discovery can't
+  see still shows up and plays, in Automatic too. Unverified on a console.
 - ✅ **Microphone** (verified on the Mac with the user allowing the prompt: capture starts — 48 kHz mono
   input converted to stereo — the stream stays clean at 60 fps / 0 lost, the amber button and the tag
   after the HUD hides both show, and turning it off stops capture; hearing it on the console needs a
@@ -422,6 +423,20 @@ Work items:
   alone) and tells the user to sign in again and check the Mac is online. Checked by unit tests (App,
   actions, PSNAuth, bridge). **Needs a PS5 and a PS4 to confirm** the menu names as the current firmware
   shows them, and how long the code really lasts.
+- ✅ **"No consoles found" help** (2026-11-20, from the pairing review): while the first scan runs, the empty
+  console list says "Looking for consoles on this network…"; once a scan finished with nothing it shows what
+  to check (the PS5 on, or in rest mode with Stay Connected to the Internet; the same network as the Mac, not
+  a guest Wi-Fi; no VPN; PlayFX allowed on the local network, with **Open Local Network settings**, a new
+  `open_local_network_settings` command that opens System Settings › Privacy & Security › Local Network at a
+  fixed URL) and "Your PS5 on another network or behind a second router? Enter its IP." with the console IP
+  field, whatever the Connect mode. With consoles listed, the field sits folded under the list ("Console
+  missing? Add it by IP"), open when an IP is saved. Every scan now asks a saved IP directly, not only in
+  Home network mode, so a console paired through the IP field plays in Automatic too. Checked by unit tests
+  (App: calm then help, the button, the field saving, the help hiding, playing in Automatic; actions: the IP
+  asked in every mode; Rust: the command through the real ACL, with `open` recorded instead of run in
+  tests). **Needs a Mac to confirm** that the button lands on the Local Network pane on the macOS versions we
+  support (the URL is Apple's, not documented), and a console on another subnet to confirm the IP path in
+  Automatic.
 
 ### Out of scope: other platforms
 
@@ -654,5 +669,6 @@ requests and a bug report.
    chiaki-ng upstream PR (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer
    tuning.
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
-   a PS5 and a PS4); next, a real "No consoles found" state with next steps and the IP field, then the
-   specific pairing failure reasons and the denied Local Network permission (each needs a console session).
+   a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
+   Local Network button needs a look on the Mac); next, the specific pairing failure reasons and the denied
+   Local Network permission (each needs a console session).

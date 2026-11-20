@@ -352,9 +352,17 @@ fn open_logs_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 }
 
 /// `open` (Finder or the browser), reaped in the background so it doesn't linger as a zombie.
+#[cfg(not(test))]
 fn open(target: &str) -> Result<(), String> {
     let mut child = std::process::Command::new("open").arg(target).spawn().map_err(error_text)?;
     std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
+/// Tests record what would be opened instead of opening it.
+#[cfg(test)]
+fn open(target: &str) -> Result<(), String> {
+    tests::OPENED.lock().map_err(error_text)?.push(target.to_string());
     Ok(())
 }
 
@@ -365,6 +373,15 @@ const SOURCE_URL: &str = "https://github.com/deblanco/PlayFX";
 #[tauri::command(async)]
 fn open_source_code() -> Result<(), String> {
     open(SOURCE_URL)
+}
+
+/// System Settings › Privacy & Security › Local Network, where PlayFX is allowed to find consoles.
+const LOCAL_NETWORK_SETTINGS_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork";
+
+/// Opens the Local Network privacy settings, for a user who answered Don't Allow. The URL is fixed here.
+#[tauri::command(async)]
+fn open_local_network_settings() -> Result<(), String> {
+    open(LOCAL_NETWORK_SETTINGS_URL)
 }
 
 /// The commit the app was built from (see build.rs): "e038cd8", "e038cd8+changes", or "unknown".
@@ -462,6 +479,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_detailed_logs,
         open_logs_folder,
         open_source_code,
+        open_local_network_settings,
         diagnostics,
         app_info,
         renderer_status

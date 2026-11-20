@@ -38,6 +38,7 @@
     "allow-set-detailed-logs",
     "allow-open-logs-folder",
     "allow-open-source-code",
+    "allow-open-local-network-settings",
     "allow-diagnostics",
     "allow-app-info",
     "allow-renderer-status"

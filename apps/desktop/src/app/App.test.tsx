@@ -74,11 +74,49 @@ describe("home: discovery", () => {
     expect(core.counts.discover).toBeGreaterThan(0)
   })
 
-  it("says when no consoles are found", async () => {
+  it("stays calm while the first scan runs", async () => {
+    renderApp(fakeCore({ discover: Effect.never }))
+    expect(await screen.findByText("Looking for consoles on this network…")).toBeInTheDocument()
+    expect(screen.queryByText("No consoles found yet")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Console IP address")).not.toBeInTheDocument()
+  })
+
+  it("says what to check once a scan finds nothing, with the console IP whatever the Connect mode", async () => {
     const core = fakeCore()
     core.state.discovered = []
+    const { runtime } = renderApp(core)
+    const help = within(await screen.findByRole("region", { name: "No consoles found yet" }))
+    expect(screen.queryByText("Looking for consoles on this network…")).not.toBeInTheDocument()
+    expect(help.getByText(/in rest mode with Stay Connected to the Internet/)).toBeInTheDocument()
+    expect(help.getByText(/same network as this Mac/)).toBeInTheDocument()
+    expect(help.getByText("Any VPN on this Mac is off.")).toBeInTheDocument()
+    expect(help.getByText("Your PS5 on another network or behind a second router? Enter its IP.")).toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: "Automatic" })).toBeChecked()
+    await userEvent.click(help.getByRole("button", { name: "Open Local Network settings" }))
+    await waitFor(() => {
+      expect(core.counts.openLocalNetworkSettings).toBe(1)
+    })
+    await userEvent.type(help.getByLabelText("Console IP address"), "10.0.1.5{Enter}")
+    await waitFor(async () => {
+      expect((await savedSettings(runtime)).consoleAddress).toBe("10.0.1.5")
+    })
+  })
+
+  it("says where the Local Network settings are when it can't open them", async () => {
+    const core = fakeCore({ openLocalNetworkSettings: Effect.fail(coreError("open_local_network_settings", "denied")) })
+    core.state.discovered = []
     renderApp(core)
-    expect(await screen.findByText("No consoles found. Check that your PS5 is on or in rest mode, on this Mac's network.")).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("button", { name: "Open Local Network settings" }))
+    expect(
+      await screen.findByText("Couldn't open System Settings. Open it yourself, go to Privacy & Security › Local Network and turn on PlayFX."),
+    ).toBeInTheDocument()
+  })
+
+  it("hides the help once a console shows up", async () => {
+    renderApp(fakeCore())
+    await consoleItem()
+    expect(screen.queryByText("No consoles found yet")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Open Local Network settings" })).not.toBeInTheDocument()
   })
 
   it("reports discovery failures but still lists paired consoles as offline", async () => {
@@ -1528,13 +1566,13 @@ describe("settings profiles", () => {
   })
 })
 
-describe("console IP on the home network", () => {
-  it("is offered for Home network only, refuses what isn't an IP, and saves on Enter", async () => {
+describe("console IP", () => {
+  it("is folded under a list with consoles, refuses what isn't an IP, and saves on Enter", async () => {
     const core = fakeCore()
     const { runtime } = renderApp(core, { accountId, paired: [pairedPs5] })
     await consoleItem()
     expect(screen.queryByLabelText("Console IP address")).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole("radio", { name: "Home network" }))
+    await userEvent.click(screen.getByRole("button", { name: "Console missing? Add it by IP" }))
     const field = await screen.findByLabelText("Console IP address")
     await userEvent.type(field, "ps5.local")
     expect(screen.getByText("That isn't an IP address. It looks like 192.168.1.20.")).toBeInTheDocument()
@@ -1547,20 +1585,25 @@ describe("console IP on the home network", () => {
     fireEvent.blur(field) // nothing new to save
   })
 
-  it("keeps the last address typed for next time", async () => {
-    renderApp(fakeCore(), { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "local", consoleAddress: "192.168.1.20" } })
+  it("keeps the last address typed for next time, shown open", async () => {
+    renderApp(fakeCore(), { accountId, paired: [pairedPs5], settings: { ...defaultSettings, consoleAddress: "192.168.1.20" } })
     expect(await screen.findByLabelText("Console IP address")).toHaveValue("192.168.1.20")
   })
 
-  it("asks the console at that address directly, and lists it", async () => {
+  it("asks the console at that address directly, lists it, and plays it in Automatic", async () => {
     const core = fakeCore({
       discover: Effect.succeed([]),
       discoverAt: vi.fn(() => Effect.succeed([{ ...ps5, address: "192.168.1.20" }])),
     })
-    renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "local", consoleAddress: "192.168.1.20" } })
+    renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, consoleAddress: "192.168.1.20" } })
     const item = await consoleItem()
     expect(core.service.discoverAt).toHaveBeenCalledWith("192.168.1.20")
-    expect(await item.findByRole("button", { name: "Play" })).toBeInTheDocument()
+    expect(await item.findByText("ready")).toBeInTheDocument()
+    await userEvent.click(item.getByRole("button", { name: "Play" }))
+    await waitFor(() => {
+      // At the address it answered on, which the pairing now keeps.
+      expect(core.service.startStream).toHaveBeenCalledWith({ ...credentials, address: "192.168.1.20" }, expect.anything(), undefined)
+    })
   })
 
   it("keeps scanning when the direct ask fails", async () => {

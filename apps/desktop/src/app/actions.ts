@@ -1,7 +1,7 @@
 import { Clock, Deferred, Effect, Option, Ref, Schedule, Schema } from "effect"
 import { Core } from "@/core/core"
 import { detailedLogs, setDetailedLogs } from "@/core/logging"
-import { ValidationError, type CoreError, type StorageError } from "@/core/errors"
+import { CoreError, ValidationError, type StorageError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
 import {
   isAccountId,
@@ -194,8 +194,9 @@ export const scan: Effect.Effect<ScanResult, CoreError | StorageError, Core | Pr
   const prefs = yield* Preferences
   const settings = yield* prefs.settings
   const broadcast = yield* core.discover
-  // On the home network with an address typed in, that console is also asked directly.
-  const address = settings.connection === "local" ? settings.consoleAddress.trim() : ""
+  // With an address typed in, that console is also asked directly, whatever the Connect mode: it may be on
+  // another subnet, where broadcasts don't reach, and still be played on the home network.
+  const address = settings.consoleAddress.trim()
   const direct = address === "" ? [] : yield* Effect.orElseSucceed(core.discoverAt(address), () => [])
   const discovered = [...broadcast, ...direct.filter((d) => !broadcast.some((b) => b.hostId === d.hostId))]
   yield* prefs.refreshAddresses(discovered.map(({ hostId, address }) => ({ hostId, address })))
@@ -409,6 +410,19 @@ export const copyDiagnostics = (settings: Settings): Effect.Effect<void, CoreErr
 export const openLogsFolder: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openLogsFolder)
 
 export const openSourceCode: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openSourceCode)
+
+/** Opens the Local Network privacy settings; if it can't, says where they are. */
+export const openLocalNetworkSettings: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) =>
+  core.openLocalNetworkSettings.pipe(
+    Effect.mapError(
+      (error) =>
+        new CoreError({
+          command: error.command,
+          message: "Couldn't open System Settings. Open it yourself, go to Privacy & Security › Local Network and turn on PlayFX.",
+        }),
+    ),
+  ),
+)
 
 /** Loads saved settings and applies the saved picture settings to the renderer. */
 /** The saved settings. Read on their own, so a native failure in `applyStartup` can't leave the UI on the

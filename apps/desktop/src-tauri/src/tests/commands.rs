@@ -417,6 +417,14 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     ok("psn_sign_out", json!({}));
     ok("diagnostics", json!({}));
     assert_eq!(ok("app_info", json!({}))["commit"], json!(COMMIT));
+    ok("open_source_code", json!({}));
+    ok("open_local_network_settings", json!({}));
+    let opened = super::OPENED.lock().expect("opened").clone();
+    assert!(opened.contains(&SOURCE_URL.to_string()), "{opened:?}");
+    assert!(
+        opened.contains(&"x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork".to_string()),
+        "{opened:?}"
+    );
     ok("toggle_fullscreen", json!({}));
     assert_eq!(ok("fullscreen_state", json!({})), json!(false));
 }

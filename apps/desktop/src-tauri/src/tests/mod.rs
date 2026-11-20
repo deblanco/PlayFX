@@ -7,3 +7,6 @@ mod fake;
 #[cfg(target_os = "macos")]
 mod ffi;
 mod native;
+
+/// What the app's `open` would have opened (in Finder, the browser or System Settings), across tests.
+pub static OPENED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
