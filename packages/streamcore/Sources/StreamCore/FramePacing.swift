@@ -453,3 +453,33 @@ struct Playhead {
         return to
     }
 }
+
+/// The pair the interpolation lane has in hand, as the renderer counts it. A pair is marked before it's handed
+/// over: the lane can be done with it (a cut, a size that fails at once) before `submit` has even returned, and
+/// marking it after would leave it counted in hand with nothing there.
+struct LaneHandoff {
+    /// When the lane was handed the pair it is making images for (nil: none in hand).
+    private(set) var since: Double?
+    private var inHand = 0
+
+    /// A pair is about to be handed over, at `arrival`.
+    mutating func handing(at arrival: Double) {
+        inHand += 1
+        if since == nil { since = arrival }
+    }
+
+    /// The lane took the pair or not. True when nothing is in hand any more (one not taken was the last).
+    mutating func handed(taken: Bool, at arrival: Double) -> Bool {
+        guard taken else { return finished() }
+        if inHand > 0 { since = arrival } // taken: the one before it is done
+        return false
+    }
+
+    /// The lane is done with a pair. True when nothing is in hand any more.
+    mutating func finished() -> Bool {
+        inHand -= 1
+        guard inHand == 0 else { return false }
+        since = nil
+        return true
+    }
+}

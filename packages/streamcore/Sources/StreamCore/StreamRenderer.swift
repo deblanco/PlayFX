@@ -128,10 +128,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         /// The screen's fastest recent time between refreshes (see `InBetween.fastest`), for halves or quarters.
         var refreshInterval = 0.0
         /// Where in the stream's time the screen is (see `Playhead`); the last picture up to which every image
-        /// is in the timeline; and when the lane was handed the pair it is making images for (nil: none).
+        /// is in the timeline; and the pair the lane has in hand.
         var playhead = Playhead()
         var populated: Double?
-        var pending: Double?
+        var handoff = LaneHandoff()
         /// Halves or quarters (see `InBetween.steps`), and when the game's last new picture arrived.
         var steps = 2
         var lastPicture = -Double.infinity
@@ -394,7 +394,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 var paired = false
                 defer {
                     p.lastReal = (frame, time)
-                    if !paired, p.pending == nil { p.populated = time }
+                    if !paired, p.handoff.since == nil { p.populated = time }
                 }
                 let width = CVPixelBufferGetWidth(frame), height = CVPixelBufferGetHeight(frame)
                 // Not across a still stretch (a paused game sends repeats for seconds): there's no motion to
@@ -414,6 +414,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 let between = InBetween.images(start: last.time, end: time, steps: steps)
                 guard !between.isEmpty, lane != nil else { return nil }
                 paired = true
+                p.handoff.handing(at: arrival)
                 return (last.frame, between, steps, rungs.size, prepare)
             }
         guard let pair, let lane else { return }
@@ -422,12 +423,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         let taken = lane.submit(previous: pair.previous, current: frame, between: pair.between, steps: pair.steps,
                                 size: pair.size) { [pacing] in
             pacing.withLock { p in
-                p.pending = nil
-                p.populated = p.lastReal?.time
+                if p.handoff.finished() { p.populated = p.lastReal?.time }
             }
         }
         pacing.withLock { p in
-            if taken { p.pending = arrival } else if p.pending == nil { p.populated = p.lastReal?.time }
+            if p.handoff.handed(taken: taken, at: arrival) { p.populated = p.lastReal?.time }
         }
     }
 
@@ -740,7 +740,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         let item = pacing.withLock { p in
             // While images are made between the game's pictures, the playhead waits for them, but not for
             // longer than the delay and a picture's time.
-            let limit = wanted ? Playhead.limit(populated: p.populated, newest: p.lastReal?.time, pendingSince: p.pending,
+            let limit = wanted ? Playhead.limit(populated: p.populated, newest: p.lastReal?.time, pendingSince: p.handoff.since,
                                                 now: now, wait: p.planner.delay + p.sourceInterval,
                                                 step: p.sourceInterval / Double(1 << p.steps)) : nil
             return p.timeline.next(now: p.playhead.advance(now: now, delay: p.planner.delay, limit: limit,

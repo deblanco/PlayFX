@@ -368,6 +368,38 @@ extension StreamRendererTests {
         #expect(Playhead.limit(populated: nil, newest: nil, pendingSince: nil, now: 12, wait: wait, step: step) == nil)
     }
 
+    /// The lane can be done with a pair (a cut, a size that fails at once) before `submit` has returned. Counted
+    /// in hand only after it returned, the pair stayed in hand for good, and the playhead waited on it.
+    @Test func aPairTheLaneFinishesBeforeSubmitReturnsIsNotLeftInHand() {
+        var handoff = LaneHandoff()
+        // Each step: what it returned (nothing left in hand), and when the pair in hand was handed over after it.
+        var steps: [(Bool?, Double?)] = []
+        func step(_ change: (inout LaneHandoff) -> Bool?) { steps.append((change(&handoff), handoff.since)) }
+        step { $0.handing(at: 10); return nil }
+        step { $0.finished() } // on the lane's queue, first
+        step { $0.handed(taken: true, at: 10) } // then back on the decoder's thread
+        #expect(steps.map(\.0) == [nil, true, false])
+        #expect(steps.map(\.1) == [10, nil, nil]) // before: in hand at 10 for good
+        steps = []
+
+        // In order: in hand from its arrival until the lane is done.
+        step { $0.handing(at: 11); return nil }
+        step { $0.handed(taken: true, at: 11) }
+        // The next pair while the lane is busy with it: not taken, the one in hand still counts.
+        step { $0.handing(at: 11.1); return nil }
+        step { $0.handed(taken: false, at: 11.1) }
+        // One the lane is done with between marking the next and handing it over: the next is in hand from then.
+        step { $0.handing(at: 11.2); return nil }
+        step { $0.finished() }
+        step { $0.handed(taken: true, at: 11.2) }
+        step { $0.finished() }
+        // Not taken with nothing else in hand: nothing is.
+        step { $0.handing(at: 12); return nil }
+        step { $0.handed(taken: false, at: 12) }
+        #expect(steps.map(\.0) == [nil, false, nil, false, nil, false, false, true, nil, true])
+        #expect(steps.map(\.1) == [11, 11, 11, 11, 11, 11, 11.2, nil, 12, nil])
+    }
+
     /// What the screen shows over a stretch of a 30 fps game with quarters made, on a 118.8 Hz screen, while
     /// the delay drifts as it does on a real connection (eased up to 1 ms per picture): the images each
     /// refresh shows, as steps of 1/120 s.
