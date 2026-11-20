@@ -52,7 +52,6 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   it), Rust 53 tests (88% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 123/123. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run).
-- Ops: local rest-mode watchdog (`~/.config/psrp/rest-watchdog.sh`), auto-sleep after 2 h idle.
 
 ---
 
@@ -518,7 +517,7 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 ### From PushFPS and Veyra (2026-11-20: built overnight, then a hardware round on the PS5 the same day)
 
 Ideas from PushFPS (frame generation for console capture) and Veyra's Remote Play pull requests, plus two
-requests and a bug report. Plan: `~/.claude/plans/we-must-also-be-fancy-pearl.md`.
+requests and a bug report.
 
 - ✅ **Frame generation from the game's frame rate** (verified on the PS5 with GTA VI, the user: "smoother",
   "latency wise seems better"): the game measured as 30 fps in the 60 fps stream; its repeats aren't

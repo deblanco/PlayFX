@@ -40,6 +40,22 @@ adaptive triggers, touchpad and motion.
 
 See [PLAN.md](PLAN.md) for what's verified on hardware and what's next.
 
+## Install
+
+Download the latest `PlayFX_<version>_aarch64.dmg` from [Releases](https://github.com/deblanco/PlayFX/releases),
+open it and drag PlayFX to Applications. It's signed and notarized, so it opens without warnings. It needs a Mac
+with Apple silicon on macOS 13 or later (frame interpolation and ML upscaling need macOS 26).
+
+The first time:
+
+1. Turn on Remote Play on the console: Settings › System › Remote Play.
+2. With the Mac on the console's home network, open PlayFX, sign in with PlayStation (Sony's own page),
+   pick the console and enter the code from Settings › System › Remote Play › Pair Device.
+3. Press Play. Once paired, it also plays over the internet through PSN.
+
+For real DualSense haptics, connect the pad with a USB cable and, once, set its output to 4 channels
+(Quadraphonic) in Audio MIDI Setup.
+
 ## Video
 
 The console sends at most 1080p, so most of the picture's quality is decided before the Mac gets it.
@@ -193,13 +209,14 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
                         fork's `playfx` branch (see "libchiaki: our fork").
 ```
 
-## Setup
+## Build from source
 
 Requires an Apple silicon Mac, Xcode, [Bun](https://bun.sh), Rust (stable) and Homebrew.
 
 ```sh
-git clone --recursive git@github.com:deblanco/PlayFX.git
+git clone https://github.com/deblanco/PlayFX.git
 cd PlayFX
+git submodule update --init third_party/chiaki-ng
 brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent
 packages/streamcore/scripts/build-chiaki.sh   # once, and after bumping the submodule
 bun install
