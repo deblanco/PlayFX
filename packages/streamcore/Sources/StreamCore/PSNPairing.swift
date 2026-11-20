@@ -109,7 +109,7 @@ public final class PSNPairing: @unchecked Sendable {
     /// What to tell the user when the session ended without registering.
     static func failureMessage(reason: String, error: Bool) -> String {
         if !error {
-            // libchiaki gives up waiting for the console's answer after 10 s and stops without an error.
+            // A clean stop with neither the keys nor a failed registration: rare, as libchiaki waits for it to end.
             return "The PS5 didn't answer through PSN. Check that it's on, or in rest mode with \"Stay connected "
                 + "to the internet\" on, and try again."
         }

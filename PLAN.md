@@ -488,7 +488,13 @@ Work items:
   a new `registered` callback (keys, nickname, MAC, PS5), with a "registering" progress stage; StreamCore's
   `PSNPairing` runs it, treats a quit without the keys as a failure with a next step (a refused registration
   apart from no answer: fork commit "Session: keep a failed PSN registration's quit reason", as libchiaki
-  turned every failed PSN registration into a clean stop), and cancels it (while the PSN token is fetched too);
+  turned every failed PSN registration into a clean stop), and cancels it (while the PSN token is fetched too;
+  a Cancel during the registration used to hang the pairing for good, as did a PS5 slower than libchiaki's 10 s
+  wait and, by a race, a success: libchiaki joined its registration thread while holding the state mutex that
+  thread's last callback takes. Fork commit "Session: don't hold the state mutex while waiting for the PSN
+  registration to end", with a loopback test that deadlocked before it; internet sessions stopped while
+  registering hung the same way. A Cancel there now ends when the registration does, within about 12 s, as a
+  stop doesn't interrupt its RUDP steps);
   `sc_psn_pair` / `sc_psn_pair_cancel`, the Tauri commands `pair_psn` / `cancel_psn_pair` (the PSN token stays
   native), and `Core.pairPsn` (progress from "psnPairProgress" stream events; interrupting it cancels). In the
   UI, after the PSN sign-in, the account's unpaired PS5s get "Pair (no code needed)": on the row of the console
