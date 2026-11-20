@@ -26,6 +26,7 @@ private func keepAwake(_ on: Bool) {
 private var input: ControllerInput?
 private var rumble: Rumble?
 private var triggers: AdaptiveTriggers?
+private var light: PadLight?
 /// Watches the Mac's network while a session runs; a change becomes a "network" event for the host.
 private var networkWatch: NetworkWatch?
 private var eventCallback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
@@ -146,9 +147,19 @@ public func sc_shown_fps() -> Double {
 
 /// Frame pacing: in-between images presented per second, frames and in-between images never shown (a
 /// later one was due first, or the lane was busy), and how far behind the stream clock images show (ms).
+/// Also what the optional picture steps are doing and why an idle one is idle (`PipelineState`), with the
+/// screen's refresh rate and the stream's frame rate.
 @_cdecl("sc_pacing_stats")
 public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
-    json([
+    let pipeline = renderer?.pipeline ?? PipelineState()
+    let stats: [String: Any] = [
+        "interpolation": pipeline.interpolation.rawValue,
+        "upscale": pipeline.upscale.rawValue,
+        "ml": pipeline.ml.rawValue,
+        "displayHz": pipeline.displayHz,
+        "streamFps": pipeline.streamFps,
+        "gameFps": pipeline.gameFps,
+        "repeatedFrames": renderer?.repeatedFrames ?? 0,
         "generatedFps": renderer?.generatedFramesPerSecond ?? 0,
         "skippedFrames": renderer?.skippedFrames ?? 0,
         "skippedInterpolations": renderer?.skippedInterpolations ?? 0,
@@ -157,7 +168,8 @@ public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
         "costMs": renderer?.pacingParts.costMs ?? 0,
         "clockRestarts": renderer?.pacingParts.restarts ?? 0,
         "size": renderer?.interpolationSize.map { "\($0.width)x\($0.height)" } ?? "",
-    ])
+    ]
+    return json(stats)
 }
 
 /// AirDrop and Handoff's peer-to-peer Wi-Fi (AWDL): {"state": "absent" | "active" | "off" | "paused"}.
@@ -318,6 +330,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         s.onFrame = { frame, index in renderer?.display(frame, index: index) }
         let haptics = Rumble()
         let adaptive = AdaptiveTriggers()
+        let padLight = PadLight()
         let number = reporting.withLock { state in
             state.last += 1
             state.current = state.last
@@ -327,6 +340,8 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
             if case .rumble(let left, let right) = event { haptics.apply(left: left, right: right) }
             if case .hapticRumble(let left, let right) = event { haptics.applyHaptics(left: left, right: right) }
             if case .triggerEffects(let left, let right) = event { adaptive.apply(left: left, right: right) }
+            if case .light(let red, let green, let blue) = event { padLight.setColor(red: red, green: green, blue: blue) }
+            if case .playerIndex(let index) = event { padLight.setPlayer(index) }
             if let payload = eventPayload(event), reporting.withLock({ $0.current == number }) { emit(payload) }
             // Clean up after a quit, unless the host has already moved on to another session. The last
             // frame stays up: the host may reconnect (busy console, dropped stream) or go home.
@@ -342,6 +357,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
         input = i
         rumble = haptics
         triggers = adaptive
+        light = padLight
         networkWatch = NetworkWatch { change in emit(networkPayload(change)) }
         // The backdrop keeps moving until the first frame arrives (connecting can take a while).
         keepAwake(true)
@@ -358,7 +374,7 @@ func eventPayload(_ event: StreamSession.Event) -> [String: Any]? {
     case .loginPinRequested(let incorrect): return ["type": "loginPin", "incorrect": incorrect]
     case .nickname(let name): return ["type": "nickname", "name": name]
     case .keyboard(let change, let text): return ["type": "keyboard", "change": change.rawValue, "text": text]
-    case .rumble, .hapticRumble, .triggerEffects: return nil
+    case .rumble, .hapticRumble, .triggerEffects, .light, .playerIndex: return nil
     }
 }
 
@@ -413,6 +429,21 @@ public func sc_session_sleep() {
     session?.sleepConsole()
 }
 
+/// The latency test (dev tool, see LatencyTest.swift): presses PS `trials` times and times the picture's
+/// answer. Blocks for a few seconds per trial: never on the main thread. {"error"} without a session.
+@_cdecl("sc_latency_test")
+public func sc_latency_test(_ trials: Int32) -> UnsafeMutablePointer<CChar> {
+    guard let session else { return failure("No stream to test") }
+    let data = session.latencyTest(trials: Int(min(max(trials, 1), 20)), displayMs: renderer?.displayMilliseconds ?? 0)
+    return strdup(String(decoding: data, as: UTF8.self))
+}
+
+/// Asks the console for a keyframe (the picture stopped arriving whole). No-op without a session.
+@_cdecl("sc_session_request_keyframe")
+public func sc_session_request_keyframe() {
+    session?.requestKeyframe()
+}
+
 @_cdecl("sc_session_stop")
 public func sc_session_stop() {
     endSession(idle: true)
@@ -434,6 +465,8 @@ private func endSession(idle: Bool) {
     rumble = nil
     triggers?.reset()
     triggers = nil
+    light?.reset()
+    light = nil
     networkWatch = nil
     keepAwake(false)
     if idle { renderer?.showsTestPattern = true }
@@ -501,6 +534,7 @@ public func sc_session_stats() -> UnsafeMutablePointer<CChar> {
     let s = session.stats
     return json(["active": true, "framesDecoded": s.framesDecoded, "decodeErrors": s.decodeErrors,
                  "framesLost": s.framesLost, "width": s.width, "height": s.height,
-                 "bytesReceived": s.bytesReceived, "rttMs": s.rttMs, "decodeMs": s.decodeMs])
+                 "bytesReceived": s.bytesReceived, "rttMs": s.rttMs, "decodeMs": s.decodeMs,
+                 "targetBitrateKbps": s.targetBitrateKbps])
 }
 #endif

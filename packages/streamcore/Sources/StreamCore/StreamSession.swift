@@ -76,6 +76,10 @@ public final class StreamSession {
         case hapticRumble(left: UInt8, right: UInt8)
         /// DualSense adaptive-trigger effects for the left (L2) and right (R2) triggers.
         case triggerEffects(left: TriggerEffect, right: TriggerEffect)
+        /// The DualSense light bar colour the game asks for.
+        case light(red: UInt8, green: UInt8, blue: UInt8)
+        /// The pad's player number as the console counts it (0 = player 1).
+        case playerIndex(Int)
         case nickname(String)
         /// The console's text keyboard: a field was focused (with its text), its text changed, or the
         /// console closed it.
@@ -96,6 +100,8 @@ public final class StreamSession {
         public var bytesReceived = 0
         /// Round trip to the console, measured while connecting (0 until then).
         public var rttMs = 0.0
+        /// The bitrate the console's encoder aims for now (kbps; 0 until it reports one).
+        public var targetBitrateKbps = 0
         /// VideoToolbox decode time per frame, smoothed.
         public var decodeMs = 0.0
     }
@@ -146,20 +152,49 @@ public final class StreamSession {
         init(_ call: @escaping (CVPixelBuffer, UInt64?) -> Void) { self.call = call }
     }
     private let frameHandler = OSAllocatedUnfairLock<FrameHandler?>(initialState: nil)
+    /// Each compressed frame as it reaches the decoder: its place in the stream and its size in bytes (for
+    /// measuring, e.g. how small the console's repeats of a picture are). Set like `onFrame`.
+    public var onVideoSample: ((UInt64, Int) -> Void)? {
+        get { sampleHandler.withLock { $0?.call } }
+        set { sampleHandler.withLock { $0 = newValue.map(SampleHandler.init) } }
+    }
+    private final class SampleHandler: @unchecked Sendable {
+        let call: (UInt64, Int) -> Void
+        init(_ call: @escaping (UInt64, Int) -> Void) { self.call = call }
+    }
+    private let sampleHandler = OSAllocatedUnfairLock<SampleHandler?>(initialState: nil)
     /// The index of the last frame handed to the decoder.
     private var frameIndex: UInt64 = 0
 
     public var stats: Stats {
         var s = lock.withLock { _stats }
-        if let handle { s.rttMs = Double(psrp_session_rtt_us(handle)) / 1000 }
+        withHandle { handle in
+            s.rttMs = Double(psrp_session_rtt_us(handle)) / 1000
+            s.targetBitrateKbps = Int(psrp_session_target_bitrate(handle) / 1000)
+        }
         s.decodeMs = decoder.decodeMilliseconds
         return s
     }
     public var latestFrame: CVPixelBuffer? { lock.withLock { _latestFrame } }
+    /// The newest decoded frame with how many came so far: the count tells frames apart (the decoder's
+    /// buffers are reused, so the buffer doesn't).
+    public var latestNumberedFrame: (frame: CVPixelBuffer, number: Int)? {
+        lock.withLock { _latestFrame.map { ($0, _stats.framesDecoded) } }
+    }
     /// Waits for the frames VideoToolbox is still decoding (tests).
     func waitForDecodedFrames() { decoder.flush() }
 
     private var handle: OpaquePointer?
+    /// Held while the handle is used, and by `stop()` while it frees it: callers off the main thread (the
+    /// latency test's presses, a stats poll) can't use a session being stopped.
+    private let handleLock = NSRecursiveLock()
+
+    /// Runs `body` with the session's handle unless it was stopped.
+    private func withHandle(_ body: (OpaquePointer) -> Void) {
+        handleLock.lock()
+        defer { handleLock.unlock() }
+        if let handle { body(handle) }
+    }
     private let decoder: VideoDecoder
     private let audio: AudioPlayer?
     /// The DualSense haptics stream played on a pad connected by USB (otherwise it becomes rumble).
@@ -285,10 +320,10 @@ public final class StreamSession {
 
     private func send(_ s: ControllerState) {
         var state = s.psrp
-        psrp_session_set_controller_state(handle, &state)
+        withHandle { psrp_session_set_controller_state($0, &state) }
     }
 
-    public func setLoginPin(_ pin: String) { psrp_session_set_login_pin(handle, pin) }
+    public func setLoginPin(_ pin: String) { withHandle { psrp_session_set_login_pin($0, pin) } }
     /// Where and how loud the sound plays (also kept in AudioOutput.current for later sessions).
     public func applyAudioOutput(_ output: AudioOutput) { audio?.apply(output) }
 
@@ -312,18 +347,20 @@ public final class StreamSession {
         }
     }
     /// Replaces the text of the console's focused field, then `finishKeyboard` sends (true) or cancels it.
-    public func setKeyboardText(_ text: String) { psrp_session_keyboard_set_text(handle, text) }
-    public func finishKeyboard(accept: Bool) { psrp_session_keyboard_done(handle, accept) }
-    public func requestKeyframe() { psrp_session_request_idr(handle) }
-    public func sleepConsole() { psrp_session_goto_bed(handle) }
+    public func setKeyboardText(_ text: String) { withHandle { psrp_session_keyboard_set_text($0, text) } }
+    public func finishKeyboard(accept: Bool) { withHandle { psrp_session_keyboard_done($0, accept) } }
+    public func requestKeyframe() { withHandle { psrp_session_request_idr($0) } }
+    public func sleepConsole() { withHandle { psrp_session_goto_bed($0) } }
 
     /// Stops the stream and waits for libchiaki's threads to finish.
     public func stop() {
-        guard let handle else { return }
+        handleLock.lock()
+        guard let handle else { handleLock.unlock(); return }
         microphone?.stop() // no more frames into the session we're about to free
         microphone = nil
         self.handle = nil
         psrp_session_stop(handle)
+        handleLock.unlock()
         decoder.flush() // no frame comes out after the session stopped
         audio?.stop()
         padHaptics.stop()
@@ -348,6 +385,7 @@ public final class StreamSession {
             frameIndex += 1 + UInt64(max(0, framesLost))
             return frameIndex
         }
+        sampleHandler.withLock { $0 }?.call(index, bytes)
         let ok = decoder.decode(data, index: index)
         if !ok { lock.withLock { _stats.decodeErrors += 1 } }
         return ok
@@ -376,6 +414,10 @@ extension StreamSession.Event {
         case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
         case PSRP_EVENT_HAPTIC_RUMBLE.rawValue: self = .hapticRumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
         case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)
+        case PSRP_EVENT_LIGHT.rawValue:
+            self = .light(red: UInt8(truncatingIfNeeded: a >> 16), green: UInt8(truncatingIfNeeded: a >> 8),
+                          blue: UInt8(truncatingIfNeeded: a))
+        case PSRP_EVENT_PLAYER_INDEX.rawValue: self = .playerIndex(Int(a))
         case PSRP_EVENT_KEYBOARD.rawValue:
             let change: StreamSession.KeyboardChange = switch UInt32(a) {
             case PSRP_KEYBOARD_OPEN.rawValue: .open
@@ -392,4 +434,10 @@ extension StreamSession.Event {
         default: return nil
         }
     }
+}
+
+extension StreamSession {
+    /// How much decoded frame `b`'s picture changed from `a`'s, the measure `RepeatDetector` decides on,
+    /// for tools measuring a stream; nil for frames of different sizes.
+    public static func pictureDifference(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Double? { InterpolationLane.difference(a, b) }
 }

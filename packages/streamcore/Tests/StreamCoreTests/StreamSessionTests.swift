@@ -29,6 +29,8 @@ import Testing
         guard case .rumble(255, 0) = event(PSRP_EVENT_RUMBLE, 300, -5) else { Issue.record("rumble"); return }
         guard case .hapticRumble(40, 7) = event(PSRP_EVENT_HAPTIC_RUMBLE, 40, 7) else { Issue.record("haptic rumble"); return }
         guard case .nickname("PS5-1") = event(PSRP_EVENT_NICKNAME, 0, 0, "PS5-1") else { Issue.record("nickname"); return }
+        guard case .light(0x12, 0x34, 0xff) = event(PSRP_EVENT_LIGHT, 0x1234ff) else { Issue.record("light"); return }
+        guard case .playerIndex(1) = event(PSRP_EVENT_PLAYER_INDEX, 1) else { Issue.record("player"); return }
         #expect(Event(type: 99, a: 0, b: 0, message: "") == nil)
     }
 
@@ -43,7 +45,7 @@ import Testing
         #expect(!full.autoDowngrade && full.height == 1080 && full.bitrate == 0)
         let stats = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StreamSession.Stats())) as? [String: Int]
         #expect(stats == ["framesDecoded": 0, "decodeErrors": 0, "framesLost": 0, "width": 0, "height": 0, "bytesReceived": 0,
-                          "rttMs": 0, "decodeMs": 0])
+                          "rttMs": 0, "decodeMs": 0, "targetBitrateKbps": 0])
     }
 }
 
@@ -144,6 +146,9 @@ extension Serial {
             defer { session.stop() }
             let frames = OSAllocatedUnfairLock(initialState: 0)
             session.onFrame = { _, _ in frames.withLock { $0 += 1 } }
+            let samples = OSAllocatedUnfairLock(initialState: [(index: UInt64, bytes: Int)]())
+            session.onVideoSample = { index, bytes in samples.withLock { $0.append((index, bytes)) } }
+            #expect(session.onVideoSample != nil)
 
             let encoded = try encodeFrames(codec: kCMVideoCodecType_H264, count: 3)
             for (i, f) in encoded.enumerated() {
@@ -157,6 +162,12 @@ extension Serial {
             #expect(stats.width == 320 && stats.height == 240)
             #expect(stats.bytesReceived == encoded.reduce(6) { $0 + $1.annexB.count })
             #expect(session.latestFrame.map(CVPixelBufferGetWidth) == 320)
+            // Each sample with its place (counting the 2 lost) and its size.
+            let seen = samples.withLock { $0 }
+            #expect(seen.map(\.index) == [1, 4, 5, 6])
+            #expect(seen.first?.bytes == encoded.first?.annexB.count)
+            session.onVideoSample = nil
+            #expect(session.onVideoSample == nil)
         }
     }
 }

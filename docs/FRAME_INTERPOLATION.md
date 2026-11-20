@@ -1,8 +1,10 @@
 # Frame interpolation
 
-Frame interpolation makes an image between each pair of stream frames, so a 30 fps stream reaches a 60 Hz
-screen as 60 images a second (or a 60 fps stream a 120 Hz one). The feature was called "Smooth motion"
-until November 2026. This document covers:
+Frame interpolation makes images between the game's pictures, one for each screen refresh between two of
+them, so the screen shows as many different images as it refreshes: a 30 fps game at 60 on a 60 Hz screen
+and at 120 on a 120 Hz one, a 60 fps game at 75 on a 75 Hz screen. It works from the *game's* frame rate,
+not the stream's: a 30 fps game in a 60 fps stream arrives with every picture twice, and those repeats are
+left out first. The feature was called "Smooth motion" until November 2026. This document covers:
 
 - how it works,
 - why it is built this way,
@@ -25,6 +27,8 @@ stats.
   free for MetalFX upscaling. When the stream's own size is too slow, it works at 1280×720 or 960×544.
 - **Still areas are blended back from the real frames.** Scene cuts get no in-between image. An empty
   result is never shown.
+- **Repeats are left out, and the game's rate measured** (2026-11-20; see "The game's frame rate" below).
+  Images are planned per screen refresh, at the points VideoToolbox offers (½, or ¼ ½ ¾).
 - **What reaches the screen is counted** from the drawable's presented callback, not from what was
   submitted.
 
@@ -129,14 +133,94 @@ The delay is:
   (over 60 images).
 
 It moves at most +1 ms or −0.25 ms per frame, so turning interpolation on or off, or a change in size,
-never steps the motion. The app shows it as "pacing delay" (`sc_pacing_stats` → `delayMs`).
+never steps the motion. `sc_pacing_stats` reports it as `delayMs` (the app doesn't show it; the dev control
+port's `/status` does).
+
+With quarters (below) the earliest image is a quarter of the way along, so the delay covers three quarters
+of the game's interval instead of half (`DelayPlanner.update(lead:)`).
 
 ### When interpolation runs
 
-It runs when the setting is on, the Mac supports it, and the screen refreshes at least 1.8× as often as
-the stream sends frames (`FrameInterpolator.helps`): 30 fps on 60 Hz, or 60 fps on 120 Hz. Otherwise every
-image would just be replaced before it is shown. Interpolation is not available in virtual machines
-(`kern.hv_vmm_present`), where VideoToolbox claims support and then crashes or writes nothing.
+It runs when the setting is on, the Mac supports it, and the screen refreshes at least 1.2× as often as the
+game makes pictures (`FrameInterpolator.helps`, `minimumRatio`): a 30 fps game on 60 Hz, a 60 fps game on
+75 or 120 Hz. On a 60 Hz screen a 60 fps game gets none: no refresh is left over. Until 2026-11-20 the rule
+was 1.8× the *stream's* rate, so a 30 fps game in a 60 fps stream never got images on a 60 Hz screen.
+Interpolation is not available in virtual machines (`kern.hv_vmm_present`), where VideoToolbox claims
+support and then crashes or writes nothing.
+
+`sc_pacing_stats` says what it's doing (`interpolation`: `off`, `on`, `unsupported`, `screen`), with the
+screen's measured rate (`displayHz`) and the rate it works from (`streamFps`, the game's once measured), so
+the stats line can say "no interpolation: 60 fps on a 60 Hz screen" instead of nothing.
+
+### The game's frame rate (repeats)
+
+A game slower than the stream reaches the Mac with each picture repeated (30 fps in 60: every picture twice;
+40 fps: 1, 2, 1, 2 times). The console keeps sending frames even for a still picture.
+
+- **Repeats** (`RepeatDetector`): the console doesn't send a repeat as an exact copy. It spends a few KB
+  refining the same picture, so the decoded repeat differs a little everywhere and up to ~60 levels at a few
+  pixels. Measured on a PS5 (GTA VI, 30 fps in a 1080p60 HEVC stream): a repeat's mean luma change from the
+  frame before is 0.02–0.4, a new picture's 0.6–8. So each frame's mean change is measured (every 4th pixel,
+  each sampled row one column further on, so an edge moving 2 px can't hide between samples; about 0.6 ms at
+  1080p even in a debug build) and a frame is a repeat when it changed by less than half as much as the last
+  new picture. That reference halves with each repeat, so a camera that stops costs a frame or two, not more;
+  no change at all is always a repeat. It runs on the decoder's output thread: a slow check there holds up
+  the next decode, and with it the receiving of packets (a first version at 26 ms per frame dropped two
+  thirds of the stream).
+- **Only left out while interpolating.** With interpolation off a repeat is shown as before, so a wrong call
+  can't cost anything there. Repeats are counted either way (`repeatedFrames`).
+- **The game's rate** (`ContentRate`): the mean gap between its last 12 pictures on the stream clock. A
+  median would say 30 or 60 for 40 fps's 1/2/1/2 rhythm; the mean says 40. `gameFps` in the stats.
+- **Even times** (`CadenceClock`, while interpolating): the pictures reach the stream on its 60 fps grid
+  (40 fps arrives 16.7 and 33.3 ms apart), so they are put on an even grid at the game's rate, never earlier
+  than their own time, starting over when the cadence breaks.
+- **Not across a still stretch**: a pair more than 4.5 stream intervals apart (a paused game) gets no images,
+  and the game's rate starts over after it (the pause isn't its rate). While the game holds its picture,
+  `interpolation` says `still` instead of `on`, so the stats line doesn't flag "+0 generated".
+
+### The images, and the playhead that shows them
+
+VideoToolbox doesn't take any phase. With `numberOfInterpolatedFrames` n it offers 2ⁿ − 1 evenly spaced
+points (the SDK header: n = 1 gives ½, n = 2 gives ¼, ½, ¾), and more points cost latency. So:
+
+- up to about two refreshes per game picture (30 on 60 Hz, 60 on 75 or 120 Hz): halves, one image;
+- more (30 on 75 or 120 Hz): quarters, three images;
+- each change rebuilds VideoToolbox's session, so it has hysteresis: quarters are taken from 2.3× and kept
+  down to 2.1×; and the screen's rate is its fastest recent one (`InBetween.fastest`), since a ProMotion
+  screen dips to 60 Hz for moments and would otherwise flip the choice.
+
+`InBetween.images` makes every point, each stamped with its own moment between the two pictures. Which
+refresh shows which image isn't predicted any more (the first version guessed the refreshes from the last
+draw time and the delay, and every change of the delay or wobble of the draw callback landed images on the
+wrong refresh: one shown twice, the next skipped).
+
+That's the playhead's job (`Playhead`). Each refresh shows the newest image at or before it. It follows
+`now − delay`, but as a moving point with a speed: the speed may leave 1 by at most 8%, so a change of the
+delay runs the motion slightly slower or faster for a moment instead of holding a picture and then jumping;
+one refresh moves it by the screen's steady period, not the draw callback's wobbly one; and it never passes
+the first moment whose images aren't made yet, so a late picture is waited for just before the gap and then
+caught up through every image. It's what a voice call does with late sound (play out a little slower or
+faster); the generated images are what make it possible for video, since they give moments close enough
+together to pass through at a changed speed.
+
+Measured on the same recorded GTA session replayed through both: refreshes with no new image 19.4/s → 8.6/s
+(about 8/s is the floor there: the game's picture came late), jumps of more than 1.5 refreshes 17.1/s →
+8.4/s, at the same latency.
+
+All of a pair's images come from one VideoToolbox call and one command buffer; the pair's cost is observed
+once.
+
+### Pacing trace
+
+`STREAMCORE_PACING_TRACE=<file>` (environment, e.g. before `bun run desktop`) writes one line per event, times
+in seconds on the host clock:
+
+- `F index arrival time restarted delay interpolating repeat steps jitter cost`: each stream frame;
+- `I readyAt time cost width delay`: each image the lane made, and the stream time it's for;
+- `R now shownTime generated refreshInterval`: each refresh, and what it showed (`- -`: nothing new).
+
+The `R` lines give what the screen actually did: refreshes with no new image (holds), how far the shown
+moment moved per refresh (jumps), and the shown moment against a smooth line (judder).
 
 ### The lane (`InterpolationLane.swift`)
 
@@ -210,8 +294,10 @@ real time switches back.
 The app reads the counts through:
 
 - `sc_shown_fps`, for images shown per second,
-- `sc_pacing_stats`, for `generatedFps`, `skippedFrames`, `skippedInterpolations` and `delayMs`,
-- `sc_interpolation_status`.
+- `sc_pacing_stats`, for `generatedFps`, `skippedFrames`, `skippedInterpolations` and `delayMs`, what the
+  optional steps are doing (`interpolation`, `upscale`, `ml`), `displayHz`, `streamFps`, `gameFps` and
+  `repeatedFrames`,
+- `sc_smooth_supported` / `sc_smooth_active`.
 
 ## Measurements
 
@@ -314,8 +400,9 @@ ffmpeg -i source.mov -t 4 \
   -c:v hevc_videotoolbox -b:v 40M -tag:v hvc1 pan.mov
 ```
 
-In the app, the stats overlay shows shown fps, in-between images per second, skipped frames and the pacing
-delay. The dev control port (`docs/dev-control.md`) reads the same numbers from a script.
+In the app, the stats line shows the game's and the stream's rate when they differ, images shown, images
+generated per second (with the ones missed), skipped frames, and why a step that's on is idle. The dev
+control port (`docs/dev-control.md`) reads the same numbers, and the pacing delay, from a script.
 
 Unit tests (`swift test`) cover:
 

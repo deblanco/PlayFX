@@ -7,6 +7,9 @@ import VideoToolbox
 /// before the rest of the pipeline. It only takes inputs up to 1280 px per side and offers 1.5×/2×,
 /// so it helps 720p and lower streams; anything else passes through untouched.
 final class MLSuperResolution {
+    /// The largest frame side the model takes.
+    static let maxInputSide = 1280
+
     /// Whether this OS and Mac can run it at all.
     static var isAvailable: Bool {
         // Not in a virtual machine: VideoToolbox reports it supported there, but it never runs.
@@ -30,6 +33,9 @@ final class MLSuperResolution {
     private var timestamp: Int64 = 0
 
     deinit { end() }
+
+    /// Whether the model refused frames of this size before (it never runs on them).
+    func refuses(width: Int, height: Int) -> Bool { unsupported.contains("\(width)x\(height)") }
 
     /// Encodes `frame` upscaled into a new NV12 buffer in `cb`; nil when it can't run for this frame
     /// size and screen (the caller then uses `frame` as is).

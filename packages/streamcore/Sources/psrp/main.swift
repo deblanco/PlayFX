@@ -15,10 +15,15 @@ import StreamCore
 //   psrp psn-consoles                       list the PS5s on the PSN account (after account-id)
 //   psrp wake [--host IP]
 //   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--hdr] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--psn] [--port 7777]
+//               [--frame-log FILE]
 //        --psn connects over the internet through PSN (PS5; run `psrp account-id` first)
+//        --frame-log writes a line per frame: "sample INDEX BYTES MS" as it reaches the decoder, then
+//          "frame INDEX REPEAT CHANGE MS" once decoded (REPEAT 1: the same picture as the frame before; CHANGE:
+//          its mean luma change from it; MS: milliseconds since the start), to see
+//          whether a game slower than the stream comes as repeats and how small they are
 //        control API on http://127.0.0.1:PORT
 //          /status  /snapshot.png  /press?buttons=cross,up&ms=120  /stick?lx=0&ly=-32767&ms=300
-//          /hold?buttons=r2  /release  /keyframe  /sleep  /quit  /type?text=hi&done=accept (console keyboard)  /frameinfo (latest frame's colorimetry)
+//          /hold?buttons=r2  /release  /keyframe  /latency-test?trials=5  /sleep  /quit  /type?text=hi&done=accept (console keyboard)  /frameinfo (latest frame's colorimetry)
 //          /render.png?mode=metalfx|bilinear|compare&sharpness=0.3&deblock=0&deband=0&chroma=bicubic&w=3840&h=2160   latest frame, on the GPU
 //                       (compare = left baseline, right MetalFX + sharpness; bilinear defaults to sharpness 0)
 //          /grid.png?vary=sharpness&values=0,0.3,1&crop=2400,500,600,600   one frame, one tile per value
@@ -209,6 +214,29 @@ func parseButtons(_ list: String?) throws -> ControllerState {
     return s
 }
 
+/// `--frame-log`: each frame's compressed size, and whether it decoded to the same picture as the one before.
+func logFrames(_ session: StreamSession, to path: String) throws {
+    guard FileManager.default.createFile(atPath: path, contents: nil), let file = FileHandle(forWritingAtPath: path) else {
+        throw fail("Can't write \(path)")
+    }
+    let queue = DispatchQueue(label: "psrp.frame-log")
+    let start = DispatchTime.now().uptimeNanoseconds
+    func write(_ line: String) {
+        let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        queue.async { file.write(Data(String(format: "%@ %.2f\n", line, ms).utf8)) }
+    }
+    session.onVideoSample = { index, bytes in write("sample \(index) \(bytes)") }
+    let last = OSAllocatedUnfairLock<CVPixelBuffer?>(initialState: nil)
+    let repeats = OSAllocatedUnfairLock(initialState: RepeatDetector())
+    session.onFrame = { frame, index in
+        let before = last.withLock { previous in defer { previous = frame }; return previous }
+        let difference = before.flatMap { StreamSession.pictureDifference($0, frame) }
+        let repeated = difference.map { d in repeats.withLock { $0.isRepeat(difference: d) } } ?? false
+        write(String(format: "frame %@ %d %.3f", index.map(String.init) ?? "-", repeated ? 1 : 0, difference ?? 0))
+    }
+    log("Frame log: \(path)")
+}
+
 func stream(_ console: ConsoleCredentials, _ args: Args) throws {
     var options = StreamSession.Options()
     options.height = Int(args["height"] ?? "") ?? 1080
@@ -243,6 +271,8 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         case .rumble(let l, let r), .hapticRumble(let l, let r):
             ctl.queue.async { ctl.rumbles += 1; ctl.lastRumble = [Int(l), Int(r)] }; return
         case .triggerEffects: return
+        case .light(let red, let green, let blue): text = String(format: "light bar #%02x%02x%02x", red, green, blue)
+        case .playerIndex(let index): text = "player \(index + 1)"
         case .nickname(let n): text = "nickname: \(n)"
         case .remoteProgress(let stage): text = "over the internet: \(stage.rawValue)"
         case .keyboard(let change, let field): text = "keyboard \(change.rawValue): \"\(field)\""
@@ -251,6 +281,8 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         ctl.queue.async { ctl.events.append(text) }
         if case .quit = event { exit(0) }
     }
+
+    if let path = args["frame-log"] { try logFrames(session, to: path) }
 
     let port = UInt16(args["port"] ?? "") ?? 7777
     try serve(port: port) { handle(path: $0, query: $1, ctl) }
@@ -412,6 +444,11 @@ func handle(path: String, query: [String: String], _ ctl: Controller) -> (Int, S
         case "/keyframe":
             ctl.session.requestKeyframe()
             return ok()
+        case "/latency-test":
+            // Times Right/Left in the control centre (see LatencyTest.swift); blocks for about a second per trial.
+            let trials = min(max(Int(query["trials"] ?? "") ?? 5, 1), 20)
+            log("[latency] \(trials) trials…")
+            return (200, "application/json", ctl.session.latencyTest(trials: trials, displayMs: 0))
         case "/type":
             // /type?text=hello&done=accept|reject — types into the console's open text field.
             if let text = query["text"] { ctl.session.setKeyboardText(text) }

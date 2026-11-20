@@ -15,7 +15,8 @@ import VideoToolbox
 /// in tests (CI's virtual machines have none), so the lane's own work (cuts, scaling, blending, empty-image
 /// checks, busy pairs) is tested everywhere.
 protocol MiddleFrameMaker: AnyObject {
-    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer?
+    /// The images at `phases` between the two frames (points of `steps`: see `FrameInterpolator.encode`).
+    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]?
     /// Gets ready for this size (building VideoToolbox's model), so the first pair doesn't wait for it.
     func prepare(width: Int, height: Int)
 }
@@ -37,6 +38,8 @@ final class InterpolationLane {
         /// One of the first images at its size: the cost includes building that size's model, so it
         /// says nothing about the size's steady cost.
         let warmingUp: Bool
+        /// The pair's last image: its cost is the pair's (observe it once).
+        let last: Bool
     }
 
     /// Called on the lane's queue with each image made.
@@ -88,9 +91,13 @@ final class InterpolationLane {
         CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache)
     }
 
-    /// Queues the pair (previous, current); false when the lane is still busy with the last one.
+    /// Queues the pair (previous, current) for the images `between` it (each at its phase, shown at its
+    /// time; see `InBetween`); false when the lane is still busy with the last one. `done` is called on the
+    /// lane's queue when the pair is over, with its images or without (a cut, a failure), before the lane
+    /// takes another.
     @discardableResult
-    func submit(previous: CVPixelBuffer, current: CVPixelBuffer, time: Double, size: (width: Int, height: Int)) -> Bool {
+    func submit(previous: CVPixelBuffer, current: CVPixelBuffer, between: [InBetween.Image], steps: Int,
+                size: (width: Int, height: Int), done: (() -> Void)? = nil) -> Bool {
         let free = state.withLock { state in
             guard !state.busy else { state.busyPairs += 1; return false }
             state.busy = true
@@ -99,12 +106,16 @@ final class InterpolationLane {
         guard free else { return false }
         let started = CACurrentMediaTime()
         queue.async { [self] in
-            defer { state.withLock { $0.busy = false } }
+            defer {
+                done?()
+                state.withLock { $0.busy = false }
+            }
             let t0 = CACurrentMediaTime()
             if Self.isCut(previous, current) { state.withLock { $0.cutPairs += 1 }; return }
             stages.cut = (CACurrentMediaTime() - t0) * 1000
             let key = "\(size.width)x\(size.height)"
-            guard let made = make(previous, current, size: size) else {
+            guard let made = make(previous, current, phases: between.map(\.phase), steps: steps, size: size),
+                  made.count == between.count else {
                 inFlight.removeAll() // a pair given up before the commit
                 // A size that never gives an image (VideoToolbox couldn't start there) is dropped like an
                 // empty one, so the renderer moves to the next size instead of waiting on it.
@@ -114,8 +125,12 @@ final class InterpolationLane {
             }
             failures[key] = 0
             madeAt[key, default: 0] += 1
-            onImage?(Image(buffer: made, time: time, cost: CACurrentMediaTime() - started, size: size,
-                           warmingUp: madeAt[key, default: 0] <= 2))
+            // One cost for the pair: the images come out of one pass together.
+            let cost = CACurrentMediaTime() - started
+            for (image, plan) in zip(made, between) {
+                onImage?(Image(buffer: image, time: plan.time, cost: cost, size: size, warmingUp: madeAt[key, default: 0] <= 2,
+                               last: plan == between.last))
+            }
         }
         return true
     }
@@ -143,8 +158,9 @@ final class InterpolationLane {
     }
 
     /// Everything for one pair in one command buffer: scale down (if asked), interpolate, scale back up,
-    /// blend still areas back. One commit and one wait, so no stage waits on another submission.
-    private func make(_ previous: CVPixelBuffer, _ current: CVPixelBuffer, size: (width: Int, height: Int)) -> CVPixelBuffer? {
+    /// blend still areas back, for each image. One commit and one wait, so no stage waits on another submission.
+    private func make(_ previous: CVPixelBuffer, _ current: CVPixelBuffer, phases: [Float], steps: Int,
+                      size: (width: Int, height: Int)) -> [CVPixelBuffer]? {
         let width = CVPixelBufferGetWidth(current), height = CVPixelBufferGetHeight(current)
         let format = CVPixelBufferGetPixelFormatType(current)
         let scaled = size.width != width || size.height != height
@@ -158,15 +174,21 @@ final class InterpolationLane {
             a = sa
             b = sb
         }
-        guard let made = interpolator(size).encode(cb, previous: a, current: b) else { return nil }
-        var middle = made
-        if scaled {
-            guard let full = buffer(width, height, format), encodeScale(cb, middle, into: full) else { return nil }
-            CVBufferPropagateAttachments(current, full)
-            middle = full
+        guard let made = interpolator(size).encode(cb, previous: a, current: b, phases: phases, steps: steps),
+              let first = made.first else { return nil }
+        var outputs: [CVPixelBuffer] = []
+        for image in made {
+            var middle = image
+            if scaled {
+                guard let full = buffer(width, height, format), encodeScale(cb, middle, into: full) else { return nil }
+                CVBufferPropagateAttachments(current, full)
+                middle = full
+            }
+            guard let output = buffer(width, height, format),
+                  encodeBlend(cb, previous, current, middle, into: output) else { return nil }
+            CVBufferPropagateAttachments(current, output)
+            outputs.append(output)
         }
-        guard let output = buffer(width, height, format),
-              encodeBlend(cb, previous, current, middle, into: output) else { return nil }
         stages.scale = lap()
         cb.commit()
         cb.waitUntilCompleted()
@@ -177,13 +199,12 @@ final class InterpolationLane {
         // VideoToolbox can report success and write nothing (sizes it doesn't take); never show that.
         // Checked on the engine's own image: after the blend, still areas come from the real frames and would
         // hide an empty one.
-        guard !Self.isEmpty(made) else {
+        guard !Self.isEmpty(first) else {
             state.withLock { _ = $0.broken.insert("\(size.width)x\(size.height)") }
             Log.warning(.renderer, "Frame interpolation made an empty image at \(size.width)x\(size.height); not using that size")
             return nil
         }
-        CVBufferPropagateAttachments(current, output)
-        return output
+        return outputs
     }
 
     /// Bilinear resample of an NV12 frame into another of a different size, on the GPU.
@@ -263,6 +284,22 @@ final class InterpolationLane {
         var out: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
         return out
+    }
+
+    /// How much `b`'s picture changed from `a`'s (see `RepeatDetector`); nil for frames of different sizes.
+    static func difference(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Double? {
+        let width = CVPixelBufferGetWidth(a), height = CVPixelBufferGetHeight(a)
+        guard CVPixelBufferGetWidth(b) == width, CVPixelBufferGetHeight(b) == height else { return nil }
+        CVPixelBufferLockBaseAddress(a, .readOnly)
+        CVPixelBufferLockBaseAddress(b, .readOnly)
+        defer {
+            CVPixelBufferUnlockBaseAddress(a, .readOnly)
+            CVPixelBufferUnlockBaseAddress(b, .readOnly)
+        }
+        guard let pa = CVPixelBufferGetBaseAddressOfPlane(a, 0)?.assumingMemoryBound(to: UInt8.self),
+              let pb = CVPixelBufferGetBaseAddressOfPlane(b, 0)?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        let ra = CVPixelBufferGetBytesPerRowOfPlane(a, 0), rb = CVPixelBufferGetBytesPerRowOfPlane(b, 0)
+        return RepeatDetector.difference(width: width, height: height, a: pa, aRow: ra, b: pb, bRow: rb)
     }
 
     /// Whether the pair is across a cut, from their luma on a coarse grid.

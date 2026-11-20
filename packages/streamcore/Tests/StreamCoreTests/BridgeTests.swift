@@ -114,6 +114,8 @@ extension Serial {
             let nick = eventPayload(.nickname("PS5"))
             #expect(nick?["type"] as? String == "nickname" && nick?["name"] as? String == "PS5")
             #expect(eventPayload(.rumble(left: 1, right: 2)) == nil)
+            #expect(eventPayload(.light(red: 1, green: 2, blue: 3)) == nil)
+            #expect(eventPayload(.playerIndex(0)) == nil)
         }
 
         @Test @MainActor func rendererBeforeAttach() {
@@ -122,7 +124,10 @@ extension Serial {
                 #expect(!sc_metalfx_supported())
                 #expect(sc_gpu_milliseconds() == 0)
                 #expect(sc_shown_fps() == 0)
-                #expect(take(sc_pacing_stats()).contains("\"skippedFrames\":0"))
+                let pacing = take(sc_pacing_stats())
+                #expect(pacing.contains("\"skippedFrames\":0"))
+                #expect(pacing.contains("\"interpolation\":\"off\"") && pacing.contains("\"upscale\":\"bilinear\""))
+                #expect(pacing.contains("\"ml\":\"off\"") && pacing.contains("\"displayHz\":0"))
                 sc_session_sleep() // no session: nothing to put to sleep
                 #expect(sc_set_render_params(#"{"upscaler":"metalfx"}"#)) // no renderer: accepted, no-op
             }

@@ -29,7 +29,7 @@ private final class VideoToolboxEngine: Engine {
     let toBGRA: (CVPixelBuffer) -> CVPixelBuffer?
     init(toBGRA: @escaping (CVPixelBuffer) -> CVPixelBuffer?) { self.toBGRA = toBGRA }
     func middle(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer? {
-        interpolator.encode(cb, previous: previous, current: current)
+        interpolator.encode(cb, previous: previous, current: current, phases: [0.5], steps: 1)?.first
     }
     func finish(_ image: CVPixelBuffer) -> CVPixelBuffer? { toBGRA(image) }
 }

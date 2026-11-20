@@ -4,7 +4,7 @@ import Testing
 @testable import StreamCore
 
 @Suite struct FrameInterpolationTests {
-    @Test func helpsOnlyWhenTheScreenRefreshesAtLeastTwicePerFrame() {
+    @Test func helpsOnlyWhenTheScreenRefreshesClearlyMoreOftenThanFrames() {
         #expect(FrameInterpolator.helps(streamInterval: 1.0 / 30, displayInterval: 1.0 / 60))
         #expect(FrameInterpolator.helps(streamInterval: 1.0 / 60, displayInterval: 1.0 / 120))
         #expect(!FrameInterpolator.helps(streamInterval: 1.0 / 60, displayInterval: 1.0 / 60))
@@ -26,14 +26,24 @@ import Testing
         let dark = try makeNV12(width: 640, height: 360, y: 40, cb: 128, cr: 128)
         let bright = try makeNV12(width: 640, height: 360, y: 200, cb: 128, cr: 128)
         let cb = try #require(queue.makeCommandBuffer())
-        let middle = try #require(interpolator.encode(cb, previous: dark, current: bright))
+        let middle = try #require(interpolator.encode(cb, previous: dark, current: bright, phases: [0.5], steps: 1)?.first)
         cb.commit()
         cb.waitUntilCompleted()
         #expect(CVPixelBufferGetWidth(middle) == 640 && CVPixelBufferGetHeight(middle) == 360)
+        // Quarters: three images in one pass, darkest first.
+        let cb3 = try #require(queue.makeCommandBuffer())
+        let quarters = try #require(interpolator.encode(cb3, previous: dark, current: bright, phases: [0.25, 0.5, 0.75], steps: 2))
+        cb3.commit()
+        cb3.waitUntilCompleted()
+        #expect(quarters.count == 3)
+        // A phase that isn't one of the processor's points isn't asked for.
+        let cb4 = try #require(queue.makeCommandBuffer())
+        #expect(interpolator.encode(cb4, previous: dark, current: bright, phases: [0.3], steps: 2) == nil)
+        cb4.commit()
         // Frames of different sizes (a resolution change) can't be blended.
         let small = try makeNV12(width: 320, height: 180, y: 40, cb: 128, cr: 128)
         let cb2 = try #require(queue.makeCommandBuffer())
-        #expect(interpolator.encode(cb2, previous: small, current: bright) == nil)
+        #expect(interpolator.encode(cb2, previous: small, current: bright, phases: [0.5], steps: 1) == nil)
         cb2.commit()
     }
 }
@@ -69,8 +79,8 @@ extension StreamRendererTests {
         }
         let frame = 1.0 / 30, refresh = 1.0 / 60
         let before = try bar(at: 200), after = try bar(at: 300)
-        for k in 0..<8 { // the bar still, two refreshes per frame
-            r.display(before, index: UInt64(k), arrival: Double(k) * frame)
+        for k in 0..<8 { // the bar moving slowly, two refreshes per frame
+            r.display(k == 7 ? before : try bar(at: 186 + 2 * k), index: UInt64(k), arrival: Double(k) * frame)
             r.waitForInterpolation()
             _ = try render(r, size: (64, 36), now: Double(k) * frame)
             _ = try render(r, size: (64, 36), now: Double(k) * frame + refresh)
@@ -133,12 +143,16 @@ final class StandInMaker: MiddleFrameMaker {
         self.output = output
         self.delay = delay
     }
-    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer? {
+    /// The phases and points asked for, per pair.
+    private(set) var asked: [(phases: [Float], steps: Int)] = []
+    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]? {
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        asked.append((phases, steps))
         switch output {
-        case .newer: return current
+        case .newer: return phases.map { _ in current }
         case .zeros:
-            return try? makeNV12(width: CVPixelBufferGetWidth(current), height: CVPixelBufferGetHeight(current), y: 0, cb: 0, cr: 0)
+            let zeros = try? makeNV12(width: CVPixelBufferGetWidth(current), height: CVPixelBufferGetHeight(current), y: 0, cb: 0, cr: 0)
+            return zeros.map { image in phases.map { _ in image } }
         case .none: return nil
         }
     }
@@ -172,10 +186,10 @@ final class StandInMaker: MiddleFrameMaker {
         var made: [InterpolationLane.Image] = []
         lane.onImage = { made.append($0) }
         let a = try frame(bar: 200), b = try frame(bar: 300)
-        #expect(lane.submit(previous: a, current: b, time: 1.5, size: (640, 360)))
+        #expect(lane.submit(previous: a, current: b, between: [InBetween.Image(phase: 0.5, time: 1.5)], steps: 1, size: (640, 360)))
         lane.waitUntilIdle()
         let image = try #require(made.first)
-        #expect(image.time == 1.5 && image.cost > 0 && image.size == (640, 360) && image.warmingUp)
+        #expect(image.time == 1.5 && image.cost > 0 && image.size == (640, 360) && image.warmingUp && image.last)
         #expect(CVPixelBufferGetWidth(image.buffer) == 640)
         // The "HUD" didn't change between the frames, so it comes back exactly (not the model's version).
         for (x, y) in [(10, 10), (55, 31), (90, 50)] {
@@ -183,12 +197,27 @@ final class StandInMaker: MiddleFrameMaker {
         }
     }
 
+    @Test func makesAnImageForEachRefreshBetweenThePair() throws {
+        let maker = StandInMaker()
+        let lane = try lane(maker)
+        var made: [InterpolationLane.Image] = []
+        lane.onImage = { made.append($0) }
+        let between = [InBetween.Image(phase: 0.25, time: 1.01), InBetween.Image(phase: 0.5, time: 1.02),
+                       InBetween.Image(phase: 0.75, time: 1.03)]
+        #expect(lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), between: between, steps: 2, size: (640, 360)))
+        lane.waitUntilIdle()
+        #expect(made.map(\.time) == [1.01, 1.02, 1.03])
+        // One pass, one cost: only the last image carries it to the renderer.
+        #expect(made.map(\.last) == [false, false, true] && Set(made.map(\.cost)).count == 1)
+        #expect(maker.asked.first?.phases == [0.25, 0.5, 0.75] && maker.asked.first?.steps == 2)
+    }
+
     @Test func makesSmallerImagesWhenAskedAndScalesThemBack() throws {
         let lane = try lane()
         var made: [InterpolationLane.Image] = []
         lane.onImage = { made.append($0) }
         lane.prepare(size: (320, 180))
-        lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), time: 2, size: (320, 180))
+        lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), between: [InBetween.Image(phase: 0.5, time: 2)], steps: 1, size: (320, 180))
         lane.waitUntilIdle()
         let image = try #require(made.first)
         #expect(image.size == (320, 180) && CVPixelBufferGetWidth(image.buffer) == 640)
@@ -206,13 +235,13 @@ final class StandInMaker: MiddleFrameMaker {
         var made = 0
         lane.onImage = { _ in made += 1 }
         lane.submit(previous: try frame(bar: 200, background: 20), current: try frame(bar: 200, background: 230),
-                    time: 1, size: (640, 360))
+                    between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
         lane.waitUntilIdle()
         #expect(made == 0 && lane.cutPairs == 1)
         // Two pairs at once: the second goes without its image.
         let a = try frame(bar: 200), b = try frame(bar: 300)
         var accepted = 0
-        for i in 0..<3 where lane.submit(previous: a, current: b, time: Double(i), size: (640, 360)) { accepted += 1 }
+        for i in 0..<3 where lane.submit(previous: a, current: b, between: [InBetween.Image(phase: 0.5, time: Double(i))], steps: 1, size: (640, 360)) { accepted += 1 }
         lane.waitUntilIdle()
         #expect(accepted < 3 && lane.busyPairs == 3 - accepted)
         lane.resetCounts()
@@ -226,7 +255,7 @@ final class StandInMaker: MiddleFrameMaker {
         lane.onImage = { _ in made += 1 }
         let a = try frame(bar: 200, background: 0), b = try frame(bar: 220, background: 0) // not a cut
         #expect(!lane.isBroken((640, 360)))
-        lane.submit(previous: a, current: b, time: 1, size: (640, 360))
+        lane.submit(previous: a, current: b, between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
         lane.waitUntilIdle()
         #expect(made == 0 && lane.isBroken((640, 360)))
     }
@@ -236,7 +265,7 @@ final class StandInMaker: MiddleFrameMaker {
         // dropped so the renderer moves on instead of waiting on it.
         let lane = try lane(StandInMaker(.none))
         for i in 0..<5 {
-            lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), time: Double(i), size: (640, 360))
+            lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), between: [InBetween.Image(phase: 0.5, time: Double(i))], steps: 1, size: (640, 360))
             lane.waitUntilIdle()
         }
         #expect(lane.isBroken((640, 360)))
@@ -261,7 +290,7 @@ final class StandInMaker: MiddleFrameMaker {
         let lane = try lane(StandInMaker(.none))
         var made = 0
         lane.onImage = { _ in made += 1 }
-        lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), time: 1, size: (640, 360))
+        lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
         lane.waitUntilIdle()
         #expect(made == 0 && !lane.isBroken((640, 360)))
     }

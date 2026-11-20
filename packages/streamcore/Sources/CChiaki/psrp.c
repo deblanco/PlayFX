@@ -410,6 +410,13 @@ static void session_event_cb(ChiakiEvent *event, void *user) {
     case CHIAKI_EVENT_NICKNAME_RECEIVED:
         s->cb.event(s->cb.user, PSRP_EVENT_NICKNAME, 0, 0, event->server_nickname);
         break;
+    case CHIAKI_EVENT_LED_COLOR:
+        s->cb.event(s->cb.user, PSRP_EVENT_LIGHT,
+                    (event->led_state[0] << 16) | (event->led_state[1] << 8) | event->led_state[2], 0, NULL);
+        break;
+    case CHIAKI_EVENT_PLAYER_INDEX:
+        s->cb.event(s->cb.user, PSRP_EVENT_PLAYER_INDEX, event->player_index, 0, NULL);
+        break;
     default:
         break;
     }
@@ -643,6 +650,10 @@ void psrp_session_set_controller_state(PsrpSession *s, const PsrpControllerState
 
 uint64_t psrp_session_rtt_us(PsrpSession *s) {
     return s ? s->session.rtt_us : 0;
+}
+
+uint32_t psrp_session_target_bitrate(PsrpSession *s) {
+    return s ? s->session.stream_connection.target_bitrate : 0;
 }
 
 void psrp_session_set_login_pin(PsrpSession *s, const char *pin) {

@@ -95,6 +95,8 @@ typedef enum {
     PSRP_EVENT_HAPTIC_RUMBLE = 8,     // a = left, b = right, from the DualSense haptics stream. The console
                                       // stops sending it when an effect ends (no silence follows), so it is
                                       // repeated every 50 ms while it lasts and expires when it isn't.
+    PSRP_EVENT_LIGHT = 9,             // a = the DualSense light bar colour, 0xRRGGBB
+    PSRP_EVENT_PLAYER_INDEX = 10,     // a = the pad's player number as the console counts it (0 = player 1)
 } PsrpEventType;
 
 /// The console's text keyboard: a field was focused (open, with its text), the console changed the text,
@@ -205,6 +207,8 @@ void psrp_session_set_controller_state(PsrpSession *session, const PsrpControlle
 void psrp_session_set_login_pin(PsrpSession *session, const char *pin);
 /// Round trip to the console in microseconds, measured while connecting (0 until then).
 uint64_t psrp_session_rtt_us(PsrpSession *session);
+/// The bitrate the console's encoder aims for now (bit/s, from its connection quality reports; 0 before one).
+uint32_t psrp_session_target_bitrate(PsrpSession *session);
 /// One frame of the DualSense haptics stream (`frames` interleaved stereo samples) as rumble strengths.
 void psrp_haptics_to_rumble(const int16_t *samples, size_t frames, uint8_t *left, uint8_t *right);
 

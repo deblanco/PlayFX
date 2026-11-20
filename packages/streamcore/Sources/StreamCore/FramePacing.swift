@@ -116,8 +116,9 @@ struct FrameTimeline<Image> {
 }
 
 /// How far behind the stream clock images are shown. Without interpolation it covers the network's
-/// jitter; with it, also half an interval and the time an in-between image takes, so that image is
-/// ready by its moment. Changes are eased (at most 1 ms per frame up, 0.25 ms down) so motion never steps.
+/// jitter; with it, also the part of an interval before the earliest in-between image (`lead`: half for one
+/// image per pair, three quarters for quarters) and the time the images take, so they're ready by their
+/// moment. Changes are eased (at most 1 ms per frame up, 0.25 ms down) so motion never steps.
 struct DelayPlanner {
     /// Lateness of recent frames behind the clock (arrival − time), newest last.
     private var lateness: [Double] = []
@@ -143,10 +144,11 @@ struct DelayPlanner {
     /// The 90th percentile of recent generation cost (0 before any).
     var generationCost: Double { Self.percentile(costs, 0.9) }
 
-    /// The delay wanted now, eased from the current one; call once per stream frame.
-    mutating func update(interval: Double, interpolating: Bool) -> Double {
+    /// The delay wanted now, eased from the current one; call once per stream frame. `interval` is the
+    /// time between the frames images are made between (the game's, when it runs slower than the stream).
+    mutating func update(interval: Double, interpolating: Bool, lead: Double = 0.5) -> Double {
         var wanted = jitter + margin
-        if interpolating { wanted += interval / 2 + generationCost }
+        if interpolating { wanted += interval * lead + generationCost }
         let step = wanted > delay ? min(wanted - delay, 0.001) : max(wanted - delay, -0.00025)
         delay = max(0, delay + step)
         return delay
@@ -228,5 +230,212 @@ enum SceneCut {
             }
         }
         return total / n > threshold
+    }
+}
+
+/// Repeated frames: a game running slower than the stream (30 fps in a 60 fps stream) is sent with each
+/// picture twice, or unevenly (1/2/1/2 times for 40 fps). The encoder doesn't send the repeat as an exact
+/// copy: it spends a few KB refining the same picture, so its luma differs a little everywhere and a lot
+/// at a few pixels. Measured on a PS5 (GTA VI, 30 fps in a 1080p60 HEVC stream): a repeat's mean luma
+/// change from the frame before is 0.02–0.4 against 0.6–8 for a new picture, with single pixels off by
+/// up to 60 in both. So a frame is a repeat when its mean change is well under the last new picture's.
+/// The reference shrinks with each repeat, so a scene that slows down still gets its new pictures through;
+/// on a still screen a small moving object (a cursor) is all the change there is, and counts as new.
+public struct RepeatDetector {
+    /// A repeat changes less than this share of the last new picture's change (measured: up to about 0.45).
+    static let ratio = 0.5
+    /// The reference shrinks this much with each repeat: a camera that stops loses a frame or two, not more.
+    static let decay = 0.5
+    /// No more change than this (mean, 0–255) is the same picture whatever came before.
+    static let unchanged = 0.001
+    /// Every 4th pixel both ways: about 0.1 ms at 1080p. It runs on the decoder's thread for every frame, and
+    /// a slow callback holds up the next decode and with it the receiving of packets (they get dropped).
+    static let step = 4
+
+    private var reference: Double?
+
+    public init() {}
+
+    /// The mean luma change between two frames, every `step` pixels both ways (staggered): `a` / `b` are their luma
+    /// planes (0–255), `aRow` / `bRow` the bytes from one row to the next.
+    @_optimize(speed) // optimized in debug builds too: a debug loop takes ~10 ms, most of a frame
+    static func difference(width: Int, height: Int, a: UnsafePointer<UInt8>, aRow: Int,
+                           b: UnsafePointer<UInt8>, bRow: Int) -> Double {
+        guard width > 0, height > 0 else { return 0 }
+        var total = 0, count = 0, y = 0
+        // Plain loops: `stride` and `abs` aren't specialized in a debug build. Each sampled row starts one
+        // column further on, so every column is read somewhere: an edge moving 2 pixels can't fall between
+        // the samples of every row.
+        while y < height {
+            let ra = a + y * aRow, rb = b + y * bRow
+            var x = (y / step) % step
+            while x < width {
+                let d = Int(ra[x]) &- Int(rb[x])
+                total &+= d < 0 ? -d : d
+                count &+= 1
+                x &+= step
+            }
+            y &+= step
+        }
+        return Double(total) / Double(count)
+    }
+
+    /// Whether a frame that changed by `difference` from the one before repeats its picture.
+    public mutating func isRepeat(difference: Double) -> Bool {
+        if difference <= Self.unchanged || reference.map({ difference < Self.ratio * $0 }) == true {
+            reference = reference.map { $0 * Self.decay }
+            return true
+        }
+        reference = difference
+        return false
+    }
+
+    mutating func reset() { reference = nil }
+}
+
+/// The game's own frame rate, from the stream-clock times of its new pictures (repeats left out): the mean
+/// gap over the last ones, which also gives the right rate for an uneven cadence (40 fps in a 60 fps stream
+/// arrives 1/2/1/2 stream frames apart; a median would say 30 or 60).
+struct ContentRate {
+    private var times: [Double] = []
+    /// Pictures needed before there's a rate, and kept for it.
+    static let window = 12
+
+    /// A picture at `time`. One more than `maxGap` after the last (the game paused, its picture held) starts
+    /// the count over: the pause isn't the game's rate.
+    mutating func add(time: Double, maxGap: Double = .infinity) {
+        if let last = times.last, time - last > maxGap { times.removeAll() }
+        times.append(time)
+        if times.count > Self.window { times.removeFirst(times.count - Self.window) }
+    }
+
+    /// The last picture's time.
+    var last: Double? { times.last }
+
+    mutating func reset() { times.removeAll() }
+
+    /// Seconds between the game's pictures; nil until enough have come.
+    var interval: Double? {
+        guard times.count >= 5, let first = times.first, let last = times.last, last > first else { return nil }
+        return (last - first) / Double(times.count - 1)
+    }
+}
+
+/// Even times for the game's pictures. They reach the stream on its frame grid, so a 40 fps game's arrive
+/// 16.7 and 33.3 ms apart, though the game made them 25 ms apart; frames made between them would move
+/// unevenly. Once the rate is known this puts each picture on an even grid at that rate, never earlier than
+/// its own time (it can't show before it arrives), starting over when the cadence breaks.
+struct CadenceClock {
+    private var anchor = 0.0
+    private var count = 0
+    private var anchored = false
+    private var last = -Double.infinity
+
+    mutating func reset() { anchored = false; count = 0 }
+
+    /// The time to show a picture whose stream-clock time is `time`, for a game `interval` apart (nil: unknown).
+    mutating func time(for time: Double, interval: Double?) -> Double {
+        guard let interval, interval > 0 else { reset(); last = time; return time }
+        if anchored {
+            count += 1
+            var expected = anchor + Double(count) * interval
+            if abs(time - expected) > interval * 0.6 {
+                anchored = false // the cadence broke (a pause, a rate change): start over at this picture
+            } else {
+                // Never before its own time: move the grid later when a picture is later than it.
+                if time > expected { anchor += time - expected; expected = time }
+                last = max(expected, last + 1e-6)
+                return last
+            }
+        }
+        anchor = time
+        count = 0
+        anchored = true
+        last = max(time, last + 1e-6)
+        return last
+    }
+}
+
+/// The in-between images for a pair of the game's pictures at stream-clock times `start` and `end`: every
+/// point VideoToolbox makes between the two (`steps` = 1: ½; 2: ¼, ½, ¾), each stamped with its own moment
+/// in the game. Which refresh shows which is the playhead's business (see `Playhead`), so nothing here
+/// depends on guessing when the screen will refresh.
+enum InBetween {
+    struct Image: Equatable {
+        /// Where between the two pictures (0–1, one of the processor's points).
+        let phase: Float
+        /// The stream-clock time it shows at: its own moment between the two pictures.
+        let time: Double
+    }
+
+    static func images(start: Double, end: Double, steps: Int) -> [Image] {
+        let span = end - start
+        guard span > 0, steps >= 1 else { return [] }
+        let points = 1 << steps
+        return (1..<points).map { Image(phase: Float($0) / Float(points), time: start + span * Double($0) / Double(points)) }
+    }
+
+    /// How many points to make for a game `interval` apart on a screen refreshing every `refreshInterval`:
+    /// halves (one image) while the screen shows about two refreshes per picture or fewer, quarters (three)
+    /// beyond that. Each change rebuilds VideoToolbox's session, so a game whose rate wanders near the edge
+    /// (50–57 fps on 120 Hz) keeps what it has: quarters are taken from 2.3× and kept down to 2.1×.
+    static func steps(interval: Double, refreshInterval: Double, current: Int = 2) -> Int {
+        guard interval > 0, refreshInterval > 0 else { return current }
+        return interval / refreshInterval < (current == 1 ? 2.3 : 2.1) ? 1 : 2
+    }
+
+    /// The screen's fastest recent refresh interval, from one more measured `sample`: it follows a faster
+    /// screen at once and a slower one over seconds. A display that changes its rate from moment to moment
+    /// (ProMotion goes between 60 and 120 Hz) would otherwise flip the choice of points back and forth.
+    static func fastest(_ current: Double, _ sample: Double) -> Double {
+        guard sample > 0 else { return current }
+        return current <= 0 ? sample : min(sample, current + (sample - current) * 0.002)
+    }
+}
+
+/// Where in the stream's time the screen is: each refresh shows the newest image at or before it.
+///
+/// It follows `now − delay`, but as a moving point with a speed, not a subtraction: the speed may leave 1 by
+/// at most `stretch`, so when the delay changes, or after a wait, the motion runs a little slower or faster
+/// for a moment instead of standing still and then jumping. And it never passes `limit`, the last moment
+/// whose images are all there: when a picture is late, it waits just before the gap and, once the picture and
+/// the images towards it exist, moves through every one of them while catching up. This is what a voice call
+/// does with late sound (play out a little slower or faster); the images made between the game's pictures
+/// are what make it possible for video, since they give moments close enough together to pass through at a
+/// changed speed.
+struct Playhead {
+    /// How far the speed may leave 1: 8%, too little to see as a change of speed.
+    static let stretch = 0.08
+    /// The speed leaves 1 by (the distance to where it should be) / `gain`: 40 ms off gives the full 8%.
+    static let gain = 0.5
+    /// Further off than this (seconds) it moves there at once: a start, the end of a pause.
+    static let jump = 0.25
+
+    private(set) var position: Double?
+    private var last = 0.0
+
+    mutating func reset() { position = nil }
+
+    /// Moves to the refresh at `now` and returns the stream time to show. `limit`: don't pass this (nil: free).
+    /// `refresh` is the screen's steady time between refreshes (0: unknown): the draw callback's own timing
+    /// wobbles by a millisecond or two, enough to land on the wrong side of an image's moment, so one
+    /// refresh moves it by the steady period, and `now` only says where it should be overall.
+    mutating func advance(now: Double, delay: Double, limit: Double? = nil, refresh: Double = 0) -> Double {
+        let target = now - delay
+        defer { last = now }
+        guard let from = position, now > last, abs(target - from) <= Self.jump else {
+            // Never back, except to start over (`reset`).
+            let to = max(min(target, limit ?? target), position.map { min($0, target) } ?? -.infinity)
+            position = to
+            return to
+        }
+        // How far off it would be after this refresh at normal speed decides the speed.
+        let gap = now - last
+        let step = refresh > 0 && abs(gap - refresh) < refresh / 2 ? refresh : gap
+        let speed = 1 + min(max((target - from - step) / Self.gain, -Self.stretch), Self.stretch)
+        var to = from + step * speed
+        if let limit { to = min(to, max(limit, from)) }
+        position = to
+        return to
     }
 }

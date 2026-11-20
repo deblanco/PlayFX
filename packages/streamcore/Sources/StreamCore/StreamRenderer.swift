@@ -93,6 +93,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public let interpolationSupported = FrameInterpolator.isAvailable
     /// Whether in-between images reached the screen in the last second.
     public var interpolationActive: Bool { presented.withLock { $0.generated.perSecond(now: CACurrentMediaTime()) > 0 } }
+    /// What each optional step did with the last frame, and why an idle one is idle (for the stats line).
+    public var pipeline: PipelineState { pipelineState.withLock { $0 } }
+    private let pipelineState = OSAllocatedUnfairLock(initialState: PipelineState())
     /// The stream's nominal frame rate (30 or 60), which its clock runs on. Setting it starts pacing over
     /// (counts included), so set it once per stream, before its first frame.
     public var streamFrameRate: Double {
@@ -115,7 +118,27 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         var lastMade: Double?
         /// Times the clock started over (a gap, a jump, or frames far ahead of it).
         var restarts = 0
+        /// The last decoded frame (repeat or not), to tell a repeat of it; the game's rate from its new
+        /// pictures; even times for them; and frames that repeated the one before.
+        var lastDecoded: CVPixelBuffer?
+        var content = ContentRate()
+        var cadence = CadenceClock()
+        var repeats = RepeatDetector()
+        var repeated = 0
+        /// The screen's fastest recent time between refreshes (see `InBetween.fastest`), for halves or quarters.
+        var refreshInterval = 0.0
+        /// Where in the stream's time the screen is (see `Playhead`); the last picture up to which every image
+        /// is in the timeline; and whether the lane is making the images towards the next one.
+        var playhead = Playhead()
+        var populated: Double?
+        var pending = false
+        /// Halves or quarters (see `InBetween.steps`), and when the game's last new picture arrived.
+        var steps = 2
+        var lastPicture = -Double.infinity
         init(fps: Double) { clock = StreamClock(fps: fps) }
+
+        /// Seconds between the pictures images are made between: the game's when measured, else the stream's.
+        var sourceInterval: Double { content.interval ?? clock.interval }
     }
     private let pacing = OSAllocatedUnfairLock(initialState: Pacing(fps: 60))
     /// Whether to make in-between images: wanted, supported, and the screen refreshes fast enough to show them.
@@ -130,6 +153,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private let presented = OSAllocatedUnfairLock(initialState: PresentationCounts())
     /// Drawn images whose presentation the system reported (all), and of those, ones it never put on screen.
     public var presentationReports: (handled: Int, unpresented: Int) { presented.withLock { ($0.handled, $0.unpresented) } }
+    /// Frames that repeated the picture before them (a game slower than the stream).
+    public var repeatedFrames: Int { pacing.withLock { $0.repeated } }
     /// Frames and in-between images that were never shown (a later one was due first), and pairs that went
     /// without an in-between image.
     public var skippedFrames: Int { pacing.withLock { $0.timeline.skippedReal } }
@@ -256,9 +281,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             pacing.withLock { p in
                 p.lastMade = p.lastArrival
                 p.timeline.add(TimedImage(image: image.buffer, time: image.time, generated: true, arrival: CACurrentMediaTime()))
-                guard !image.warmingUp else { return } // a model being built: not the size's real cost
+                Self.trace("I \(CACurrentMediaTime()) \(image.time) \(image.cost) \(image.size.width) \(p.planner.delay)")
+                // Once per pair (its images come out together), and not while a model is being built: that's
+                // not the size's real cost.
+                guard image.last, !image.warmingUp else { return }
                 p.planner.observe(cost: image.cost)
-                p.rungs?.observe(cost: image.cost, budget: p.clock.interval * 0.75, now: CACurrentMediaTime())
+                let budget = p.sourceInterval * 0.75
+                p.rungs?.observe(cost: image.cost, budget: budget, now: CACurrentMediaTime())
             }
         }
         view.delegate = self
@@ -300,12 +329,21 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
 
     /// Queues a decoded frame. Thread-safe. `index` is its place in the stream (one more than the last,
     /// plus any frames lost); without it frames count up by one. The frame shows when the stream clock
-    /// says, not when it arrives; with frame interpolation on, the image between it and the previous frame
-    /// is made on the interpolation lane meanwhile. The first one replaces the idle backdrop.
+    /// says, not when it arrives. With frame interpolation on, a frame that repeats the last picture (a game
+    /// slower than the stream) is left out, and the images between the game's last two pictures, one per
+    /// screen refresh between them, are made on the interpolation lane meanwhile. The first frame replaces
+    /// the idle backdrop.
     public func display(_ frame: CVPixelBuffer, index: UInt64? = nil, arrival: Double = CACurrentMediaTime()) {
         showsTestPattern = false
         let wanted = interpolating.withLock { $0 }
-        let pair: (previous: CVPixelBuffer, time: Double, size: (width: Int, height: Int), prepare: [(width: Int, height: Int)])? =
+        let before = pacing.withLock { p in
+            defer { p.lastDecoded = frame }
+            return p.lastDecoded
+        }
+        // Compared outside the lock: it reads both frames' luma on the CPU.
+        let difference = before.flatMap { Self.interpolates($0) && Self.interpolates(frame) ? InterpolationLane.difference($0, frame) : nil }
+        let pair: (previous: CVPixelBuffer, between: [InBetween.Image], steps: Int, size: (width: Int, height: Int),
+                   prepare: [(width: Int, height: Int)])? =
             pacing.withLock { p in
                 let i = index ?? p.nextIndex
                 p.nextIndex = i + 1
@@ -319,21 +357,52 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                     p.restarts += 1
                     p.timeline.clear()
                     p.lastReal = nil
+                    p.content.reset()
+                    p.cadence.reset()
+                    p.repeats.reset()
+                    p.playhead.reset()
+                    p.populated = nil
                 }
+                let repeated = difference.map { p.repeats.isRepeat(difference: $0) } ?? false
                 p.lastArrival = arrival
+                if repeated {
+                    p.repeated += 1
+                    // Interpolating: nothing new to show or to make images towards; the images between the game's
+                    // pictures fill its place. Otherwise it shows as before (the same picture).
+                    if wanted { return nil }
+                } else {
+                    p.content.add(time: stamp.time, maxGap: p.clock.interval * Self.stillGap)
+                    p.lastPicture = arrival
+                }
                 p.planner.observe(lateness: arrival - stamp.time)
+                let interval = p.sourceInterval
+                p.steps = InBetween.steps(interval: interval, refreshInterval: p.refreshInterval, current: p.steps)
+                let steps = p.steps
                 // The extra delay for in-between images only while the lane is making them: not for frames
                 // it can't take (10-bit HDR), nor at a size VideoToolbox couldn't start, where it would only
                 // add lag.
                 let making = p.lastMade.map { arrival - $0 < 2 } ?? false
-                let delay = p.planner.update(interval: p.clock.interval, interpolating: wanted && making)
-                Self.trace("\(i) \(arrival) \(stamp.time) \(stamp.restarted ? 1 : 0) \(delay) \(wanted ? 1 : 0)") // TEMP-TRACE
-                // After a start or a break the frame shows at once; later ones keep to the clock.
-                let time = stamp.restarted ? arrival - delay : stamp.time
+                let delay = p.planner.update(interval: interval, interpolating: wanted && making, lead: steps == 1 ? 0.5 : 0.75)
+                Self.trace("F \(i) \(arrival) \(stamp.time) \(stamp.restarted ? 1 : 0) \(delay) \(wanted ? 1 : 0) \(repeated ? 1 : 0) \(steps) \(p.planner.jitter) \(p.planner.generationCost)")
+                // After a start or a break the frame shows at once; later ones keep to the clock, on the game's
+                // even grid while interpolating.
+                var time = stamp.restarted ? arrival - delay : stamp.time
+                if wanted, !stamp.restarted {
+                    time = p.cadence.time(for: time, interval: p.content.interval)
+                } else {
+                    p.cadence.reset()
+                }
                 p.timeline.add(TimedImage(image: frame, time: time, generated: false, arrival: arrival))
-                defer { p.lastReal = (frame, time) }
+                // Without images towards this picture (decided below), everything up to it is there already.
+                var paired = false
+                defer {
+                    p.lastReal = (frame, time)
+                    if !paired, !p.pending { p.populated = time }
+                }
                 let width = CVPixelBufferGetWidth(frame), height = CVPixelBufferGetHeight(frame)
-                guard wanted, Self.interpolates(frame), let last = p.lastReal,
+                // Not across a still stretch (a paused game sends repeats for seconds): there's no motion to
+                // fill in, and the images would spread one step over the whole pause.
+                guard wanted, Self.interpolates(frame), let last = p.lastReal, time - last.time <= p.clock.interval * Self.stillGap,
                       CVPixelBufferGetWidth(last.frame) == width, CVPixelBufferGetHeight(last.frame) == height else { return nil }
                 var prepare: [(width: Int, height: Int)] = []
                 if p.rungs.map({ $0.rungs[0] != (width, height) }) ?? true {
@@ -345,14 +414,32 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                     guard rungs.markBroken() else { p.rungs = rungs; return nil } // nothing left that works
                 }
                 p.rungs = rungs
-                return (last.frame, (last.time + time) / 2, rungs.size, prepare)
+                let between = InBetween.images(start: last.time, end: time, steps: steps)
+                guard !between.isEmpty, lane != nil else { return nil }
+                paired = true
+                return (last.frame, between, steps, rungs.size, prepare)
             }
         guard let pair, let lane else { return }
         for size in pair.prepare.dropFirst() { lane.prepare(size: size) }
-        lane.submit(previous: pair.previous, current: frame, time: pair.time, size: pair.size)
+        // The playhead waits before this pair until its images are in the timeline (or it ends without any).
+        let taken = lane.submit(previous: pair.previous, current: frame, between: pair.between, steps: pair.steps,
+                                size: pair.size) { [pacing] in
+            pacing.withLock { p in
+                p.pending = false
+                p.populated = p.lastReal?.time
+            }
+        }
+        pacing.withLock { p in
+            if taken { p.pending = true } else if !p.pending { p.populated = p.lastReal?.time }
+        }
     }
 
-    // TEMP-TRACE: per-frame pacing trace for diagnosis; not to be committed.
+    /// Stream intervals without a new picture after which the game counts as holding it (a pause): no images
+    /// are made across the gap, and the game's rate starts over.
+    static let stillGap = 4.5
+
+    /// `STREAMCORE_PACING_TRACE=<file>`: a line per stream frame (`F`), made image (`I`) and refresh (`R`), to
+    /// measure what the screen showed (see docs/FRAME_INTERPOLATION.md, "Pacing trace").
     private static let traceHandle: FileHandle? = {
         guard let path = ProcessInfo.processInfo.environment["STREAMCORE_PACING_TRACE"] else { return nil }
         FileManager.default.createFile(atPath: path, contents: nil)
@@ -406,8 +493,14 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             gpuTime.withLock { $0 = Self.smoothed($0, ms) }
         }
         if let frame = nextFrame(now: now) {
-            let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: fittedRect(drawable: drawableSize).size) : nil
+            let mlTarget = fittedRect(drawable: drawableSize).size
+            let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: mlTarget) : nil
             mlActive = enhanced != nil
+            let mlState = Self.mlState(enabled: params.mlUpscale, supported: mlSupported, ran: enhanced != nil,
+                                       width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame),
+                                       eightBit: Self.interpolates(frame),
+                                       refused: ml.refuses(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame)))
+            pipelineState.withLock { $0.ml = mlState }
             decodedWidth = CVPixelBufferGetWidth(frame)
             encodeVideoFrame(enhanced ?? frame, cb)
             if enhanced != nil, params.compare {
@@ -435,6 +528,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             upscaled = output
         }
         activeMode = upscaled == nil ? .bilinear : .metalFX
+        let upscale = Self.upscaleState(selected: params.upscaler, supported: metalFXSupported, ran: upscaled != nil,
+                                        source: (inputTexture.width, inputTexture.height), target: target.size)
+        pipelineState.withLock { $0.upscale = upscale }
 
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
@@ -626,13 +722,64 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private func nextFrame(now: Double) -> CVPixelBuffer? {
         if lastDraw > 0 { displayInterval = Self.smoothedInterval(displayInterval, now - lastDraw) }
         lastDraw = now
-        let interval = pacing.withLock { $0.clock.interval }
-        let wanted = params.frameInterpolation && interpolationSupported
-            && FrameInterpolator.helps(streamInterval: interval, displayInterval: displayInterval)
+        let refreshInterval = displayInterval
+        let (interval, streamInterval, gameInterval, still) = pacing.withLock { p in
+            p.refreshInterval = InBetween.fastest(p.refreshInterval, refreshInterval)
+            return (p.sourceInterval, p.clock.interval, p.content.interval, now - p.lastPicture > p.clock.interval * Self.stillGap)
+        }
+        var state = Self.interpolationState(enabled: params.frameInterpolation, supported: interpolationSupported,
+                                            streamInterval: interval, displayInterval: displayInterval)
+        let wanted = state == .on
+        // Nothing to make while the game holds its picture; said apart from "not making any".
+        if wanted, still { state = .still }
         interpolating.withLock { $0 = wanted }
-        let item = pacing.withLock { p in p.timeline.next(now: now, delay: p.planner.delay) }
+        let displayHz = displayInterval > 0 ? 1 / displayInterval : 0
+        pipelineState.withLock {
+            $0.interpolation = state
+            $0.displayHz = displayHz
+            $0.streamFps = streamInterval > 0 ? 1 / streamInterval : 0
+            $0.gameFps = gameInterval.map { 1 / $0 } ?? 0
+        }
+        let item = pacing.withLock { p in
+            // While images are made between the game's pictures, the playhead may go up to just before the
+            // first one that isn't there yet (until then the picture before it is what shows anyway).
+            let limit = wanted ? p.populated.map { $0 + p.sourceInterval / Double(1 << p.steps) * 0.99 } : nil
+            return p.timeline.next(now: p.playhead.advance(now: now, delay: p.planner.delay, limit: limit,
+                                                           refresh: refreshInterval), delay: 0)
+        }
+        Self.trace("R \(now) \(item.map { "\($0.time) \($0.generated ? 1 : 0)" } ?? "- -") \(refreshInterval)")
         drawnItem = item
         return item?.image
+    }
+
+    /// Whether in-between images can be made and shown, and if not, why.
+    static func interpolationState(enabled: Bool, supported: Bool, streamInterval: Double,
+                                   displayInterval: Double) -> PipelineState.Interpolation {
+        guard enabled else { return .off }
+        guard supported else { return .unsupported }
+        return FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval) ? .on : .screen
+    }
+
+    /// What the upscale step did: MetalFX, bilinear by choice, or why MetalFX was skipped.
+    static func upscaleState(selected: UpscaleMode, supported: Bool, ran: Bool, source: (width: Int, height: Int),
+                             target: CGSize) -> PipelineState.Upscale {
+        guard selected == .metalFX else { return .bilinear }
+        if ran { return .metalfx }
+        guard supported else { return .unsupported }
+        // MetalFX only enlarges: a picture no larger than the stream is scaled down (or 1:1) instead.
+        return Int(target.width) > source.width && Int(target.height) > source.height ? .failed : .notLarger
+    }
+
+    /// What ML upscaling did with a frame, and if it was skipped, why.
+    static func mlState(enabled: Bool, supported: Bool, ran: Bool, width: Int, height: Int, eightBit: Bool = true,
+                        refused: Bool = false) -> PipelineState.ML {
+        guard enabled else { return .off }
+        if ran { return .on }
+        guard supported else { return .unsupported }
+        guard eightBit else { return .hdr } // the model takes 8-bit frames only
+        // Apple's model takes frames up to 1280 px per side (720p and lower streams), and not every size.
+        if refused || max(width, height) > MLSuperResolution.maxInputSide { return .streamTooLarge }
+        return .notLarger
     }
 
     /// Running average of an interval; gaps over a quarter second (pauses) are ignored.
@@ -752,4 +899,31 @@ struct PresentationCounts {
         if isGenerated { generated.count(at: at) }
         return true
     }
+}
+
+/// What the optional picture steps are doing, so the app can say why one that's turned on is idle.
+public struct PipelineState: Sendable, Equatable {
+    public enum Interpolation: String, Sendable {
+        /// Turned off; making in-between images; this Mac or OS can't; the screen doesn't refresh often
+        /// enough per frame of the game to show them; on, but the game holds its picture (nothing to make).
+        case off, on, unsupported, screen, still
+    }
+    public enum Upscale: String, Sendable {
+        /// MetalFX ran; bilinear was chosen; MetalFX was skipped because the picture on screen isn't larger
+        /// than the stream; MetalFX isn't available; MetalFX couldn't be set up for this size.
+        case metalfx, bilinear, notLarger, unsupported, failed
+    }
+    public enum ML: String, Sendable {
+        /// Turned off; ran; not available; the stream's size isn't one the model takes (larger than 720p, or
+        /// refused); the picture on screen isn't larger than the stream; an HDR (10-bit) stream.
+        case off, on, unsupported, streamTooLarge, notLarger, hdr
+    }
+    public var interpolation = Interpolation.off
+    public var upscale = Upscale.bilinear
+    public var ml = ML.off
+    /// The screen's measured refresh rate (0 until known); the rate interpolation works from (the game's when
+    /// measured, else the stream's); and the game's own rate, from its new pictures (0 until measured).
+    public var displayHz = 0.0
+    public var streamFps = 0.0
+    public var gameFps = 0.0
 }
