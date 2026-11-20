@@ -176,6 +176,17 @@ describe("home: discovery", () => {
   })
 })
 
+describe("home: help", () => {
+  it("opens the help page from Home", async () => {
+    const core = fakeCore()
+    renderApp(core)
+    await userEvent.click(await screen.findByRole("button", { name: "Help" }))
+    await waitFor(() => {
+      expect(core.counts.openHelp).toBe(1)
+    })
+  })
+})
+
 describe("home: PSN account", () => {
   it("signs in with PlayStation", async () => {
     const core = fakeCore()
@@ -767,6 +778,10 @@ describe("settings", () => {
     await userEvent.click(sheet.getByRole("button", { name: "Open logs folder" }))
     await waitFor(() => {
       expect(core.counts.openLogsFolder).toBe(1)
+    })
+    await userEvent.click(sheet.getByRole("button", { name: "Help" }))
+    await waitFor(() => {
+      expect(core.counts.openHelp).toBe(1)
     })
     expect(sheet.getByText(/free software under the GNU AGPL-3.0/)).toBeInTheDocument()
     expect(sheet.getByText(/THIRD_PARTY_LICENSES/)).toBeInTheDocument()

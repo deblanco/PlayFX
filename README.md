@@ -65,6 +65,9 @@ The first time:
 For real DualSense haptics, connect the pad with a USB cable and, once, set its output to 4 channels
 (Quadraphonic) in Audio MIDI Setup.
 
+Setup step by step, answers to common problems, the keyboard controls and where PlayFX keeps your data:
+[Help](docs/HELP.md) (also under **Help** in the app).
+
 ## Video
 
 The console sends at most 1080p, so most of the picture's quality is decided before the Mac gets it.

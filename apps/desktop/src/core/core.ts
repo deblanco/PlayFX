@@ -97,6 +97,8 @@ export class Core extends Context.Service<
     readonly openLogsFolder: Effect.Effect<void, CoreError>
     /** Opens PlayFX's source code (AGPL-3.0) in the browser. */
     readonly openSourceCode: Effect.Effect<void, CoreError>
+    /** Opens the help page (docs/HELP.md on GitHub) in the browser. */
+    readonly openHelp: Effect.Effect<void, CoreError>
     /** Opens System Settings › Privacy & Security › Local Network. */
     readonly openLocalNetworkSettings: Effect.Effect<void, CoreError>
     readonly diagnostics: Effect.Effect<Diagnostics, CoreError>
@@ -217,6 +219,7 @@ export const CoreLive = Layer.effect(
       setDetailedLogs: (on) => Effect.asVoid(call(unit, "set_detailed_logs", { on })),
       openLogsFolder: Effect.asVoid(call(unit, "open_logs_folder")),
       openSourceCode: Effect.asVoid(call(unit, "open_source_code")),
+      openHelp: Effect.asVoid(call(unit, "open_help")),
       openLocalNetworkSettings: Effect.asVoid(call(unit, "open_local_network_settings")),
       diagnostics: call(Diagnostics, "diagnostics"),
       appInfo: call(AppInfo, "app_info"),

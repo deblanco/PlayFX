@@ -1,5 +1,5 @@
 import { Option } from "effect"
-import { ChevronRight, ClipboardCopy, Code, FolderOpen, RotateCcw, Save, Trash2 } from "lucide-react"
+import { ChevronRight, CircleQuestionMark, ClipboardCopy, Code, FolderOpen, RotateCcw, Save, Trash2 } from "lucide-react"
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -574,6 +574,9 @@ const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; read
         </Button>
         <Button variant="ghost" size="sm" onClick={() => { run(actions.openLogsFolder) }}>
           <FolderOpen /> Open logs folder
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => { run(actions.openHelp) }}>
+          <CircleQuestionMark /> Help
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">

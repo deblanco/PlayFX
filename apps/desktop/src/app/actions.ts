@@ -450,6 +450,8 @@ export const openLogsFolder: Effect.Effect<void, CoreError, Core> = Effect.flatM
 
 export const openSourceCode: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openSourceCode)
 
+export const openHelp: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openHelp)
+
 /** Opens the Local Network privacy settings; if it can't, says where they are. */
 export const openLocalNetworkSettings: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) =>
   core.openLocalNetworkSettings.pipe(

@@ -391,6 +391,15 @@ fn open_source_code() -> Result<(), String> {
     open(SOURCE_URL)
 }
 
+/// The players' help page (docs/HELP.md): requirements, setup, FAQ, the keyboard map.
+const HELP_URL: &str = "https://github.com/deblanco/PlayFX/blob/main/docs/HELP.md";
+
+/// Opens the help page in the browser. The URL is fixed here, never taken from the web view.
+#[tauri::command(async)]
+fn open_help() -> Result<(), String> {
+    open(HELP_URL)
+}
+
 /// System Settings › Privacy & Security › Local Network, where PlayFX is allowed to find consoles.
 const LOCAL_NETWORK_SETTINGS_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork";
 
@@ -497,6 +506,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_detailed_logs,
         open_logs_folder,
         open_source_code,
+        open_help,
         open_local_network_settings,
         diagnostics,
         app_info,

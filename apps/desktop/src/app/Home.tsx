@@ -1,5 +1,5 @@
 import { Option } from "effect"
-import { SlidersHorizontal } from "lucide-react"
+import { CircleQuestionMark, SlidersHorizontal } from "lucide-react"
 import { useCallback, useEffect, useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -94,6 +94,9 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
             <Label htmlFor={profileId} className="text-xs text-muted-foreground">Profile</Label>
             <ProfileSelect id={profileId} settings={settings} running={undefined} onChange={onSettingsChange} className="w-36 shrink-0" />
             <p className="min-w-0 flex-1 text-xs text-muted-foreground tabular-nums">{streamSummary(settings)}</p>
+            <Button variant="ghost" size="sm" onClick={() => { run(actions.openHelp) }}>
+              <CircleQuestionMark /> Help
+            </Button>
             <Button variant="secondary" size="sm" onClick={() => { setSettingsOpen(true) }}>
               <SlidersHorizontal /> Settings
             </Button>

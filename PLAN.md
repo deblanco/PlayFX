@@ -506,6 +506,15 @@ Work items:
   it over the internet, (3) check it merges with the discovered console (host ID = MAC) rather than showing
   twice, and (4) a failure case (Remote Play off, another PSN account) for the real messages. PS5 only (PSN lists
   PS5s); networks that block hole punching still need the PIN.
+- ✅ **Help page** (2026-11-20, requested): [docs/HELP.md](docs/HELP.md), for players: requirements, first-time setup
+  (with and without a code, over the internet), an FAQ (no consoles found, each pairing failure message and what to
+  do, pairing code vs console passcode, waking, Steady Wi-Fi and its password prompt, stutter, every item of the
+  stats line, frame interpolation, upscaling, HDR, bitrate and profiles, DualSense, microphone, other controllers),
+  the keyboard map, what PlayFX stores and where, logs and bug reports, uninstalling. A **Help** button next to
+  Settings on Home and in Settings › Diagnostics opens it on GitHub (a new `open_help` command with a fixed URL, like
+  Source code). The README links it under Install. Checked by unit tests (App: both buttons; Rust: the command
+  through the real ACL; a test fails when the page's keyboard table drifts from `keyboard.ts`). Keep the page in
+  step with the UI's wording when that changes.
 
 ### Out of scope: other platforms
 

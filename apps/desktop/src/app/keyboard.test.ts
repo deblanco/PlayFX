@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { idleController } from "@/core/schema"
+import help from "../../../../docs/HELP.md?raw"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 
 const BUTTON = { cross: 1 << 0, square: 1 << 2, dpadUp: 1 << 6, options: 1 << 12, ps: 1 << 15 }
@@ -57,5 +58,16 @@ describe("keyboardLayout", () => {
   it("documents every row as a key/action pair", () => {
     expect(keyboardLayout.length).toBeGreaterThan(0)
     for (const row of keyboardLayout) expect(row).toHaveLength(2)
+  })
+
+  it("matches the table in docs/HELP.md, row for row", () => {
+    // The table under "## Keyboard as controller", without its header and separator rows.
+    const section = help.split(/^## /m).find((s) => s.startsWith("Keyboard as controller"))
+    const rows = (section ?? "")
+      .split("\n")
+      .filter((line) => line.startsWith("|"))
+      .slice(2)
+      .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()))
+    expect(rows).toEqual(keyboardLayout)
   })
 })
