@@ -3,7 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20, release v0.2.1: the Wi-Fi stall warning from the stream
+Last updated 2026-11-20, after release v0.2.1: VideoToolbox no longer leaks a Metal shared event per frame
+(the crash 10–40 minutes into a session with frame interpolation or ML upscaling on), and a video processor that
+fails is restarted, or its feature turned off, instead of ending the app. Release v0.2.1: the Wi-Fi stall warning from the stream
 itself; Cancel during a PSN pairing's registration ends it at once, and a PS5 that PSN reached but that never
 answers the registration gets its own message (PSN_REGIST_UNANSWERED); a profile switch during a bitrate
 reconnect asks first; a 50 fps game's pictures stay evenly spaced while frames are generated; `psrp
@@ -55,7 +57,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 331 tests (89% lines; 84% as CI's VM sees
+- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 366 tests (90% lines; 88% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -244,7 +246,8 @@ Work items:
     a burst of model rebuilds, and Swift can't catch those, so the app ended. The call now runs inside a small
     Objective-C catch (`CObjCCatch`): that pair gets no images and the session starts over; a size that keeps
     failing is dropped. The scaled-down copies of the frames now keep their colorimetry, which VideoToolbox may
-    look up (a likely trigger). The rebuild churn behind it is fixed below.
+    look up (a likely trigger). The rebuild churn behind it is fixed below. *Not the cause, and the catch made
+    it worse in v0.2.1: see "Long sessions crashed" under Stability.*
   - Halves and quarters each keep their own VideoToolbox session (2026-11-20): the release on a ProMotion screen
     rebuilt the model every 20–60 s as the screen's rate moved and the choice flipped (seen in the log: "at halves"
     then "at quarters" in the same second), each rebuild a second or two with no images, which made most of a
@@ -707,6 +710,61 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   stay once stopped, without switching a real output). Each test was checked to fail with its fix reverted
   (and the reconnect one with the interrupt dropped, the player one with the switch dropped).
 
+- ✅ **Long sessions crashed** (v0.1.0 after 39 minutes; v0.2.1 after 10, with interpolation and ML upscaling,
+  which v0.2.0 turned on by default): VideoToolbox's Metal call `process(with: commandBuffer, …)` makes a Metal
+  shared event per call and never frees it (not on `endSession`, not when the processor goes; only when the
+  process exits). Shared events are limited for the whole system (about 52,000 for a fresh process on this
+  Mac), and once they ran out, VideoToolbox raised "insertObject:atIndex: object cannot be nil" with its own
+  lock held. v0.1.0 didn't catch it; v0.2.1 caught it and then called `endSession` on the same processor,
+  which took the held lock again, and libplatform killed the app. Fixed (2026-11-20):
+  - Interpolation and ML upscaling call VideoToolbox's synchronous `processWithParameters:error:` (through
+    `playfx_vt_process`: Swift doesn't see it, and its `process(parameters:)` without `await` returns before
+    the work is done) on their lanes' queues. The lanes' Metal work is split around it: scaling down (or
+    cutting tiles) is committed and finished first, the blend (or the join) goes in a second command buffer.
+  - Every call into a processor (start, process, end) is caught for Objective-C exceptions as well as Swift
+    errors (`GuardedProcessor`). One that raised an exception is never called again, not even ended, and is
+    kept for the rest of the run; a fresh one starts with the next pair or frame. An error restarts the
+    processor; whether it counts is decided per configuration (size with steps or factor) for the run, not
+    per processor (`ProcessorSizes`): where one worked before, any error counts, a fresh processor's first
+    call or start included (a fault over a few calls, such as a GPU reset on wake, isn't taken for a
+    refusal); where none ever has, two fresh processors in a row erring at once make it a size VideoToolbox
+    refuses (960×540 returns -19740 from the synchronous call, where the Metal call wrote an empty image), not
+    asked for again and not counted. Three failures in a minute, or ten in a run, turn that feature off until
+    the app restarts (`VideoProcessorHealth`), which retires every session it still has (both step counts at
+    every prepared size, every ML tile: the renderer stops calling the lanes once it's off), and the stats
+    say "interpolation off: video processor failed" or "ML off (video processor failed)" (`failed` in
+    `pacing.interpolation` / `pacing.ml`). Retired processors are ended a second later, off the lane's queue,
+    once no call is running (one still starting, once it has). A frame stuck in ML for 15 s no longer holds
+    the picture; the stats say "ML idle (waiting on the model)" (`ml: "stalled"`) meanwhile, not `failed`,
+    since a slow first model build can take that long.
+  - Verified on this Mac (no console), with a hook counting the `MTLSharedEvent`s the process makes and keeps
+    (the system-wide count wasn't run down: the release was streaming at the same time): before, +1 per
+    interpolated pair, +1 per 720p ML frame, +2 per 1080p one; after, 0 over 20,000 calls of each (lanes
+    driven on synthetic NV12 frames). Cost per call, before and after run turn about: interpolation 5.2 → 5.5
+    ms a pair with scaling (1080p frames at 720p), 12.8–13.1 → 12.8–13.0 ms at quarters; ML 2.56 → 2.51 ms at
+    720p, 8.1 → 8.3 ms at 1080p. 200 start/process/retire cycles of both features ended every processor, no
+    crash. The crash in `endSession` right after a call (`FigSimpleMutexLock`) came from the un-awaited
+    asynchronous call, reproduced; 200 cycles of the synchronous call with `endSession` at once didn't crash.
+    MetalFX's spatial scaler and frame interpolator make no shared events. Unit tests with stand-in processors
+    cover the exception → quarantine → fresh processor path, errors, the budget turning a feature off and the
+    stats saying so, retirement waiting for a call still running, and nothing called on a quarantined
+    processor at teardown. See docs/FRAME_INTERPOLATION.md, "Which VideoToolbox call".
+  - After review (2026-11-20), each with a test that failed first: a fault over two processors (the one
+    that worked errs, then the fresh one's first call) was taken as a refusal, so ML stayed off at that size
+    for the run as "not for this stream size" and interpolation dropped the size; now counted and restarted
+    (interpolation and ML, for errors and for starts). Turning a feature off left its other sessions started
+    until the app quit; now all are ended without another call (stand-ins: halves, quarters and two ML tiles
+    all ended). A session retired while still starting is ended once it has. `ml` reads `stalled` rather than
+    `failed` while a frame is stuck. `SharedEventTests` (real VideoToolbox, skipped in a VM) hooks
+    `_MTLSharedEvent`'s allocation: 10 Metal calls show +10, then 200 interpolated pairs and 200 ML frames
+    through the app's code must make fewer than 20; it fails with `VTProcessor` switched back to the Metal
+    call. The harness re-run on this build (in-process hook, not the system-wide count: the release was
+    running): 20,000 interpolated pairs (1080p frames at 720p), 20,000 ML frames at 720p and 20,000 at 1080p,
+    all made, 0 shared events created or left; 200 start/process/retire cycles all ended; real sessions
+    (halves and quarters at two sizes, ML's two 1080p tiles) all ended when both budgets were tripped with no
+    further call.
+  - Left: a long session (an hour or more) on the console with both on, on a build with the fix.
+
 ## 3. Known issues / tech debt
 
 - ℹ️ **Swift tests**: run them with `packages/streamcore/scripts/test.sh` or `coverage.sh`, which pass
@@ -838,6 +896,10 @@ requests and a bug report.
 2. ~~Reconnect/resilience + clear quit-reason UI~~ (done). *(P0)*
 3. Remote Play over the internet: built, and used for every stream on 2026-11-20 (through PSN, from the home
    network); **a run from another network (phone hotspot) is left** (needs the user). *(P0)*
+3b. **On the console: an hour's stream with frame interpolation and ML upscaling on**, on a build with the
+   shared-event fix (2026-11-20; v0.2.1 crashed after 10 minutes). The renderer status' `pacing.interpolation`
+   and `pacing.ml` should never read `failed` (`ml` may read `stalled` for a few seconds while a first model
+   builds). *(P0)*
 4. ~~Rumble + adaptive triggers in a game~~ (done 2026-11-20: GTA VI, pad on USB, the user: works);
    touchpad built; **the motion axes in a game are left**. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*

@@ -14,6 +14,9 @@ import Testing
         #expect(state(true, true, 1.0 / 60, 1.0 / 60) == .screen)
         #expect(state(true, true, 1.0 / 60, 1.0 / 75) == .on)
         #expect(state(true, true, 1.0 / 30, 0) == .screen) // the screen's rate isn't measured yet
+        // Its video processor kept failing: off for the rest of the run, and said so.
+        let failed = { StreamRenderer.interpolationState(enabled: $0, supported: true, failed: true, streamInterval: 1.0 / 30, displayInterval: 1.0 / 60) }
+        #expect(failed(true) == .failed && failed(false) == .off)
     }
 
     @Test func upscaleSaysWhyMetalFXIsIdle() {
@@ -29,7 +32,7 @@ import Testing
     }
 
     @Test func mlSaysWhyItIsIdle() {
-        let state = StreamRenderer.mlState
+        let state = { StreamRenderer.mlState(enabled: $0, supported: $1, ran: $2, width: $3, height: $4, eightBit: $5, refused: $6) }
         #expect(state(false, true, false, 1280, 720, true, false) == .off)
         #expect(state(true, true, true, 1280, 720, true, false) == .on)
         #expect(state(true, false, false, 1280, 720, true, false) == .unsupported)
@@ -38,5 +41,11 @@ import Testing
         #expect(state(true, true, false, 1280, 720, true, false) == .notLarger)
         #expect(state(true, true, false, 1280, 720, false, false) == .hdr) // 10-bit: the model takes 8-bit only
         #expect(state(true, true, false, 960, 540, true, true) == .streamTooLarge) // a size the model refused
+        // Its video processor kept failing (or is stuck on a frame now): off, and said so.
+        #expect(StreamRenderer.mlState(enabled: true, supported: true, ran: false, width: 1280, height: 720, failed: true) == .failed)
+        #expect(StreamRenderer.mlState(enabled: false, supported: true, ran: false, width: 1280, height: 720, failed: true) == .off)
+        // Stuck on a frame (a slow first model build, say): waiting, not failed.
+        #expect(StreamRenderer.mlState(enabled: true, supported: true, ran: false, width: 1280, height: 720, stalled: true) == .stalled)
+        #expect(StreamRenderer.mlState(enabled: true, supported: true, ran: false, width: 1280, height: 720, failed: true, stalled: true) == .failed)
     }
 }

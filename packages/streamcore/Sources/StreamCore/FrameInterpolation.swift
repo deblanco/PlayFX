@@ -1,7 +1,5 @@
-import CObjCCatch
 import CoreMedia
 import CoreVideo
-import Metal
 import VideoToolbox
 
 /// "Frame interpolation": Apple's low-latency frame interpolation (VideoToolbox, macOS 26+) makes images
@@ -38,7 +36,7 @@ public final class FrameInterpolator {
 
     /// A running VideoToolbox session and its output buffers.
     private struct Running {
-        let processor: AnyObject // VTFrameProcessor on macOS 26+
+        let processor: GuardedProcessor
         let pool: CVPixelBufferPool
     }
     /// One session per number of points (halves, quarters) for `size`, kept while the size stays: the renderer
@@ -49,34 +47,49 @@ public final class FrameInterpolator {
     /// Sessions started so far (tests: switching back and forth mustn't start new ones).
     private(set) var sessionsStarted = 0
     private var failed: Set<String> = []
+    /// Sizes (with steps) that made images in this run, and fresh processors' errors at ones that never did.
+    private var sizes = ProcessorSizes()
     private var timestamp: Int64 = 0
+    private let health: VideoProcessorHealth
+    private let available: Bool
+    private let makeProcessor: () -> VideoProcessing?
 
-    public init() {}
+    public convenience init() { self.init(health: .interpolation) }
+
+    /// `available` and `makeProcessor`: VideoToolbox in the app, stand-ins in tests.
+    init(health: VideoProcessorHealth, available: Bool = FrameInterpolator.isAvailable,
+         makeProcessor: @escaping () -> VideoProcessing? = makeVTProcessor) {
+        self.health = health
+        self.available = available
+        self.makeProcessor = makeProcessor
+    }
 
     deinit { end() }
 
-    /// Encodes the images at `phases` between `previous` and `current` (each one of the processor's points
-    /// for `steps`: 1 gives ½, 2 gives ¼, ½, ¾) into new NV12 buffers in `cb`, in order; nil when it can't run
-    /// (unsupported format or size, the frames differ in size, or a phase isn't one of the points).
-    public func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer,
-                       phases: [Float], steps: Int) -> [CVPixelBuffer]? {
-        guard #available(macOS 26.0, iOS 26.0, *), Self.isAvailable, !phases.isEmpty,
+    /// Whether it's off for the rest of the run: its video processor kept failing.
+    var hasFailed: Bool { health.isOff }
+
+    /// The images at `phases` between `previous` and `current` (each one of the processor's points for `steps`:
+    /// 1 gives ½, 2 gives ¼, ½, ¾), made by the time it returns into new NV12 buffers, in order; nil when it can't
+    /// run (unsupported format or size, the frames differ in size, or a phase isn't one of the points) or the
+    /// processor failed on this pair (a fresh one starts with the next).
+    public func make(previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]? {
+        guard #available(macOS 26.0, iOS 26.0, *), available, !phases.isEmpty,
               phases.allSatisfy({ Self.isPoint($0, steps: steps) }),
               CVPixelBufferGetPixelFormatType(current) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
               CVPixelBufferGetPixelFormatType(previous) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return nil }
+        guard !health.isOff else { end(); return nil }
         let w = CVPixelBufferGetWidth(current), h = CVPixelBufferGetHeight(current)
         guard CVPixelBufferGetWidth(previous) == w, CVPixelBufferGetHeight(previous) == h else { return nil }
-        guard start(width: w, height: h, steps: steps) else { return nil }
+        guard start(width: w, height: h, steps: steps), let running = sessions[steps] else { return nil }
         // Timestamps on a grid fine enough for every point: the pair is `scale` ticks apart.
         let scale = Int64(1 << steps)
         timestamp += scale
         var outputs: [CVPixelBuffer] = []
         var destinations: [VTFrameProcessorFrame] = []
-        guard let running = sessions[steps], let processor = running.processor as? VTFrameProcessor else { return nil }
-        let pool = running.pool
         for phase in phases {
             var output: CVPixelBuffer?
-            guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output) == kCVReturnSuccess, let output,
+            guard CVPixelBufferPoolCreatePixelBuffer(nil, running.pool, &output) == kCVReturnSuccess, let output,
                   let frame = VTFrameProcessorFrame(buffer: output, presentationTimeStamp: CMTime(
                       value: timestamp - scale + Int64((phase * Float(scale)).rounded()), timescale: 240))
             else { return nil }
@@ -90,16 +103,29 @@ public final class FrameInterpolator {
               let parameters = VTLowLatencyFrameInterpolationParameters(sourceFrame: after, previousFrame: before,
                                                                         interpolationPhase: phases, destinationFrames: destinations)
         else { return nil }
-        // VideoToolbox can throw an Objective-C exception from inside this call (seen once in a 40-minute
-        // session: "insertObject: object cannot be nil"), which would end the app. Caught: this pair gets no
-        // images, and the session starts over with the next pair (a size that keeps failing is dropped by
-        // the lane).
-        if let reason = playfx_catch({ processor.process(with: cb, parameters: parameters) }) {
-            Log.error(.renderer, "Frame interpolation failed at \(w)x\(h) (\(reason)); starting its session over")
-            (sessions.removeValue(forKey: steps)?.processor as? VTFrameProcessor)?.endSession()
+        let key = "\(w)x\(h)/\(steps)"
+        switch running.processor.process(parameters) {
+        case .done:
+            sizes.worked(key)
+            return outputs
+        case .refused:
+            // Never made anything at this size: VideoToolbox refuses it (960×540, say) once a second fresh
+            // processor errs too, and it's not asked for again; until then a fault that passed.
+            sessions.removeValue(forKey: steps)?.processor.retire()
+            if sizes.refuses(key) {
+                failed.insert(key)
+                Log.warning(.renderer, "Frame interpolation can't make images at \(w)x\(h); not using that size")
+            } else {
+                Log.warning(.renderer, "Frame interpolation's first pair at \(w)x\(h) failed; trying a fresh session")
+            }
+            return nil
+        case .failed:
+            // This pair gets no images; the next starts a fresh processor. One that raised an exception is never
+            // called again (see `GuardedProcessor`), and a feature that keeps failing turns itself off.
+            Log.error(.renderer, "Frame interpolation failed at \(w)x\(h); starting its session over")
+            sessions.removeValue(forKey: steps)?.processor.retire()
             return nil
         }
-        return outputs
     }
 
     /// Whether `phase` is one of the points the processor makes for `steps` (2^steps − 1 evenly spaced ones).
@@ -112,7 +138,7 @@ public final class FrameInterpolator {
     /// Starts the sessions for halves and quarters (building each model, 1–2 s the first time for a size) ahead
     /// of the first pair, so neither the first pair nor a later switch between them waits for one.
     public func prepare(width: Int, height: Int) {
-        if #available(macOS 26.0, iOS 26.0, *), Self.isAvailable {
+        if #available(macOS 26.0, iOS 26.0, *), available, !health.isOff {
             for steps in [1, 2] { _ = start(width: width, height: height, steps: steps) }
         }
     }
@@ -127,15 +153,31 @@ public final class FrameInterpolator {
             size = (w, h)
         }
         if sessions[steps] != nil { return true }
-        var newPool: CVPixelBufferPool?
-        let processor = VTFrameProcessor()
-        guard let config = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: steps),
-              (try? processor.startSession(configuration: config)) != nil,
-              CVPixelBufferPoolCreate(nil, nil, Self.metalCompatible(config.destinationPixelBufferAttributes) as CFDictionary,
-                                      &newPool) == kCVReturnSuccess, let newPool else {
-            failed.insert("\(sizeKey)/\(steps)")
+        let key = "\(sizeKey)/\(steps)", proven = sizes.hasWorked(key)
+        /// It can't start here: never tried again, unless it worked here before (then a fault: counted, and tried
+        /// again with the next pair).
+        func refuse(_ reason: String) -> Bool {
+            if proven {
+                health.failed("start at \(sizeKey): \(reason)")
+                return false
+            }
+            failed.insert(key)
             Log.warning(.renderer, "Frame interpolation couldn't start for \(sizeKey) streams (\(steps == 1 ? "halves" : "quarters"))")
             return false
+        }
+        guard let config = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: steps),
+              let made = makeProcessor() else { return refuse("no processor") }
+        let processor = GuardedProcessor(made, health: health, proven: proven)
+        switch processor.start(config) {
+        case .done: break
+        case .threw, .notCalled: return false // quarantined and counted, or the feature is off: a fresh one for the next pair
+        case .failed(let reason): return refuse(reason)
+        }
+        var newPool: CVPixelBufferPool?
+        guard CVPixelBufferPoolCreate(nil, nil, Self.metalCompatible(config.destinationPixelBufferAttributes) as CFDictionary,
+                                      &newPool) == kCVReturnSuccess, let newPool else {
+            processor.retire()
+            return refuse("no buffer pool")
         }
         sessions[steps] = Running(processor: processor, pool: newPool)
         sessionsStarted += 1
@@ -149,10 +191,9 @@ public final class FrameInterpolator {
         return attrs
     }
 
+    /// Retires every session: their processors are ended later, off this queue (see `GuardedProcessor.retire`).
     private func end() {
-        if #available(macOS 26.0, iOS 26.0, *) {
-            for running in sessions.values { (running.processor as? VTFrameProcessor)?.endSession() }
-        }
+        for running in sessions.values { running.processor.retire() }
         sessions.removeAll()
         size = nil
     }

@@ -233,15 +233,22 @@ const upscaleReason = (pacing: PacingStats | null): string => {
 
 /** ML upscaling turned on but skipped, and why; nothing when it ran or is off. */
 const mlRow = (pacing: PacingStats | null): StatRow | undefined => {
-  const reason = pacing === null ? undefined : {
+  if (pacing === null) return undefined
+  const reason = {
     off: undefined,
     on: undefined,
     unsupported: "unavailable on this Mac",
     streamTooLarge: "not for this stream size",
     notLarger: "no upscale needed",
     hdr: "not for HDR",
+    failed: "video processor failed",
+    // Not a failure: a frame has been in the model for a while (a slow first model build), frames go around it.
+    stalled: "waiting on the model",
   }[pacing.ml]
-  return reason === undefined ? undefined : statRow("ML upscaling", reason, `ML idle (${reason})`)
+  if (reason === undefined) return undefined
+  // Off until the app restarts, not idle: worth a look.
+  return pacing.ml === "failed" ? statRow("ML upscaling", `Off: ${reason}`, `ML off (${reason})`, true)
+    : statRow("ML upscaling", reason, `ML idle (${reason})`)
 }
 
 /** Frame interpolation: in-between images shown per second (and pairs that got none), or why none are made. */
@@ -254,6 +261,8 @@ const interpolationRow = (status: RendererStatus, missedRate: number): StatRow |
     case "unsupported": return statRow("Frame interpolation", "Unavailable", "interpolation unavailable on this Mac")
     // The game holds its picture (a pause): nothing to make, and nothing wrong.
     case "still": return statRow("Frame interpolation", "Idle: still picture", "no interpolation: still picture")
+    // VideoToolbox's processor kept failing: off until the app restarts, the picture going on without it.
+    case "failed": return statRow("Frame interpolation", "Off: video processor failed", "interpolation off: video processor failed", true)
     case "screen": {
       if (pacing.displayHz <= 0 || pacing.streamFps <= 0) return undefined
       const why = `${String(Math.round(pacing.streamFps))} fps on a ${String(Math.round(pacing.displayHz))} Hz screen`
@@ -490,7 +499,8 @@ export const upscaleIdle = (pacing: PacingStats | null): string | undefined => {
   if (pacing.upscale === "notLarger" || pacing.ml === "notLarger" || pacing.ml === "streamTooLarge") return "not needed"
   if (pacing.upscale === "unsupported" || pacing.ml === "unsupported") return "unavailable"
   if (pacing.ml === "hdr") return "not for HDR"
-  return pacing.upscale === "failed" ? "failed" : undefined
+  if (pacing.ml === "stalled") return "waiting on the model"
+  return pacing.upscale === "failed" || pacing.ml === "failed" ? "failed" : undefined
 }
 
 /** The picture steps; `idle` is `upscaleIdle` for the stream on screen. */

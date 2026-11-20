@@ -205,6 +205,8 @@ final class MetalFXInterpolatorBench {
                   let destination = VTFrameProcessorOpticalFlow(forwardFlow: forward, backwardFlow: backward),
                   let parameters = VTOpticalFlowParameters(sourceFrame: source, nextFrame: next, submissionMode: .sequential,
                                                            destinationOpticalFlow: destination) else { return false }
+            // VideoToolbox's command-buffer call leaks a Metal shared event per call (see docs/FRAME_INTERPOLATION.md):
+            // fine for a bench over one clip, never for the app.
             flow.process(with: cb, parameters: parameters)
             motionTexture = texture(backward, .rg16Float)
         case .estimate:

@@ -21,41 +21,40 @@ import Testing
     }
 
     @Test func makesTheInBetweenFrame() throws {
-        guard FrameInterpolator.isAvailable, let device = MTLCreateSystemDefaultDevice(),
-              let queue = device.makeCommandQueue() else { return } // needs macOS 26 on a supported Mac
-        let interpolator = FrameInterpolator()
-        let dark = try makeNV12(width: 640, height: 360, y: 40, cb: 128, cr: 128)
-        let bright = try makeNV12(width: 640, height: 360, y: 200, cb: 128, cr: 128)
-        let cb = try #require(queue.makeCommandBuffer())
-        let middle = try #require(interpolator.encode(cb, previous: dark, current: bright, phases: [0.5], steps: 1)?.first)
-        cb.commit()
-        cb.waitUntilCompleted()
-        #expect(CVPixelBufferGetWidth(middle) == 640 && CVPixelBufferGetHeight(middle) == 360)
-        // Quarters: three images in one pass, darkest first.
-        let cb3 = try #require(queue.makeCommandBuffer())
-        let quarters = try #require(interpolator.encode(cb3, previous: dark, current: bright, phases: [0.25, 0.5, 0.75], steps: 2))
-        cb3.commit()
-        cb3.waitUntilCompleted()
+        guard FrameInterpolator.isAvailable else { return } // needs macOS 26 on a supported Mac
+        let health = VideoProcessorHealth(feature: "Test")
+        let interpolator = FrameInterpolator(health: health)
+        let dark = try makeNV12(width: 640, height: 352, y: 40, cb: 128, cr: 128)
+        let bright = try makeNV12(width: 640, height: 352, y: 200, cb: 128, cr: 128)
+        // Made by the time the call returns (VideoToolbox's synchronous call): in between in brightness.
+        let middle = try #require(interpolator.make(previous: dark, current: bright, phases: [0.5], steps: 1)?.first)
+        #expect(CVPixelBufferGetWidth(middle) == 640 && CVPixelBufferGetHeight(middle) == 352)
+        CVPixelBufferLockBaseAddress(middle, .readOnly)
+        let luma = CVPixelBufferGetBaseAddressOfPlane(middle, 0)!.assumingMemoryBound(to: UInt8.self)[176 * CVPixelBufferGetBytesPerRowOfPlane(middle, 0) + 320]
+        CVPixelBufferUnlockBaseAddress(middle, .readOnly)
+        #expect(luma > 40 && luma < 200, "\(luma)")
+        // Quarters: three images in one pass.
+        let quarters = try #require(interpolator.make(previous: dark, current: bright, phases: [0.25, 0.5, 0.75], steps: 2))
         #expect(quarters.count == 3)
         // Back to halves, then quarters again (a ProMotion screen changing its rate): the sessions are kept,
         // so neither switch starts a new one (each would build its model for a second or two).
         let started = interpolator.sessionsStarted
         for phases: [Float] in [[0.5], [0.25, 0.5, 0.75], [0.5]] {
-            let cbn = try #require(queue.makeCommandBuffer())
-            #expect(interpolator.encode(cbn, previous: dark, current: bright, phases: phases, steps: phases.count == 1 ? 1 : 2) != nil)
-            cbn.commit()
-            cbn.waitUntilCompleted()
+            #expect(interpolator.make(previous: dark, current: bright, phases: phases, steps: phases.count == 1 ? 1 : 2) != nil)
         }
         #expect(interpolator.sessionsStarted == started && started == 2)
         // A phase that isn't one of the processor's points isn't asked for.
-        let cb4 = try #require(queue.makeCommandBuffer())
-        #expect(interpolator.encode(cb4, previous: dark, current: bright, phases: [0.3], steps: 2) == nil)
-        cb4.commit()
+        #expect(interpolator.make(previous: dark, current: bright, phases: [0.3], steps: 2) == nil)
         // Frames of different sizes (a resolution change) can't be blended.
         let small = try makeNV12(width: 320, height: 180, y: 40, cb: 128, cr: 128)
-        let cb2 = try #require(queue.makeCommandBuffer())
-        #expect(interpolator.encode(cb2, previous: small, current: bright, phases: [0.5], steps: 1) == nil)
-        cb2.commit()
+        #expect(interpolator.make(previous: small, current: bright, phases: [0.5], steps: 1) == nil)
+        // VideoToolbox refuses 640×360 at its fast path (rows not a multiple of 16): no images, and no failure
+        // counted against the feature (the renderer moves to a size it takes).
+        let darker = try makeNV12(width: 640, height: 360, y: 40, cb: 128, cr: 128)
+        let brighter = try makeNV12(width: 640, height: 360, y: 200, cb: 128, cr: 128)
+        #expect(interpolator.make(previous: darker, current: brighter, phases: [0.5], steps: 1) == nil)
+        #expect(health.failures == 0 && !interpolator.hasFailed)
+        #expect(health.waitForRetirements(timeout: 5))
     }
 }
 
@@ -156,7 +155,7 @@ final class StandInMaker: MiddleFrameMaker {
     }
     /// The phases and points asked for, per pair.
     private(set) var asked: [(phases: [Float], steps: Int)] = []
-    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]? {
+    func make(previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]? {
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         asked.append((phases, steps))
         switch output {

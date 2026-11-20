@@ -243,8 +243,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                   upscaler: MLSuperResolution.isAvailable ? MLSuperResolution() : nil)
     }
 
-    /// `upscaler`: what ML upscaling runs (nil: none on this Mac).
-    init?(inputWidth: Int, inputHeight: Int, upscaler: FrameUpscaler?) {
+    /// `upscaler`: what ML upscaling runs (nil: none on this Mac); `stallLimit`: see `UpscaleLane`.
+    init?(inputWidth: Int, inputHeight: Int, upscaler: FrameUpscaler?, stallLimit: Double = 15) {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: shaderSource, options: nil),
@@ -300,7 +300,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.view = view
         self.metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
         self.lane = FrameInterpolator.isAvailable ? InterpolationLane(device: device) : nil
-        self.upscaleLane = upscaler.flatMap { UpscaleLane(device: device, engine: $0) }
+        self.upscaleLane = upscaler.map { UpscaleLane(engine: $0, stallLimit: stallLimit) }
         Log.info(.renderer, "Renderer on \(device.name): MetalFX \(metalFXSupported ? "yes" : "no"), "
             + "ML super-resolution \(upscaleLane != nil ? "yes" : "no")")
         super.init()
@@ -382,8 +382,12 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         let target = Self.fittedRect(source: size, drawable: drawable).size
         // Only a frame the model can make bigger goes to the lane. Any other skips it, unless the lane still
         // holds earlier frames: then it queues behind them, so frames reach the clock in order, one at a time.
-        let upscale = enabled && Self.interpolates(frame) && target.width > size.width
-        guard let upscaleLane, upscale || upscaleLane.isBusy else {
+        let upscale = enabled && Self.interpolates(frame) && target.width > size.width && !(upscaleLane?.hasFailed ?? false)
+        // A frame stuck in the model (a call that doesn't return) mustn't hold the picture: frames go around the
+        // lane, and whatever it finishes later is left out as if from the stream before.
+        let stalled = upscaleLane?.isStalled() ?? false
+        if stalled { upscaleGeneration.withLock { $0 += 1 } }
+        guard let upscaleLane, !stalled, upscale || upscaleLane.isBusy else {
             intake(frame, decoded: frame, index: i, arrival: arrival, decodedAt: arrival)
             return
         }
@@ -572,7 +576,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             let width = CVPixelBufferGetWidth(raw), height = CVPixelBufferGetHeight(raw)
             let mlState = Self.mlState(enabled: params.mlUpscale, supported: mlSupported, ran: decoded != nil,
                                        width: width, height: height, eightBit: Self.interpolates(raw),
-                                       refused: upscaleLane?.status.refused ?? false)
+                                       refused: upscaleLane?.status.refused ?? false,
+                                       failed: upscaleLane?.hasFailed ?? false, stalled: upscaleLane?.isStalled() ?? false)
             pipelineState.withLock { $0.ml = mlState }
             decodedWidth = width
             encodeVideoFrame(frame, cb)
@@ -804,8 +809,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             return (p.sourceInterval, p.clock.interval, p.content.interval, now - p.lastPicture > p.clock.interval * Self.stillGap)
         }
         var state = Self.interpolationState(enabled: params.frameInterpolation, supported: interpolationSupported,
-                                            streamInterval: interval, displayInterval: displayInterval,
-                                            current: interpolating.withLock { $0 })
+                                            failed: lane?.hasFailed ?? false, streamInterval: interval,
+                                            displayInterval: displayInterval, current: interpolating.withLock { $0 })
         let wanted = state == .on
         // Nothing to make while the game holds its picture; said apart from "not making any".
         if wanted, still { state = .still }
@@ -831,11 +836,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         return item?.image
     }
 
-    /// Whether in-between images can be made and shown, and if not, why; `current`: whether they are now.
-    static func interpolationState(enabled: Bool, supported: Bool, streamInterval: Double,
+    /// Whether in-between images can be made and shown, and if not, why; `current`: whether they are now;
+    /// `failed`: whether it's off for the rest of the run (its video processor kept failing).
+    static func interpolationState(enabled: Bool, supported: Bool, failed: Bool = false, streamInterval: Double,
                                    displayInterval: Double, current: Bool = false) -> PipelineState.Interpolation {
         guard enabled else { return .off }
         guard supported else { return .unsupported }
+        guard !failed else { return .failed }
         return FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval,
                                        current: current) ? .on : .screen
     }
@@ -851,11 +858,15 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
 
     /// What ML upscaling did with a frame, and if it was skipped, why.
+    /// `failed`: it's off for the rest of the run (its video processor kept failing); `stalled`: a frame has been in
+    /// the model for longer than the lane's limit (a slow first model build, or a call that doesn't return).
     static func mlState(enabled: Bool, supported: Bool, ran: Bool, width: Int, height: Int, eightBit: Bool = true,
-                        refused: Bool = false) -> PipelineState.ML {
+                        refused: Bool = false, failed: Bool = false, stalled: Bool = false) -> PipelineState.ML {
         guard enabled else { return .off }
         if ran { return .on }
         guard supported else { return .unsupported }
+        guard !failed else { return .failed }
+        guard !stalled else { return .stalled }
         guard eightBit else { return .hdr } // the model takes 8-bit frames only
         // Apple's model takes 1080p and lower streams (larger ones in tiles), and not every size.
         if refused || MLSuperResolution.tiling(width: width, height: height) == nil { return .streamTooLarge }
@@ -985,8 +996,9 @@ struct PresentationCounts {
 public struct PipelineState: Sendable, Equatable {
     public enum Interpolation: String, Sendable {
         /// Turned off; making in-between images; this Mac or OS can't; the screen doesn't refresh often
-        /// enough per frame of the game to show them; on, but the game holds its picture (nothing to make).
-        case off, on, unsupported, screen, still
+        /// enough per frame of the game to show them; on, but the game holds its picture (nothing to make);
+        /// off until the app restarts, because its video processor kept failing.
+        case off, on, unsupported, screen, still, failed
     }
     public enum Upscale: String, Sendable {
         /// MetalFX ran; bilinear was chosen; MetalFX was skipped because the picture on screen isn't larger
@@ -995,8 +1007,10 @@ public struct PipelineState: Sendable, Equatable {
     }
     public enum ML: String, Sendable {
         /// Turned off; ran; not available; the stream's size isn't one the model takes (larger than 1080p, or
-        /// refused); the picture on screen isn't larger than the stream; an HDR (10-bit) stream.
-        case off, on, unsupported, streamTooLarge, notLarger, hdr
+        /// refused); the picture on screen isn't larger than the stream; an HDR (10-bit) stream; off until the
+        /// app restarts because its video processor kept failing; waiting on a frame that's been in the model for
+        /// longer than the lane's limit (frames go around it meanwhile).
+        case off, on, unsupported, streamTooLarge, notLarger, hdr, failed, stalled
     }
     public var interpolation = Interpolation.off
     public var upscale = Upscale.bilinear

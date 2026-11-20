@@ -25,7 +25,7 @@ idle.
 - **1080p is cut into two overlapping 1088×1088 tiles.** Each tile goes through the model on its own
   session, and the middle of each output is copied into one 2880×1620 frame. The tiles overlap by 128
   columns, so each side of the cut has 64 columns of context and no seam shows.
-- **Cutting and joining are GPU blits in one command buffer.** Nothing waits on the CPU, and no pixels are
+- **Cutting and joining are GPU blits**, one command buffer before the model and one after. No pixels are
   converted.
 - **It runs on its own lane, not in the draw** (`UpscaleLane`): its own queue and Metal command queue, one
   frame at a time. A refresh never waits for the model. Each decoded frame is upscaled first and joins the
@@ -41,7 +41,7 @@ idle.
 ## How it works
 
 `StreamRenderer.display` hands each decoded frame to the `UpscaleLane`, with the area the picture fills on
-screen (from the last draw). On the lane's queue, `MLSuperResolution.encode` returns an upscaled NV12
+screen (from the last draw). On the lane's queue, `MLSuperResolution.upscale` returns an upscaled NV12
 buffer, or nil to use the frame as is. Whichever it is then goes on the stream clock, into the timeline, and
 to frame interpolation, exactly as a decoded frame did before. The draw only shows what's due. The rest of
 the pipeline (colour conversion, cleanup, MetalFX, sharpening) works from it.
@@ -64,7 +64,7 @@ interpolation: turning that off made it worse.
 
 The lane follows `InterpolationLane`:
 
-- **Its own queue and Metal command queue.** The draw never encodes ML work and never waits for it.
+- **Its own queue.** The draw never encodes ML work and never waits for it.
 - **Ahead of the stream clock.** A frame goes on the clock when it's upscaled, with that moment as its
   arrival. The delay planner sees the model's time as lateness and raises the delay to cover it. The
   display-latency stat still counts from when the frame was decoded, so it includes the model.
@@ -122,23 +122,30 @@ whole, even output sizes, then takes the largest one that fits on screen. If non
 still larger than the stream, it takes the smallest one, and the rest of the pipeline scales down from
 there. If the screen isn't larger than the stream at all, ML is skipped for that frame.
 
-### One frame, step by step (`encodeTiles`)
+### One frame, step by step (`upscaleTiles`)
 
 1. **Cut.** One blit encoder copies each tile's region out of the frame into a buffer from the tile pool,
-   luma and chroma planes separately. The last rows are copied again into the padding.
-2. **Model.** Each tile goes to its own `VTFrameProcessor` session with `process(with: commandBuffer, …)`,
-   into a buffer from the model's output pool. Separate sessions keep any state the model carries between
-   frames apart per tile.
-3. **Join.** A second blit encoder copies the middle of each output, the columns the tile keeps times the
-   factor, into one buffer from the output pool. The padded rows aren't copied.
+   luma and chroma planes separately. The last rows are copied again into the padding. The command buffer
+   is committed and waited for: the model reads the tiles next.
+2. **Model.** Each tile goes to its own `VTFrameProcessor` session through VideoToolbox's synchronous call,
+   into a buffer from the model's output pool, one tile after the other. Separate sessions keep any state
+   the model carries between frames apart per tile. Not the Metal command-buffer call: it leaks a Metal
+   shared event per call, which crashed long sessions (see "Which VideoToolbox call" in
+   [FRAME_INTERPOLATION.md](FRAME_INTERPOLATION.md)).
+3. **Join.** A second command buffer's blit encoder copies the middle of each output, the columns the tile
+   keeps times the factor, into one buffer from the output pool. The padded rows aren't copied. It's
+   waited for before the frame goes on the clock.
 4. The output gets the frame's colour attachments (matrix, range, chroma siting), so the NV12 conversion
-   reads it like the original. A completion handler keeps every buffer and texture alive until the GPU is
-   done. The lane commits the command buffer and waits for it before the frame goes on the clock.
+   reads it like the original.
 
-A frame the model takes whole (720p) skips the cut and join and goes straight to step 2.
+A frame the model takes whole (720p) skips the cut and join and goes straight to step 2: no Metal work at all.
 
 Sessions and pools are made on the first frame of a size and factor, and remade when either changes. A
-size that fails to start is remembered and never tried again; the renderer reports it as `streamTooLarge`.
+size that fails to start, or whose first frame two fresh processors in a row refuse, is remembered and never
+tried again; the renderer reports it as `streamTooLarge`. A size (and factor) that was upscaled before in the
+run is never taken as refused: an error there, even a fresh processor's first, counts as a failure and is
+restarted with the next frame, as is an exception; failures past a budget turn ML upscaling off until the app
+restarts (`ml: "failed"`), and every tile's session is ended then. See "When a processor fails anyway" in [FRAME_INTERPOLATION.md](FRAME_INTERPOLATION.md).
 
 ## What was measured
 
@@ -201,8 +208,9 @@ figures are smoothed averages and noisy: what matters is that ML adds nothing to
 
 - **Which sizes work, and how long a tile takes:** a short Swift script that makes a
   `VTLowLatencySuperResolutionScalerConfiguration` for a size, starts a `VTFrameProcessor` session, and
-  times `try await processor.process(parameters:)` on a filled NV12 buffer. Use the async API: it throws
-  where `process(with: commandBuffer, …)` fails silently.
+  times `try await processor.process(parameters:)` on a filled NV12 buffer. Use the async API (or the
+  synchronous one from Objective-C, as the app does): it throws where `process(with: commandBuffer, …)` fails
+  silently.
 - **Cost in the renderer:** with `params.mlUpscale` off and on, time `display` plus `waitForUpscaling`
   (the lane) apart from the render after it (the draw), as the `show` helper in `MLTests.swift` does.
 - **On a real stream:** with the dev control port, stream at 1080p in a window larger than 1920×1080 and

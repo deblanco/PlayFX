@@ -73,26 +73,48 @@ final class MLSuperResolution {
         return fitting.max() ?? (target.width > Double(width) ? supported.min() : nil)
     }
 
-    private var sessions: [AnyObject] = [] // a VTFrameProcessor per tile on macOS 26+
+    private var sessions: [GuardedProcessor] = [] // one per tile
     private var key: (width: Int, height: Int, factor: Float)?
     /// The model's outputs; tiles cut from the frame; the tiles' outputs put back together.
     private var pool: CVPixelBufferPool?
     private var tilePool: CVPixelBufferPool?
     private var outputPool: CVPixelBufferPool?
     private var textureCache: CVMetalTextureCache?
+    /// Cuts the tiles out and puts them back together (frames that go through whole need no Metal work).
+    private var commandQueue: MTLCommandQueue?
     private var unsupported: Set<String> = []
+    /// Sizes (with factor) that were upscaled in this run, and fresh processors' errors at ones that never were.
+    private var sizes = ProcessorSizes()
     private var timestamp: Int64 = 0
+    private let device: MTLDevice?
+    private let health: VideoProcessorHealth
+    private let available: Bool
+    private let makeProcessor: () -> VideoProcessing?
+
+    /// `available` and `makeProcessor`: VideoToolbox in the app, stand-ins in tests.
+    init(device: MTLDevice? = MTLCreateSystemDefaultDevice(), health: VideoProcessorHealth = .upscaling,
+         available: Bool = MLSuperResolution.isAvailable, makeProcessor: @escaping () -> VideoProcessing? = makeVTProcessor) {
+        self.device = device
+        self.health = health
+        self.available = available
+        self.makeProcessor = makeProcessor
+    }
 
     deinit { end() }
 
     /// Whether the model refused frames of this size before (it never runs on them).
     func refuses(width: Int, height: Int) -> Bool { unsupported.contains("\(width)x\(height)") }
 
-    /// Encodes `frame` upscaled into a new NV12 buffer in `cb`; nil when it can't run for this frame
-    /// size and screen (the caller then uses `frame` as is).
-    func encode(_ cb: MTLCommandBuffer, _ frame: CVPixelBuffer, target: CGSize) -> CVPixelBuffer? {
-        guard #available(macOS 26.0, iOS 26.0, *), Self.isAvailable,
+    /// Whether it's off for the rest of the run: its video processor kept failing.
+    var hasFailed: Bool { health.isOff }
+
+    /// `frame` upscaled into a new NV12 buffer, made by the time it returns; nil when it can't run for this frame
+    /// size and screen, or the processor failed on it (the caller then uses `frame` as is; a fresh processor
+    /// starts with the next frame).
+    func upscale(_ frame: CVPixelBuffer, target: CGSize) -> CVPixelBuffer? {
+        guard #available(macOS 26.0, iOS 26.0, *), available,
               CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return nil }
+        guard !health.isOff else { end(); return nil }
         typealias Config = VTLowLatencySuperResolutionScalerConfiguration
         let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
         let sizeKey = "\(w)x\(h)"
@@ -111,10 +133,22 @@ final class MLSuperResolution {
         guard let factor = Self.scaleFactor(supported: supported, width: w, height: h, target: target) else { return nil }
         if key?.width != w || key?.height != h || key?.factor != factor {
             end()
-            guard start(tiling, factor: factor, frame: frame, device: cb.device) else {
+            let proven = sizes.hasWorked(Self.configKey(w, h, factor))
+            switch start(tiling, factor: factor, frame: frame, proven: proven) {
+            case .done:
+                break
+            case .threw, .notCalled:
+                end() // quarantined and counted, or off: fresh processors for the next frame
+                return nil
+            case .failed(let reason):
                 end()
-                unsupported.insert(sizeKey)
-                Log.warning(.renderer, "ML upscaling couldn't start for \(sizeKey) streams")
+                if proven {
+                    // It ran at this size before: a fault, counted, and tried again with the next frame.
+                    health.failed("start at \(sizeKey): \(reason)")
+                } else {
+                    unsupported.insert(sizeKey)
+                    Log.warning(.renderer, "ML upscaling couldn't start for \(sizeKey) streams")
+                }
                 return nil
             }
             Log.info(.renderer, "ML upscaling \(sizeKey) ×\(factor)"
@@ -124,82 +158,118 @@ final class MLSuperResolution {
         timestamp += 1
         let pts = CMTime(value: timestamp, timescale: 60)
         let output = tiling.isWholeFrame(width: w, height: h)
-            ? process(cb, frame, session: 0, pts: pts)
-            : encodeTiles(cb, frame, tiling: tiling, factor: factor, pts: pts)
+            ? process([frame], pts: pts)?.first
+            : upscaleTiles(frame, tiling: tiling, factor: factor, pts: pts)
         // Keep the colorimetry so the NV12 conversion still reads the stream's matrix and siting.
         if let output { CVBufferPropagateAttachments(frame, output) }
         return output
     }
 
+    /// A processor per tile, started; `.threw` when one raised an exception, `.failed` when this can't run.
     @available(macOS 26.0, iOS 26.0, *)
-    private func start(_ tiling: MLTiling, factor: Float, frame: CVPixelBuffer, device: MTLDevice) -> Bool {
+    private func start(_ tiling: MLTiling, factor: Float, frame: CVPixelBuffer, proven: Bool) -> ProcessorOutcome {
         let config = VTLowLatencySuperResolutionScalerConfiguration(frameWidth: tiling.width, frameHeight: tiling.height,
                                                                     scaleFactor: factor)
         for _ in tiling.tiles {
-            let processor = VTFrameProcessor()
-            guard (try? processor.startSession(configuration: config)) != nil else { return false }
+            guard let made = makeProcessor() else { return .failed("no processor") }
+            let processor = GuardedProcessor(made, health: health, proven: proven)
+            let outcome = processor.start(config)
+            guard outcome == .done else { return outcome }
             sessions.append(processor)
         }
         var attrs = config.destinationPixelBufferAttributes
         attrs[kCVPixelBufferMetalCompatibilityKey as String] = true
         pool = Self.makePool(attrs)
-        guard pool != nil else { return false }
+        guard pool != nil else { return .failed("no buffer pool") }
         let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
-        if tiling.isWholeFrame(width: w, height: h) { return true }
+        if tiling.isWholeFrame(width: w, height: h) { return .done }
         let format = CVPixelBufferGetPixelFormatType(frame)
         tilePool = Self.makePool(Self.nv12Attributes(format, tiling.width, tiling.height))
         outputPool = Self.makePool(Self.nv12Attributes(format, Int(Float(w) * factor), Int(Float(h) * factor)))
-        if textureCache == nil {
+        if textureCache == nil, let device {
             var cache: CVMetalTextureCache?
             CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
             textureCache = cache
         }
-        return tilePool != nil && outputPool != nil && textureCache != nil
+        if commandQueue == nil { commandQueue = device?.makeCommandQueue() }
+        return tilePool != nil && outputPool != nil && textureCache != nil && commandQueue != nil ? .done : .failed("no Metal")
     }
 
-    /// Runs tile `session` of the model on `source` into a new buffer from `pool`.
-    private func process(_ cb: MTLCommandBuffer, _ source: CVPixelBuffer, session: Int, pts: CMTime) -> CVPixelBuffer? {
-        guard #available(macOS 26.0, iOS 26.0, *), sessions.indices.contains(session),
-              let processor = sessions[session] as? VTFrameProcessor,
-              let pool, let output = Self.buffer(from: pool),
-              let from = VTFrameProcessorFrame(buffer: source, presentationTimeStamp: pts),
-              let to = VTFrameProcessorFrame(buffer: output, presentationTimeStamp: pts) else { return nil }
-        processor.process(with: cb, parameters: VTLowLatencySuperResolutionScalerParameters(sourceFrame: from, destinationFrame: to))
-        return output
+    /// Runs the model on `sources` (a tile each, or the whole frame) into new buffers from `pool`, one after the other
+    /// (side by side measured no faster: 8.3 ms a 1080p frame either way). When a processor fails, every tile's session
+    /// is retired, so the next frame starts fresh ones (or, when fresh ones keep erring at a size that never worked, the
+    /// frame's size isn't asked for again: see `ProcessorSizes`).
+    private func process(_ sources: [CVPixelBuffer], pts: CMTime) -> [CVPixelBuffer]? {
+        guard #available(macOS 26.0, iOS 26.0, *), sources.count == sessions.count, let key, let pool else { return nil }
+        var outputs: [CVPixelBuffer] = []
+        var parameters: [VTLowLatencySuperResolutionScalerParameters] = []
+        for source in sources {
+            guard let output = Self.buffer(from: pool),
+                  let from = VTFrameProcessorFrame(buffer: source, presentationTimeStamp: pts),
+                  let to = VTFrameProcessorFrame(buffer: output, presentationTimeStamp: pts) else { return nil }
+            outputs.append(output)
+            parameters.append(VTLowLatencySuperResolutionScalerParameters(sourceFrame: from, destinationFrame: to))
+        }
+        let config = Self.configKey(key.width, key.height, key.factor)
+        for (session, parameters) in zip(sessions, parameters) {
+            switch session.process(parameters) {
+            case .done:
+                continue
+            case .refused:
+                if sizes.refuses(config) {
+                    unsupported.insert("\(key.width)x\(key.height)")
+                    Log.warning(.renderer, "ML upscaling can't run on \(key.width)x\(key.height) streams; using the rest of the pipeline")
+                } else {
+                    Log.warning(.renderer, "ML upscaling's first frame at \(key.width)x\(key.height) failed; trying fresh sessions")
+                }
+            case .failed:
+                Log.error(.renderer, "ML upscaling failed; starting its sessions over")
+            }
+            end()
+            return nil
+        }
+        sizes.worked(config)
+        return outputs
     }
 
-    /// Cuts `frame` into tiles (bottom rows repeated to pad it), runs the model on each, and copies the
-    /// middle of each tile's output into one buffer.
-    private func encodeTiles(_ cb: MTLCommandBuffer, _ frame: CVPixelBuffer, tiling: MLTiling, factor: Float,
-                             pts: CMTime) -> CVPixelBuffer? {
+    private static func configKey(_ width: Int, _ height: Int, _ factor: Float) -> String { "\(width)x\(height)x\(factor)" }
+
+    /// Cuts `frame` into tiles (bottom rows repeated to pad it), runs the model on each, and copies the middle of
+    /// each tile's output into one buffer. The cut is finished before the model reads the tiles, and the copies
+    /// before this returns.
+    private func upscaleTiles(_ frame: CVPixelBuffer, tiling: MLTiling, factor: Float, pts: CMTime) -> CVPixelBuffer? {
         let h = CVPixelBufferGetHeight(frame)
         let pad = tiling.height - h
-        guard let tilePool, let outputPool, let output = Self.buffer(from: outputPool),
+        guard let tilePool, let outputPool, let commandQueue, let output = Self.buffer(from: outputPool),
               let frameTex = planes(frame), let outputTex = planes(output) else { return nil }
         var sources: [CVPixelBuffer] = []
         var textures = [frameTex, outputTex]
-        guard let cut = cb.makeBlitCommandEncoder() else { return nil }
+        // The CoreVideo textures stay alive until the GPU is done with them: every command buffer is waited for here.
+        defer { withExtendedLifetime(textures) {} }
+        guard let cut = commandQueue.makeCommandBuffer(), let blit = cut.makeBlitCommandEncoder() else { return nil }
         for tile in tiling.tiles {
-            guard let source = Self.buffer(from: tilePool), let tex = planes(source) else { cut.endEncoding(); return nil }
-            Self.copy(cut, frameTex, x: tile.x, y: 0, width: tiling.width, height: h, to: tex, x: 0, y: 0)
-            if pad > 0 { Self.copy(cut, frameTex, x: tile.x, y: h - pad, width: tiling.width, height: pad, to: tex, x: 0, y: h) }
+            guard let source = Self.buffer(from: tilePool), let tex = planes(source) else { blit.endEncoding(); return nil }
+            Self.copy(blit, frameTex, x: tile.x, y: 0, width: tiling.width, height: h, to: tex, x: 0, y: 0)
+            if pad > 0 { Self.copy(blit, frameTex, x: tile.x, y: h - pad, width: tiling.width, height: pad, to: tex, x: 0, y: h) }
             sources.append(source)
             textures.append(tex)
         }
-        cut.endEncoding()
-        let results = sources.indices.compactMap { process(cb, sources[$0], session: $0, pts: pts) }
-        guard results.count == sources.count, let join = cb.makeBlitCommandEncoder() else { return nil }
+        blit.endEncoding()
+        cut.commit()
+        cut.waitUntilCompleted()
+        guard cut.status == .completed else { return nil }
+        guard let results = process(sources, pts: pts), let join = commandQueue.makeCommandBuffer(), let blit = join.makeBlitCommandEncoder() else { return nil }
         for (tile, result) in zip(tiling.tiles, results) {
-            guard let tex = planes(result) else { join.endEncoding(); return nil }
-            Self.copy(join, tex, x: Int(Float(tile.keep.lowerBound - tile.x) * factor), y: 0,
+            guard let tex = planes(result) else { blit.endEncoding(); return nil }
+            Self.copy(blit, tex, x: Int(Float(tile.keep.lowerBound - tile.x) * factor), y: 0,
                       width: Int(Float(tile.keep.count) * factor), height: Int(Float(h) * factor),
                       to: outputTex, x: Int(Float(tile.keep.lowerBound) * factor), y: 0)
             textures.append(tex)
         }
-        join.endEncoding()
-        // Keep the CoreVideo textures and buffers alive until the GPU is done with them.
-        cb.addCompletedHandler { _ in _ = (textures, sources, results, frame) }
-        return output
+        blit.endEncoding()
+        join.commit()
+        join.waitUntilCompleted()
+        return join.status == .completed ? output : nil
     }
 
     private func planes(_ buffer: CVPixelBuffer) -> [CVMetalTexture]? {
@@ -246,8 +316,9 @@ final class MLSuperResolution {
         return CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess ? buffer : nil
     }
 
+    /// Retires every tile's session: their processors are ended later, off this queue (see `GuardedProcessor.retire`).
     private func end() {
-        if #available(macOS 26.0, iOS 26.0, *) { sessions.forEach { ($0 as? VTFrameProcessor)?.endSession() } }
+        sessions.forEach { $0.retire() }
         sessions = []
         pool = nil
         tilePool = nil

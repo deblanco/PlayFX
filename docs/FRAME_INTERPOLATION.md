@@ -235,8 +235,7 @@ Measured on the same recorded GTA session replayed through both: refreshes with 
 (about 8/s is the floor there: the game's picture came late), jumps of more than 1.5 refreshes 17.1/s →
 8.4/s, at the same latency.
 
-All of a pair's images come from one VideoToolbox call and one command buffer; the pair's cost is observed
-once.
+All of a pair's images come from one VideoToolbox call; the pair's cost is observed once.
 
 ### Pacing trace
 
@@ -254,28 +253,32 @@ moment moved per refresh (jumps), and the shown moment against a smooth line (ju
 
 When frame B arrives, the renderer submits the pair (A, B) with its midpoint time and a size. The lane has
 its own `DispatchQueue` and `MTLCommandQueue`, and works on one pair at a time. A pair that arrives while
-the lane is busy goes without its image; it is counted as `busyPairs`. A pair whose size gives nothing
-(VideoToolbox couldn't start there, or wrote an empty image) is counted as `failedPairs`. The two together
-are the stats' missed pairs (`missedInterpolations`).
+the lane is busy goes without its image; it is counted as `busyPairs`. A pair that gets nothing (VideoToolbox
+couldn't start at its size, refused it, wrote an empty image, or failed: see "Which VideoToolbox call" below)
+is counted as `failedPairs`. The two together are the stats' missed pairs (`missedInterpolations`).
 
 For each pair:
 
 1. **Scene cut check:** the mean luma difference over a 32×18 grid. Above 40 out of 255 it's a cut, the
    pair is skipped and counted as `cutPairs` (`SceneCut`).
-2. **One command buffer:**
-   - GPU bilinear scaling of both frames down to the working size (when smaller),
-   - VideoToolbox interpolation,
-   - scaling the result back up,
-   - the still-area blend.
+2. **Three steps, each finished before the next:**
+   - GPU bilinear scaling of both frames down to the working size (when smaller): one command buffer,
+     committed and waited for (`stages.scale`),
+   - VideoToolbox interpolation, its synchronous call on the lane's queue (`stages.interpolate`),
+   - scaling the result back up and the still-area blend: one more command buffer, waited for
+     (`stages.blend`).
 
-   There is one commit and one wait. Using `VTPixelTransferSession` for the scaling cost about 6–8 ms per
+   VideoToolbox's command-buffer call would put all of it in one command buffer, but leaks a Metal shared
+   event per call (see "Which VideoToolbox call" below). The extra wait costs about 0.3 ms a pair when the
+   frames are scaled, nothing otherwise. Using `VTPixelTransferSession` for the scaling cost about 6–8 ms per
    pair; on the GPU it costs about 1 ms.
 3. **Still-area blend** (`blendStaticLuma` / `blendStaticChroma`): where A and B differ by less than
    2/255, the pixel comes from the real frames. Above 8/255 it comes from the generated image, with a
    smoothstep in between. Generated images are lossy exactly where nothing moves: HUDs, subtitles, menus.
-4. **Empty output check.** VideoToolbox can report success and write nothing (see sizes below). A 16×9
-   luma sample with a mean below 8 is "empty", since video-range black is 16. That image is dropped and its
-   size is marked broken for the rest of the session.
+4. **Empty output check**, on VideoToolbox's own image, before the blend. Its command-buffer call reported
+   success and wrote nothing at some sizes (see sizes below); the synchronous call returns an error there
+   instead, but the check stays. A 16×9 luma sample with a mean below 8 is "empty", since video-range black
+   is 16. That image is dropped and its size is marked broken for the rest of the session.
 
 The image goes back to the renderer with its cost (submit to ready). The first two images at each size are
 marked as warming up: they include building that size's model (1–2 s the first time), so they say nothing
@@ -296,7 +299,10 @@ images for the delay and one picture's time at most; past that it goes on from t
 change of size costs the images of the pairs meanwhile rather than a stall.
 
 **Why 960×544, not 960×540:** VideoToolbox's fast path (at or below 1280×720) wants both sides a multiple
-of 16. At 960×540, 854×480 and 640×360 it returns success with an all-zero image, which shows as green.
+of 16. At 960×540, 854×480 and 640×360 its command-buffer call returned success with an all-zero image,
+which shows as green; its synchronous call returns `VTFrameProcessorProcessingError` (-19740) there. Once
+two fresh processors in a row have erred on their first pair at a size that has never made an image in this
+run, the size is taken as refused: it isn't asked for again, and it doesn't count against the feature (below).
 So on the fast path a stream's own size is rounded down too (a 540p stream works at 960×528, 360p at
 640×352), and the lane scales back to the frame's size. 1920×1080, on the slow path, is fine as it is.
 
@@ -312,6 +318,85 @@ result and let partly green images through. Measured:
 | 960×540 | 0.1 ms | **empty** |
 | 854×480 | 0.1 ms | **empty** |
 | 640×360 | — | **empty** |
+
+### Which VideoToolbox call, and when it fails (`VideoProcessor.swift`)
+
+`VTFrameProcessor` has three ways to run a frame: the Metal call `process(with: commandBuffer, parameters:)`,
+the asynchronous ones, and the synchronous `processWithParameters:error:`. The app uses the synchronous one,
+for interpolation and ML upscaling alike, on each lane's own queue. Swift doesn't see it (it's marked
+unavailable there), so `playfx_vt_process` in `Sources/CObjCCatch` calls it.
+
+**Why not the Metal call:** it makes a Metal shared event per call (`[device newSharedEvent]`, added to the
+processor's own `events` array) and never frees it: not on `endSession`, not when the processor is released,
+only when the process exits. Shared events are limited for the whole system (a fresh process could make
+about 52,000 on this Mac, fewer while another app held some). Once they run out, `newSharedEvent` returns
+nil, and VideoToolbox raises "insertObject:atIndex: object cannot be nil" with its own lock held. That is the
+v0.1.0 crash (39 minutes, interpolation, the exception uncaught) and the v0.2.1 one (10 minutes,
+interpolation and ML upscaling on: the exception was caught, then `endSession` on the same processor took
+the held lock again, and libplatform killed the app). At 60 interpolated pairs a second plus two ML tiles a
+frame at 60 fps, the events run out within minutes.
+
+**Why not the asynchronous calls:** Swift's `process(parameters:)` without `await` resolves to the
+`AsyncSequence` overload, which returns before the work is done. Ending the session right after it crashes
+in VideoToolbox's completion block (`FigSimpleMutexLock`, `SIGSEGV`), reproduced in 1 of 1 runs of 50
+start/process/end cycles. Measured with the real synchronous call, the completion-handler call waited on,
+and the Metal call (`MTLSharedEvent` objects made and still alive in the process, counted by a hook on their
+allocation, so nothing system-wide runs out while measuring):
+
+| Call | Interpolation, 960×544 | ML ×1.5, 1280×720 | Cost per call |
+|---|---|---|---|
+| Metal command buffer | +1 alive per call | +1 alive per call (per tile) | 2.28 / 2.57 ms |
+| Synchronous | 0 | 0 | 2.21 / 2.51 ms |
+| Completion handler, waited for | 0 | 0 | 2.22 / 2.53 ms |
+
+In the lanes (synthetic NV12 frames, 400 calls, before and after run turn about):
+
+| | Before (Metal call) | After (synchronous) | Events alive |
+|---|---|---|---|
+| Interpolation, 1080p frames at 1280×720, halves | 5.2 ms a pair | 5.5 ms | +1 a pair → 0 |
+| Interpolation, 720p, quarters | 12.8–13.1 ms | 12.8–13.0 ms | +1 a pair → 0 |
+| ML, 720p whole | 2.56 ms a frame | 2.51 ms | +1 a frame → 0 |
+| ML, 1080p in two tiles | 8.1 ms | 8.3 ms | +2 a frame → 0 |
+
+Over 20,000 calls of each, the count stays at 0. The two tiles run one after the other: side by side
+measured no faster. MetalFX's spatial scaler (2,000 encodes) and frame interpolator (1,000) make no shared
+events. The `psrp` bench's optical-flow engine (`MetalFXBench.swift`) keeps the Metal call: one clip at a
+time, dev only.
+
+**When a processor fails anyway** (`GuardedProcessor`, `VideoProcessorHealth`):
+
+- Every call into a processor (start, process, end) runs inside `playfx_catch` as well as Swift's `try`.
+- A processor that raises an Objective-C exception is poisoned: its lock may be held for good. Nothing is
+  called on it again, not even `endSession`, and it's kept in a quarantine list for the rest of the run
+  (releasing it may call into it). The next pair (or frame) starts a fresh processor.
+- An error gives that pair (or frame) nothing and retires the processor; the next starts a fresh one. Whether
+  it counts depends on the configuration (size, with steps or factor), remembered per feature for the run
+  (`ProcessorSizes`), not on the one processor: at a configuration that has made images before, any error
+  counts as a failure, a fresh processor's first call or start included (a fault that lasts a few calls,
+  such as a GPU reset on wake, mustn't pass for a refusal). At one that never has, the error isn't counted,
+  and two fresh processors in a row erring at once make it a size VideoToolbox refuses (above); one alone
+  may have been a passing fault.
+- Three failures within a minute, or ten in a run, turn the feature off until the app restarts, instead of
+  starting processor after processor. The picture goes on without it (real frames, MetalFX or bilinear),
+  and the stats line says "interpolation off: video processor failed" (`interpolation: "failed"`) or "ML
+  off (video processor failed)" (`ml: "failed"`).
+- Turning the feature off retires every processor still running for it, on the spot: the renderer stops
+  calling the lanes once the feature is off, so waiting for the next call would keep their sessions (both
+  step counts at every prepared size, every ML tile) until the app quits. `VideoProcessorHealth` keeps a
+  weak list of the processors made for the feature. A processor made or called after that is never started.
+- Retiring a processor (a new size or factor, a failed one restarted, the feature turned off, its owner
+  going away) never ends its session on the spot: `endSession` runs a second later on a queue of its own,
+  once no call into it is running (a session still starting is ended once it has). The synchronous call
+  returns with nothing left running, and 200 start/process/end cycles with `endSession` at once didn't
+  crash, so this is a margin, not a fix.
+- A frame stuck in ML upscaling for 15 s (a call that never returns) no longer holds the picture for good:
+  frames go around the lane, and what it finishes later is left out. `ml` reads `stalled` ("ML idle
+  (waiting on the model)") while it lasts, not `failed`: a slow first model build on a busy Mac can take
+  that long and clears by itself. (15 s: building 1080p's tile model took 9 s the first time on this Mac,
+  0.03 s once macOS had it cached.)
+- A test makes sure the leak can't come back unnoticed: it hooks the allocation of `_MTLSharedEvent` and
+  runs 200 interpolated pairs and 200 ML frames through the app's code (expecting no events), after 10
+  Metal calls to show the hook sees one per call (`SharedEventTests`, skipped in a VM).
 
 ### Counting what reached the screen (`PresentationCounts`)
 
@@ -467,6 +552,7 @@ Unit tests (`swift test`) cover:
 | Clock, timeline, delay, size choice, scene cut | `Sources/StreamCore/FramePacing.swift` |
 | The lane: queue, scaling, blend, empty check | `Sources/StreamCore/InterpolationLane.swift` |
 | VideoToolbox wrapper, `helps`, VM check | `Sources/StreamCore/FrameInterpolation.swift` |
+| Processor calls, quarantine, failure budget, retirement | `Sources/StreamCore/VideoProcessor.swift`, `Sources/CObjCCatch` |
 | Pacing state, display, nextFrame, presentation counts | `Sources/StreamCore/StreamRenderer.swift` |
 | Frame index from libchiaki | `StreamSession.swift`, `VideoDecoder.swift` |
 | Stats to the app | `MacOSBridge.swift` (`sc_pacing_stats`, `sc_shown_fps`, `sc_interpolation_status`) → `apps/desktop/src-tauri/src/native.rs` → `RendererStatus` in `apps/desktop/src/core/schema.ts` |
@@ -475,6 +561,9 @@ Unit tests (`swift test`) cover:
 
 ## Known limits and open questions
 
+- **The shared-event fix isn't verified on a long console session yet.** The harness ran 20,000 calls of
+  each path with no events left behind; an hour's stream with interpolation and ML upscaling on is the
+  check that's left.
 - **Not verified against the PS5 yet.** Everything above is from the bench, on purpose. The next check is a
   real 30 fps stream on a 60 Hz screen, then 60 fps on a 120 Hz one. At 60 fps the budget is 12.5 ms, so the
   lane should settle at 960×544.

@@ -419,6 +419,8 @@ describe("upscaleIdle", () => {
     expect(upscaleIdle({ ...pacing, upscale: "failed" })).toBe("failed")
     expect(upscaleIdle({ ...pacing, upscale: "bilinear" })).toBeUndefined()
     expect(upscaleIdle({ ...pacing, upscale: "bilinear", ml: "hdr" })).toBe("not for HDR")
+    expect(upscaleIdle({ ...pacing, upscale: "bilinear", ml: "failed" })).toBe("failed")
+    expect(upscaleIdle({ ...pacing, upscale: "bilinear", ml: "stalled" })).toBe("waiting on the model")
   })
 })
 
@@ -536,6 +538,9 @@ describe("statRows", () => {
     // A paused game: nothing to make, no warning.
     expect(find(at1080({ interpolation: "still" }), "Frame interpolation"))
       .toMatchObject({ inline: "no interpolation: still picture", warn: false })
+    // Its video processor kept failing: off until the app restarts, and flagged.
+    expect(find(at1080({ interpolation: "failed" }), "Frame interpolation"))
+      .toEqual({ label: "Frame interpolation", value: "Off: video processor failed", inline: "interpolation off: video processor failed", warn: true })
   })
 
   it("names a game slower than the stream, and what the screen shows", () => {
@@ -564,6 +569,11 @@ describe("statRows", () => {
     expect(find(at1080({ ml: "notLarger" }), "ML upscaling")?.inline).toBe("ML idle (no upscale needed)")
     expect(find(at1080({ ml: "unsupported" }), "ML upscaling")?.inline).toBe("ML idle (unavailable on this Mac)")
     expect(find(at1080({ ml: "hdr" }), "ML upscaling")?.inline).toBe("ML idle (not for HDR)")
+    expect(find(at1080({ ml: "failed" }), "ML upscaling"))
+      .toEqual({ label: "ML upscaling", value: "Off: video processor failed", inline: "ML off (video processor failed)", warn: true })
+    // Waiting on a slow model build: not a failure, no warning.
+    expect(find(at1080({ ml: "stalled" }), "ML upscaling"))
+      .toMatchObject({ inline: "ML idle (waiting on the model)", warn: false })
     expect(find(at1080({ ml: "on" }), "ML upscaling")).toBeUndefined()
     expect(find(at1080({ ml: "off" }), "ML upscaling")).toBeUndefined()
   })

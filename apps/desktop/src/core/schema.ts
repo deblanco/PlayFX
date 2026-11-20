@@ -340,13 +340,15 @@ export const PacingStats = Schema.Struct({
    * the images the screen skipped because it refreshes less often than they come (quarters on a 75 Hz screen). */
   missedInterpolations: since(Schema.Number, 0),
   delayMs: Schema.Number,
-  /** Frame interpolation: off, making images, not available here, the screen is too slow for the game, or on
-   * while the game holds its picture (a pause: nothing to make). */
-  interpolation: since(Schema.Literals(["off", "on", "unsupported", "screen", "still"]), "off"),
+  /** Frame interpolation: off, making images, not available here, the screen is too slow for the game, on
+   * while the game holds its picture (a pause: nothing to make), or off until the app restarts because its video
+   * processor kept failing. */
+  interpolation: since(Schema.Literals(["off", "on", "unsupported", "screen", "still", "failed"]), "off"),
   /** The upscale step: MetalFX ran, bilinear was chosen, or why MetalFX was skipped. */
   upscale: since(Schema.Literals(["metalfx", "bilinear", "notLarger", "unsupported", "failed"]), "bilinear"),
-  /** ML upscaling: off, ran, or why it was skipped. */
-  ml: since(Schema.Literals(["off", "on", "unsupported", "streamTooLarge", "notLarger", "hdr"]), "off"),
+  /** ML upscaling: off, ran, or why it was skipped (`failed`: its video processor kept failing; `stalled`: a frame
+   * has been in the model too long, such as a slow first model build, and frames go around it meanwhile). */
+  ml: since(Schema.Literals(["off", "on", "unsupported", "streamTooLarge", "notLarger", "hdr", "failed", "stalled"]), "off"),
   /** The screen's measured refresh rate, and the rate interpolation works from: the game's when measured,
    * else the stream's (0 until known). */
   displayHz: since(Schema.Number, 0),

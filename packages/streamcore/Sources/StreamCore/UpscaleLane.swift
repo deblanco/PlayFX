@@ -1,7 +1,6 @@
 import CoreGraphics
 import CoreVideo
 import Foundation
-import Metal
 import os
 import QuartzCore
 
@@ -9,15 +8,17 @@ import QuartzCore
 /// machines have none), so the lane's own work (order, dropping, the decoded frame kept with the result) is
 /// tested everywhere.
 protocol FrameUpscaler: AnyObject {
-    /// Encodes `frame` upscaled for a picture of `target` size into `cb`; nil when it doesn't run for it.
-    func encode(_ cb: MTLCommandBuffer, _ frame: CVPixelBuffer, target: CGSize) -> CVPixelBuffer?
+    /// `frame` upscaled for a picture of `target` size, made by the time it returns; nil when it doesn't run for it.
+    func upscale(_ frame: CVPixelBuffer, target: CGSize) -> CVPixelBuffer?
     /// Whether frames of this size can never go through.
     func refuses(width: Int, height: Int) -> Bool
+    /// Whether it's off for the rest of the run (its video processor kept failing). Thread-safe.
+    var hasFailed: Bool { get }
 }
 
 extension MLSuperResolution: FrameUpscaler {}
 
-/// Upscales decoded frames away from the display: its own queue and Metal command queue, one frame at a time,
+/// Upscales decoded frames away from the display: its own queue, one frame at a time,
 /// so a refresh never waits for the model (at 1080p it takes most of a 60 fps frame). Frames come out in the
 /// order they went in. One frame is upscaled while at most one waits: a newer frame takes the waiting one's
 /// place, and the one it replaces is dropped (counted), so the lane never falls more than a frame behind.
@@ -51,17 +52,20 @@ final class UpscaleLane {
         /// Whether the last frame was upscaled, and whether its size can never be.
         var ran = false
         var refused = false
+        /// When the frame in hand started (nil between frames).
+        var since: Double?
     }
 
     private let queue = DispatchQueue(label: "streamcore.upscale", qos: .userInteractive)
-    private let commandQueue: MTLCommandQueue
     private let engine: FrameUpscaler
     private let state = OSAllocatedUnfairLock(initialState: State())
+    /// Seconds one frame may take before the lane counts as stuck: well past building the model for a new size
+    /// (9 s for 1080p's tiles the first time on this Mac, before macOS caches it; 0.03 s after).
+    let stallLimit: Double
 
-    init?(device: MTLDevice, engine: FrameUpscaler) {
-        guard let commandQueue = device.makeCommandQueue() else { return nil }
-        self.commandQueue = commandQueue
+    init(engine: FrameUpscaler, stallLimit: Double = 15) {
         self.engine = engine
+        self.stallLimit = stallLimit
     }
 
     /// Frames dropped because a newer one arrived while they waited.
@@ -70,6 +74,13 @@ final class UpscaleLane {
     var isBusy: Bool { state.withLock { $0.busy } }
     /// Whether the last frame was upscaled, and whether its size is one the engine never takes.
     var status: (ran: Bool, refused: Bool) { state.withLock { ($0.ran, $0.refused) } }
+    /// Whether the engine is off for the rest of the run (its video processor kept failing).
+    var hasFailed: Bool { engine.hasFailed }
+    /// Whether the frame in hand has taken longer than `stallLimit` (a call into the model that doesn't return):
+    /// frames then go around the lane rather than wait behind it.
+    func isStalled(now: Double = CACurrentMediaTime()) -> Bool {
+        state.withLock { s in s.since.map { now - $0 > stallLimit } ?? false }
+    }
 
     /// Queues `frame` for a picture of `target` size; `done` gets the upscaled frame (nil: use `frame` as is)
     /// on the lane's queue, in submission order. `upscale` false passes the frame through untouched, behind
@@ -108,19 +119,11 @@ final class UpscaleLane {
     private func process(_ job: Job) -> CVPixelBuffer? {
         guard job.upscale else { return nil }
         let width = CVPixelBufferGetWidth(job.frame), height = CVPixelBufferGetHeight(job.frame)
-        var output: CVPixelBuffer?
-        if let cb = commandQueue.makeCommandBuffer() {
-            let made = engine.encode(cb, job.frame, target: job.target)
-            // Committed even when the engine gave up partway: work it encoded still runs, and finishes.
-            cb.commit()
-            cb.waitUntilCompleted()
-            if let made, cb.status == .completed {
-                CVBufferSetAttachment(made, Self.decodedKey, job.frame, .shouldPropagate)
-                output = made
-            }
-        }
+        state.withLock { $0.since = CACurrentMediaTime() }
+        let output = engine.upscale(job.frame, target: job.target)
+        if let output { CVBufferSetAttachment(output, Self.decodedKey, job.frame, .shouldPropagate) }
         let ran = output != nil, refused = engine.refuses(width: width, height: height)
-        state.withLock { $0.ran = ran; $0.refused = refused }
+        state.withLock { $0.ran = ran; $0.refused = refused; $0.since = nil }
         return output
     }
 }

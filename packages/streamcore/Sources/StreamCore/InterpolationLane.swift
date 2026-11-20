@@ -15,8 +15,9 @@ import VideoToolbox
 /// in tests (CI's virtual machines have none), so the lane's own work (cuts, scaling, blending, empty-image
 /// checks, busy pairs) is tested everywhere.
 protocol MiddleFrameMaker: AnyObject {
-    /// The images at `phases` between the two frames (points of `steps`: see `FrameInterpolator.encode`).
-    func encode(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]?
+    /// The images at `phases` between the two frames (points of `steps`: see `FrameInterpolator.make`), made by
+    /// the time it returns.
+    func make(previous: CVPixelBuffer, current: CVPixelBuffer, phases: [Float], steps: Int) -> [CVPixelBuffer]?
     /// Gets ready for this size (building VideoToolbox's model), so the first pair doesn't wait for it.
     func prepare(width: Int, height: Int)
 }
@@ -58,14 +59,16 @@ final class InterpolationLane {
     private let scaleChroma: MTLComputePipelineState
 
     private var textureCache: CVMetalTextureCache?
-    /// The CoreVideo textures behind the Metal ones in the command buffer being built: CoreVideo wants them
-    /// alive until the GPU is done with them. Cleared once it is. On `queue`.
+    /// The CoreVideo textures behind the Metal ones in the pair's command buffers: CoreVideo wants them alive
+    /// until the GPU is done with them. Cleared once it is. On `queue`.
     private var inFlight: [CVMetalTexture] = []
     /// Pairs in a row that came out with no image at each size; a size that keeps failing is dropped.
     private var failures: [String: Int] = [:]
     private var interpolators: [String: MiddleFrameMaker] = [:]
     /// Makes the engine for each size.
     private let makeEngine: () -> MiddleFrameMaker
+    /// How the engines' video processors are doing (the feature turns off when they keep failing).
+    private let health: VideoProcessorHealth
     private var pools: [String: CVPixelBufferPool] = [:]
     /// Time spent in each stage of the last pair (ms): cut check, scaling, interpolation, static blend.
     private(set) var stages: (cut: Double, scale: Double, interpolate: Double, blend: Double) = (0, 0, 0, 0)
@@ -74,8 +77,10 @@ final class InterpolationLane {
     /// Whether a pair is in hand, pairs gone without an image, and sizes that came out empty (never used again).
     private let state = OSAllocatedUnfairLock(initialState: (busy: false, busyPairs: 0, cutPairs: 0, failedPairs: 0, broken: Set<String>()))
 
-    init?(device: MTLDevice, engine: @escaping () -> MiddleFrameMaker = { FrameInterpolator() }) {
-        makeEngine = engine
+    /// `engine`: VideoToolbox's frame interpolation (reporting to `health`) unless given.
+    init?(device: MTLDevice, health: VideoProcessorHealth = .interpolation, engine: (() -> MiddleFrameMaker)? = nil) {
+        makeEngine = engine ?? { FrameInterpolator(health: health) }
+        self.health = health
         guard let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: Self.shaders, options: nil),
               let luma = library.makeFunction(name: "blendStaticLuma").flatMap({ try? device.makeComputePipelineState(function: $0) }),
@@ -117,7 +122,6 @@ final class InterpolationLane {
             let key = "\(size.width)x\(size.height)"
             guard let made = make(previous, current, phases: between.map(\.phase), steps: steps, size: size),
                   made.count == between.count else {
-                inFlight.removeAll() // a pair given up before the commit
                 // A size that never gives an image (VideoToolbox couldn't start there) is dropped like an
                 // empty one, so the renderer moves to the next size instead of waiting on it.
                 failures[key, default: 0] += 1
@@ -139,6 +143,9 @@ final class InterpolationLane {
         }
         return true
     }
+
+    /// Whether frame interpolation is off for the rest of the run: its video processor kept failing.
+    var hasFailed: Bool { health.isOff }
 
     /// Whether a size came out empty before (and so is never used).
     func isBroken(_ size: (width: Int, height: Int)) -> Bool { state.withLock { $0.broken.contains("\(size.width)x\(size.height)") } }
@@ -162,29 +169,46 @@ final class InterpolationLane {
         return made
     }
 
-    /// Everything for one pair in one command buffer: scale down (if asked), interpolate, scale back up,
-    /// blend still areas back, for each image. One commit and one wait, so no stage waits on another submission.
+    /// One pair: scale down (if asked) and wait for it, VideoToolbox's images (its synchronous call, on this
+    /// queue), then scale back up and blend still areas back in one more command buffer, waited for too.
+    /// VideoToolbox's command-buffer call would spare the first wait, but leaks a Metal shared event per call (see
+    /// docs/FRAME_INTERPOLATION.md, "Which VideoToolbox call").
     private func make(_ previous: CVPixelBuffer, _ current: CVPixelBuffer, phases: [Float], steps: Int,
                       size: (width: Int, height: Int)) -> [CVPixelBuffer]? {
+        defer { inFlight.removeAll() } // every command buffer is done (or never committed) by the time this returns
         let width = CVPixelBufferGetWidth(current), height = CVPixelBufferGetHeight(current)
         let format = CVPixelBufferGetPixelFormatType(current)
         let scaled = size.width != width || size.height != height
         var t = CACurrentMediaTime()
         func lap() -> Double { defer { t = CACurrentMediaTime() }; return (CACurrentMediaTime() - t) * 1000 }
-        guard let cb = commandQueue.makeCommandBuffer() else { return nil }
         var a = previous, b = current
         if scaled {
-            guard let sa = buffer(size.width, size.height, format), let sb = buffer(size.width, size.height, format),
+            guard let cb = commandQueue.makeCommandBuffer(),
+                  let sa = buffer(size.width, size.height, format), let sb = buffer(size.width, size.height, format),
                   encodeScale(cb, previous, into: sa), encodeScale(cb, current, into: sb) else { return nil }
+            cb.commit()
             // The scaled copies keep the frames' colorimetry (matrix, primaries, transfer, chroma siting), as
             // VideoToolbox expects of the frames it's given.
             CVBufferPropagateAttachments(previous, sa)
             CVBufferPropagateAttachments(current, sb)
+            cb.waitUntilCompleted()
+            guard cb.status == .completed else { return nil }
             a = sa
             b = sb
         }
-        guard let made = interpolator(size).encode(cb, previous: a, current: b, phases: phases, steps: steps),
+        stages.scale = lap()
+        guard let made = interpolator(size).make(previous: a, current: b, phases: phases, steps: steps),
               let first = made.first else { return nil }
+        stages.interpolate = lap()
+        // VideoToolbox can report success and write nothing (sizes it doesn't take); never show that.
+        // Checked on the engine's own image: after the blend, still areas come from the real frames and would
+        // hide an empty one.
+        guard !Self.isEmpty(first) else {
+            state.withLock { _ = $0.broken.insert("\(size.width)x\(size.height)") }
+            Log.warning(.renderer, "Frame interpolation made an empty image at \(size.width)x\(size.height); not using that size")
+            return nil
+        }
+        guard let cb = commandQueue.makeCommandBuffer() else { return nil }
         var outputs: [CVPixelBuffer] = []
         for image in made {
             var middle = image
@@ -201,22 +225,10 @@ final class InterpolationLane {
             CVBufferPropagateAttachments(current, output)
             outputs.append(output)
         }
-        stages.scale = lap()
         cb.commit()
         cb.waitUntilCompleted()
-        inFlight.removeAll()
-        stages.interpolate = lap()
-        stages.blend = 0
-        guard cb.status == .completed else { return nil }
-        // VideoToolbox can report success and write nothing (sizes it doesn't take); never show that.
-        // Checked on the engine's own image: after the blend, still areas come from the real frames and would
-        // hide an empty one.
-        guard !Self.isEmpty(first) else {
-            state.withLock { _ = $0.broken.insert("\(size.width)x\(size.height)") }
-            Log.warning(.renderer, "Frame interpolation made an empty image at \(size.width)x\(size.height); not using that size")
-            return nil
-        }
-        return outputs
+        stages.blend = lap()
+        return cb.status == .completed ? outputs : nil
     }
 
     /// Bilinear resample of an NV12 frame into another of a different size, on the GPU.

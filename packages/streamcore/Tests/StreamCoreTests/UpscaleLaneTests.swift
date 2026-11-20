@@ -11,15 +11,17 @@ import Testing
 final class FakeUpscaler: FrameUpscaler, @unchecked Sendable {
     let luma: UInt8
     let delay: Double
+    let hasFailed: Bool
     private let count = OSAllocatedUnfairLock(initialState: 0)
     var calls: Int { count.withLock { $0 } }
 
-    init(luma: UInt8 = 200, delay: Double = 0) {
+    init(luma: UInt8 = 200, delay: Double = 0, failed: Bool = false) {
         self.luma = luma
         self.delay = delay
+        hasFailed = failed
     }
 
-    func encode(_ cb: MTLCommandBuffer, _ frame: CVPixelBuffer, target: CGSize) -> CVPixelBuffer? {
+    func upscale(_ frame: CVPixelBuffer, target: CGSize) -> CVPixelBuffer? {
         count.withLock { $0 += 1 }
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
@@ -31,14 +33,11 @@ final class FakeUpscaler: FrameUpscaler, @unchecked Sendable {
 }
 
 @Suite struct UpscaleLaneTests {
-    func makeLane(_ engine: FakeUpscaler) throws -> UpscaleLane {
-        let device = try #require(MTLCreateSystemDefaultDevice())
-        return try #require(UpscaleLane(device: device, engine: engine))
-    }
+    func makeLane(_ engine: FakeUpscaler) -> UpscaleLane { UpscaleLane(engine: engine) }
 
     @Test func keepsOrderAndDropsAWaitingFrameWhenANewerOneArrives() throws {
         let engine = FakeUpscaler(delay: 0.3)
-        let lane = try makeLane(engine)
+        let lane = makeLane(engine)
         let done = OSAllocatedUnfairLock(initialState: [Int]())
         let frames = try (0..<3).map { i in try makeNV12(width: 64, height: 64, y: UInt8(i * 10 + 16), cb: 128, cr: 128) }
         for (i, frame) in frames.enumerated() {
@@ -56,7 +55,7 @@ final class FakeUpscaler: FrameUpscaler, @unchecked Sendable {
     }
 
     @Test func keepsTheDecodedFrameWithTheUpscaledOne() throws {
-        let lane = try makeLane(FakeUpscaler())
+        let lane = makeLane(FakeUpscaler())
         let frame = try makeNV12(width: 64, height: 64, y: 50, cb: 128, cr: 128)
         let result = OSAllocatedUnfairLock<CVPixelBuffer?>(initialState: nil)
         lane.submit(frame, target: CGSize(width: 200, height: 200)) { upscaled in result.withLock { $0 = upscaled } }
@@ -68,7 +67,7 @@ final class FakeUpscaler: FrameUpscaler, @unchecked Sendable {
     }
 
     @Test func reportsWhatItDidntUpscale() throws {
-        let lane = try makeLane(FakeUpscaler())
+        let lane = makeLane(FakeUpscaler())
         let result = OSAllocatedUnfairLock(initialState: false)
         // The screen isn't larger than the frame: nothing to do, and the frame goes on as it is.
         lane.submit(try makeNV12(width: 64, height: 64, y: 50, cb: 128, cr: 128), target: CGSize(width: 64, height: 64)) {

@@ -29,8 +29,9 @@ private final class VideoToolboxEngine: Engine {
     let interpolator = FrameInterpolator()
     let toBGRA: (CVPixelBuffer) -> CVPixelBuffer?
     init(toBGRA: @escaping (CVPixelBuffer) -> CVPixelBuffer?) { self.toBGRA = toBGRA }
+    /// Made by the time it returns (VideoToolbox's synchronous call): nothing goes into `cb`, so its GPU time is 0.
     func middle(_ cb: MTLCommandBuffer, previous: CVPixelBuffer, current: CVPixelBuffer) -> CVPixelBuffer? {
-        interpolator.encode(cb, previous: previous, current: current, phases: [0.5], steps: 1)?.first
+        interpolator.make(previous: previous, current: current, phases: [0.5], steps: 1)?.first
     }
     func finish(_ image: CVPixelBuffer) -> CVPixelBuffer? { toBGRA(image) }
 }
