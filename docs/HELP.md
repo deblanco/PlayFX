@@ -209,8 +209,8 @@ default), then sharpens it. **ML upscaling first** (Settings › Picture) runs A
 before that: the biggest gain at 720p (crisper hair and edges), for about 5 ms of latency. It needs
 macOS 26, works on 720p and lower streams, and sits out in HDR.
 
-Picture settings change the video right away. **View › Split** shows the stream as it arrives on the
-left and with your settings on the right.
+Picture settings change the video right away. Set **View** to **Split** in Settings › Picture to see the
+stream as it arrives on the left and with your settings on the right.
 
 ### HDR
 
