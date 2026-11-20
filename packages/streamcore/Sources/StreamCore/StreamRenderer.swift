@@ -147,6 +147,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         /// Halves or quarters (see `InBetween.steps`), and when the game's last new picture arrived.
         var steps = 2
         var lastPicture = -Double.infinity
+        /// The Wi-Fi's periodic stall, from when frames arrive (before ML upscaling).
+        var stalls = StallPattern()
         init(fps: Double) { clock = StreamClock(fps: fps) }
 
         /// Seconds between the pictures images are made between: the game's when measured, else the stream's.
@@ -191,6 +193,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public var pacingParts: (latenessMs: Double, costMs: Double, restarts: Int) {
         pacing.withLock { ($0.planner.jitter * 1000, $0.planner.generationCost * 1000, $0.restarts) }
     }
+    /// Whether frames keep stopping and coming in a burst at a steady period, as AirDrop's radio makes them
+    /// (see `StallPattern`).
+    public var wifiStalls: Bool { pacing.withLock { $0.stalls.period != nil } }
     /// From a decoded frame arriving to it being on screen, smoothed (ms; 0 until measured).
     public var displayMilliseconds: Double { displayTime.withLock { $0 } }
     private let displayTime = OSAllocatedUnfairLock<Double>(initialState: 0)
@@ -358,10 +363,19 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// stream clock when that's done, so a refresh never waits for the model.
     public func display(_ frame: CVPixelBuffer, index: UInt64? = nil, arrival: Double = CACurrentMediaTime()) {
         showsTestPattern = false
-        let i = pacing.withLock { p in
+        let (i, stalls) = pacing.withLock { p in
             let i = index ?? p.nextIndex
             p.nextIndex = i + 1
-            return i
+            // The stall pattern's period when it started (or nil when it ended) with this frame.
+            let change: Double?? = p.stalls.add(index: i, arrival: arrival) ? .some(p.stalls.period) : .none
+            return (i, change)
+        }
+        if let stalls {
+            if let period = stalls {
+                Log.warning(.renderer, "Frames stop and come in a burst about every \(Int(period * 1000)) ms: the Wi-Fi is stalling")
+            } else {
+                Log.info(.renderer, "The Wi-Fi's regular stalls stopped")
+            }
         }
         let (enabled, drawable) = upscaleTarget.withLock { ($0.enabled, $0.drawable) }
         let size = CGSize(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame))

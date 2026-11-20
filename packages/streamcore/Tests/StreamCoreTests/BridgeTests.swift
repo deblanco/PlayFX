@@ -145,6 +145,7 @@ extension Serial {
                 #expect(pacing.contains("\"missedInterpolations\":0") && !pacing.contains("skippedInterpolations"))
                 #expect(pacing.contains("\"interpolation\":\"off\"") && pacing.contains("\"upscale\":\"bilinear\""))
                 #expect(pacing.contains("\"ml\":\"off\"") && pacing.contains("\"displayHz\":0"))
+                #expect(pacing.contains("\"wifiStalls\":false"))
                 sc_session_sleep() // no session: nothing to put to sleep
                 #expect(sc_set_render_params(#"{"upscaler":"metalfx"}"#)) // no renderer: accepted, no-op
             }

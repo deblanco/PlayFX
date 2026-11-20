@@ -92,7 +92,7 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
   "pacing": { "generatedFps": 0, "skippedFrames": 3, "skippedGenerated": 0, "missedInterpolations": 0, "delayMs": 11.5,
               "latenessMs": 9.5, "costMs": 0, "clockRestarts": 0, "size": "",
               "interpolation": "screen", "upscale": "notLarger", "ml": "off",
-              "displayHz": 75, "streamFps": 60, "gameFps": 0, "repeatedFrames": 0 },
+              "displayHz": 75, "streamFps": 60, "gameFps": 0, "repeatedFrames": 0, "wifiStalls": false },
   "stream": { "active": true, "width": 1920, "height": 1080, "framesDecoded": 5400, "framesLost": 0, "rttMs": 4.2,
               "targetBitrateKbps": 19417 }
 }
@@ -123,6 +123,9 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
 - `displayHz`: the screen's measured refresh rate. `streamFps`: the rate interpolation works from (the
   game's once measured). `gameFps`: the game's own rate, repeats left out. `repeatedFrames`: stream frames
   that repeated the picture before.
+- `wifiStalls`: frames keep stopping for 70–400 ms and then coming in a burst, none lost, at a steady
+  0.3–1.2 s period over the last 12 s: the Wi-Fi's periodic stall (AirDrop's radio). See
+  [NETWORK.md](NETWORK.md), "Seeing the stall in the stream".
 
 `stream.targetBitrateKbps` is what the console's encoder aims for, from its connection quality reports.
 

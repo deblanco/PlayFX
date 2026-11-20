@@ -27,7 +27,7 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         var clock = StreamClock(fps: 60)
         // A "60" stream that really runs at 59.94: the phase follows it, so frames are never shown early.
         var last = (time: 0.0, arrival: 0.0)
-        for i in 0..<600 {
+        for i in 0..<720 {
             let arrival = Double(i) / 59.94
             last = (try tick(&clock, UInt64(i), arrival).time, arrival)
         }
@@ -87,7 +87,7 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         var clock = StreamClock(fps: 60)
         let interval = 1.0 / 60
         var times: [Double] = [], lateness = 0.0
-        for i in 0..<600 {
+        for i in 0..<720 {
             let arrival = 10 + Double(i) * interval + (i >= 120 ? 0.1 : 0)
             let t = try tick(&clock, UInt64(i), arrival)
             #expect(!t.restarted || i == 0)
@@ -327,5 +327,154 @@ extension StreamRendererTests {
                 "\(afterStall.map(\.length).max() ?? 0)")
         // Frame interpolation is off: no in-between images to skip, and no pairs missed.
         #expect(r.skippedGenerated == 0 && r.missedInterpolations == 0)
+    }
+}
+
+@Suite struct StallPatternTests {
+    /// What the detector made of a stream: whether the pattern held at any point, how often it started or ended,
+    /// and its period at the end.
+    struct Outcome { var seen = false; var changes = 0; var period: Double? }
+
+    /// Frames at `fps` from t = 10 for `seconds`, each arriving `late(i)` after its time. A frame due during a
+    /// stall (`start ..< start + length`) waits for its end, then comes in the burst; with `lossy`, it's lost
+    /// instead (it never arrives, and the next index is further on).
+    static func run(fps: Double = 60, seconds: Double = 12, stalls: [(start: Double, length: Double)] = [],
+                    lossy: Bool = false, late: (Int) -> Double = { _ in 0 }) -> Outcome {
+        var pattern = StallPattern(), outcome = Outcome(), last = 0.0, past = 0
+        for i in 0..<Int(seconds * fps) {
+            let due = 10 + Double(i) / fps + late(i)
+            var arrival = due
+            while past < stalls.count, stalls[past].start + stalls[past].length < due - 1 { past += 1 } // long over
+            if let stall = stalls[past...].prefix(4).first(where: { due >= $0.start && due < $0.start + $0.length }) {
+                if lossy { continue }
+                arrival = stall.start + stall.length
+            }
+            arrival = max(arrival, last + 0.0005) // in order: a burst comes half a millisecond apart
+            last = arrival
+            if pattern.add(index: UInt64(i), arrival: arrival) { outcome.changes += 1 }
+            if pattern.period != nil { outcome.seen = true }
+        }
+        outcome.period = pattern.period
+        return outcome
+    }
+
+    /// Stalls of `length` every `period` seconds, from t = 10.3 until `until`, except the ones in `skipping`.
+    static func every(_ period: Double, length: Double = 0.09, until: Double = 22, skipping: Set<Int> = []) -> [(start: Double, length: Double)] {
+        stride(from: 10.3, to: until, by: period).enumerated().filter { !skipping.contains($0.offset) }.map { ($0.element, length) }
+    }
+
+    /// Random numbers from a seed (SplitMix64), so the tests are repeatable.
+    struct Seeded: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    @Test func aStallEverySecondIsThePattern() throws {
+        let outcome = Self.run(stalls: Self.every(1))
+        let period = try #require(outcome.period)
+        #expect(abs(period - 1) < 0.03, "\(period)")
+        #expect(outcome.changes == 1)
+    }
+
+    @Test func aStallEverySecondGivenOrTakenAFewFramesIsThePattern() {
+        // Each stall up to 30 ms early or late.
+        var random = Seeded(state: 3)
+        let stalls = Self.every(1).map { ($0.start + Double.random(in: -0.03...0.03, using: &random), $0.length) }
+        let outcome = Self.run(stalls: stalls)
+        #expect(outcome.period != nil && outcome.changes == 1)
+    }
+
+    @Test func aStallEveryHalfSecondOnA30FpsStreamIsThePatternToo() throws {
+        let period = try #require(Self.run(fps: 30, stalls: Self.every(0.5, length: 0.1)).period)
+        #expect(abs(period - 0.5) < 0.04, "\(period)")
+    }
+
+    @Test func aStallTooShortToSeeNowAndThenKeepsThePattern() {
+        // Every fourth stall is missed: the spacing doubles there.
+        let missed = Set(stride(from: 3, to: 20, by: 4))
+        let outcome = Self.run(seconds: 20, stalls: Self.every(1, until: 30, skipping: missed))
+        #expect(outcome.period != nil && outcome.changes == 1)
+    }
+
+    @Test func aSingleHiccupIsNot() {
+        let outcome = Self.run(stalls: [(14, 0.12)])
+        #expect(!outcome.seen && outcome.changes == 0)
+    }
+
+    @Test func jitterIsNot() {
+        // Every frame 0–40 ms late: ordinary Wi-Fi. No gap is long enough to count.
+        var random = Seeded(state: 1)
+        let outcome = Self.run(seconds: 30) { _ in Double.random(in: 0..<0.04, using: &random) }
+        #expect(!outcome.seen)
+    }
+
+    @Test func stallsAtRandomTimesAreNot() {
+        // The same stalls, but at random times: a bad network, not the radio's clockwork. Spaced 0.2–2.5 s
+        // apart, and the harder case, 0.5–1.5 s apart (around the radio's own period).
+        var random = Seeded(state: 2)
+        for spacing in [0.2..<2.5, 0.5..<1.5] {
+            var seen = 0
+            for _ in 0..<200 {
+                var stalls: [(start: Double, length: Double)] = [], t = 10.3
+                while t < 70 {
+                    stalls.append((t, 0.09))
+                    t += Double.random(in: spacing, using: &random)
+                }
+                if Self.run(fps: 30, seconds: 60, stalls: stalls).seen { seen += 1 }
+            }
+            #expect(seen <= 2, "\(spacing): \(seen) of 200 minute-long runs")
+        }
+    }
+
+    @Test func gapsWithFramesLostAreNot() {
+        // Periodic, but the frames due in each gap never come: packet loss, which Steady Wi-Fi doesn't help.
+        #expect(!Self.run(stalls: Self.every(1), lossy: true).seen)
+    }
+
+    @Test func gapsTooLongAreNot() {
+        // Half a second without frames every 1.2 s: something else (a console or a link in trouble).
+        #expect(!Self.run(stalls: Self.every(1.2, length: 0.5)).seen)
+    }
+
+    @Test func endsWhenTheStallsStop() {
+        // Steady Wi-Fi turned on after 10 s of stalls: the pattern ends within a few seconds.
+        let outcome = Self.run(seconds: 20, stalls: Self.every(1, until: 20.5))
+        #expect(outcome.seen && outcome.changes == 2 && outcome.period == nil)
+    }
+
+    @Test func frameOrderIsIgnoredWhenItGoesBack() {
+        var pattern = StallPattern()
+        let first = pattern.add(index: 5, arrival: 1)
+        let older = pattern.add(index: 4, arrival: 1.1) // an older frame: no gap counted
+        #expect(!first && !older && pattern.period == nil)
+        #expect(StallPattern.period(of: [1, 2, 3]) == nil) // too few
+        #expect(StallPattern.period(of: Array(stride(from: 0, through: 12, by: 1.5))) == nil) // too slow
+    }
+}
+
+extension StreamRendererTests {
+    /// The renderer feeds the stall pattern from `display` and reports it, and a new stream starts it over.
+    @Test func reportsTheWifiStallPattern() throws {
+        let r = try #require(StreamRenderer(inputWidth: 16, inputHeight: 16))
+        r.params.upscaler = .bilinear
+        r.streamFrameRate = 60
+        let frame = try makeNV12(width: 16, height: 16, cb: 128, cr: 128) { _, _ in 80 }
+        var last = 0.0
+        for i in 0..<720 {
+            let due = 10 + Double(i) / 60
+            // A 90 ms stall at the start of every second.
+            let arrival = max(due.truncatingRemainder(dividingBy: 1) < 0.09 ? due.rounded(.down) + 0.09 : due, last + 0.0005)
+            last = arrival
+            r.display(frame, index: UInt64(i), arrival: arrival)
+        }
+        #expect(r.wifiStalls)
+        r.streamFrameRate = 60
+        #expect(!r.wifiStalls)
     }
 }

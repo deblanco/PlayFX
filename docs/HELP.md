@@ -156,7 +156,9 @@ you turned it on, and offers it again (with the same prompt) when the next strea
 the prompt, it doesn't ask again until you reopen PlayFX.
 
 While playing, "AirDrop is stalling the Wi-Fi" at the top means it's off and hurting the stream right
-now; **Turn on Steady Wi-Fi** is right there.
+now; **Turn on Steady Wi-Fi** is right there. "The Wi-Fi keeps stalling" means the stream itself shows the
+stall (the picture stops and catches up at a steady rhythm) while AirDrop reads as off for the moment:
+macOS turns it back on by itself, so the same button is there.
 
 ### The stream stutters, or the picture hops
 

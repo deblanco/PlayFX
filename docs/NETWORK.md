@@ -9,7 +9,8 @@ are in [FRAME_INTERPOLATION.md](FRAME_INTERPOLATION.md).
 - **AirDrop and Handoff stall the Mac's Wi-Fi once a second.** They run over AWDL, a peer-to-peer Wi-Fi
   link. To listen for nearby Apple devices, the Mac's one radio leaves your network's channel for about
   90 ms each second. The **Steady Wi-Fi** switch, on Home and in Settings → Stream, pauses them while
-  PlayFX is open. PlayFX remembers it's on, and while streaming the HUD warns when AirDrop is stalling.
+  PlayFX is open. PlayFX remembers it's on, and while streaming the HUD warns when AirDrop is stalling,
+  or when the stream's frames show the stall.
 - **libchiaki comes from our fork**, [deblanco/chiaki-ng](https://github.com/deblanco/chiaki-ng), branch
   `playfx`. It carries fixes for false packet loss, a too-small receive buffer, Wi-Fi priority marking and
   dropped acks. PlayFX also runs libchiaki's receive and input threads at the highest scheduling class.
@@ -121,9 +122,43 @@ next launch, and the saved choice stays yes.
 - **While streaming:** when AWDL reads `active` (and not while connecting or reconnecting), the HUD shows
   "AirDrop is stalling the Wi-Fi" in the warning colour, with a "Turn on Steady Wi-Fi" button. It stays
   when the rest of the HUD fades, like the stats, because it explains a stuttering stream. It's gone once
-  AWDL reads `paused`, `off` or `absent`.
+  AWDL reads `paused`, `off` or `absent`, unless the stream itself shows the stall (below).
 
 The code is in `apps/desktop/src/app/SteadyWifi.tsx`.
+
+### Seeing the stall in the stream
+
+AWDL's state is read every 3 s, and macOS turns it on and off by itself, so a reading of `off` doesn't mean
+the stream isn't stalling. The stream shows it directly: frames stop, then the held ones arrive in a burst,
+at the radio's steady rhythm. `StallPattern` (`FramePacing.swift`) watches every decoded frame's arrival,
+before ML upscaling:
+
+- **A gap** counts when frames stop for 70–400 ms and the next one is the very next frame. When frames were
+  lost across the gap (the stream's frame numbers jump), it's packet loss, which Steady Wi-Fi doesn't fix,
+  and it doesn't count. Longer gaps aren't the radio's ~90 ms trips.
+- **The pattern** is at least nine gaps in the last 12 s, spaced 0.3–1.2 s apart (the median spacing), with at
+  least 85% of the spacings within 12% of the median or of twice it (a stall too short to see now and then).
+  A stall every second shows as the pattern about 8 s after it starts, still with each stall 30 ms early or
+  late. It ends once the gaps no longer meet that, about 4 s after the stalls stop.
+- **False positives:** in the tests, a single hiccup, a loss burst and ordinary jitter (frames up to 40 ms
+  late) don't make the pattern. Nor do the same stalls at random times: 200 seeded minute-long runs with them
+  0.2–2.5 s apart, and 200 with them 0.5–1.5 s apart, flag none (the test allows 1%). A longer simulation
+  of 5,000 runs each puts the rate at about 0.2% and 1% of minute-long runs. Looser limits (six gaps in
+  8 s, within 20%, 80% steady) flagged most of these runs.
+
+The renderer reports it as `wifiStalls` in the pacing stats ([dev-control.md](dev-control.md)), and logs
+when it starts (with its period) and ends. The HUD then:
+
+| AWDL reads | Stall in the stream | HUD |
+|---|---|---|
+| `active` | either | "AirDrop is stalling the Wi-Fi", with "Turn on Steady Wi-Fi" (as before) |
+| `off` | yes | "The Wi-Fi keeps stalling", with "Turn on Steady Wi-Fi": AWDL may only be off for the moment |
+| `paused` | yes | nothing: Steady Wi-Fi is already on, and there's nothing more PlayFX can offer; the log has it |
+| `absent` | yes | nothing: no AWDL to pause; the log has it |
+| anything else | no | nothing |
+
+A stall seen with Steady Wi-Fi on isn't AWDL; the log line is the evidence to look for (see "Network
+layout" for what helps).
 
 ### By hand
 
@@ -256,7 +291,7 @@ All of these work without the UI:
   `GET /status` returns:
   - `stream`: `framesDecoded`, `framesLost`, `rttMs`;
   - `pacing`: `latenessMs` (the p90 lateness behind the stream clock), `delayMs`, `skippedFrames`,
-    `clockRestarts`.
+    `clockRestarts`, `wifiStalls` (the periodic stall seen in the frames).
 
   Sample it every couple of seconds, and compute rates from real timestamps, not from the sampling
   interval.

@@ -3,9 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20, for release v0.2.0: the v0.1.0 crash fix, pairing through PSN without a code and the
-pairing help, profiles from Home and in game, the Help page, stats as rates, and ML upscaling at every stream
-resolution, on by default and on its own lane.
+Last updated 2026-11-20 (since v0.2.0: the Wi-Fi stall warning from the stream itself). For release v0.2.0:
+the v0.1.0 crash fix, pairing through PSN without a code and the pairing help, profiles from Home and in game,
+the Help page, stats as rates, and ML upscaling at every stream resolution, on by default and on its own lane.
 
 ---
 
@@ -256,6 +256,18 @@ Work items:
     and a root helper that ends on quit or crash. The choice is remembered: after a relaunch, Play asks
     for the password again (once per launch if dismissed). While streaming, the HUD warns when AirDrop is
     stalling the Wi-Fi, with a button to turn Steady Wi-Fi on.
+  - **The stall seen in the stream** (2026-11-20): `StallPattern` (`FramePacing.swift`) watches decoded frames'
+    arrival: nine or more 70–400 ms gaps in 12 s, none with frames lost across it, at a steady 0.3–1.2 s period.
+    It's `wifiStalls` in the pacing stats, and logged when it starts (with its period) and ends. With AWDL
+    reading `off` (macOS flips it by itself), the HUD now says "The Wi-Fi keeps stalling" with the same
+    "Turn on Steady Wi-Fi" button; with Steady Wi-Fi on, or no AWDL, it stays quiet (nothing more to offer)
+    and only the log has it. Verified by unit tests: the detector's truth table (a stall every second or half
+    second → yes, each up to 30 ms early or late or one missed now and then still yes; a single hiccup,
+    0–40 ms jitter, gaps with frames lost, half-second gaps → no; the same stalls at random times, 200 seeded
+    minute-long runs 0.2–2.5 s apart and 200 0.5–1.5 s apart → none flagged, at most 1% allowed, where the
+    first limits (six gaps in 8 s) flagged 131 and 195 of them; it ends about 4 s after the stalls stop),
+    the renderer reporting it, the pacing JSON (Swift and Rust), the schema with and without the field, the
+    stats poll, and the HUD for each AWDL state. Not yet seen on a live stream.
   - **libchiaki now comes from our fork** (deblanco/chiaki-ng, branch `playfx`), with four fixes: false
     packet loss on wrap, a 4 MB receive buffer, Wi-Fi priority marking, and gap-block acks.
   - **Threads:** libchiaki's receive and input threads run at user-interactive QoS.
@@ -271,7 +283,8 @@ Work items:
   - **Open:**
     - the 33 ms reorder wait from PR #817 is untested;
     - the stream with Steady Wi-Fi on hasn't been measured (only pings were);
-    - the HUD warns while AWDL is on, but not from the stall itself (the once-a-second ping pattern);
+    - the warning from the stall itself hasn't been seen on a live stream (its thresholds come from the
+      measured ~90 ms every 0.5–1 s);
     - offer the packet-loss wrap fix upstream to chiaki-ng (not sent).
 
 ### P1 — making a stream feel complete
@@ -814,13 +827,13 @@ requests and a bug report.
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
    haptics in Astro's Playroom.
-8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the
-   stall itself is open); ~~the worst-tile quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps
-   cadence~~ (done 2026-11-20 in unit tests; a 50 fps game is left to see); the PR #817 reorder-wait test
-   (needs the console); ~~tests for the reconnect race and the audio output following the system default~~
-   (done 2026-11-20); the chiaki-ng upstream PR (needs the user's OK); echo cancellation for the microphone;
-   audio jitter-buffer tuning; ~~a profile switch during a bitrate reconnect reconnecting on its own~~ (fixed
-   2026-11-20).
+8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
+   itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
+   quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a
+   50 fps game is left to see); the PR #817 reorder-wait test (needs the console); ~~tests for the reconnect
+   race and the audio output following the system default~~ (done 2026-11-20); the chiaki-ng upstream PR
+   (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer tuning; ~~a profile switch
+   during a bitrate reconnect reconnecting on its own~~ (fixed 2026-11-20).
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
    a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
    Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the

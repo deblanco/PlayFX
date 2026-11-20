@@ -165,7 +165,7 @@ export const StreamView = ({
 }: StreamViewProps) => {
   const run = useRun()
   const idle = useIdle(hudIdleMs)
-  const [stats, setStats] = useState<actions.LiveStats>({ line: "Connecting…", rows: [] })
+  const [stats, setStats] = useState<actions.LiveStats>({ line: "Connecting…", rows: [], wifiStalls: false })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tab, setTab] = useState<SettingsTab>("picture")
   const [fullscreen, setFullscreen] = useState(false)
@@ -267,7 +267,7 @@ export const StreamView = ({
                       : settings.showStats ? stats.line : null /* off: no numbers, even with the HUD up */}
         </span>
         {/* Stays when the HUD hides, like the stats: it explains a stuttering stream. */}
-        {connected && reconnect.reconnecting === false && <SteadyWifiWarning />}
+        {connected && reconnect.reconnecting === false && <SteadyWifiWarning stalling={stats.wifiStalls} />}
         <details className={cn("group relative text-xs", hide)}>
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">
             Keys

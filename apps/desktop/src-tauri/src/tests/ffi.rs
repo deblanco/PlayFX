@@ -63,6 +63,7 @@ fn mac_core_without_session_or_renderer() {
     assert_eq!(core.display_milliseconds(), 0.0);
     assert_eq!(core.shown_fps(), 0.0);
     assert_eq!(reply(&core.pacing_stats()).map(|v| v["skippedFrames"].clone()), Ok(json!(0)));
+    assert_eq!(reply(&core.pacing_stats()).map(|v| v["wifiStalls"].clone()), Ok(json!(false)));
     assert_eq!(reply(&core.session_stats()), Ok(json!({"active": false})));
     // Input without a session is dropped.
     core.set_controller(crate::native::ControllerState::default());

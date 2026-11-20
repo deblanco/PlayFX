@@ -486,3 +486,45 @@ struct LaneHandoff {
         return true
     }
 }
+
+/// The Wi-Fi's periodic stall, read from when frames arrive. AirDrop and Handoff's radio (AWDL) takes the Mac's
+/// Wi-Fi off the network for ~90 ms every 0.5–1 s: frames wait, then arrive in a burst (docs/NETWORK.md). A
+/// gap counts when frames stop for 70–400 ms and the next one is the very next frame: frames lost across it
+/// make it packet loss, not a stall. The pattern is at least nine gaps in the last 12 s, spaced 0.3–1.2 s apart
+/// (the median), and steadily: at least 85% of the spacings within 12% of the median or of twice it (a stall
+/// too short to see). A single hiccup, a loss burst or gaps at random times aren't one: looser limits let
+/// stalls 0.2–2.5 s apart at random pass for it in over half of minute-long runs.
+struct StallPattern {
+    static let gap = 0.07...0.4
+    static let window = 12.0
+    static let minimumGaps = 9
+    static let periods = 0.3...1.2
+    static let tolerance = 0.12
+    static let steady = 0.85
+
+    private var last: (index: UInt64, arrival: Double)?
+    /// When each gap in the window ended.
+    private var gaps: [Double] = []
+    /// Seconds between stalls while the pattern holds; nil when it doesn't.
+    private(set) var period: Double?
+
+    /// Takes the frame `index` arriving at `arrival`. True when the pattern started or ended with it.
+    mutating func add(index: UInt64, arrival: Double) -> Bool {
+        if let last, index == last.index + 1, Self.gap.contains(arrival - last.arrival) { gaps.append(arrival) }
+        last = (index, arrival)
+        gaps.removeAll { arrival - $0 > Self.window }
+        let was = period != nil
+        period = Self.period(of: gaps)
+        return was != (period != nil)
+    }
+
+    /// The median spacing of `gaps` (times, in order) when they're steady enough to be the stall; else nil.
+    static func period(of gaps: [Double]) -> Double? {
+        guard gaps.count >= minimumGaps else { return nil }
+        let spacings = zip(gaps, gaps.dropFirst()).map { $1 - $0 }
+        let median = DelayPlanner.percentile(spacings, 0.5)
+        guard periods.contains(median) else { return nil }
+        let regular = spacings.filter { s in [1.0, 2.0].contains { abs(s - $0 * median) <= tolerance * median } }
+        return Double(regular.count) >= steady * Double(spacings.count) ? median : nil
+    }
+}

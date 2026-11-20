@@ -382,7 +382,7 @@ describe("streaming", () => {
     const { layer } = setup(core)
     const pacing = {
       generatedFps: 45, skippedFrames: 0, missedInterpolations: 0, delayMs: 0, interpolation: "on" as const,
-      upscale: "metalfx" as const, ml: "off" as const, displayHz: 120, streamFps: 60, gameFps: 30, repeatedFrames: 0,
+      upscale: "metalfx" as const, ml: "off" as const, displayHz: 120, streamFps: 60, gameFps: 30, repeatedFrames: 0, wifiStalls: false,
     }
     /** The totals the renderer reports now, after a long session's worth of drops. */
     const totals = (missed: number, skipped: number, active = true) => {
@@ -413,6 +413,30 @@ describe("streaming", () => {
       totals(2, 0)
       yield* TestClock.adjust("1 second")
       expect(last()).toContain("+45 generated (1/s missed)")
+      yield* Fiber.interrupt(fiber)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("passes on the Wi-Fi's stall pattern while a stream is up", () => {
+    const core = fakeCore()
+    const { layer } = setup(core)
+    const pacing = {
+      generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0, interpolation: "off" as const,
+      upscale: "metalfx" as const, ml: "off" as const, displayHz: 60, streamFps: 60, gameFps: 0, repeatedFrames: 0,
+    }
+    return Effect.gen(function* () {
+      const seen: boolean[] = []
+      core.state.status = status({ width: 1920, height: 1080 })
+      const fiber = yield* Effect.forkChild(actions.pollStats((stats) => { seen.push(stats.wifiStalls) }))
+      yield* Effect.yieldNow
+      core.state.status = { ...status({ width: 1920, height: 1080 }), pacing: { ...pacing, wifiStalls: true } }
+      yield* TestClock.adjust("1 second")
+      // Between two streams the renderer still holds the last one's reading: not passed on.
+      core.state.status = { ...status({ active: false }), pacing: { ...pacing, wifiStalls: true } }
+      yield* TestClock.adjust("1 second")
+      core.state.status = { ...status({ width: 1920, height: 1080 }), pacing: { ...pacing, wifiStalls: false } }
+      yield* TestClock.adjust("1 second")
+      expect(seen).toEqual([false, true, false, false])
       yield* Fiber.interrupt(fiber)
     }).pipe(Effect.provide(layer))
   })

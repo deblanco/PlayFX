@@ -736,6 +736,8 @@ export interface LiveStats {
   readonly rows: readonly StatRow[]
   /** Why the chosen upscaler isn't enlarging the picture right now (see `upscaleIdle`). */
   readonly upscaleIdle?: string
+  /** The stream's frames show the Wi-Fi's periodic stall (`PacingStats.wifiStalls`). */
+  readonly wifiStalls: boolean
 }
 
 export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: number): Effect.Effect<number, never, Core> =>
@@ -765,6 +767,7 @@ export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: 
         line: hudStats(status, fps, mbps),
         rows: statRows(status, fps, mbps, requestedHeight, dropRates(window)),
         ...(idle === undefined ? {} : { upscaleIdle: idle }),
+        wifiStalls: status.stream.active && pacing?.wifiStalls === true,
       })
     })
     return yield* Effect.ignore(tick).pipe(Effect.repeat(Schedule.spaced(statsInterval)))

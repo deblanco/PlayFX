@@ -149,7 +149,7 @@ fn renderer_status_reports_core_state() {
         renderer_status(mock(core).handle().clone()),
         Ok(json!({
             "metalfxSupported": true, "activeMode": "bilinear", "gpuMs": 2.5, "mlSupported": true, "mlActive": true,
-            "interpolationSupported": true, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedGenerated": 0, "missedInterpolations": 0, "delayMs": 0, "interpolation": "screen", "upscale": "notLarger", "ml": "off", "displayHz": 75, "streamFps": 60}, "stream": {"active": true}
+            "interpolationSupported": true, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedGenerated": 0, "missedInterpolations": 0, "delayMs": 0, "interpolation": "screen", "upscale": "notLarger", "ml": "off", "displayHz": 75, "streamFps": 60, "wifiStalls": false}, "stream": {"active": true}
         }))
     );
 }
@@ -362,7 +362,7 @@ fn ipc_contract_matches_the_ui() {
         invoke(&app, "renderer_status", json!({})),
         Ok(json!({
             "metalfxSupported": false, "activeMode": "none", "gpuMs": 0.0, "mlSupported": false, "mlActive": false,
-            "interpolationSupported": false, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedGenerated": 0, "missedInterpolations": 0, "delayMs": 0, "interpolation": "screen", "upscale": "notLarger", "ml": "off", "displayHz": 75, "streamFps": 60}, "stream": {"active": false}
+            "interpolationSupported": false, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedGenerated": 0, "missedInterpolations": 0, "delayMs": 0, "interpolation": "screen", "upscale": "notLarger", "ml": "off", "displayHz": 75, "streamFps": 60, "wifiStalls": false}, "stream": {"active": false}
         }))
     );
 }

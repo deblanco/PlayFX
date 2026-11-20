@@ -149,7 +149,8 @@ public func sc_shown_fps() -> Double {
 /// later one was due first), pairs that got no in-between images (the lane was busy, or the size gave
 /// nothing), and how far behind the stream clock images show (ms). All counts are totals for the stream.
 /// Also what the optional picture steps are doing and why an idle one is idle (`PipelineState`), with the
-/// screen's refresh rate and the stream's frame rate.
+/// screen's refresh rate and the stream's frame rate, and whether frames show the Wi-Fi's periodic stall
+/// (`wifiStalls`, see `StallPattern`).
 @_cdecl("sc_pacing_stats")
 public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
     let pipeline = renderer?.pipeline ?? PipelineState()
@@ -169,6 +170,7 @@ public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
         "latenessMs": renderer?.pacingParts.latenessMs ?? 0,
         "costMs": renderer?.pacingParts.costMs ?? 0,
         "clockRestarts": renderer?.pacingParts.restarts ?? 0,
+        "wifiStalls": renderer?.wifiStalls ?? false,
         "size": renderer?.interpolationSize.map { "\($0.width)x\($0.height)" } ?? "",
     ]
     return json(stats)

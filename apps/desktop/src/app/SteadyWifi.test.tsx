@@ -4,11 +4,11 @@ import { Deferred, Effect } from "effect"
 import { toast } from "sonner"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CoreError } from "@/core/errors"
-import type { PeerWifiReply } from "@/core/schema"
+import type { PacingStats, PeerWifiReply, PeerWifiState } from "@/core/schema"
 import * as actions from "./actions"
 import { RuntimeProvider } from "./runtime"
 import { LinkLine, linkPath, PeerWifiProvider, showsSteadyWifi, SteadyWifiRow, SteadyWifiSection } from "./SteadyWifi"
-import { accountId, fakeCore, pairedPs5, renderApp, testRuntime, type FakeCore } from "./testing"
+import { accountId, fakeCore, pairedPs5, renderApp, status, testRuntime, type FakeCore } from "./testing"
 
 const renderWith = (core: FakeCore, element: React.ReactNode) =>
   render(
@@ -256,4 +256,46 @@ describe("the stall warning while streaming", () => {
     core.state.peerWifi = "absent"
     await waitFor(() => { expect(warning()).not.toBeInTheDocument() }, { timeout: 4000 })
   }, 12_000)
+
+  const pacing: PacingStats = {
+    generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0, interpolation: "off", upscale: "metalfx",
+    ml: "off", displayHz: 60, streamFps: 60, gameFps: 0, repeatedFrames: 0, wifiStalls: true,
+  }
+  const stalling = () => screen.queryByText("The Wi-Fi keeps stalling")
+
+  it("shows from the stall itself while AirDrop's radio reads as off, and turns Steady Wi-Fi on", async () => {
+    const answer = Effect.runSync(Deferred.make<PeerWifiReply>())
+    const core = fakeCore({ setPeerWifiPaused: vi.fn(() => Deferred.await(answer)) })
+    core.state.peerWifi = "off"
+    core.state.status = { ...status(), pacing }
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    await play(core, { connected: true })
+    await waitFor(() => { expect(stalling()).toBeInTheDocument() }, { timeout: 3000 })
+    expect(warning()).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Turn on Steady Wi-Fi" }))
+    expect(core.service.setPeerWifiPaused).toHaveBeenCalledWith(true)
+    expect(await screen.findByRole("button", { name: "Waiting for your password…" })).toBeDisabled()
+    const paused: PeerWifiReply = { state: "paused", outcome: "done" }
+    Effect.runSync(Deferred.succeed(answer, paused))
+    // The frames still show the stall, but Steady Wi-Fi is on: nothing more to offer.
+    await waitFor(() => { expect(stalling()).not.toBeInTheDocument() })
+    // And when the stall ends with AirDrop's radio off, the warning goes too.
+    core.state.peerWifi = "off"
+    await waitFor(() => { expect(stalling()).toBeInTheDocument() }, { timeout: 4000 })
+    core.state.status = { ...status(), pacing: { ...pacing, wifiStalls: false } }
+    await waitFor(() => { expect(stalling()).not.toBeInTheDocument() }, { timeout: 3000 })
+  }, 15_000)
+
+  it.each<PeerWifiState>(["paused", "absent"])("stays quiet about the stall with AirDrop's radio %s", async (state) => {
+    let polls = 0
+    const core: FakeCore = fakeCore({ rendererStatus: Effect.sync(() => { polls++; return core.state.status }) })
+    core.state.peerWifi = state
+    core.state.status = { ...status(), pacing }
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    await play(core, { connected: true })
+    const after = polls
+    await waitFor(() => { expect(polls).toBeGreaterThan(after + 1) }, { timeout: 3000 })
+    expect(stalling()).not.toBeInTheDocument()
+    expect(warning()).not.toBeInTheDocument()
+  })
 })

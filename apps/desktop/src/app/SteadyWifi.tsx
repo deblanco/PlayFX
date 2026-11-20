@@ -226,15 +226,17 @@ export const SteadyWifiSection = () => {
   )
 }
 
-/** While streaming, in the HUD: AirDrop and Handoff are on and stalling the stream right now, with the switch
- * at hand. Nothing when they're off, paused or missing. */
-export const SteadyWifiWarning = () => {
+/** While streaming, in the HUD, with the switch at hand: AirDrop and Handoff are on and stalling the stream, or
+ * the stream's frames show their stall (`stalling`: frames stop and come in a burst at a steady period) while
+ * they read as off, which macOS flips by itself. Nothing while Steady Wi-Fi is on, or with no AirDrop radio:
+ * there's nothing more to offer, so the stall is only logged. */
+export const SteadyWifiWarning = ({ stalling }: { readonly stalling: boolean }) => {
   const wifi = usePeerWifiContext()
-  if (wifi.state !== "active") return null
+  if (wifi.state !== "active" && !(wifi.state === "off" && stalling)) return null
   return (
     <span role="status" className="flex shrink-0 items-center gap-1.5 text-xs text-signal [text-shadow:0_1px_2px_rgb(0_0_0/0.8)]">
       <TriangleAlert className="size-3.5" aria-hidden />
-      AirDrop is stalling the Wi-Fi
+      {wifi.state === "active" ? "AirDrop is stalling the Wi-Fi" : "The Wi-Fi keeps stalling"}
       <Button
         variant="link"
         size="xs"

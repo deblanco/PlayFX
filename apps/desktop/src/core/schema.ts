@@ -355,6 +355,9 @@ export const PacingStats = Schema.Struct({
   gameFps: since(Schema.Number, 0),
   /** Stream frames that repeated the picture before (a game slower than the stream). */
   repeatedFrames: since(Schema.Number, 0),
+  /** Frames keep stopping and coming in a burst at a steady period, none lost: the Wi-Fi's periodic stall, as
+   * AirDrop and Handoff's radio makes it (see docs/NETWORK.md). */
+  wifiStalls: since(Schema.Boolean, false),
 })
 export type PacingStats = typeof PacingStats.Type
 

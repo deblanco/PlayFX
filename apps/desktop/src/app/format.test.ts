@@ -399,7 +399,7 @@ describe("pipelineStages", () => {
 describe("upscaleIdle", () => {
   const pacing: PacingStats = {
     generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0,
-    interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 0, streamFps: 0, gameFps: 0, repeatedFrames: 0,
+    interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 0, streamFps: 0, gameFps: 0, repeatedFrames: 0, wifiStalls: false,
   }
   it("says why the chosen upscaler isn't enlarging the picture", () => {
     expect(upscaleIdle(null)).toBeUndefined()
@@ -502,7 +502,7 @@ describe("drop rates", () => {
 describe("statRows", () => {
   const idlePacing: PacingStats = {
     generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0,
-    interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 60, streamFps: 60, gameFps: 0, repeatedFrames: 0,
+    interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 60, streamFps: 60, gameFps: 0, repeatedFrames: 0, wifiStalls: false,
   }
   const at1080 = (pacing: Partial<PacingStats>, rates?: DropRates) =>
     statRows({ ...status({ width: 1920, height: 1080 }), pacing: { ...idlePacing, ...pacing } }, 60, 5, undefined, rates)
