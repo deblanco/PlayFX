@@ -571,8 +571,11 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
   `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
   Terminal), `.app` + `.dmg` (7.3 MB). The binary links only system libraries (`/usr/lib/swift` is part of
-  macOS 13+). `scripts/release.sh` first runs every package's tests and coverage gates (stops below 80%), then signs with the "Developer ID Application: BLANK HEXADECIMAL SL (K579SJ8947)" identity (in the login keychain), notarizes
-  the DMG with the `playfx` notarytool keychain profile, staples and checks it with Gatekeeper.
+  macOS 13+). `scripts/release.sh` first runs every package's tests and coverage gates (stops below 80%), then signs with the "Developer ID Application: BLANK HEXADECIMAL SL (K579SJ8947)" identity (in the login keychain),
+  notarizes the `.app` (zipped with `ditto`) with the `playfx` notarytool keychain profile and staples it, puts
+  the stapled app into tauri's DMG in place of the unstapled one (same name, window and icon layout), then
+  signs, notarizes, staples and checks the DMG with Gatekeeper. Each submission is waited on by its id, with
+  retries (see Notarization in section 3); `scripts/test-release.sh` tests the wait and the DMG app swap.
 - ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): libchiaki built once
   per submodule commit + script (cached right after building), Swift tests one at a time + coverage,
   tsc/ESLint/vitest + coverage, clippy `-D warnings`, Rust tests + `cargo llvm-cov --lib` (≥ 80% lines and
@@ -667,11 +670,24 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   lines and functions only.
 - 🔶 `renderer_status` returns `stream: null` when stats JSON can't be parsed, which surfaces as a
   `CoreError`. Decide whether to soften this.
-- ✅ **Notarization**: the first release DMG (0.1.0) was accepted by Apple on 2026-11-19, stapled, and passes
-  Gatekeeper (DMG and app: "Notarized Developer ID"). `release.sh` stopped before stapling because one of
-  `notarytool`'s status polls timed out after hours "In Progress"; it should survive that (retry the wait).
-  The app inside the DMG has no ticket of its own: Gatekeeper checks it online on first launch. Stapling the
-  `.app` before building the DMG would cover offline first launches.
+- 🔶 **Notarization**: the first release DMG (0.1.0) was accepted by Apple on 2026-11-19, stapled, and passes
+  Gatekeeper (DMG and app: "Notarized Developer ID"). `release.sh` stopped before stapling then because one of
+  `notarytool`'s status polls timed out after hours "In Progress". Fixed (2026-11-20, for v0.2.1): it submits
+  with `--no-wait`, then waits on the submission id (`notarytool wait`, 1 h each, up to 6 times; the verdict
+  read with `notarytool info`), so a timed-out or failed poll is retried, never resubmitted; Invalid or
+  Rejected stops the release with `notarytool log` for the id, and running out of waits prints the id and how
+  to check it. The app inside the DMG had no ticket of its own (Gatekeeper checked it online on first launch):
+  the `.app` is now notarized and stapled first, then swapped into tauri's DMG (`hdiutil`: converted
+  read-write, app replaced, back to the same compressed format and name, so the window, icon positions,
+  Applications link and volume icon stay tauri's), and the DMG is notarized and stapled after.
+  Verified without Apple or signing: `bash -n` on both scripts (shellcheck isn't installed);
+  `scripts/test-release.sh` (20 checks) runs the wait against a fake `xcrun notarytool` on PATH (two timed-out
+  waits then Accepted: one submit, three waits on the id; Invalid and Rejected: fails with the log; never
+  finished: gives up after the allowed waits without resubmitting), under the release's own `set -euo
+  pipefail`, and swaps an app into a small DMG made with `hdiutil`; dropping the Invalid case, adding a second
+  submit or dropping the `|| true` that keeps a timed-out wait from ending the release makes it fail. The swap was also run on a copy
+  of the 0.2.0 DMG and app: layout kept and the app's signature still verifies. Left: the first real run, at
+  the next release (`xcrun stapler validate` on the app inside the DMG).
 - 🔶 **Linker warnings**: vendored static libs built for a newer macOS than the 13.0 deployment
   target. Harmless; silence by building the deps at the target version.
 - 🔶 **FFI safety**: the Rust↔Swift boundary (CString lifetimes, `sc_free` once, main-thread
@@ -767,8 +783,9 @@ requests and a bug report.
    touchpad built; **the motion axes in a game are left**. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
-   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0 followed). Left: `release.sh`
-   surviving a notarytool status timeout and stapling the `.app` too. *(P4)*
+   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0 followed). `release.sh` now survives a notarytool
+   status timeout and staples the `.app` too (built and tested with a fake notarytool); left: its first real run,
+   at the next release. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
    in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080 (the screen rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
