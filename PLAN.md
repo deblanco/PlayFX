@@ -51,7 +51,8 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Tests + gates (2026-11-20): TS 311 tests (97% lines), Swift 274 tests (88% lines; 84% as CI's VM sees
   it), Rust 53 tests (88% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 123/123. Each package's gate fails below 80%; CI runs them all on every push. No test
-  reaches a real controller (`PadHardware` is closed in a test run).
+  reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
+  hands used to feed its buttons into a controller test and make it fail now and then.
 
 ---
 

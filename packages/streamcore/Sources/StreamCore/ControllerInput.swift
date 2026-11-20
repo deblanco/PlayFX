@@ -96,12 +96,19 @@ public final class ControllerInput {
         #endif
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] n in
-            (n.object as? GCController).map { self?.attach($0) }
+            guard let controller = n.object as? GCController, Self.reads(controller) else { return }
+            self?.attach(controller)
         })
-        GCController.controllers().forEach(attach)
+        PadHardware.controllers().forEach(attach)
     }
 
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+
+    /// Whether to read a controller that connected: any in the app; in a test run only the tests' own stand-ins
+    /// (snapshots), so a real pad in someone's hands can't feed its buttons into a test (see `PadHardware`).
+    static func reads(_ controller: GCController, allowed: Bool = PadHardware.allowed) -> Bool {
+        allowed || controller.isSnapshot
+    }
 
     func attach(_ controller: GCController) {
         let pad = controller.extendedGamepad

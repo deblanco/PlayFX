@@ -127,6 +127,13 @@ import Testing
         pad.valueChangedHandler?(pad, pad.buttonB)
         #expect(await waitUntil(timeout: 2) { states.last?.buttons == UInt32(PSRP_BTN_CIRCLE.rawValue) })
     }
+
+    @Test @MainActor func aTestRunReadsOnlyItsOwnStandInControllers() {
+        // In the app every pad is read; in a test run only snapshots (the tests' own), never a real pad.
+        let standIn = GCController.withExtendedGamepad()
+        #expect(standIn.isSnapshot && ControllerInput.reads(standIn) && ControllerInput.reads(standIn, allowed: true))
+        #expect(PadHardware.controllers().isEmpty) // no real pad is attached at start
+    }
 }
 
 @Suite struct TouchpadTests {
