@@ -283,8 +283,8 @@ void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bo
         return;
     case CHIAKI_RP_APPLICATION_REASON_INVALID_PSN_ID:
         snprintf(out, size,
-                 "The PlayStation account you signed in with isn't the %s user who opened %s. Open %s as that "
-                 "user, or sign in with their account.",
+                 "The PlayStation account ID PlayFX used doesn't belong to the %s user who opened %s. Open %s as "
+                 "that user, or sign in as that user (or paste their account ID).",
                  console, screen, screen);
         return;
     case CHIAKI_RP_APPLICATION_REASON_RP_VERSION:

@@ -95,8 +95,9 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
         #expect(pairingMessage(httpNonOk, reason: wrongPin, answered: true)
             == "The code is wrong or has expired. Get a new one: Pair Device on the PS5 shows a new code.")
         #expect(pairingMessage(httpNonOk, reason: wrongPin, ps5: false).contains("Add Device on the PS4"))
-        #expect(pairingMessage(httpNonOk, reason: invalidPsnId).hasPrefix(
-            "The PlayStation account you signed in with isn't the PS5 user who opened Pair Device."))
+        #expect(pairingMessage(httpNonOk, reason: invalidPsnId)
+            == "The PlayStation account ID PlayFX used doesn't belong to the PS5 user who opened Pair Device. Open "
+            + "Pair Device as that user, or sign in as that user (or paste their account ID).")
         #expect(pairingMessage(httpNonOk, reason: rpVersion).contains("Update the PS5's system software"))
         for noAnswer in [timeout, refused] {
             #expect(pairingMessage(noAnswer).hasPrefix("The PS5 didn't answer. Keep Pair Device open on the PS5"))
