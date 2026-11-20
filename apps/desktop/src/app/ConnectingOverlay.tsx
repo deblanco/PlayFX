@@ -12,14 +12,15 @@ interface ConnectingOverlayProps {
   readonly onCancel: () => void
 }
 
-/** Seconds since the component appeared, ticking once a second. */
-export const useElapsedSeconds = (): number => {
-  const [seconds, setSeconds] = useState(0)
+/** Seconds since `since` (a `Date.now()` time), or since the component appeared, ticking once a second. */
+export const useElapsedSeconds = (since?: number): number => {
+  const [appeared] = useState(() => Date.now())
+  const start = since ?? appeared
+  const [seconds, setSeconds] = useState(() => Math.floor((Date.now() - start) / 1000))
   useEffect(() => {
-    const start = Date.now()
     const timer = window.setInterval(() => { setSeconds(Math.floor((Date.now() - start) / 1000)) }, 1000)
     return () => { window.clearInterval(timer) }
-  }, [])
+  }, [start])
   return seconds
 }
 

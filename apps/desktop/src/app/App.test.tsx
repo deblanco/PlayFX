@@ -367,14 +367,18 @@ describe("home: pairing through PSN", () => {
     core.state.psnConsoles = [psnPs5]
     core.state.discovered = []
     const { runtime } = renderApp(core, { accountId }, { testClock: true })
+    vi.useFakeTimers({ toFake: ["Date"] })
     await userEvent.click((await consoleItem()).getByRole("button", { name: "Pair (no code needed)" }))
     expect(await (await consoleItem()).findByText("Pairing this Mac with Living Room…")).toBeInTheDocument()
-    // Found on this network: the row is now discovery's, under another host ID.
+    // Found on this network 50 s in: the row is now discovery's, under another host ID.
+    vi.setSystemTime(Date.now() + 50_000)
     core.state.discovered = [ps5]
     await act(() => runtime.runPromise(TestClock.adjust(5000)))
     const found = await consoleItem()
     expect(await found.findByText("PS5 · 192.168.0.40 · Astro Bot")).toBeInTheDocument()
     expect(found.getByText("Pairing this Mac with Living Room…")).toBeInTheDocument()
+    // The time counts from the pairing's start, not from when the row changed.
+    expect(found.getByRole("status")).toHaveTextContent("50 s so far. This is taking longer than usual.")
     expect(found.getByRole("button", { name: "Cancel" })).toBeInTheDocument()
     // Its failure lands there too: the PIN form opens with the reason.
     Effect.runSync(Deferred.succeed(answer, true))

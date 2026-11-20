@@ -51,9 +51,10 @@ export const ConsoleList = ({
   const wakeFiber = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
 
   // Pairing through PSN (no code): the console being paired (by PSN device ID: its row's host ID changes when
-  // discovery finds it meanwhile) and its step, cancellable. A failure leaves its reason on that console's row:
-  // in the PIN form when it's on this network, else as a note.
-  const [psnPairing, setPsnPairing] = useState<{ readonly duid: string; readonly stage: PsnPairStage | undefined } | null>(null)
+  // discovery finds it meanwhile), its step, and when it started (the row remounts then, so its status can't
+  // count from its own start), cancellable. A failure leaves its reason on that console's row: in the PIN form
+  // when it's on this network, else as a note.
+  const [psnPairing, setPsnPairing] = useState<{ readonly duid: string; readonly stage: PsnPairStage | undefined; readonly startedAt: number } | null>(null)
   const psnPairFiber = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
   const [pairProblem, setPairProblem] = useState<{ readonly duid: string; readonly message: string } | null>(null)
   useEffect(() => () => { if (psnPairFiber.current) runtime.runFork(Fiber.interrupt(psnPairFiber.current)) }, [runtime])
@@ -61,7 +62,8 @@ export const ConsoleList = ({
   const pairThroughPsn = (row: ConsoleRow, console: PsnConsole) => {
     setPairing(null)
     setPairProblem(null)
-    setPsnPairing({ duid: console.duid, stage: undefined })
+    // eslint-disable-next-line react-hooks/purity -- runs on a click, not during render
+    setPsnPairing({ duid: console.duid, stage: undefined, startedAt: Date.now() })
     const onProgress = (stage: PsnPairStage) => { setPsnPairing((p) => p && { ...p, stage }) }
     psnPairFiber.current = runtime.runFork(
       Effect.match(Effect.tapError(actions.pairThroughPsn(console, row.discovered, onProgress), (e) => Effect.logWarning(e.message)), {
@@ -230,7 +232,7 @@ export const ConsoleList = ({
               </p>
             )}
             {psnPairing !== null && psnPairing.duid === row.psn?.duid && (
-              <PsnPairingStatus name={row.name} stage={psnPairing.stage} onCancel={cancelPsnPairing} />
+              <PsnPairingStatus name={row.name} stage={psnPairing.stage} startedAt={psnPairing.startedAt} onCancel={cancelPsnPairing} />
             )}
             {problemOn(row) !== undefined && row.discovered === undefined && (
               // The reason comes from the native side, full stop or not: the next step is its own sentence.
@@ -362,8 +364,8 @@ const pairingPath = (ps5: boolean): string =>
     : "On the PS4: Settings › Remote Play Connection Settings › Add Device"
 
 /** Pairing through PSN under way: the step, how long it's been, and a way out. */
-const PsnPairingStatus = ({ name, stage, onCancel }: { readonly name: string; readonly stage: PsnPairStage | undefined; readonly onCancel: () => void }) => {
-  const seconds = useElapsedSeconds()
+const PsnPairingStatus = ({ name, stage, startedAt, onCancel }: { readonly name: string; readonly stage: PsnPairStage | undefined; readonly startedAt: number; readonly onCancel: () => void }) => {
+  const seconds = useElapsedSeconds(startedAt)
   return (
     <div className="flex items-center justify-between gap-3 border-t pt-2">
       <p role="status" className="flex items-start gap-2 text-xs text-muted-foreground">
