@@ -38,11 +38,16 @@ export const matchingProfile = (settings: Settings, profiles: readonly Profile[]
   return Option.fromNullishOr(profiles.find((p) => sameProfileSettings(p.settings, current)))
 }
 
-/** Saves `settings` under `name`, replacing a saved profile of that name; the built-in name is taken. */
+/** Saves `settings` under `name`: a saved profile of that name is replaced where it is, a new one goes last. */
 export const withProfile = (saved: readonly Profile[], name: string, settings: Settings): readonly Profile[] => {
   const profile = { name: name.trim(), settings: profileSettings(settings) }
-  return [...saved.filter((p) => p.name !== profile.name), profile]
+  return isSaved(saved, profile.name)
+    ? saved.map((p) => (p.name === profile.name ? profile : p))
+    : [...saved, profile]
 }
+
+/** Whether `name` (trimmed) is one of the saved profiles, so saving under it replaces that profile. */
+export const isSaved = (saved: readonly Profile[], name: string): boolean => saved.some((p) => p.name === name.trim())
 
 /** A short description: "1080p60 · MetalFX · sharpness 0.3". */
 export const profileSummary = (profile: Profile): string => {

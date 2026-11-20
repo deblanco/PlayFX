@@ -278,6 +278,7 @@ describe("CoreLive", () => {
         stop_stream: Effect.succeed(null),
         sleep_console: Effect.succeed(null),
         set_login_pin: Effect.succeed(null),
+        request_keyframe: Effect.succeed(null),
         set_render_params: Effect.succeed(null),
       })
       return Effect.gen(function* () {
@@ -285,12 +286,14 @@ describe("CoreLive", () => {
         yield* core.psnLogin
         yield* core.stopStream
         yield* core.sleepConsole
+        yield* core.requestKeyframe
         yield* core.setLoginPin("1234")
         yield* core.setRenderParams(picture)
         expect(fake.calls).toEqual([
           { command: "psn_login", args: undefined },
           { command: "stop_stream", args: undefined },
           { command: "sleep_console", args: undefined },
+          { command: "request_keyframe", args: undefined },
           { command: "set_login_pin", args: { pin: "1234" } },
           { command: "set_render_params", args: { params: picture } },
         ])

@@ -34,6 +34,10 @@ impl DevHost for FakeHost {
         self.calls.lock().unwrap().push(command.to_string());
         Ok(())
     }
+    fn latency_test(&self, trials: i32) -> Result<Value, String> {
+        self.calls.lock().unwrap().push(format!("latency {trials}"));
+        if self.fail { Err("No stream to test".into()) } else { Ok(json!({"trials": trials, "answered": trials})) }
+    }
 }
 
 fn request(method: &str, target: &str, body: &str) -> Request {
@@ -75,6 +79,17 @@ fn routes_reach_the_host() {
         "press 4096 80".into(),
         "press 1 5000".into(),
     ]);
+}
+
+#[test]
+fn runs_the_latency_test() {
+    let host = FakeHost::default();
+    assert_eq!(handle(&host, &request("POST", "/latency-test?trials=3", "")), (200, json!({"trials": 3, "answered": 3})));
+    assert_eq!(handle(&host, &request("POST", "/latency-test", "")).0, 200); // 5 by default
+    assert_eq!(handle(&host, &request("POST", "/latency-test?trials=500", "")).0, 200); // capped at 20
+    assert_eq!(*host.calls.lock().unwrap(), ["latency 3", "latency 5", "latency 20"]);
+    let failing = FakeHost { fail: true, ..Default::default() };
+    assert_eq!(handle(&failing, &request("POST", "/latency-test", "")), (400, json!({"error": "No stream to test"})));
 }
 
 #[test]

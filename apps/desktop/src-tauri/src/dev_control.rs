@@ -23,6 +23,8 @@ pub trait DevHost: Send + Sync {
     fn fullscreen(&self) -> Result<bool, String>;
     /// Hands a command to the web UI (the `dev-control` event).
     fn emit(&self, command: Value) -> Result<(), String>;
+    /// Runs the latency test (PS pressed `trials` times); its summary.
+    fn latency_test(&self, trials: i32) -> Result<Value, String>;
 }
 
 /// One HTTP request, as much of it as the port uses.
@@ -83,6 +85,10 @@ pub fn handle(host: &dyn DevHost, request: &Request) -> (u16, Value) {
             let ms = param(&request.query, "ms").and_then(|v| v.parse().ok()).unwrap_or(150).min(5_000);
             host.press(bits, ms).map(|()| ok())
         }),
+        ("POST", "/latency-test") => {
+            let trials = param(&request.query, "trials").and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, 20);
+            host.latency_test(trials)
+        }
         (method, path) => return (404, json!({"error": format!("no route {method} {path}; see docs/dev-control.md")})),
     };
     match result {

@@ -55,6 +55,8 @@ export class Core extends Context.Service<
     readonly stopStream: Effect.Effect<void, CoreError>
     /** Puts the console in rest mode; it ends the session itself. */
     readonly sleepConsole: Effect.Effect<void, CoreError>
+    /** Asks the console for a keyframe (the picture stopped arriving whole). */
+    readonly requestKeyframe: Effect.Effect<void, CoreError>
     readonly setLoginPin: (pin: string) => Effect.Effect<void, CoreError>
     readonly setController: (state: ControllerState) => Effect.Effect<void, CoreError>
     /** Types into the console's open text field (replacing its text); `keyboardDone` sends or cancels. */
@@ -151,6 +153,7 @@ export const CoreLive = Layer.effect(
         ),
       stopStream: Effect.asVoid(call(unit, "stop_stream")),
       sleepConsole: Effect.asVoid(call(unit, "sleep_console")),
+      requestKeyframe: Effect.asVoid(call(unit, "request_keyframe")),
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
       setPointerTouch: (touch) => Effect.asVoid(call(unit, "set_pointer_touch", { touch })),

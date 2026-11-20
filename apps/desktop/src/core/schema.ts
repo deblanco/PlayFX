@@ -308,6 +308,8 @@ export const StreamStats = Schema.Struct({
   rttMs: Schema.optionalKey(Schema.Number),
   /** VideoToolbox decode time per frame, smoothed (ms). */
   decodeMs: Schema.optionalKey(Schema.Number),
+  /** The bitrate the console's encoder aims for now (kbps; 0 until it reports one). */
+  targetBitrateKbps: Schema.optionalKey(Schema.Number),
 })
 export type StreamStats = typeof StreamStats.Type
 
@@ -318,7 +320,23 @@ export const PacingStats = Schema.Struct({
   skippedFrames: Schema.Number,
   skippedInterpolations: Schema.Number,
   delayMs: Schema.Number,
+  /** Frame interpolation: off, making images, not available here, the screen is too slow for the game, or on
+   * while the game holds its picture (a pause: nothing to make). */
+  interpolation: since(Schema.Literals(["off", "on", "unsupported", "screen", "still"]), "off"),
+  /** The upscale step: MetalFX ran, bilinear was chosen, or why MetalFX was skipped. */
+  upscale: since(Schema.Literals(["metalfx", "bilinear", "notLarger", "unsupported", "failed"]), "bilinear"),
+  /** ML upscaling: off, ran, or why it was skipped. */
+  ml: since(Schema.Literals(["off", "on", "unsupported", "streamTooLarge", "notLarger", "hdr"]), "off"),
+  /** The screen's measured refresh rate, and the rate interpolation works from: the game's when measured,
+   * else the stream's (0 until known). */
+  displayHz: since(Schema.Number, 0),
+  streamFps: since(Schema.Number, 0),
+  /** The game's own frame rate, from its new pictures (repeats left out; 0 until measured). */
+  gameFps: since(Schema.Number, 0),
+  /** Stream frames that repeated the picture before (a game slower than the stream). */
+  repeatedFrames: since(Schema.Number, 0),
 })
+export type PacingStats = typeof PacingStats.Type
 
 export const RendererStatus = Schema.Struct({
   metalfxSupported: Schema.Boolean,

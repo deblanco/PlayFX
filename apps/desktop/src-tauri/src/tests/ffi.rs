@@ -78,6 +78,8 @@ fn mac_core_without_session_or_renderer() {
     let _ = core.psn_signed_in();
     assert_eq!(reply(&core.secret_get("playfx-test-never-written")), Ok(json!({"value": null})));
     core.session_sleep(); // no session: nothing to put to sleep
+    core.session_request_keyframe(); // no session: nothing to ask
+    assert!(core.latency_test(1).contains("error")); // no session: nothing to test
     // A direct probe of an address nothing answers on (TEST-NET-1): no consoles, quickly.
     assert_eq!(reply(&core.discover_host("192.0.2.1", 100)), Ok(json!([])));
     core.session_stop();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Option } from "effect"
-import { defaultSettings } from "@/core/schema"
+import { defaultSettings, type PacingStats } from "@/core/schema"
 import {
   isIpv4,
   consoleRows,
@@ -19,7 +19,10 @@ import {
   quitMessage,
   samePaired,
   microphoneProblem,
+  onlyBitrateChanged,
   statRows,
+  upscaleIdle,
+  type StatRow,
   connectionHint,
   connectionSteps,
   connectionTitle,
@@ -309,6 +312,32 @@ describe("pipelineStages", () => {
       ["color", "Vivid", false],
     ])
   })
+  it("unlights the upscale step and says why when the renderer reports it idle", () => {
+    const caps = { metalfx: true, ml: true, interpolation: false }
+    const [, upscale] = pipelineStages(defaultSettings, caps, "not needed")
+    expect(upscale).toMatchObject({ value: "MetalFX", active: false, note: "not needed" })
+    // Bilinear chosen: nothing is idle, so no note.
+    const [, bilinear] = pipelineStages({ ...defaultSettings, upscaler: "bilinear" }, caps, "not needed")
+    expect(bilinear).toEqual({ id: "upscale", name: "Upscale", value: "Bilinear", active: false })
+  })
+})
+
+describe("upscaleIdle", () => {
+  const pacing: PacingStats = {
+    generatedFps: 0, skippedFrames: 0, skippedInterpolations: 0, delayMs: 0,
+    interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 0, streamFps: 0, gameFps: 0, repeatedFrames: 0,
+  }
+  it("says why the chosen upscaler isn't enlarging the picture", () => {
+    expect(upscaleIdle(null)).toBeUndefined()
+    expect(upscaleIdle(pacing)).toBeUndefined()
+    expect(upscaleIdle({ ...pacing, upscale: "notLarger" })).toBe("not needed")
+    expect(upscaleIdle({ ...pacing, upscale: "bilinear", ml: "streamTooLarge" })).toBe("not needed")
+    expect(upscaleIdle({ ...pacing, upscale: "notLarger", ml: "on" })).toBeUndefined()
+    expect(upscaleIdle({ ...pacing, upscale: "unsupported" })).toBe("unavailable")
+    expect(upscaleIdle({ ...pacing, upscale: "failed" })).toBe("failed")
+    expect(upscaleIdle({ ...pacing, upscale: "bilinear" })).toBeUndefined()
+    expect(upscaleIdle({ ...pacing, upscale: "bilinear", ml: "hdr" })).toBe("not for HDR")
+  })
 })
 
 describe("connecting screen", () => {
@@ -357,7 +386,73 @@ describe("samePaired", () => {
   })
 })
 
+describe("onlyBitrateChanged", () => {
+  const started = streamOptions(defaultSettings)
+  it("is true only when the bitrate is the one difference", () => {
+    expect(onlyBitrateChanged(started, streamOptions({ ...defaultSettings, bitrate: 30000 }))).toBe(true)
+    expect(onlyBitrateChanged(started, started)).toBe(false)
+    expect(onlyBitrateChanged(started, streamOptions({ ...defaultSettings, bitrate: 30000, height: 720 }))).toBe(false)
+    expect(onlyBitrateChanged(started, streamOptions({ ...defaultSettings, height: 720 }))).toBe(false)
+  })
+})
+
 describe("statRows", () => {
+  const idlePacing: PacingStats = {
+    generatedFps: 0, skippedFrames: 0, skippedInterpolations: 0, delayMs: 0,
+    interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 60, streamFps: 60, gameFps: 0, repeatedFrames: 0,
+  }
+  const at1080 = (pacing: Partial<PacingStats>) =>
+    statRows({ ...status({ width: 1920, height: 1080 }), pacing: { ...idlePacing, ...pacing } }, 60, 5)
+  const find = (rows: readonly StatRow[], label: string) => rows.find((row) => row.label === label)
+
+  it("counts the in-between images shown, and says why there are none", () => {
+    expect(find(at1080({ interpolation: "on", generatedFps: 29.6 }), "Frame interpolation"))
+      .toEqual({ label: "Frame interpolation", value: "30/s", inline: "+30 generated", warn: false })
+    expect(find(at1080({ interpolation: "on", generatedFps: 28, skippedInterpolations: 3 }), "Frame interpolation")?.inline)
+      .toBe("+28 generated (3 missed)")
+    // Turned on and possible, but nothing reached the screen: worth a look.
+    expect(find(at1080({ interpolation: "on" }), "Frame interpolation")).toMatchObject({ inline: "+0 generated", warn: true })
+    expect(find(at1080({ interpolation: "screen", displayHz: 74.97, streamFps: 59.94 }), "Frame interpolation"))
+      .toMatchObject({ value: "Idle: 60 fps on a 75 Hz screen", inline: "no interpolation: 60 fps on a 75 Hz screen", warn: false })
+    // The screen's rate isn't measured yet: nothing to say.
+    expect(find(at1080({ interpolation: "screen", displayHz: 0 }), "Frame interpolation")).toBeUndefined()
+    expect(find(at1080({ interpolation: "unsupported" }), "Frame interpolation")?.inline).toBe("interpolation unavailable on this Mac")
+    expect(find(at1080({ interpolation: "off" }), "Frame interpolation")).toBeUndefined()
+    // A paused game: nothing to make, no warning.
+    expect(find(at1080({ interpolation: "still" }), "Frame interpolation"))
+      .toMatchObject({ inline: "no interpolation: still picture", warn: false })
+  })
+
+  it("names a game slower than the stream, and what the screen shows", () => {
+    const rate = (pacing: Partial<PacingStats>, shownFps = 60) =>
+      find(statRows({ ...status({ width: 1920, height: 1080 }), shownFps, pacing: { ...idlePacing, ...pacing } }, 60, 5), "Frame rate")?.inline
+    expect(rate({ gameFps: 30.2 })).toBe("30 fps game · 60 fps stream")
+    expect(rate({ gameFps: 30, interpolation: "on", generatedFps: 30 })).toBe("30 fps game · 60 fps stream · 60 shown")
+    expect(rate({ gameFps: 30, interpolation: "on", generatedFps: 90 }, 120)).toBe("30 fps game · 60 fps stream · 120 shown")
+    // A game at the stream's rate (or not measured yet) is just the stream's rate.
+    expect(rate({ gameFps: 59 })).toBe("60 fps")
+    expect(rate({ gameFps: 0 })).toBe("60 fps")
+  })
+
+  it("shows what the console's encoder aims for next to what arrives", () => {
+    const rows = statRows({ ...status({ width: 1920, height: 1080, targetBitrateKbps: 19417 }), pacing: idlePacing }, 60, 7.46)
+    expect(find(rows, "Bitrate")?.inline).toBe("7.5 Mbps (target 19.4)")
+    expect(find(at1080({}), "Bitrate")?.inline).toBe("5.0 Mbps")
+  })
+
+  it("says why MetalFX or ML upscaling, turned on, didn't run", () => {
+    expect(find(at1080({ upscale: "notLarger" }), "Upscaler")).toMatchObject({ inline: "MetalFX (no upscale needed)", warn: false })
+    expect(find(at1080({ upscale: "unsupported" }), "Upscaler")?.inline).toBe("MetalFX (MetalFX unavailable)")
+    expect(find(at1080({ upscale: "failed" }), "Upscaler")).toMatchObject({ warn: true })
+    expect(find(at1080({ upscale: "bilinear" }), "Upscaler")?.inline).toBe("MetalFX")
+    expect(find(at1080({ ml: "streamTooLarge" }), "ML upscaling")?.inline).toBe("ML idle (only for 720p and lower)")
+    expect(find(at1080({ ml: "notLarger" }), "ML upscaling")?.inline).toBe("ML idle (no upscale needed)")
+    expect(find(at1080({ ml: "unsupported" }), "ML upscaling")?.inline).toBe("ML idle (unavailable on this Mac)")
+    expect(find(at1080({ ml: "hdr" }), "ML upscaling")?.inline).toBe("ML idle (not for HDR)")
+    expect(find(at1080({ ml: "on" }), "ML upscaling")).toBeUndefined()
+    expect(find(at1080({ ml: "off" }), "ML upscaling")).toBeUndefined()
+  })
+
   it("is empty until video arrives", () => {
     expect(statRows(status({}), 0, 0)).toEqual([])
   })
@@ -383,7 +478,7 @@ describe("statRows", () => {
     // Frame generation: the screen gets more images than the stream sends.
     const generated = statRows({ ...status({ width: 1920, height: 1080 }), interpolationActive: true, shownFps: 59.6 }, 30, 5)
     expect(generated.find((row) => row.label === "Frame rate")?.inline).toBe("30 fps · 60 shown")
-    const pacing = { generatedFps: 0, skippedFrames: 4, skippedInterpolations: 0, delayMs: 3 }
+    const pacing = { ...idlePacing, skippedFrames: 4, delayMs: 3 }
     const skipping = statRows({ ...status({ width: 1920, height: 1080 }), pacing }, 60, 5)
     expect(skipping.find((row) => row.label === "Skipped frames")).toMatchObject({ inline: "4 skipped", warn: true })
     const plain = statRows({ ...status({ width: 1920, height: 1080 }), shownFps: 61 }, 60, 5)

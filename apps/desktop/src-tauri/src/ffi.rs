@@ -22,6 +22,8 @@ unsafe extern "C" {
     pub fn sc_session_start(request: *const c_char) -> *mut c_char;
     pub fn sc_session_stop();
     pub fn sc_session_sleep();
+    pub fn sc_session_request_keyframe();
+    pub fn sc_latency_test(trials: i32) -> *mut c_char;
     pub fn sc_discover_host(host: *const c_char, timeout_ms: i32) -> *mut c_char;
     pub fn sc_session_set_login_pin(pin: *const c_char);
     pub fn sc_session_set_controller(
@@ -146,6 +148,12 @@ impl NativeCore for MacCore {
     }
     fn discover_host(&self, host: &str, timeout_ms: i32) -> String {
         take(unsafe { sc_discover_host(cstr(host).as_ptr(), timeout_ms) })
+    }
+    fn session_request_keyframe(&self) {
+        unsafe { sc_session_request_keyframe() }
+    }
+    fn latency_test(&self, trials: i32) -> String {
+        take(unsafe { sc_latency_test(trials) })
     }
     fn session_sleep(&self) {
         unsafe { sc_session_sleep() }

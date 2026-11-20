@@ -124,7 +124,7 @@ fn renderer_status_reports_core_state() {
         renderer_status(mock(core).handle().clone()),
         Ok(json!({
             "metalfxSupported": true, "activeMode": "bilinear", "gpuMs": 2.5, "mlSupported": true, "mlActive": true,
-            "interpolationSupported": true, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedInterpolations": 0, "delayMs": 0}, "stream": {"active": true}
+            "interpolationSupported": true, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedInterpolations": 0, "delayMs": 0, "interpolation": "screen", "upscale": "notLarger", "ml": "off", "displayHz": 75, "streamFps": 60}, "stream": {"active": true}
         }))
     );
 }
@@ -312,7 +312,7 @@ fn ipc_contract_matches_the_ui() {
         invoke(&app, "renderer_status", json!({})),
         Ok(json!({
             "metalfxSupported": false, "activeMode": "none", "gpuMs": 0.0, "mlSupported": false, "mlActive": false,
-            "interpolationSupported": false, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedInterpolations": 0, "delayMs": 0}, "stream": {"active": false}
+            "interpolationSupported": false, "interpolationActive": false, "hdrActive": false, "displayMs": 0.0, "shownFps": 0.0, "pacing": {"generatedFps": 0, "skippedFrames": 0, "skippedInterpolations": 0, "delayMs": 0, "interpolation": "screen", "upscale": "notLarger", "ml": "off", "displayHz": 75, "streamFps": 60}, "stream": {"active": false}
         }))
     );
 }
@@ -357,6 +357,8 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
         reply.unwrap_or_default()
     };
     ok("sleep_console", json!({}));
+    ok("request_keyframe", json!({}));
+    assert!(core.calls().contains(&"session_request_keyframe".to_string()));
     ok("discover", json!({"host": "10.0.0.5"}));
     assert!(core.calls().contains(&"session_sleep".to_string()));
     ok("set_pointer_touch", json!({"touch": {"down": true, "x": 0.5, "y": 0.25, "pressed": false}}));

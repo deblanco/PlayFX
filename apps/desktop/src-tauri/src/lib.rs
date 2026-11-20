@@ -190,6 +190,14 @@ fn sleep_console<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     on_main(&app, move || core.session_sleep())
 }
 
+/// Asks the console for a keyframe: the picture stopped arriving whole while the stream goes on.
+#[tauri::command(async)]
+fn request_keyframe<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    log::info!("No new picture: asking the console for a keyframe");
+    let core = core(&app);
+    on_main(&app, move || core.session_request_keyframe())
+}
+
 #[tauri::command(async)]
 fn set_login_pin<R: Runtime>(app: AppHandle<R>, pin: String) -> Result<(), String> {
     let core = core(&app);
@@ -407,6 +415,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         start_stream,
         stop_stream,
         sleep_console,
+        request_keyframe,
         set_login_pin,
         set_controller,
         set_pointer_touch,
@@ -455,6 +464,10 @@ impl<R: Runtime> dev_control::DevHost for AppDevHost<R> {
     }
     fn emit(&self, command: Value) -> Result<(), String> {
         self.0.emit("dev-control", command).map_err(error_text)
+    }
+    fn latency_test(&self, trials: i32) -> Result<Value, String> {
+        // Off the main thread: it waits on the picture for seconds (the HTTP handler's own thread).
+        native::reply(&core(&self.0).latency_test(trials))
     }
 }
 

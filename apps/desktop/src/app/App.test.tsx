@@ -845,6 +845,22 @@ describe("streaming", () => {
     expect(core.service.setController).not.toHaveBeenCalled()
   })
 
+  it("applies a new bitrate on its own, once the slider stays put", async () => {
+    const { core } = await startStreaming()
+    vi.mocked(core.service.startStream).mockClear()
+    await openSettings("Stream")
+    // Two steps up in a row (Auto → 10 → 15 Mbps): one reconnect, with the last value.
+    nudge("Bitrate", "ArrowRight", 2)
+    expect(core.service.startStream).not.toHaveBeenCalled()
+    await waitFor(
+      () => {
+        expect(core.service.startStream).toHaveBeenCalledTimes(1)
+      },
+      { timeout: 3000 },
+    )
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 15000 }), undefined)
+  })
+
   it("reconnects to apply new stream settings, waiting out a busy console", async () => {
     const { core } = await startStreaming()
     vi.mocked(core.service.startStream).mockClear()
@@ -1403,10 +1419,47 @@ describe("settings profiles", () => {
     expect(sheet.queryByRole("option", { name: "Sharp" })).not.toBeInTheDocument()
   })
 
+  it("replaces a saved profile picked by name, keeping its place", async () => {
+    const { runtime } = await startStreaming()
+    const sheet = await openSettings("Picture")
+    const profile = () => sheet.getByRole("combobox", { name: "Profile" })
+    const nameBox = () => sheet.getByRole("textbox", { name: "Profile name" })
+    await waitFor(() => {
+      expect(profile()).toHaveValue("Recommended")
+    })
+    for (const name of ["Sharp", "Couch"]) {
+      nudge("Sharpness", "ArrowRight", 1)
+      await userEvent.click(await sheet.findByRole("button", { name: "Save as…" }))
+      await userEvent.type(nameBox(), `${name}{Enter}`)
+      expect(await screen.findByText(`Saved "${name}"`)).toBeInTheDocument()
+    }
+
+    // A new mix, saved over "Sharp" by picking it.
+    nudge("Sharpness", "ArrowRight", 1)
+    await userEvent.click(await sheet.findByRole("button", { name: "Save as…" }))
+    expect(sheet.getByRole("button", { name: "Save" })).toBeInTheDocument()
+    expect(sheet.queryByText(/with these settings/)).not.toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("button", { name: "Sharp" }))
+    expect(nameBox()).toHaveValue("Sharp")
+    expect(nameBox()).toHaveFocus()
+    expect(sheet.getByRole("button", { name: "Sharp" })).toHaveAttribute("aria-pressed", "true")
+    expect(sheet.getByText('Replaces "Sharp" with these settings.')).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("button", { name: "Replace" }))
+    expect(await screen.findByText('Replaced "Sharp"')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(profile()).toHaveValue("Sharp")
+    })
+    const saved = await savedProfiles(runtime)
+    expect(saved.map((p) => p.name)).toEqual(["Sharp", "Couch"])
+    expect(saved[0]?.settings.sharpness).toBeGreaterThan(saved[1]?.settings.sharpness ?? 1)
+  })
+
   it("can cancel naming a profile, and refuses an empty name", async () => {
     await startStreaming()
     const sheet = await openSettings("Stream")
     await userEvent.click(sheet.getByRole("button", { name: "Save as…" }))
+    // Nothing saved yet: nothing to replace.
+    expect(sheet.queryByRole("group", { name: "Replace a saved profile" })).not.toBeInTheDocument()
     await userEvent.click(sheet.getByRole("button", { name: "Save" }))
     expect(await screen.findByText("Give the profile a name of up to 40 characters.")).toBeInTheDocument()
     await userEvent.click(sheet.getByRole("button", { name: "Cancel" }))

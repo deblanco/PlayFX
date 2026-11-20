@@ -340,6 +340,7 @@ export const StreamView = ({
         onTabChange={setTab}
         settings={settings}
         capabilities={capabilities}
+        {...(stats.upscaleIdle === undefined ? {} : { upscaleIdle: stats.upscaleIdle })}
         onChange={onSettingsChange}
         reconnect={reconnect}
       />

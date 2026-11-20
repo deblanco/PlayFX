@@ -26,6 +26,7 @@ import {
   framesPerSecond,
   hudStats,
   statRows,
+  upscaleIdle,
   type StatRow,
   megabitsPerSecond,
   psnDeviceIds,
@@ -599,30 +600,48 @@ export const onStreamEvent = (handler: (event: StreamEvent) => void): Effect.Eff
 
 export const statsInterval = "1 second"
 
+/** How long the bitrate must stay put before a stream reconnects to apply it (the slider passes values). */
+export const bitrateSettle = "1200 millis"
+
 /** How long the stream may go without a new frame before the picture counts as stopped. The console sends
  * frames all the time, even for a still scene; recovering from a lost frame normally takes under a second. */
 export const stallAfterMs = 5_000
 
+/** When, into a stretch without new frames, to ask the console for a keyframe before giving up on the picture
+ * (ms). A lost reference frame leaves every following frame undecodable until a keyframe arrives; asking
+ * again covers one that was itself lost. */
+export const keyframeRequestsAtMs = [1_000, 3_000] as const
+
 /** Watches a connected stream's decoded frames and returns once none has come for `stallAfterMs`: the video
  * stopped getting through (seen live: 95% of it lost, the keyframe asked for never arriving whole) while the
- * session, and its sound, went on. Polls that fail count as no new frame. */
+ * session, and its sound, went on. On the way it asks for a keyframe (`keyframeRequestsAtMs`). Polls that
+ * fail count as no new frame. */
 export const watchForStall: Effect.Effect<void, never, Core> = Effect.gen(function* () {
   const core = yield* Core
   let frames = -1
   let since = yield* Clock.currentTimeMillis
+  let asked = 0
   for (;;) {
     yield* Effect.sleep(statsInterval)
     const now = yield* Clock.currentTimeMillis
-    const decoded = yield* core.rendererStatus.pipe(
-      Effect.map((status) => status.stream.framesDecoded ?? 0),
-      Effect.orElseSucceed(() => frames),
+    const polled = yield* core.rendererStatus.pipe(
+      Effect.map((status) => Option.some(status.stream.framesDecoded ?? 0)),
+      Effect.orElseSucceed(() => Option.none<number>()),
     )
+    const decoded = Option.getOrElse(polled, () => frames)
+    const due = keyframeRequestsAtMs[asked]
     if (decoded !== frames) {
       frames = decoded
       since = now
+      asked = 0
     } else if (now - since >= stallAfterMs) {
       yield* Effect.logWarning(`No new frame for ${String(Math.round((now - since) / 1000))} s; the picture stopped`)
       return
+    } else if (Option.isSome(polled) && due !== undefined && now - since >= due) {
+      // Only on a poll that saw no new frame: a failed poll says nothing about the picture.
+      asked += 1
+      yield* Effect.logInfo(`No new frame for ${String(Math.round((now - since) / 1000))} s; asking for a keyframe`)
+      yield* Effect.ignore(core.requestKeyframe)
     }
   }
 })
@@ -632,6 +651,8 @@ export const watchForStall: Effect.Effect<void, never, Core> = Effect.gen(functi
 export interface LiveStats {
   readonly line: string
   readonly rows: readonly StatRow[]
+  /** Why the chosen upscaler isn't enlarging the picture right now (see `upscaleIdle`). */
+  readonly upscaleIdle?: string
 }
 
 export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: number): Effect.Effect<number, never, Core> =>
@@ -648,7 +669,12 @@ export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: 
       const previous = yield* Ref.getAndSet(last, sample)
       const fps = framesPerSecond(previous, sample)
       const mbps = megabitsPerSecond(previous, sample)
-      report({ line: hudStats(status, fps, mbps), rows: statRows(status, fps, mbps, requestedHeight) })
+      const idle = upscaleIdle(status.pacing)
+      report({
+        line: hudStats(status, fps, mbps),
+        rows: statRows(status, fps, mbps, requestedHeight),
+        ...(idle === undefined ? {} : { upscaleIdle: idle }),
+      })
     })
     return yield* Effect.ignore(tick).pipe(Effect.repeat(Schedule.spaced(statsInterval)))
   })

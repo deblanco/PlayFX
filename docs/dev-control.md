@@ -40,6 +40,7 @@ Every reply is JSON. Errors come back as HTTP 400 (or 404 for an unknown route) 
 | `POST /reconnect` | Restarts the stream, applying changed stream settings (resolution, frame rate, codec, bitrate, HDR) | `{"ok": true}` |
 | `POST /fullscreen` | Toggles native full screen on the main window | `{"fullscreen": true}` |
 | `POST /press?buttons=…&ms=…` | Holds controller buttons for `ms` milliseconds (default 150, at most 5000), then releases them | `{"ok": true}` |
+| `POST /latency-test?trials=…` | Opens the control centre and times `trials` Right/Left presses (default 5, at most 20) to the picture's answer (below). About a second per trial | Summary (below) |
 
 `/settings`, `/play` and `/reconnect` are carried out by the web UI through the same code paths as
 its own controls. Changed settings are saved, applied to the picture at once, and shown in the
@@ -56,15 +57,16 @@ The ones that matter for picture work:
 | `upscaler` | `"metalfx"`, `"bilinear"` | At once |
 | `sharpness`, `deblock`, `deband` | 0–1 | At once |
 | `mlUpscale` | `true`/`false`: Apple ML super-resolution before upscaling (streams up to 720p) | At once |
-| `frameInterpolation` | `true`/`false`: frame generation, an in-between frame for each pair of stream frames | At once |
+| `frameInterpolation` | `true`/`false`: frame generation, images between the game's pictures, one per screen refresh | At once |
 | `showStats` | `true`/`false`: keep the stats line on screen | At once |
 | `height` | `540`, `720`, `1080` | On reconnect |
 | `fps` | `30`, `60` | On reconnect |
 | `hevc`, `hdr` | `true`/`false` | On reconnect |
-| `bitrate` | kbps, `0` for the console's default | On reconnect |
+| `bitrate` | kbps, `0` for the console's default | On reconnect (the app reconnects on its own when only the bitrate changed) |
 
-Frame interpolation only adds frames when the screen refreshes at least twice per stream frame: a 30 fps
-stream on a 60 or 75 Hz display, or a 60 fps stream on a 120 Hz one.
+Frame interpolation only adds frames when the screen refreshes at least 1.2× as often as the game makes
+pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 60 fps game on a 75 or
+120 Hz one. `pacing.interpolation` says when and why it doesn't.
 
 ### Buttons
 
@@ -88,8 +90,11 @@ stream on a 60 or 75 Hz display, or a 60 fps stream on a 120 Hz one.
   "displayMs": 9.8,
   "shownFps": 60,
   "pacing": { "generatedFps": 0, "skippedFrames": 3, "skippedInterpolations": 0, "delayMs": 11.5,
-              "latenessMs": 9.5, "costMs": 0, "clockRestarts": 0, "size": "" },
-  "stream": { "active": true, "width": 1920, "height": 1080, "framesDecoded": 5400, "framesLost": 0, "rttMs": 4.2 }
+              "latenessMs": 9.5, "costMs": 0, "clockRestarts": 0, "size": "",
+              "interpolation": "screen", "upscale": "notLarger", "ml": "off",
+              "displayHz": 75, "streamFps": 60, "gameFps": 0, "repeatedFrames": 0 },
+  "stream": { "active": true, "width": 1920, "height": 1080, "framesDecoded": 5400, "framesLost": 0, "rttMs": 4.2,
+              "targetBitrateKbps": 19417 }
 }
 ```
 
@@ -101,9 +106,35 @@ stream on a 60 or 75 Hz display, or a 60 fps stream on a 120 Hz one.
 - `costMs` and `size`: an in-between image's cost and the size it's made at.
 - `skippedFrames` and `skippedInterpolations`: images that were due but never shown.
 - `clockRestarts`: how often the stream clock started over.
+- `interpolation`, `upscale`, `ml`: what each optional step is doing, and why one that's on is idle.
+  `interpolation`: `off`, `on`, `unsupported` (this Mac or macOS), `screen` (the screen doesn't refresh
+  often enough for the game's rate), `still` (on, but the game holds its picture). `upscale`: `metalfx`, `bilinear` (chosen), `notLarger` (MetalFX only
+  enlarges, and the picture on screen isn't larger than the stream), `unsupported`, `failed`. `ml`: `off`,
+  `on`, `unsupported`, `streamTooLarge` (only 720p and lower, or a size the model refused), `notLarger`,
+  `hdr` (the model takes 8-bit frames only).
+- `displayHz`: the screen's measured refresh rate. `streamFps`: the rate interpolation works from (the
+  game's once measured). `gameFps`: the game's own rate, repeats left out. `repeatedFrames`: stream frames
+  that repeated the picture before.
+
+`stream.targetBitrateKbps` is what the console's encoder aims for, from its connection quality reports.
 
 `shownFps` counts the new images put on screen each second. With Frame interpolation it's higher than the
 stream's frame rate, which is how you can tell frame generation is working.
+
+### Latency test
+
+`POST /latency-test?trials=5` opens the PS5's control centre (PS), presses Right and Left in turn to move its
+highlight, and times each press → the first changed picture decoded. Then it closes the control centre
+(Circle, again if the highlight was off the first card). PS itself isn't timed: the control centre only
+starts to show about 0.5 s after it, a delay of the console's menu, not of the stream.
+
+```json
+{ "trials": 5, "answered": 5, "medianMs": 48.5, "meanMs": 50.1, "minMs": 41.2, "maxMs": 63.0, "displayMs": 9.8 }
+```
+
+It covers the console, the network and decoding; add `displayMs` (the renderer's decoded-to-screen time)
+for the Mac's whole share. It's the PS5 menu's response, not a game's, and the pad's own delay and the
+display aren't in it. `psrp stream` has the same test at `/latency-test`.
 
 ## Examples
 

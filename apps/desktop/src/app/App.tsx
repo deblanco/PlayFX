@@ -16,6 +16,7 @@ import {
   afterQuit,
   afterStall,
   microphoneProblem,
+  onlyBitrateChanged,
   quitMessage,
   streamOptions,
   type Capabilities,
@@ -251,6 +252,20 @@ export const App = () => {
     const fiber = runtime.runFork(Effect.andThen(actions.watchForStall, Effect.sync(() => { onStall() })))
     return () => { runtime.runFork(Fiber.interrupt(fiber)) }
   }, [watchingPicture, runtime])
+
+  // Only the bitrate changed: the console takes it once, at the start, so it's applied by reconnecting on the
+  // app's own once the slider has stayed put for a moment. Other stream settings wait for Reconnect.
+  const bitrateOnly = session?.connected === true && session.reconnecting === false
+    && onlyBitrateChanged(session.startedWith, streamOptions(settings))
+  const onBitrateSettled = useEffectEvent(() => {
+    if (bitrateOnly) reconnect("apply")
+  })
+  const settlingBitrate = bitrateOnly ? settings.bitrate : undefined
+  useEffect(() => {
+    if (settlingBitrate === undefined) return
+    const fiber = runtime.runFork(Effect.andThen(Effect.sleep(actions.bitrateSettle), Effect.sync(() => { onBitrateSettled() })))
+    return () => { runtime.runFork(Fiber.interrupt(fiber)) }
+  }, [settlingBitrate, runtime])
 
   // Subscribed for the app's lifetime: the console can ask for the login PIN or quit before
   // start_stream has even replied, and Tauri doesn't buffer events for late listeners.

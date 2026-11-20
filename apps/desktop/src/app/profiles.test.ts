@@ -5,6 +5,7 @@ import {
   allProfiles,
   applyProfile,
   isBuiltIn,
+  isSaved,
   matchingProfile,
   profileSettings,
   profileSummary,
@@ -36,8 +37,11 @@ describe("profiles", () => {
     const once = withProfile([], "  TV ", { ...defaultSettings, height: 720 })
     expect(once.map((p) => p.name)).toEqual(["TV"])
     const twice = withProfile([...once, { ...recommended, name: "Desk" }], "TV", { ...defaultSettings, height: 540 })
-    expect(twice.map((p) => [p.name, p.settings.height])).toEqual([["Desk", 1080], ["TV", 540]])
-    expect(isBuiltIn(twice[1] ?? recommended)).toBe(false)
+    // Replaced where it was, not moved to the end.
+    expect(twice.map((p) => [p.name, p.settings.height])).toEqual([["TV", 540], ["Desk", 1080]])
+    expect(isBuiltIn(twice[0] ?? recommended)).toBe(false)
+    expect(isSaved(twice, " Desk ")).toBe(true)
+    expect(isSaved(twice, "Couch")).toBe(false)
   })
 
   it("finds the profile the settings match, or none", () => {

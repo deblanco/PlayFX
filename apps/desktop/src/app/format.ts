@@ -1,7 +1,9 @@
 import { Option } from "effect"
 import {
+  sameStreamOptions,
   type DiscoveredConsole,
   type PairedConsole,
+  type PacingStats,
   type PairedConsoles,
   type PsnConsole,
   type RenderParams,
@@ -62,6 +64,12 @@ export const streamOptions = (settings: Settings): StreamOptions => ({
   autoDowngrade: settings.autoDowngrade,
   hdr: settings.hevc && settings.hdr,
 })
+
+/** Whether `next` differs from the stream's options in the bitrate only: the console takes the bitrate once,
+ * at the start, so applying it means reconnecting, which the app then does on its own (a few seconds without
+ * a picture) instead of asking. Other stream settings still wait for the user's Reconnect. */
+export const onlyBitrateChanged = (started: StreamOptions, next: StreamOptions): boolean =>
+  started.bitrate !== next.bitrate && sameStreamOptions({ ...started, bitrate: next.bitrate }, next)
 
 /** The settings as the picture uses them: in the Original view, every processing step is off. */
 export const effectivePicture = (settings: Settings): Settings =>
@@ -125,6 +133,62 @@ export interface StatRow {
   readonly warn: boolean
 }
 
+const statRow = (label: string, value: string, inline: string, warn = false): StatRow => ({ label, value, inline, warn })
+
+/** Why MetalFX, chosen, didn't run: it only enlarges the picture. */
+const upscaleReason = (pacing: PacingStats | null): string => {
+  switch (pacing?.upscale) {
+    case "notLarger": return " (no upscale needed)"
+    case "unsupported": return " (MetalFX unavailable)"
+    case "failed": return " (MetalFX failed)"
+    default: return ""
+  }
+}
+
+/** ML upscaling turned on but skipped, and why; nothing when it ran or is off. */
+const mlRow = (pacing: PacingStats | null): StatRow | undefined => {
+  const reason = pacing === null ? undefined : {
+    off: undefined,
+    on: undefined,
+    unsupported: "unavailable on this Mac",
+    streamTooLarge: "only for 720p and lower",
+    notLarger: "no upscale needed",
+    hdr: "not for HDR",
+  }[pacing.ml]
+  return reason === undefined ? undefined : statRow("ML upscaling", reason, `ML idle (${reason})`)
+}
+
+/** Frame interpolation: in-between images shown per second, or why none are made. */
+const interpolationRow = (status: RendererStatus): StatRow | undefined => {
+  const pacing = status.pacing
+  // Before the renderer said what it's doing: only whether images were shown.
+  if (pacing === null) return status.interpolationActive ? statRow("Frame interpolation", "On", "frame interpolation") : undefined
+  switch (pacing.interpolation) {
+    case "off": return undefined
+    case "unsupported": return statRow("Frame interpolation", "Unavailable", "interpolation unavailable on this Mac")
+    // The game holds its picture (a pause): nothing to make, and nothing wrong.
+    case "still": return statRow("Frame interpolation", "Idle: still picture", "no interpolation: still picture")
+    case "screen": {
+      if (pacing.displayHz <= 0 || pacing.streamFps <= 0) return undefined
+      const why = `${String(Math.round(pacing.streamFps))} fps on a ${String(Math.round(pacing.displayHz))} Hz screen`
+      return statRow("Frame interpolation", `Idle: ${why}`, `no interpolation: ${why}`)
+    }
+    case "on": {
+      const made = Math.round(pacing.generatedFps)
+      const missed = pacing.skippedInterpolations > 0 ? ` (${String(pacing.skippedInterpolations)} missed)` : ""
+      return statRow("Frame interpolation", `${String(made)}/s`, `+${String(made)} generated${missed}`, made === 0)
+    }
+  }
+}
+
+/** Received bitrate, and what the console's encoder aims for once it says: well below the target means the
+ * picture doesn't need more, not that the network holds it back. */
+const bitrateRow = (mbps: number, targetKbps: number): StatRow => {
+  const received = `${mbps.toFixed(1)} Mbps`
+  const value = targetKbps > 0 ? `${received} (target ${(targetKbps / 1000).toFixed(1)})` : received
+  return statRow("Bitrate", value, value)
+}
+
 /** What the stream is doing, for the stats panel (empty until video arrives). */
 export const statRows = (status: RendererStatus, fps: number, mbps: number, requestedHeight?: number): readonly StatRow[] => {
   const { stream } = status
@@ -134,7 +198,7 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
   const skipped = status.pacing?.skippedFrames ?? 0
   const errors = stream.decodeErrors ?? 0
   const rtt = stream.rttMs ?? 0
-  const row = (label: string, value: string, inline: string, warn = false): StatRow => ({ label, value, inline, warn })
+  const row = statRow
   const size = `${String(stream.width)}×${String(stream.height)}`
   // The console lowers the resolution when the network can't keep up (auto-downgrade).
   const lower = requestedHeight !== undefined && stream.height < requestedHeight
@@ -142,19 +206,26 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
   const latency = (stream.decodeMs ?? 0) + status.displayMs
   const ping = `${rtt.toFixed(rtt < 10 ? 1 : 0)} ms`
   const gpu = `${status.gpuMs.toFixed(1)} ms`
-  const upscaler = upscalerLabel(status.activeMode, status.mlActive)
-  // With Frame interpolation the screen shows more images than the stream sends: say how many.
+  const pacing = status.pacing
+  const upscaler = upscalerLabel(status.activeMode, status.mlActive) + upscaleReason(pacing)
+  // A game slower than the stream (30 fps in a 60 fps stream) is named apart from the stream; with Frame
+  // interpolation the screen shows more images than either: say how many.
   const shown = Math.round(status.shownFps)
-  const rate = shown > fps * 1.25 ? `${String(fps)} fps · ${String(shown)} shown` : `${String(fps)} fps`
+  const game = Math.round(pacing?.gameFps ?? 0)
+  const source = game > 0 && game <= fps - 3 ? `${String(game)} fps game · ${String(fps)} fps stream` : `${String(fps)} fps`
+  // "Shown" counts repeats of a picture too, so it says something only when images were made in between.
+  const generating = pacing === null ? shown > fps * 1.25 : pacing.generatedFps >= 1
+  const rate = generating ? `${source} · ${String(shown)} shown` : source
   const rows: (StatRow | undefined)[] = [
     row("Resolution", size, lower ? `${size} (asked ${String(requestedHeight)}p)` : size, lower),
     row("Frame rate", rate, rate),
-    row("Bitrate", `${mbps.toFixed(1)} Mbps`, `${mbps.toFixed(1)} Mbps`),
+    bitrateRow(mbps, stream.targetBitrateKbps ?? 0),
     rtt > 0 ? row("Ping", ping, `ping ${ping}`, rtt >= 60) : undefined,
     status.gpuMs > 0 ? row("GPU", gpu, `GPU ${gpu}`, status.gpuMs >= 8) : undefined,
     status.displayMs > 0 ? row("Latency", `${latency.toFixed(0)} ms`, `latency ${latency.toFixed(0)} ms`, latency >= 33) : undefined,
-    row("Upscaler", upscaler, upscaler),
-    status.interpolationActive ? row("Frame interpolation", "On", "frame interpolation") : undefined,
+    row("Upscaler", upscaler, upscaler, pacing?.upscale === "failed"),
+    mlRow(pacing),
+    interpolationRow(status),
     status.hdrActive ? row("HDR", "On", "HDR") : undefined,
     row("Lost frames", String(lost), `${String(lost)} lost frames`, lost > 0),
     skipped > 0 ? row("Skipped frames", String(skipped), `${String(skipped)} skipped`, true) : undefined,
@@ -313,9 +384,21 @@ export interface Stage {
   readonly value: string
   /** Whether this step changes the picture. */
   readonly active: boolean
+  /** Why a step that's turned on doesn't change the picture right now ("not needed"). */
+  readonly note?: string
 }
 
-export const pipelineStages = (chosen: Settings, capabilities: Capabilities): readonly Stage[] => {
+/** Why the chosen upscaler isn't enlarging the picture right now, from the renderer; undefined while it is. */
+export const upscaleIdle = (pacing: PacingStats | null): string | undefined => {
+  if (pacing === null || pacing.upscale === "metalfx" || pacing.ml === "on") return undefined
+  if (pacing.upscale === "notLarger" || pacing.ml === "notLarger" || pacing.ml === "streamTooLarge") return "not needed"
+  if (pacing.upscale === "unsupported" || pacing.ml === "unsupported") return "unavailable"
+  if (pacing.ml === "hdr") return "not for HDR"
+  return pacing.upscale === "failed" ? "failed" : undefined
+}
+
+/** The picture steps; `idle` is `upscaleIdle` for the stream on screen. */
+export const pipelineStages = (chosen: Settings, capabilities: Capabilities, idle?: string): readonly Stage[] => {
   const settings = effectivePicture(chosen)
   const cleanup = Math.max(settings.deblock, settings.deband)
   const metalfx = settings.upscaler === "metalfx" && capabilities.metalfx
@@ -326,7 +409,9 @@ export const pipelineStages = (chosen: Settings, capabilities: Capabilities): re
       id: "upscale",
       name: "Upscale",
       value: mlApplies(settings, capabilities) ? `ML + ${upscaler}` : upscaler,
-      active: metalfx || mlApplies(settings, capabilities),
+      ...(idle !== undefined && (metalfx || mlApplies(settings, capabilities))
+        ? { active: false, note: idle }
+        : { active: metalfx || mlApplies(settings, capabilities) }),
     },
     { id: "sharpen", name: "Sharpen", value: strengthLabel(settings.sharpness), active: settings.sharpness > 0 },
     { id: "color", name: "Color", value: settings.accurateColor ? "Accurate" : "Vivid", active: settings.accurateColor },

@@ -157,10 +157,23 @@ describe("RendererStatus", () => {
       mlSupported: true,
       mlActive: true,
       interpolationSupported: true,
-      interpolationActive: true, hdrActive: false, displayMs: 0, shownFps: 120, pacing: { generatedFps: 60, skippedFrames: 1, skippedInterpolations: 2, delayMs: 35.5 },
+      interpolationActive: true, hdrActive: false, displayMs: 0, shownFps: 120,
+      pacing: {
+        generatedFps: 60, skippedFrames: 1, skippedInterpolations: 2, delayMs: 35.5,
+        interpolation: "on", upscale: "notLarger", ml: "streamTooLarge", displayHz: 120, streamFps: 60, gameFps: 30, repeatedFrames: 12,
+      },
       stream: { active: true, framesDecoded: 1200, decodeErrors: 0, framesLost: 3, width: 1920, height: 1080, bytesReceived: 4096 },
     }
     expect(Schema.decodeUnknownSync(RendererStatus)(streaming)).toEqual(streaming)
+  })
+
+  it("decodes pacing from a host that doesn't say what each step is doing yet", () => {
+    const older = { generatedFps: 0, skippedFrames: 0, skippedInterpolations: 0, delayMs: 0 }
+    const status = { metalfxSupported: true, activeMode: "metalfx", gpuMs: 0, mlSupported: false, mlActive: false, interpolationSupported: false, interpolationActive: false, hdrActive: false, displayMs: 0, pacing: older, stream: { active: false } }
+    expect(Schema.decodeUnknownSync(RendererStatus)(status).pacing).toEqual({
+      ...older, interpolation: "off", upscale: "bilinear", ml: "off", displayHz: 0, streamFps: 0, gameFps: 0, repeatedFrames: 0,
+    })
+    expect(decodes(RendererStatus, { ...status, pacing: { ...older, interpolation: "maybe" } })).toBe(false)
   })
 
   it("rejects unknown modes and a missing stream (the host sends null when stats don't parse)", () => {

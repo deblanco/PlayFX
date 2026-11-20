@@ -72,6 +72,10 @@ pub trait NativeCore: Send + Sync {
     fn session_stop(&self);
     /// Puts the console in rest mode (it ends the session itself).
     fn session_sleep(&self);
+    /// Asks the console for a keyframe; no-op without a session.
+    fn session_request_keyframe(&self);
+    /// The latency test (dev tool): JSON summary, or {"error"}. Blocks for seconds; not on the main thread.
+    fn latency_test(&self, trials: i32) -> String;
     /// Discovery aimed at one address, for consoles broadcast discovery can't reach.
     fn discover_host(&self, host: &str, timeout_ms: i32) -> String;
     fn set_login_pin(&self, pin: &str);

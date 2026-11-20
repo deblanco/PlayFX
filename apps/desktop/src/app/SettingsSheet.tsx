@@ -1,6 +1,6 @@
 import { Option } from "effect"
 import { ChevronRight, ClipboardCopy, Code, FolderOpen, RotateCcw, Save, Trash2 } from "lucide-react"
-import { useEffect, useId, useState, type ReactNode } from "react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
@@ -15,7 +15,7 @@ import { bitrates, defaultSettings, type AudioDevice, type Profile, type Setting
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
-import { allProfiles, applyProfile, isBuiltIn, matchingProfile, profileSummary } from "./profiles"
+import { allProfiles, applyProfile, isBuiltIn, isSaved, matchingProfile, profileSummary } from "./profiles"
 import {
   bitrateLabel,
   pipelineStages,
@@ -58,6 +58,8 @@ interface SettingsSheetProps {
   readonly onTabChange: (tab: SettingsTab) => void
   readonly settings: Settings
   readonly capabilities: Capabilities
+  /** Why the chosen upscaler isn't enlarging the picture right now (while streaming). */
+  readonly upscaleIdle?: string
   readonly onChange: (next: Settings) => void
   /** Present while streaming. */
   readonly reconnect?: ReconnectState
@@ -112,7 +114,7 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
           </TabsList>
           <TabsContent value="picture" className="flex flex-col gap-5 px-5 pt-5 pb-6">
-            <PicturePanel settings={settings} capabilities={props.capabilities} set={set} />
+            <PicturePanel settings={settings} capabilities={props.capabilities} upscaleIdle={props.upscaleIdle} set={set} />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, pictureKeys)) }}>
               <RotateCcw /> Reset picture
             </Button>
@@ -144,16 +146,20 @@ const ProfileBar = ({ settings, onChange }: { readonly settings: Settings; reado
   const [saved, setSaved] = useState<readonly Profile[]>([])
   /** The name being typed for a new profile; null when not saving. */
   const [naming, setNaming] = useState<string | null>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
   useEffect(() => { run(actions.loadProfiles, { onSuccess: setSaved }) }, [run])
   const profiles = allProfiles(saved)
   const current = matchingProfile(settings, profiles)
   const selected = Option.getOrUndefined(current)
+  /** Saving under a saved profile's name replaces that profile. */
+  const replacing = naming !== null && isSaved(saved, naming)
   const save = (name: string) => {
+    const verb = isSaved(saved, name) ? "Replaced" : "Saved"
     run(actions.saveProfile(name, settings), {
       onSuccess: (next) => {
         setSaved(next)
         setNaming(null)
-        toast.success(`Saved "${name.trim()}"`)
+        toast.success(`${verb} "${name.trim()}"`)
       },
     })
   }
@@ -191,22 +197,48 @@ const ProfileBar = ({ settings, onChange }: { readonly settings: Settings; reado
       </div>
       {naming !== null && (
         <form
-          className="flex gap-2"
+          className="flex flex-col gap-2"
           onSubmit={(event) => {
             event.preventDefault()
             save(naming)
           }}
         >
-          <Input
-            aria-label="Profile name"
-            placeholder="Name, e.g. Living room TV"
-            maxLength={40}
-            autoFocus
-            value={naming}
-            onChange={(event) => { setNaming(event.target.value) }}
-          />
-          <Button type="submit" size="sm">Save</Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => { setNaming(null) }}>Cancel</Button>
+          <div className="flex gap-2">
+            <Input
+              ref={nameInput}
+              aria-label="Profile name"
+              placeholder="Name, e.g. Living room TV"
+              maxLength={40}
+              autoFocus
+              value={naming}
+              onChange={(event) => { setNaming(event.target.value) }}
+            />
+            <Button type="submit" size="sm">{replacing ? "Replace" : "Save"}</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => { setNaming(null) }}>Cancel</Button>
+          </div>
+          {saved.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Replace a saved profile">
+              <span className="text-xs text-muted-foreground">Replace one:</span>
+              {saved.map((p) => (
+                <Button
+                  key={p.name}
+                  type="button"
+                  variant={naming.trim() === p.name ? "secondary" : "outline"}
+                  size="xs"
+                  aria-pressed={naming.trim() === p.name}
+                  onClick={() => {
+                    setNaming(p.name)
+                    nameInput.current?.focus()
+                  }}
+                >
+                  {p.name}
+                </Button>
+              ))}
+            </div>
+          )}
+          {replacing && (
+            <p className="text-xs text-muted-foreground">Replaces "{naming.trim()}" with these settings.</p>
+          )}
         </form>
       )}
       <p className="text-xs text-muted-foreground">
@@ -218,12 +250,13 @@ const ProfileBar = ({ settings, onChange }: { readonly settings: Settings; reado
 
 // ---------- Picture ----------
 
-const PicturePanel = ({ settings, capabilities, set }: {
+const PicturePanel = ({ settings, capabilities, upscaleIdle, set }: {
   readonly settings: Settings
   readonly capabilities: Capabilities
+  readonly upscaleIdle: string | undefined
   readonly set: Set
 }) => {
-  const stages = pipelineStages(settings, capabilities)
+  const stages = pipelineStages(settings, capabilities, upscaleIdle)
   return (
     <>
       <Pipeline stages={stages} />
@@ -242,7 +275,7 @@ const PicturePanel = ({ settings, capabilities, set }: {
       </div>
       <SwitchRow
         label="Stats on screen"
-        description="Shows the stats line at the top (frame rate, bitrate, ping, GPU time, lost frames) while playing, and keeps it there when the controls fade."
+        description="Shows the stats line at the top (frame rate, bitrate, ping, GPU time, lost frames, the images made in between, and why a step that’s on is idle) while playing, and keeps it there when the controls fade."
         checked={settings.showStats}
         onCheckedChange={(on) => { set("showStats", on) }}
       />
@@ -250,7 +283,7 @@ const PicturePanel = ({ settings, capabilities, set }: {
         label="Frame interpolation"
         description={
           capabilities.interpolation
-            ? "Shows an in-between image after each frame, so 30 fps games look like 60 on this screen (60 like 120 on ProMotion). Frames show about 40 ms later at 30 fps, so it suits slower games."
+            ? "Makes images between the game’s own frames, one for each screen refresh: a 30 fps game looks like 60 on a 60 Hz screen and 120 on ProMotion, even inside a 60 fps stream. Frames show about 40 ms later at 30 fps, so it suits slower games."
             : "Needs macOS 26 on a supported Mac."
         }
         checked={settings.frameInterpolation}
@@ -362,6 +395,9 @@ const Pipeline = ({ stages }: { readonly stages: readonly Stage[] }) => (
             >
               {stage.value}
             </span>
+            {stage.note !== undefined && (
+              <span className="text-[0.6875rem] text-muted-foreground">{stage.note}</span>
+            )}
           </button>
           {/* The signal path: lit where this stage changes the picture. */}
           <span

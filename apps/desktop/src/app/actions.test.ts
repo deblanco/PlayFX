@@ -225,6 +225,7 @@ describe("streaming", () => {
 
   it.effect("notices when the picture stops while the stream goes on", () => {
     let broken = false
+    let keyframes = 0
     const core = fakeCore()
     const service = core.service
     const { layer } = setup(
@@ -232,6 +233,11 @@ describe("streaming", () => {
         rendererStatus: Effect.suspend(() =>
           broken ? Effect.fail(new CoreError({ command: "renderer_status", message: "gone" })) : service.rendererStatus,
         ),
+        requestKeyframe: Effect.suspend(() => {
+          keyframes++
+          // A failed request doesn't stop the watch.
+          return keyframes === 1 ? Effect.fail(new CoreError({ command: "request_keyframe", message: "gone" })) : Effect.void
+        }),
       }),
     )
     return Effect.gen(function* () {
@@ -247,11 +253,24 @@ describe("streaming", () => {
       }
       broken = false
       expect(fiber.pollUnsafe()).toBeUndefined()
-      // Then none for 5 s: reported once, and the watch ends.
-      yield* TestClock.adjust("4 seconds")
+      expect(keyframes).toBe(0)
+      // A frame stops for a moment: a keyframe is asked for once, and the count starts over with new frames.
+      yield* TestClock.adjust("1 second")
+      yield* TestClock.adjust("1 second")
+      expect(keyframes).toBe(1)
+      frames += 60
+      core.state.status = status({ framesDecoded: frames })
+      yield* TestClock.adjust("1 second")
+      // Then none for 5 s: keyframes asked for at 1 s and 3 s, the stop reported once, and the watch ends.
+      yield* TestClock.adjust("1 second")
+      expect(keyframes).toBe(2)
+      yield* TestClock.adjust("2 seconds")
+      expect(keyframes).toBe(3)
+      yield* TestClock.adjust("1 second")
       expect(fiber.pollUnsafe()).toBeUndefined()
       yield* TestClock.adjust("2 seconds")
       expect(fiber.pollUnsafe()).toBeDefined()
+      expect(keyframes).toBe(3)
     }).pipe(Effect.provide(layer))
   })
 

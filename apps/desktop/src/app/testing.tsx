@@ -109,6 +109,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     sleepConsole: Effect.sync(() => {
       counts.sleepConsole++
     }),
+    requestKeyframe: Effect.void,
     setLoginPin: vi.fn<CoreService["setLoginPin"]>(() => Effect.void),
     setController: vi.fn<CoreService["setController"]>(() => Effect.void),
     setPointerTouch: vi.fn<CoreService["setPointerTouch"]>(() => Effect.void),

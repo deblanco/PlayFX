@@ -111,6 +111,13 @@ impl NativeCore for FakeCore {
         self.log(format!("discover_host {host} {timeout_ms}"));
         self.reply.clone()
     }
+    fn session_request_keyframe(&self) {
+        self.log("session_request_keyframe".into());
+    }
+    fn latency_test(&self, trials: i32) -> String {
+        self.log(format!("latency_test {trials}"));
+        r#"{"trials":3,"answered":3,"medianMs":48.5}"#.into()
+    }
     fn session_sleep(&self) {
         self.log("session_sleep".into());
     }
@@ -155,7 +162,7 @@ impl NativeCore for FakeCore {
         self.shown_fps
     }
     fn pacing_stats(&self) -> String {
-        r#"{"generatedFps":0,"skippedFrames":0,"skippedInterpolations":0,"delayMs":0}"#.into()
+        r#"{"generatedFps":0,"skippedFrames":0,"skippedInterpolations":0,"delayMs":0,"interpolation":"screen","upscale":"notLarger","ml":"off","displayHz":75,"streamFps":60}"#.into()
     }
     fn hdr_active(&self) -> bool {
         self.hdr
