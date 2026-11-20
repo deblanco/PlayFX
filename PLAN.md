@@ -611,6 +611,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   profile switch during a reconnect asks first, 50 fps pacing, and the first release built by the new
   `release.sh` (the app inside the DMG stapled too); all suites passed (TS 365, Swift 331 in both modes, Rust 55,
   chiaki-ng 129).
+  [v0.2.2](https://github.com/deblanco/PlayFX/releases/tag/v0.2.2) (2026-11-20): the crash after 10–40 minutes with
+  frame interpolation or ML upscaling on (VideoToolbox's Metal call leaked a shared event per frame); every suite
+  passed and 20,000 calls per path leaked nothing on the owner's Mac.
 - 🔶 **Packaging** *(built and launched; Developer ID certificate in the keychain; notarization profile `playfx` in the keychain: an App Store Connect API key, Developer access)*: bundle ID
   `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
   `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
@@ -904,7 +907,7 @@ requests and a bug report.
    touchpad built; **the motion axes in a game are left**. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
-   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0 and v0.2.1 followed). `release.sh` now survives a notarytool
+   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0, v0.2.1 and v0.2.2 followed). `release.sh` now survives a notarytool
    status timeout and staples the `.app` too (built and tested with a fake notarytool); left: its first real run,
    at the next release. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
