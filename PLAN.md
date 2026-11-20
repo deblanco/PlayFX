@@ -411,6 +411,13 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     `components.json`.
 - ✅ **Sony ToS note.** README: unofficial client, own consoles and account, PSN sign-in only through
   Sony's page, no credentials shipped. NOTICE and the app's About text: not affiliated with Sony.
+- ✅ **First public release** (2026-11-20): the repo is public and
+  [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) has the notarized, stapled DMG (built from the
+  tagged commit). Before going public the history was audited and rewritten (a real PSN account ID in a test
+  fixture, and the owner's full name, removed from every commit), and the GitHub repo was re-created with the
+  clean history. **Releases are made on demand**: `scripts/release.sh` on the owner's Mac (the signing
+  certificate and the notary profile stay in its keychain, never in CI), then a GitHub release from the DMG;
+  bump the version in `tauri.conf.json`, `package.json` and `Cargo.toml` first.
 - 🔶 **Packaging** *(built and launched; Developer ID certificate in the keychain; notarization profile `playfx` in the keychain: an App Store Connect API key, Developer access)*: bundle ID
   `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
   `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
@@ -596,9 +603,9 @@ requests and a bug report.
 4. ~~Rumble + adaptive triggers in a game~~ (done 2026-11-20: GTA VI, pad on USB, the user: works);
    touchpad built; **the motion axes in a game are left**. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
-6. Packaging + AGPL/licensing + CI: done, and notarization accepted (2026-11-19). Left: **the public release**
-   (make the repo public with it; the user's call), and `release.sh` surviving a notarytool status timeout and
-   stapling the `.app` too. *(P4)*
+6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
+   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG). Left: `release.sh`
+   surviving a notarytool status timeout and stapling the `.app` too. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
    in 60, ~100 shown/s); left: the 75 Hz external screen; a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; the light bar in a game that sets it; Bluetooth
