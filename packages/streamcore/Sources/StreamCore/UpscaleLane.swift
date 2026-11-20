@@ -22,7 +22,8 @@ extension MLSuperResolution: FrameUpscaler {}
 /// so a refresh never waits for the model (at 1080p it takes most of a 60 fps frame). Frames come out in the
 /// order they went in. One frame is upscaled while at most one waits: a newer frame takes the waiting one's
 /// place, and the one it replaces is dropped (counted), so the lane never falls more than a frame behind.
-/// A repeated picture does not run the model again: it passes through, and can reuse the last upscaled frame.
+/// A repeated picture does not run the model again: it passes through and reuses the last upscaled frame. It
+/// never takes the place of a waiting frame that isn't a repeat (that would lose a picture); it's dropped instead.
 /// See docs/ML_UPSCALING.md.
 final class UpscaleLane {
     /// An upscaled frame carries the decoded frame it was made from under this attachment, for the compare
@@ -42,8 +43,8 @@ final class UpscaleLane {
         let target: CGSize
         /// False: the frame only passes through, in its place in the order.
         let upscale: Bool
-        /// With `upscale` false: hand back the last upscaled frame instead of nil. Its decoded-frame
-        /// attachment is left as it was (the timeline may still be showing that same buffer).
+        /// With `upscale` false: a repeat of the picture before it, which gets the last upscaled frame instead of
+        /// nil. Its decoded-frame attachment is left as it was (the timeline may still be showing that same buffer).
         let reuse: Bool
         /// Called on the lane's queue with the upscaled frame, or nil when it wasn't upscaled.
         let done: (CVPixelBuffer?) -> Void
@@ -94,15 +95,19 @@ final class UpscaleLane {
 
     /// Queues `frame` for a picture of `target` size; `done` gets the upscaled frame (nil: use `frame` as is)
     /// on the lane's queue, in submission order. `upscale` false passes the frame through untouched, behind
-    /// the ones already in the lane; `reuse` then hands back the last upscaled frame instead of nil. A frame
-    /// still waiting when the next one arrives is dropped, and its `done` is never called. A pass-through is
-    /// not counted as dropped.
+    /// the ones already in the lane; `reuse` (a repeat) then hands back the last upscaled frame instead of nil.
+    /// A frame still waiting when the next one arrives is dropped, and its `done` is never called; a repeat
+    /// that arrives behind a waiting frame that isn't one is dropped itself, so no picture is lost to it. A
+    /// dropped repeat is not counted.
     func submit(_ frame: CVPixelBuffer, target: CGSize, upscale: Bool = true, reuse: Bool = false,
                 done: @escaping (CVPixelBuffer?) -> Void) {
         let job = Job(frame: frame, target: target, upscale: upscale, reuse: reuse, done: done)
         let start = state.withLock { s -> Bool in
             guard s.busy else { s.busy = true; return true }
-            if s.waiting != nil { s.dropped += 1 }
+            if let waiting = s.waiting {
+                if job.reuse, !waiting.reuse { return false } // the waiting picture shows; this repeat adds nothing
+                if !waiting.reuse { s.dropped += 1 }
+            }
             s.waiting = job
             return false
         }

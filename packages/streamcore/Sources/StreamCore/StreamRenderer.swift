@@ -364,8 +364,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// screen refresh between them, are made on the interpolation lane meanwhile. The first frame replaces
     /// the idle backdrop. With ML upscaling on, a new picture is upscaled on its own lane first and joins the
     /// stream clock when that's done, so a refresh never waits for the model. A repeat of that picture does
-    /// not run the model again: with interpolation on it is left out, and with it off the last upscaled
-    /// frame is shown.
+    /// not run the model again: it takes the last upscaled frame, and with interpolation on it is left out.
     public func display(_ frame: CVPixelBuffer, index: UInt64? = nil, arrival: Double = CACurrentMediaTime()) {
         showsTestPattern = false
         let (i, stalls) = pacing.withLock { p in
@@ -392,6 +391,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         // lane, and whatever it finishes later is left out as if from the stream before.
         let stalled = upscaleLane?.isStalled() ?? false
         if stalled { upscaleGeneration.withLock { $0 += 1 } }
+        // Not through the model: the next frame that is mustn't be told against one from before this stretch.
+        if !upscale || stalled { pacing.withLock { $0.submitted = nil } }
         guard let upscaleLane, !stalled, upscale || upscaleLane.isBusy else {
             intake(frame, decoded: frame, index: i, arrival: arrival, decodedAt: arrival)
             return
@@ -402,15 +403,15 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         if upscale {
             switch takeRepeat(frame, index: i, arrival: arrival, laneBusy: busy) {
             case .samePicture:
-                let wanted = interpolating.withLock { $0 }
+                // It takes the last upscale, so if the clock starts over at it (and it shows as a new picture)
+                // it's the size the frames around it are. With interpolation on it's otherwise left out.
                 if busy {
                     // Behind the frame already in the model, so the clock still sees frames in order.
-                    // Interpolation off reuses that frame's upscale; on, the repeat is left out below.
-                    submit(frame, to: upscaleLane, target: target, upscale: false, reuse: !wanted, index: i,
+                    submit(frame, to: upscaleLane, target: target, upscale: false, reuse: true, index: i,
                            arrival: arrival, repeated: true)
                 } else {
-                    let shown = wanted ? frame : (upscaleLane.lastUpscaled ?? frame)
-                    intake(shown, decoded: frame, index: i, arrival: arrival, decodedAt: arrival, repeated: true)
+                    intake(upscaleLane.lastUpscaled ?? frame, decoded: frame, index: i, arrival: arrival,
+                           decodedAt: arrival, repeated: true)
                 }
                 return
             case .newPicture:
@@ -482,7 +483,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// `arrival`, into the timeline, and in-between images for it. `decoded` is the frame as decoded (repeats
     /// are told on it), and `decodedAt` when it arrived (for the display-latency stat). `repeated` set means
     /// `display` already classified this frame against the one it submitted; nil classifies here, which is
-    /// the path with ML off.
+    /// the path with ML off. A frame `display` classified is a new picture if the clock starts over at it.
     private func intake(_ frame: CVPixelBuffer, decoded: CVPixelBuffer, index i: UInt64, arrival: Double, decodedAt: Double,
                         repeated known: Bool? = nil) {
         let wanted = interpolating.withLock { $0 }
@@ -510,7 +511,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                     p.repeats.reset()
                     p.populated = nil
                 }
-                let repeated = known ?? (difference.map { p.repeats.isRepeat(difference: $0) } ?? false)
+                // After a start-over, `known` was told against a frame from before it: the frame is the new start.
+                let repeated = (stamp.restarted ? nil : known) ?? (difference.map { p.repeats.isRepeat(difference: $0) } ?? false)
                 p.lastArrival = arrival
                 if repeated {
                     p.repeated += 1

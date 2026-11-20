@@ -58,7 +58,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 366 tests (90% lines; 88% as CI's VM sees
+- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 373 tests (90% lines; 88% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -817,9 +817,16 @@ requests and a bug report.
   while the shown rate fell toward 60 and interpolation misses climbed. The repeat is now told before the
   model, against the last frame submitted, so one still in the model counts. Interpolation on leaves it out;
   interpolation off shows the last upscaled frame again. A gap the clock starts over for still upscales the
-  next picture. Verified with a stand-in upscaler, no console: six identical frames call it once; a repeat
+  next picture. A repeat never takes the place of a new picture waiting for the model (it's dropped
+  instead, uncounted); a repeat the clock starts over at is the new start, not left out; and after a stretch
+  without ML (off, a window no larger, HDR, a stall) the next frame is told against the frame shown, not the
+  last one upscaled. Verified with a stand-in upscaler, no console: six identical frames call it once; a repeat
   that arrives during the upscale is not upscaled; with interpolation off the shown frame stays the upscaled
-  size; a new picture is upscaled; the same picture after a 0.5 s gap is upscaled again. On this Mac the
+  size; a new picture is upscaled; the same picture after a 0.5 s gap is upscaled again; a repeat behind a
+  waiting picture is dropped and the picture kept; a repeat 100 frames on while the model runs restarts the
+  clock and shows upscaled; a picture after ML was off is upscaled. Repeats now reach the clock before the
+  model's time and new pictures after it: the delay planner's 90th percentile of lateness should cover that,
+  for the pacing trace on the console to confirm. On this Mac the
   low-latency model is spatial (a second pass, and a frame run after a different one, match a fresh run,
   mean luma difference 0). macOS 27's `maximumDimension` / `maximumPixelCount` confirm the 1280 px and
   1,638,400 px caps at 1.5×; 1920×1080 lists no scale factor. MetalFX stays the spatial scaler, perceptual

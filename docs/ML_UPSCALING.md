@@ -33,8 +33,8 @@ idle.
 - **It runs on its own lane, not in the draw** (`UpscaleLane`): its own queue and Metal command queue, one
   frame at a time. A refresh never waits for the model. A new picture is upscaled first and joins the
   stream clock when that's done, so the pacing delay covers the model's time like any other lateness.
-  A repeat of that picture does not run the model: with frame interpolation on it is left out, and with it
-  off the last upscaled frame is shown again.
+  A repeat of that picture does not run the model: it takes the last upscaled frame, and with frame
+  interpolation on it is left out. A repeat never takes the place of a new picture waiting for the model.
 - **It upscales stream frames only.** In-between images are made from upscaled frames, so the model doesn't
   run again for each of them.
 - **When it falls behind, it drops a frame instead of queueing.** One frame is upscaled while at most one
@@ -234,7 +234,7 @@ figures are smoothed averages and noisy: what matters is that ML adds nothing to
     size and that brightness holds across the cut and in the padded rows. Both are skipped where ML isn't
     available.
   - `mlSaysWhyItIsIdle`: the reasons the HUD shows.
-- `swift test --package-path packages/streamcore --filter "UpscaleLane|upscalesOnItsLane|comparesAgainst|framesSkip|aDropped|aRepeated|aRepeat|aNewPicture"`:
+- `swift test --package-path packages/streamcore --filter "UpscaleLane|upscalesOnItsLane|comparesAgainst|framesSkip|aDropped|aRepeated|aRepeat|aNewPicture|aPictureAfterML"`:
   the lane with a stand-in engine, so these run in CI's VM too. They cover:
   - order, and dropping the waiting frame;
   - the decoded frame kept with the upscaled one;
@@ -246,7 +246,9 @@ figures are smoothed averages and noisy: what matters is that ML adds nothing to
   - dropped frames counted as lost;
   - a repeated picture upscaled once (also when the repeat arrives while the model is still busy), the
     last upscaled frame kept when interpolation is off, a new picture upscaled, and a picture after a
-    clock gap upscaled again.
+    clock gap upscaled again;
+  - a repeat dropped rather than a new picture waiting behind the model, a repeat the clock starts over at
+    shown as the new start, and a picture after a stretch with ML off upscaled.
 
   Not covered by a test: interpolation sizes from the decoded frame, and the in-between baseline in the
   split view. Both need VideoToolbox's frame interpolation running on frames from the lane; check them on a

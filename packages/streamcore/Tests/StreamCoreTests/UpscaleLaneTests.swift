@@ -55,6 +55,36 @@ final class FakeUpscaler: FrameUpscaler, @unchecked Sendable {
         #expect(lane.dropped == 0)
     }
 
+    @Test func aRepeatNeverTakesTheWaitingPicturesPlace() throws {
+        let engine = FakeUpscaler(delay: 0.2)
+        let lane = makeLane(engine)
+        let target = CGSize(width: 200, height: 200)
+        let done = OSAllocatedUnfairLock(initialState: [(Int, CVPixelBuffer?)]())
+        func submit(_ i: Int, upscale: Bool) throws {
+            let frame = try makeNV12(width: 64, height: 64, y: UInt8(i * 10 + 16), cb: 128, cr: 128)
+            lane.submit(frame, target: target, upscale: upscale, reuse: !upscale) { upscaled in
+                done.withLock { $0.append((i, upscaled)) }
+            }
+        }
+        // A new picture waits behind the one in the model; its repeat is dropped, not the picture.
+        try submit(0, upscale: true)
+        try submit(1, upscale: true)
+        try submit(2, upscale: false)
+        lane.waitUntilIdle()
+        #expect(done.withLock { $0.map(\.0) } == [0, 1])
+        #expect(lane.dropped == 0 && engine.calls == 2)
+        // A repeat waiting behind the model gives way to a newer repeat, uncounted, and gets that upscale.
+        try submit(3, upscale: true)
+        try submit(4, upscale: false)
+        try submit(5, upscale: false)
+        lane.waitUntilIdle()
+        let results = done.withLock { $0 }
+        #expect(results.map(\.0) == [0, 1, 3, 5])
+        #expect(lane.dropped == 0 && engine.calls == 3)
+        let upscaled = try #require(results[2].1)
+        #expect(results[3].1 === upscaled)
+    }
+
     @Test func keepsTheDecodedFrameWithTheUpscaledOne() throws {
         let lane = makeLane(FakeUpscaler())
         let frame = try makeNV12(width: 64, height: 64, y: 50, cb: 128, cr: 128)
@@ -254,13 +284,55 @@ extension StreamRendererTests {
         #expect(engine.calls == 3)
     }
 
+    @Test func aRepeatTheClockStartsOverAtIsANewPicture() throws {
+        let engine = FakeUpscaler(delay: 0.2)
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: engine))
+        r.showsTestPattern = false
+        r.params.mlUpscale = true
+        r.params.sharpness = 0
+        r.params.upscaler = .bilinear
+        r.setFrameInterpolationActive(true)
+        r.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
+        let start = CACurrentMediaTime()
+        r.display(try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128), index: 0, arrival: start)
+        // The same picture while the model runs, but frames were lost: the clock starts over at it, so it's
+        // the new start (on the timeline, at the upscaled size), not a repeat left out.
+        r.display(try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128), index: 100, arrival: start + 1 / 60)
+        r.waitForUpscaling()
+        _ = try render(r, size: (2560, 1440))
+        #expect(engine.calls == 1 && r.repeatedFrames == 0)
+        #expect(r.pacingParts.restarts == 2)
+        #expect(r.inputSize == (96, 96))
+    }
+
+    @Test func aPictureAfterMLWasOffIsUpscaled() throws {
+        let engine = FakeUpscaler()
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: engine))
+        r.showsTestPattern = false
+        r.params.mlUpscale = true
+        r.setFrameInterpolationActive(true)
+        r.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
+        let start = CACurrentMediaTime()
+        r.display(try makeNV12(width: 64, height: 64, y: 40, cb: 128, cr: 128), index: 0, arrival: start)
+        r.waitForUpscaling()
+        r.params.mlUpscale = false
+        r.display(try makeNV12(width: 64, height: 64, y: 200, cb: 128, cr: 128), index: 1, arrival: start + 1 / 60)
+        // Back on with the first picture again: new against the last frame shown, so it's upscaled, not
+        // taken for a repeat of the frame upscaled before ML went off.
+        r.params.mlUpscale = true
+        r.display(try makeNV12(width: 64, height: 64, y: 40, cb: 128, cr: 128), index: 2, arrival: start + 2 / 60)
+        r.waitForUpscaling()
+        #expect(engine.calls == 2 && r.repeatedFrames == 0)
+    }
+
     @Test func aDroppedFrameCountsAsSkipped() throws {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: FakeUpscaler(delay: 0.3)))
         r.showsTestPattern = false
         r.params.mlUpscale = true
         r.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
-        // Made first, so the three arrive while the first is still being upscaled.
-        let frames = try (0..<3).map { _ in try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128) }
+        // Made first, so the three arrive while the first is still being upscaled. Three different pictures:
+        // a dropped repeat isn't a lost frame.
+        let frames = try (0..<3).map { i in try makeNV12(width: 64, height: 64, y: UInt8(40 + i * 80), cb: 128, cr: 128) }
         for (i, frame) in frames.enumerated() { r.display(frame, index: UInt64(i)) }
         r.waitForUpscaling()
         #expect(r.skippedFrames >= 1)
