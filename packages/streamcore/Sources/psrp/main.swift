@@ -279,7 +279,9 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         }
         log("[event] \(text)")
         ctl.queue.async { ctl.events.append(text) }
-        if case .quit = event { PadQuiet.now(); exit(0) }
+        // On main: this runs on libchiaki's session thread, which /quit's stop() joins from main, so waiting on
+        // main here (PadQuiet's trigger release) would only time out.
+        if case .quit = event { DispatchQueue.main.async { PadQuiet.now(); exit(0) } }
     }
 
     if let path = args["frame-log"] { try logFrames(session, to: path) }
