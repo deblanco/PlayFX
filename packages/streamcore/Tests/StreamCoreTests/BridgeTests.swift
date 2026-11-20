@@ -201,6 +201,21 @@ extension Serial {
             window.close()
         }
 
+        @Test @MainActor func readsMainOnlyStateWithABoundedWait() async {
+            #expect(readOnMain { 7 } == 7) // on main: at once
+            // From another thread while main is free: main's answer.
+            let free = OSAllocatedUnfairLock<Int?>(initialState: nil)
+            Thread { let v = readOnMain { 8 }; free.withLock { $0 = v } }.start()
+            #expect(await waitUntil { free.withLock { $0 } != nil })
+            #expect(free.withLock { $0 } == 8)
+            // Main busy longer than the wait: nil, instead of waiting for good (a test process's main, or a stuck one).
+            let busy = OSAllocatedUnfairLock<(done: Bool, value: Int?)>(initialState: (false, nil))
+            Thread { let v = readOnMain(timeout: 0.05) { 9 }; busy.withLock { $0 = (true, v) } }.start()
+            Thread.sleep(forTimeInterval: 0.3)
+            #expect(busy.withLock { $0.done } && busy.withLock { $0.value } == nil)
+            await MainActor.run {} // let the late read run
+        }
+
         @Test @MainActor func latencyTestTakesTheSessionFromMain() async throws {
             // The dev-control port runs the test on its HTTP thread while main may be ending the stream:
             // the session is taken on main, so a stop main is in the middle of wins, and nothing is tested.

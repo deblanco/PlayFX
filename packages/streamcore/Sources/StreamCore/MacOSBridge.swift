@@ -431,10 +431,30 @@ public func sc_session_sleep() {
 
 /// The latency test (dev tool, see LatencyTest.swift): presses PS `trials` times and times the picture's
 /// answer. Blocks for a few seconds per trial: never on the main thread. {"error"} without a session.
+/// Runs `read` on the main thread and returns what it gave, or nil when main didn't get to it within
+/// `timeout`. On main itself it runs at once.
+func readOnMain<T>(timeout: TimeInterval = 2, _ read: @escaping () -> T) -> T? {
+    if Thread.isMainThread { return read() }
+    let box = MainReadBox<T>(), done = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async {
+        box.value = read()
+        done.signal()
+    }
+    // The semaphore orders the write before this read; a late write after a timeout is never read.
+    return done.wait(timeout: .now() + timeout) == .success ? box.value : nil
+}
+
+/// What `readOnMain` hands from main to the waiting thread (the semaphore orders the write and the read).
+private final class MainReadBox<T>: @unchecked Sendable { var value: T? }
+
 @_cdecl("sc_latency_test")
 public func sc_latency_test(_ trials: Int32) -> UnsafeMutablePointer<CChar> {
-    // `session` and `renderer` belong to main (a stop there could free the session mid-read): taken there.
-    let (current, displayMs) = DispatchQueue.main.sync { (session, renderer?.displayMilliseconds ?? 0) }
+    // `session` and `renderer` belong to main (a stop there could free the session mid-read): taken there,
+    // waiting a bounded time: a main thread that never gets to it (stuck, or none running, as in a test
+    // process) gives an error instead of a dev-control request hanging for good.
+    guard let (current, displayMs) = readOnMain({ (session, renderer?.displayMilliseconds ?? 0) }) else {
+        return failure("The app didn't answer")
+    }
     guard let current else { return failure("No stream to test") }
     let data = current.latencyTest(trials: Int(min(max(trials, 1), 20)), displayMs: displayMs)
     return strdup(String(decoding: data, as: UTF8.self))
