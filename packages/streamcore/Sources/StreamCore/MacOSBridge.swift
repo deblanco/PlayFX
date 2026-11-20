@@ -146,7 +146,8 @@ public func sc_shown_fps() -> Double {
 }
 
 /// Frame pacing: in-between images presented per second, frames and in-between images never shown (a
-/// later one was due first, or the lane was busy), and how far behind the stream clock images show (ms).
+/// later one was due first), pairs that got no in-between images (the lane was busy, or the size gave
+/// nothing), and how far behind the stream clock images show (ms). All counts are totals for the stream.
 /// Also what the optional picture steps are doing and why an idle one is idle (`PipelineState`), with the
 /// screen's refresh rate and the stream's frame rate.
 @_cdecl("sc_pacing_stats")
@@ -162,7 +163,8 @@ public func sc_pacing_stats() -> UnsafeMutablePointer<CChar> {
         "repeatedFrames": renderer?.repeatedFrames ?? 0,
         "generatedFps": renderer?.generatedFramesPerSecond ?? 0,
         "skippedFrames": renderer?.skippedFrames ?? 0,
-        "skippedInterpolations": renderer?.skippedInterpolations ?? 0,
+        "skippedGenerated": renderer?.skippedGenerated ?? 0,
+        "missedInterpolations": renderer?.missedInterpolations ?? 0,
         "delayMs": renderer?.pacingDelayMilliseconds ?? 0,
         "latenessMs": renderer?.pacingParts.latenessMs ?? 0,
         "costMs": renderer?.pacingParts.costMs ?? 0,

@@ -69,16 +69,16 @@ func play(_ args: Args) throws {
         guard second > 2 else { return } // let the clock and the interpolation model settle
         shown.append(renderer.shownFramesPerSecond)
         generated.append(renderer.generatedFramesPerSecond)
-        print(String(format: "  shown %5.1f/s · in-between %5.1f/s · skipped %d frames, %d in-between · delay %.1f ms · made at %@ in %.1f ms (%@)",
+        print(String(format: "  shown %5.1f/s · in-between %5.1f/s · skipped %d frames, %d in-between · missed %d pairs · delay %.1f ms · made at %@ in %.1f ms (%@)",
                      renderer.shownFramesPerSecond, renderer.generatedFramesPerSecond, renderer.skippedFrames,
-                     renderer.skippedInterpolations, renderer.pacingDelayMilliseconds,
+                     renderer.skippedGenerated, renderer.missedInterpolations, renderer.pacingDelayMilliseconds,
                      renderer.interpolationSize.map { "\($0.width)x\($0.height)" } ?? "—", renderer.interpolationCostMilliseconds,
                      renderer.interpolationStages))
         if Double(second) >= seconds + 2 {
             let mean = { (v: [Double]) in v.reduce(0, +) / Double(max(v.count, 1)) }
-            print(String(format: "mean: shown %.1f/s, in-between %.1f/s; skipped %d frames, %d in-between; delay %.1f ms",
-                         mean(shown), mean(generated), renderer.skippedFrames, renderer.skippedInterpolations,
-                         renderer.pacingDelayMilliseconds))
+            print(String(format: "mean: shown %.1f/s, in-between %.1f/s; skipped %d frames, %d in-between; missed %d pairs; delay %.1f ms",
+                         mean(shown), mean(generated), renderer.skippedFrames, renderer.skippedGenerated,
+                         renderer.missedInterpolations, renderer.pacingDelayMilliseconds))
             exit(0)
         }
     }

@@ -23,7 +23,9 @@ import {
   type StreamEvent,
 } from "@/core/schema"
 import {
+  addDropSample,
   describeEvent,
+  dropRates,
   framesPerSecond,
   hudStats,
   statRows,
@@ -34,6 +36,7 @@ import {
   renderParams,
   streamOptions,
   type Capabilities,
+  type DropSample,
   type FrameSample,
 } from "./format"
 import { recommended, withProfile } from "./profiles"
@@ -701,6 +704,8 @@ export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: 
   Effect.gen(function* () {
     const core = yield* Core
     const last = yield* Ref.make<FrameSample>({ frames: 0, bytes: 0, time: yield* Clock.currentTimeMillis })
+    // The native drop counts are totals for the stream: the last few seconds of them give rates.
+    const drops = yield* Ref.make<readonly DropSample[]>([])
     const tick = Effect.gen(function* () {
       const status = yield* core.rendererStatus
       const sample = {
@@ -712,9 +717,15 @@ export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: 
       const fps = framesPerSecond(previous, sample)
       const mbps = megabitsPerSecond(previous, sample)
       const idle = upscaleIdle(status.pacing)
+      const pacing = status.pacing
+      // No stream (or a reconnect between two): start over.
+      const window = yield* Ref.updateAndGet(drops, (samples) =>
+        !status.stream.active || pacing === null
+          ? []
+          : addDropSample(samples, { time: sample.time, missed: pacing.missedInterpolations, skipped: pacing.skippedFrames }))
       report({
         line: hudStats(status, fps, mbps),
-        rows: statRows(status, fps, mbps, requestedHeight),
+        rows: statRows(status, fps, mbps, requestedHeight, dropRates(window)),
         ...(idle === undefined ? {} : { upscaleIdle: idle }),
       })
     })

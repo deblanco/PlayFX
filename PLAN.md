@@ -618,9 +618,18 @@ requests and a bug report.
   FRAME_INTERPOLATION.md. To check: 30-in-60 on the 75 Hz external screen.
 - ✅ **Stats say why a step is idle, and count the generated frames** (requested; also the "MetalFX
   selected, stats say Bilinear" report, which is MetalFX only enlarging, with a 1080p stream on a 1080p
-  screen): `Bilinear (no upscale needed)`, `ML idle (not for this stream size)`, `+30 generated (2 missed)`,
+  screen): `Bilinear (no upscale needed)`, `ML idle (not for this stream size)`, `+30 generated (2/s missed)`,
   `no interpolation: 60 fps on a 60 Hz screen`, `30 fps game · 60 fps stream · 60 shown`; the Picture
   tab's Upscale card says "not needed". Seen live on the PS5: game 30 · stream 60 · ~100 shown on 120 Hz.
+- ✅ **Missed and skipped as rates, not totals** (2026-11-20, requested: "this can go infinite in a long
+  session"): the stats line shows `+45 generated (3/s missed) · 0 lost frames · 2/s skipped`, per second over
+  the last 5 s (from the native totals' deltas between polls; starting over on a new stream, or when a total
+  goes down), amber from 3 missed or 1 skipped a second, whatever the totals. "Missed" now counts only pairs
+  that got no in-between images (the lane was busy, or the size gave nothing: `missedInterpolations`), not
+  in-between images the screen skipped because it had fewer refreshes than images (quarters for a 75 Hz
+  screen, the playhead passing several): those stay apart as `skippedGenerated` (dev control, `psrp play`).
+  Unit-tested in Swift, Rust (fake JSON), the schema, the rates and the poll. Left: see the rates on the
+  75 Hz screen with quarters, where the old count grew without anything being wrong.
 - 🔶 **Light bar colour and player number** from the console (`PadLight`); `psrp pad` has `/light` and
   `/player`. Unit-tested; **check on the pad**, then in a game that sets the light bar.
 - 🔶 **The pad is left quiet when PlayFX ends** (bug: after `pkill` mid-effect the pad kept rumbling and kept

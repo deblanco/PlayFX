@@ -22,6 +22,14 @@ import {
   onlyBitrateChanged,
   statRows,
   upscaleIdle,
+  addDropSample,
+  dropRates,
+  dropWindowMs,
+  missedWarnRate,
+  noDrops,
+  skippedWarnRate,
+  type DropRates,
+  type DropSample,
   type StatRow,
   connectionHint,
   connectionSteps,
@@ -324,7 +332,7 @@ describe("pipelineStages", () => {
 
 describe("upscaleIdle", () => {
   const pacing: PacingStats = {
-    generatedFps: 0, skippedFrames: 0, skippedInterpolations: 0, delayMs: 0,
+    generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0,
     interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 0, streamFps: 0, gameFps: 0, repeatedFrames: 0,
   }
   it("says why the chosen upscaler isn't enlarging the picture", () => {
@@ -396,20 +404,53 @@ describe("onlyBitrateChanged", () => {
   })
 })
 
+describe("drop rates", () => {
+  /** Polls a second apart, after `start`'s, with these totals of missed pairs (skipped frames at half of them). */
+  const poll = (totals: readonly number[], start: readonly DropSample[] = []) => {
+    const from = start.at(-1)?.time ?? 0
+    return totals.reduce((samples, missed, i) => addDropSample(samples, { time: from + 1000 * (i + 1), missed, skipped: missed / 2 }), start)
+  }
+
+  it("gives drops per second over the last few seconds, however big the totals get", () => {
+    expect(dropRates([])).toEqual(noDrops)
+    expect(dropRates(poll([500]))).toEqual(noDrops) // one reading: no rate yet
+    expect(dropRates(poll([500, 503]))).toEqual({ missed: 3, skipped: 1.5 })
+    // Ten seconds at 2/s, then two at 10/s: only the last five seconds count.
+    const window = poll([100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 130, 140])
+    expect(window.length).toBe(dropWindowMs / 1000 + 1)
+    expect(dropRates(window).missed).toBeCloseTo((140 - 114) / 5)
+    // Quiet again: the rate falls back to nothing once the window has passed.
+    expect(dropRates(poll([140, 140, 140, 140, 140, 140], window)).missed).toBe(0)
+  })
+
+  it("starts over when a total goes down (a new stream)", () => {
+    const before = poll([900, 910, 920])
+    const after = addDropSample(before, { time: 4000, missed: 2, skipped: 1 })
+    expect(after).toEqual([{ time: 4000, missed: 2, skipped: 1 }])
+    expect(dropRates(after)).toEqual(noDrops)
+    // Skipped frames alone going down also means a new stream.
+    expect(addDropSample(before, { time: 4000, missed: 930, skipped: 0 })).toHaveLength(1)
+  })
+})
+
 describe("statRows", () => {
   const idlePacing: PacingStats = {
-    generatedFps: 0, skippedFrames: 0, skippedInterpolations: 0, delayMs: 0,
+    generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0,
     interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 60, streamFps: 60, gameFps: 0, repeatedFrames: 0,
   }
-  const at1080 = (pacing: Partial<PacingStats>) =>
-    statRows({ ...status({ width: 1920, height: 1080 }), pacing: { ...idlePacing, ...pacing } }, 60, 5)
+  const at1080 = (pacing: Partial<PacingStats>, rates?: DropRates) =>
+    statRows({ ...status({ width: 1920, height: 1080 }), pacing: { ...idlePacing, ...pacing } }, 60, 5, undefined, rates)
   const find = (rows: readonly StatRow[], label: string) => rows.find((row) => row.label === label)
 
   it("counts the in-between images shown, and says why there are none", () => {
     expect(find(at1080({ interpolation: "on", generatedFps: 29.6 }), "Frame interpolation"))
       .toEqual({ label: "Frame interpolation", value: "30/s", inline: "+30 generated", warn: false })
-    expect(find(at1080({ interpolation: "on", generatedFps: 28, skippedInterpolations: 3 }), "Frame interpolation")?.inline)
-      .toBe("+28 generated (3 missed)")
+    // Missed pairs as a rate over the last few seconds: amber once a few a second go without.
+    const missing = (missed: number) => find(at1080({ interpolation: "on", generatedFps: 28 }, { missed, skipped: 0 }), "Frame interpolation")
+    expect(missing(0.4)).toMatchObject({ value: "28/s", inline: "+28 generated (0.4/s missed)", warn: false })
+    expect(missing(2.9)).toMatchObject({ inline: "+28 generated (2.9/s missed)", warn: false })
+    expect(missing(missedWarnRate)).toMatchObject({ inline: "+28 generated (3/s missed)", warn: true })
+    expect(missing(14.6)?.inline).toBe("+28 generated (15/s missed)")
     // Turned on and possible, but nothing reached the screen: worth a look.
     expect(find(at1080({ interpolation: "on" }), "Frame interpolation")).toMatchObject({ inline: "+0 generated", warn: true })
     expect(find(at1080({ interpolation: "screen", displayHz: 74.97, streamFps: 59.94 }), "Frame interpolation"))
@@ -478,9 +519,14 @@ describe("statRows", () => {
     // Frame generation: the screen gets more images than the stream sends.
     const generated = statRows({ ...status({ width: 1920, height: 1080 }), interpolationActive: true, shownFps: 59.6 }, 30, 5)
     expect(generated.find((row) => row.label === "Frame rate")?.inline).toBe("30 fps · 60 shown")
-    const pacing = { ...idlePacing, skippedFrames: 4, delayMs: 3 }
-    const skipping = statRows({ ...status({ width: 1920, height: 1080 }), pacing }, 60, 5)
-    expect(skipping.find((row) => row.label === "Skipped frames")).toMatchObject({ inline: "4 skipped", warn: true })
+    // Skipped frames as a rate: a big total from a long session says nothing; one a second is a visible hitch.
+    const pacing = { ...idlePacing, skippedFrames: 4000, delayMs: 3 }
+    const skipping = (skipped: number) =>
+      statRows({ ...status({ width: 1920, height: 1080 }), pacing }, 60, 5, undefined, { missed: 0, skipped })
+        .find((row) => row.label === "Skipped frames")
+    expect(skipping(0)).toBeUndefined()
+    expect(skipping(0.2)).toEqual({ label: "Skipped frames", value: "0.2/s", inline: "0.2/s skipped", warn: false })
+    expect(skipping(skippedWarnRate)).toMatchObject({ inline: "1/s skipped", warn: true })
     const plain = statRows({ ...status({ width: 1920, height: 1080 }), shownFps: 61 }, 60, 5)
     expect(plain.find((row) => row.label === "Frame rate")?.inline).toBe("60 fps")
     expect(smooth.find((row) => row.label === "HDR")?.inline).toBe("HDR")

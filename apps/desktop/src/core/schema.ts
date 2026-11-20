@@ -322,12 +322,14 @@ export const StreamStats = Schema.Struct({
 })
 export type StreamStats = typeof StreamStats.Type
 
-/** How the renderer paces frames: in-between images shown per second, frames and in-between images never
- * shown (a later one was due first), and how far behind the stream clock images are shown (ms). */
+/** How the renderer paces frames: in-between images shown per second, stream frames never shown (a later one
+ * was due first), and how far behind the stream clock images are shown (ms). Counts are totals for the stream. */
 export const PacingStats = Schema.Struct({
   generatedFps: Schema.Number,
   skippedFrames: Schema.Number,
-  skippedInterpolations: Schema.Number,
+  /** Pairs of pictures that got no in-between images: the lane was still busy, or the size gave nothing. Not
+   * the images the screen skipped because it refreshes less often than they come (quarters on a 75 Hz screen). */
+  missedInterpolations: since(Schema.Number, 0),
   delayMs: Schema.Number,
   /** Frame interpolation: off, making images, not available here, the screen is too slow for the game, or on
    * while the game holds its picture (a pause: nothing to make). */

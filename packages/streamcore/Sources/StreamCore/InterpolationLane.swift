@@ -44,9 +44,10 @@ final class InterpolationLane {
 
     /// Called on the lane's queue with each image made.
     var onImage: ((Image) -> Void)?
-    /// Pairs gone without an image: still making the last one, or a scene cut.
+    /// Pairs gone without an image: still making the last one, a scene cut, or the size gave nothing.
     var busyPairs: Int { state.withLock { $0.busyPairs } }
     var cutPairs: Int { state.withLock { $0.cutPairs } }
+    var failedPairs: Int { state.withLock { $0.failedPairs } }
 
     private let queue = DispatchQueue(label: "streamcore.interpolation", qos: .userInteractive)
     private let device: MTLDevice
@@ -71,7 +72,7 @@ final class InterpolationLane {
     /// Images made at each size so far.
     private var madeAt: [String: Int] = [:]
     /// Whether a pair is in hand, pairs gone without an image, and sizes that came out empty (never used again).
-    private let state = OSAllocatedUnfairLock(initialState: (busy: false, busyPairs: 0, cutPairs: 0, broken: Set<String>()))
+    private let state = OSAllocatedUnfairLock(initialState: (busy: false, busyPairs: 0, cutPairs: 0, failedPairs: 0, broken: Set<String>()))
 
     init?(device: MTLDevice, engine: @escaping () -> MiddleFrameMaker = { FrameInterpolator() }) {
         makeEngine = engine
@@ -120,7 +121,11 @@ final class InterpolationLane {
                 // A size that never gives an image (VideoToolbox couldn't start there) is dropped like an
                 // empty one, so the renderer moves to the next size instead of waiting on it.
                 failures[key, default: 0] += 1
-                if failures[key, default: 0] >= 5 { state.withLock { _ = $0.broken.insert(key) } }
+                let dropped = failures[key, default: 0] >= 5
+                state.withLock { state in
+                    state.failedPairs += 1
+                    if dropped { state.broken.insert(key) }
+                }
                 return
             }
             failures[key] = 0
@@ -139,7 +144,7 @@ final class InterpolationLane {
     func isBroken(_ size: (width: Int, height: Int)) -> Bool { state.withLock { $0.broken.contains("\(size.width)x\(size.height)") } }
 
     /// Starts the counts over (a new stream).
-    func resetCounts() { state.withLock { $0.busyPairs = 0; $0.cutPairs = 0 } }
+    func resetCounts() { state.withLock { $0.busyPairs = 0; $0.cutPairs = 0; $0.failedPairs = 0 } }
 
     /// Waits until the pair in hand (if any) is done; for tests and shutdown.
     func waitUntilIdle() { queue.sync {} }

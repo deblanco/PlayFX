@@ -105,7 +105,7 @@ extension StreamRendererTests {
         let arrived = try #require(seen.firstIndex { abs($0 - 33) < 1.5 }, "\(seen)")
         #expect(seen[..<arrived].contains { abs($0 - 28) < 2.5 }, "no in-between image before the new frame: \(seen)")
         #expect(r.pacingDelayMilliseconds > 0)
-        #expect(r.skippedInterpolations >= 0 && r.skippedFrames >= 0)
+        #expect(r.missedInterpolations >= 0 && r.skippedGenerated >= 0 && r.skippedFrames >= 0)
         #expect(r.generatedFramesPerSecond == 0 && !r.interpolationActive) // nothing presented on a real screen here
     }
 }
@@ -254,7 +254,7 @@ final class StandInMaker: MiddleFrameMaker {
         var accepted = 0
         for i in 0..<3 where lane.submit(previous: a, current: b, between: [InBetween.Image(phase: 0.5, time: Double(i))], steps: 1, size: (640, 360)) { accepted += 1 }
         lane.waitUntilIdle()
-        #expect(accepted < 3 && lane.busyPairs == 3 - accepted)
+        #expect(accepted < 3 && lane.busyPairs == 3 - accepted && lane.failedPairs == 0)
         lane.resetCounts()
         #expect(lane.busyPairs == 0 && lane.cutPairs == 0)
     }
@@ -268,7 +268,7 @@ final class StandInMaker: MiddleFrameMaker {
         #expect(!lane.isBroken((640, 360)))
         lane.submit(previous: a, current: b, between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
         lane.waitUntilIdle()
-        #expect(made == 0 && lane.isBroken((640, 360)))
+        #expect(made == 0 && lane.isBroken((640, 360)) && lane.failedPairs == 1)
     }
 
     @Test func dropsASizeThatKeepsFailing() throws {
@@ -279,7 +279,10 @@ final class StandInMaker: MiddleFrameMaker {
             lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), between: [InBetween.Image(phase: 0.5, time: Double(i))], steps: 1, size: (640, 360))
             lane.waitUntilIdle()
         }
-        #expect(lane.isBroken((640, 360)))
+        // Each one is a pair that got no image: counted as missed.
+        #expect(lane.isBroken((640, 360)) && lane.failedPairs == 5 && lane.busyPairs == 0)
+        lane.resetCounts()
+        #expect(lane.failedPairs == 0)
     }
 
     @Test func getsTheEngineReadyAhead() throws {

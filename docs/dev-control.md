@@ -89,7 +89,7 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
   "hdrActive": false,
   "displayMs": 9.8,
   "shownFps": 60,
-  "pacing": { "generatedFps": 0, "skippedFrames": 3, "skippedInterpolations": 0, "delayMs": 11.5,
+  "pacing": { "generatedFps": 0, "skippedFrames": 3, "skippedGenerated": 0, "missedInterpolations": 0, "delayMs": 11.5,
               "latenessMs": 9.5, "costMs": 0, "clockRestarts": 0, "size": "",
               "interpolation": "screen", "upscale": "notLarger", "ml": "off",
               "displayHz": 75, "streamFps": 60, "gameFps": 0, "repeatedFrames": 0 },
@@ -104,7 +104,14 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
 - `latenessMs`: the 90th percentile of how late frames arrive behind that clock. It's the network and
   thread side of the delay; [NETWORK.md](NETWORK.md) uses it.
 - `costMs` and `size`: an in-between image's cost and the size it's made at.
-- `skippedFrames` and `skippedInterpolations`: images that were due but never shown.
+- `skippedFrames` and `skippedGenerated`: stream frames and in-between images that were due but never shown
+  (a later one was due first). Skipped in-between images are expected when more are made than the screen
+  refreshes (quarters on a 75 Hz screen) or the playhead passes several at once.
+- `missedInterpolations`: pairs of pictures that got no in-between images (the lane was still busy with the
+  last pair, or the size gave nothing; scene cuts aren't counted).
+- These counts are totals since the stream started. The stats line shows `skippedFrames` and
+  `missedInterpolations` as rates over the last 5 s ("+45 generated (3/s missed) · 2/s skipped"), amber
+  from 3 missed or 1 skipped a second.
 - `clockRestarts`: how often the stream clock started over (the stream's start, gaps of over 200 ms, jumps
   of frames; a late stretch only slides it).
 - `interpolation`, `upscale`, `ml`: what each optional step is doing, and why one that's on is idle.

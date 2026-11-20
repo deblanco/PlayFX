@@ -124,6 +124,50 @@ export const megabitsPerSecond = (previous: FrameSample, current: FrameSample): 
   return Math.max(0, Math.round(((current.bytes - previous.bytes) * 8) / elapsed / 100) / 10)
 }
 
+/** The renderer's running totals of pairs missed by Frame interpolation and of stream frames skipped, read at
+ * `time` (ms). The totals grow for the whole stream, so the stats line shows them as rates. */
+export interface DropSample {
+  readonly time: number
+  readonly missed: number
+  readonly skipped: number
+}
+
+/** Per second, over the last few seconds. */
+export interface DropRates {
+  readonly missed: number
+  readonly skipped: number
+}
+
+export const noDrops: DropRates = { missed: 0, skipped: 0 }
+
+/** How far back the rates look: a few polls, so one bad second shows without a single one swinging them. */
+export const dropWindowMs = 5000
+
+/** Rates at which a drop can be seen. A skipped frame is the picture jumping ahead, so one a second is a
+ * regular hitch. A missed pair holds the picture for one interval instead of an in-between image, which
+ * shows once a few pairs a second go without (one in ten for a 30 fps game). */
+export const skippedWarnRate = 1
+export const missedWarnRate = 3
+
+/** Adds a reading to the last few seconds' samples, starting over when a total went down (a new stream). */
+export const addDropSample = (samples: readonly DropSample[], sample: DropSample): readonly DropSample[] => {
+  const last = samples.at(-1)
+  if (last !== undefined && (sample.missed < last.missed || sample.skipped < last.skipped)) return [sample]
+  return [...samples.filter((s) => sample.time - s.time <= dropWindowMs), sample]
+}
+
+/** Drops per second between the oldest and newest samples. */
+export const dropRates = (samples: readonly DropSample[]): DropRates => {
+  const first = samples[0]
+  const last = samples.at(-1)
+  if (first === undefined || last === undefined || last.time <= first.time) return noDrops
+  const seconds = (last.time - first.time) / 1000
+  return { missed: (last.missed - first.missed) / seconds, skipped: (last.skipped - first.skipped) / seconds }
+}
+
+/** A rate as "3/s", or "0.4/s" below ten. */
+const perSecond = (rate: number): string => `${String(rate >= 10 ? Math.round(rate) : Math.round(rate * 10) / 10)}/s`
+
 /** One number on the stats panel; `warn` marks one that signals trouble. */
 export interface StatRow {
   readonly label: string
@@ -158,8 +202,8 @@ const mlRow = (pacing: PacingStats | null): StatRow | undefined => {
   return reason === undefined ? undefined : statRow("ML upscaling", reason, `ML idle (${reason})`)
 }
 
-/** Frame interpolation: in-between images shown per second, or why none are made. */
-const interpolationRow = (status: RendererStatus): StatRow | undefined => {
+/** Frame interpolation: in-between images shown per second (and pairs that got none), or why none are made. */
+const interpolationRow = (status: RendererStatus, missedRate: number): StatRow | undefined => {
   const pacing = status.pacing
   // Before the renderer said what it's doing: only whether images were shown.
   if (pacing === null) return status.interpolationActive ? statRow("Frame interpolation", "On", "frame interpolation") : undefined
@@ -175,8 +219,9 @@ const interpolationRow = (status: RendererStatus): StatRow | undefined => {
     }
     case "on": {
       const made = Math.round(pacing.generatedFps)
-      const missed = pacing.skippedInterpolations > 0 ? ` (${String(pacing.skippedInterpolations)} missed)` : ""
-      return statRow("Frame interpolation", `${String(made)}/s`, `+${String(made)} generated${missed}`, made === 0)
+      const missed = missedRate > 0 ? ` (${perSecond(missedRate)} missed)` : ""
+      return statRow("Frame interpolation", `${String(made)}/s`, `+${String(made)} generated${missed}`,
+        made === 0 || missedRate >= missedWarnRate)
     }
   }
 }
@@ -189,13 +234,20 @@ const bitrateRow = (mbps: number, targetKbps: number): StatRow => {
   return statRow("Bitrate", value, value)
 }
 
-/** What the stream is doing, for the stats panel (empty until video arrives). */
-export const statRows = (status: RendererStatus, fps: number, mbps: number, requestedHeight?: number): readonly StatRow[] => {
+/** What the stream is doing, for the stats panel (empty until video arrives). `rates`: the missed pairs and
+ * skipped frames per second, over the last few seconds (see `dropRates`). */
+export const statRows = (
+  status: RendererStatus,
+  fps: number,
+  mbps: number,
+  requestedHeight?: number,
+  rates: DropRates = noDrops,
+): readonly StatRow[] => {
   const { stream } = status
   if (!stream.active || stream.width === undefined || stream.height === undefined) return []
   const lost = stream.framesLost ?? 0
   // Decoded but never shown: a later frame was due first (the screen couldn't keep up).
-  const skipped = status.pacing?.skippedFrames ?? 0
+  const skipped = rates.skipped
   const errors = stream.decodeErrors ?? 0
   const rtt = stream.rttMs ?? 0
   const row = statRow
@@ -225,10 +277,10 @@ export const statRows = (status: RendererStatus, fps: number, mbps: number, requ
     status.displayMs > 0 ? row("Latency", `${latency.toFixed(0)} ms`, `latency ${latency.toFixed(0)} ms`, latency >= 33) : undefined,
     row("Upscaler", upscaler, upscaler, pacing?.upscale === "failed"),
     mlRow(pacing),
-    interpolationRow(status),
+    interpolationRow(status, rates.missed),
     status.hdrActive ? row("HDR", "On", "HDR") : undefined,
     row("Lost frames", String(lost), `${String(lost)} lost frames`, lost > 0),
-    skipped > 0 ? row("Skipped frames", String(skipped), `${String(skipped)} skipped`, true) : undefined,
+    skipped > 0 ? row("Skipped frames", perSecond(skipped), `${perSecond(skipped)} skipped`, skipped >= skippedWarnRate) : undefined,
     errors > 0 ? row("Decode errors", String(errors), `${String(errors)} decode errors`, true) : undefined,
   ]
   return rows.filter((row) => row !== undefined)

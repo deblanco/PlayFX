@@ -144,8 +144,10 @@ Two earlier sessions: 21 → 0 start-overs (holds around them 30.1/s → 23.2/s)
 ### Timeline (`FrameTimeline`)
 
 The timeline holds real and generated images in time order, up to 16. Each refresh shows the *newest*
-image that is due (`time + delay ≤ now`). Older due images are skipped and counted; these are the "skipped
-frames" and "skipped in-between images" stats. Beyond capacity, the oldest images go and are counted too.
+image that is due (`time + delay ≤ now`). Older due images are skipped and counted (`skippedFrames`,
+`skippedGenerated`). Beyond capacity, the oldest images go and are counted too. A skipped in-between image
+isn't a miss: there are more of them than refreshes when quarters are made for a 75 Hz screen, or when the
+playhead passes several at once.
 
 ### Delay (`DelayPlanner`)
 
@@ -250,7 +252,9 @@ moment moved per refresh (jumps), and the shown moment against a smooth line (ju
 
 When frame B arrives, the renderer submits the pair (A, B) with its midpoint time and a size. The lane has
 its own `DispatchQueue` and `MTLCommandQueue`, and works on one pair at a time. A pair that arrives while
-the lane is busy goes without its image; it is counted as `busyPairs`.
+the lane is busy goes without its image; it is counted as `busyPairs`. A pair whose size gives nothing
+(VideoToolbox couldn't start there, or wrote an empty image) is counted as `failedPairs`. The two together
+are the stats' missed pairs (`missedInterpolations`).
 
 For each pair:
 
@@ -319,9 +323,9 @@ real time switches back.
 The app reads the counts through:
 
 - `sc_shown_fps`, for images shown per second,
-- `sc_pacing_stats`, for `generatedFps`, `skippedFrames`, `skippedInterpolations` and `delayMs`, what the
-  optional steps are doing (`interpolation`, `upscale`, `ml`), `displayHz`, `streamFps`, `gameFps` and
-  `repeatedFrames`,
+- `sc_pacing_stats`, for `generatedFps`, `skippedFrames`, `skippedGenerated`, `missedInterpolations` and
+  `delayMs`, what the optional steps are doing (`interpolation`, `upscale`, `ml`), `displayHz`, `streamFps`,
+  `gameFps` and `repeatedFrames`,
 - `sc_smooth_supported` / `sc_smooth_active`.
 
 ## Measurements
@@ -408,7 +412,7 @@ swift build -c release --product psrp      # release: the PSNR loop is slow in d
 `psrp play` prints a line per second:
 
 ```
-shown 59.0/s · in-between 30.0/s · skipped 6 frames, 30 in-between · delay 44.3 ms ·
+shown 59.0/s · in-between 30.0/s · skipped 6 frames, 30 in-between · missed 0 pairs · delay 44.3 ms ·
   made at 1280x720 in 16.7 ms (cut 0.6 · scale 1.8 · interpolate 13.7 · blend 0.0)
 ```
 
@@ -426,7 +430,8 @@ ffmpeg -i source.mov -t 4 \
 ```
 
 In the app, the stats line shows the game's and the stream's rate when they differ, images shown, images
-generated per second (with the ones missed), skipped frames, and why a step that's on is idle. The dev
+generated per second (with the pairs missed per second), skipped frames per second (both over the last
+5 s, amber from 3 missed or 1 skipped a second), and why a step that's on is idle. The dev
 control port (`docs/dev-control.md`) reads the same numbers, and the pacing delay, from a script.
 
 Unit tests (`swift test`) cover:

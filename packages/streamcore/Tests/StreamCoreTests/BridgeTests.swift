@@ -125,7 +125,8 @@ extension Serial {
                 #expect(sc_gpu_milliseconds() == 0)
                 #expect(sc_shown_fps() == 0)
                 let pacing = take(sc_pacing_stats())
-                #expect(pacing.contains("\"skippedFrames\":0"))
+                #expect(pacing.contains("\"skippedFrames\":0") && pacing.contains("\"skippedGenerated\":0"))
+                #expect(pacing.contains("\"missedInterpolations\":0") && !pacing.contains("skippedInterpolations"))
                 #expect(pacing.contains("\"interpolation\":\"off\"") && pacing.contains("\"upscale\":\"bilinear\""))
                 #expect(pacing.contains("\"ml\":\"off\"") && pacing.contains("\"displayHz\":0"))
                 sc_session_sleep() // no session: nothing to put to sleep

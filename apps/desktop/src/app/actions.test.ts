@@ -342,6 +342,46 @@ describe("streaming", () => {
       yield* Fiber.interrupt(fiber)
     }).pipe(Effect.provide(layer))
   })
+
+  it.effect("shows missed pairs and skipped frames per second, not the stream's totals", () => {
+    const core = fakeCore()
+    const { layer } = setup(core)
+    const pacing = {
+      generatedFps: 45, skippedFrames: 0, missedInterpolations: 0, delayMs: 0, interpolation: "on" as const,
+      upscale: "metalfx" as const, ml: "off" as const, displayHz: 120, streamFps: 60, gameFps: 30, repeatedFrames: 0,
+    }
+    /** The totals the renderer reports now, after a long session's worth of drops. */
+    const totals = (missed: number, skipped: number, active = true) => {
+      core.state.status = { ...status({ width: 1920, height: 1080, active }), pacing: { ...pacing, missedInterpolations: missed, skippedFrames: skipped } }
+    }
+    return Effect.gen(function* () {
+      const lines: string[][] = []
+      totals(5000, 2000)
+      const fiber = yield* Effect.forkChild(actions.pollStats((stats) => { lines.push(stats.rows.map((row) => row.inline)) }))
+      yield* Effect.yieldNow
+      const last = () => lines.at(-1) ?? []
+      // The first reading has nothing to compare with: no rate, whatever the totals.
+      expect(last()).toContain("+45 generated")
+      expect(last().some((part) => part.includes("skipped"))).toBe(false)
+      totals(5003, 2002)
+      yield* TestClock.adjust("1 second")
+      expect(last()).toContain("+45 generated (3/s missed)")
+      expect(last()).toContain("2/s skipped")
+      // Quiet for longer than the window: the rates go away.
+      yield* TestClock.adjust("6 seconds")
+      expect(last()).toContain("+45 generated")
+      expect(last().some((part) => part.includes("skipped"))).toBe(false)
+      // A reconnect: no stream for a poll, then the new stream's totals start low.
+      totals(0, 0, false)
+      yield* TestClock.adjust("1 second")
+      totals(1, 0)
+      yield* TestClock.adjust("1 second")
+      totals(2, 0)
+      yield* TestClock.adjust("1 second")
+      expect(last()).toContain("+45 generated (1/s missed)")
+      yield* Fiber.interrupt(fiber)
+    }).pipe(Effect.provide(layer))
+  })
 })
 
 describe("reconnect", () => {

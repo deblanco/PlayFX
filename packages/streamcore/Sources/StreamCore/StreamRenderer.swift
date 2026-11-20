@@ -167,12 +167,15 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public var presentationReports: (handled: Int, unpresented: Int) { presented.withLock { ($0.handled, $0.unpresented) } }
     /// Frames that repeated the picture before them (a game slower than the stream).
     public var repeatedFrames: Int { pacing.withLock { $0.repeated } }
-    /// Frames and in-between images that were never shown (a later one was due first), and pairs that went
-    /// without an in-between image.
+    /// Frames and in-between images that were never shown: a later one was due first. For in-between images
+    /// that's by design when there are more of them than refreshes (quarters on a 75 Hz screen), or when the
+    /// playhead passes several at once, so they aren't counted as missed. Real frames the ML upscaler had to drop
+    /// count as skipped too.
     public var skippedFrames: Int { pacing.withLock { $0.timeline.skippedReal } + (upscaleLane?.dropped ?? 0) }
-    public var skippedInterpolations: Int {
-        pacing.withLock { $0.timeline.skippedGenerated } + (lane.map { $0.busyPairs } ?? 0)
-    }
+    public var skippedGenerated: Int { pacing.withLock { $0.timeline.skippedGenerated } }
+    /// Pairs that got no in-between images: the lane was still busy with the last pair, or the size gave
+    /// nothing. Scene cuts are left out (no image is wanted there).
+    public var missedInterpolations: Int { lane.map { $0.busyPairs + $0.failedPairs } ?? 0 }
     /// The size in-between images are made at now, and what one costs (90th percentile, ms).
     public var interpolationSize: (width: Int, height: Int)? { pacing.withLock { $0.rungs?.size } }
     public var interpolationCostMilliseconds: Double { pacing.withLock { $0.planner.generationCost * 1000 } }

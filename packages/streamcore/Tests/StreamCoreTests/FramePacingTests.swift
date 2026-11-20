@@ -325,5 +325,7 @@ extension StreamRendererTests {
         let afterStall = holds.filter { $0.from >= arrival(180) }
         #expect(!afterStall.isEmpty && afterStall.allSatisfy { $0.length <= 1.0 / 60 + refresh * 1.5 },
                 "\(afterStall.map(\.length).max() ?? 0)")
+        // Frame interpolation is off: no in-between images to skip, and no pairs missed.
+        #expect(r.skippedGenerated == 0 && r.missedInterpolations == 0)
     }
 }
