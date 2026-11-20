@@ -35,6 +35,25 @@ extension Serial {
             #expect(pads.allSatisfy { $0.playerIndex == .indexUnset })
         }
 
+        /// A test run never reaches a real pad, including one GameController announces while a test's
+        /// PadLight holds the console's values.
+        @Test @MainActor func leavesAPadThatConnectsDuringATestRunAlone() async {
+            let saved = PadLight.controllers
+            PadLight.controllers = { [] }
+            defer { PadLight.controllers = saved }
+            let light = PadLight()
+            light.setPlayer(1)
+            await settle()
+            let pad = GCController.withExtendedGamepad()
+            let before = pad.playerIndex
+            NotificationCenter.default.post(name: .GCControllerDidConnect, object: pad)
+            await settle()
+            #expect(light.player == .index2)
+            #expect(pad.playerIndex == before)
+            light.reset()
+            await settle()
+        }
+
         /// Lets the main queue run what was dispatched to it.
         @MainActor private func settle() async {
             await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }

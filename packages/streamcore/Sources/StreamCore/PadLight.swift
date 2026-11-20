@@ -16,7 +16,8 @@ public final class PadLight {
     public init() {
         observer = NotificationCenter.default.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) {
             [weak self] note in
-            guard let self, let controller = note.object as? GCController else { return }
+            // Gated like `controllers`: a test's PadLight must not reach a real pad announcing itself.
+            guard PadHardware.allowed, let self, let controller = note.object as? GCController else { return }
             MainActor.assumeIsolated { self.apply(to: controller) }
         }
     }
