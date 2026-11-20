@@ -770,9 +770,13 @@ requests and a bug report.
   read the session off the main thread; `psrp`'s /quit waited a second on itself; a pad connecting during a
   test run could take a test's light bar. One fix (a wait on main without a limit) hung the Rust tests; the final run caught it,
   and the wait is now at most 2 s.
-- **PushFPS, second page of commits** (reviewed 2026-11-20, 35 commits): little applies. Worth doing: a
+- **PushFPS, second page of commits** (reviewed 2026-11-20, 35 commits): little applies. ✅ Done: a
   worst-frame and worst-tile (16×9) quality score in `psrp interpolate --truth`, which catches a fast object
-  vanishing from a generated frame that the mean hides (~30 lines, no console). Their measured negative
+  vanishing from a generated frame that the mean hides. `FrameQuality` (StreamCore) scores a frame and its
+  worst tile; `--truth` prints the mean, the worst frame and the worst tile for the engine and both baselines.
+  Verified by unit tests (identical frames score perfect; one tile 20 off moves the frame 2.3 dB and the
+  tile 20 dB; an image smaller than the grid) and on a synthetic clip, no console: a 40 px square crossing
+  1080p at 1800 px/s scored VideoToolbox 42.4 dB mean, 36.8 worst frame, 16.0 worst tile. Their measured negative
   result supports leaving a HUD/ghost guard out without evidence; their stuck-buttons fix is already in our
   fork, and their concealed-frame fix is covered by VideoToolbox plus our keyframe retries.
 - Left for evidence: a HUD lock that remembers over several frames (if generated frames flicker on HUDs),
@@ -798,7 +802,7 @@ requests and a bug report.
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
    haptics in Astro's Playroom.
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the
-   stall itself is open); the worst-tile quality score (from PushFPS); the 50 fps cadence (a picture up to
+   stall itself is open); ~~the worst-tile quality score (from PushFPS)~~ (done 2026-11-20); the 50 fps cadence (a picture up to
    13 ms ahead of the grid still re-anchors it); the PR #817 reorder-wait test (needs the console); ~~tests for
    the reconnect race and the audio output following the system default~~ (done 2026-11-20); the chiaki-ng
    upstream PR (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer tuning.

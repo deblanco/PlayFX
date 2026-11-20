@@ -337,7 +337,19 @@ standing still and NPCs moving.
 
 Truth mode drops every other frame, predicts each dropped frame from its neighbours, and compares the
 prediction with the real frame (PSNR over RGB). Two baselines run alongside: repeating the previous frame,
-and a plain cross-fade.
+and a plain cross-fade. Each line gives the mean over the frames, the worst frame, and the worst tile of a
+16×9 grid over all frames. A fast, small object missing from a generated frame barely moves the mean or
+even that frame's score, but sinks its tile (an idea from PushFPS):
+
+```
+PSNR against the real frame, dB: mean · worst frame · worst tile (16x9)
+  engine            42.35 ·  36.76 ·  16.02
+  repeat previous   34.76 ·  34.75 ·  13.18
+  cross-fade        36.02 ·  36.01 ·  15.22
+```
+
+That is a synthetic clip, a 40 px square crossing a grey 1080p frame at 1800 px/s. The table below predates
+the worst-frame and worst-tile scores and gives the means.
 
 The "Pan" columns use a synthetic pan made from the same clip: a moving 1920×1080 crop of a 2400×1350
 upscale, moving 8 px right and 3 px down per frame. That gives true global motion with a known answer.

@@ -11,8 +11,9 @@ import VideoToolbox
 // (NV12 IOSurfaces) and makes the image halfway between each pair, timing every one (wall clock and GPU).
 // --out writes real, in-between, real… at twice the frame rate to look at.
 // --truth measures quality instead: every other frame is dropped, each dropped frame is predicted from its
-// neighbours, and the prediction is compared with the real one (PSNR over RGB), next to two baselines:
-// repeating the previous frame, and a plain cross-fade. See docs/FRAME_INTERPOLATION.md.
+// neighbours, and the prediction is compared with the real one (PSNR over RGB: the mean, the worst frame and the
+// worst tile of a 16x9 grid), next to two baselines: repeating the previous frame, and a plain cross-fade. See
+// docs/FRAME_INTERPOLATION.md.
 
 /// One way to make the in-between image of the frames given so far.
 private protocol Engine: AnyObject {
@@ -100,7 +101,7 @@ func interpolate(_ args: Args) throws {
     if let out = args["out"] { writer = try BenchWriter(url: URL(fileURLWithPath: out)) }
 
     var wall: [Double] = [], gpu: [Double] = []
-    var scores: (engine: [Double], repeat: [Double], blend: [Double]) = ([], [], [])
+    var scores: (engine: [FrameQuality], repeat: [FrameQuality], blend: [FrameQuality]) = ([], [], [])
     var previous: CVPixelBuffer?, held: CVPixelBuffer?
     var index = 0, pairs = 0, refused = 0
     while index < limit, let sample = output.copyNextSampleBuffer(), let frame = CMSampleBufferGetImageBuffer(sample) {
@@ -124,9 +125,9 @@ func interpolate(_ args: Args) throws {
         wall.append(ms)
         gpu.append((cb.gpuEndTime - cb.gpuStartTime) * 1000)
         if truth, let held, let real = toBGRA(held), let a = toBGRA(previous), let b = toBGRA(frame) {
-            scores.engine.append(psnr(image, real))
-            scores.repeat.append(psnr(a, real))
-            scores.blend.append(psnr(average(a, b), real))
+            scores.engine.append(quality(image, real))
+            scores.repeat.append(quality(a, real))
+            scores.blend.append(quality(average(a, b), real))
         } else if !truth {
             writer?.append(made, at: 2 * index - 1)
             writer?.append(frame, at: 2 * index)
@@ -138,9 +139,16 @@ func interpolate(_ args: Args) throws {
     print("wall per in-between image: \(stats(wall))")
     print("GPU per in-between image:  \(stats(gpu))")
     if truth {
-        func mean(_ v: [Double]) -> Double { v.reduce(0, +) / Double(max(v.count, 1)) }
-        print(String(format: "PSNR against the real frame: engine %.2f dB · repeat previous %.2f dB · cross-fade %.2f dB",
-                     mean(scores.engine), mean(scores.repeat), mean(scores.blend)))
+        // The worst frame and the worst tile catch a fast object missing from a few frames, which the mean hides.
+        func line(_ name: String, _ v: [FrameQuality]) -> String {
+            String(format: "  %@ %6.2f · %6.2f · %6.2f", name.padding(toLength: 16, withPad: " ", startingAt: 0),
+                   v.map(\.psnr).reduce(0, +) / Double(max(v.count, 1)),
+                   v.map(\.psnr).min() ?? 0, v.map(\.worstTile).min() ?? 0)
+        }
+        print("PSNR against the real frame, dB: mean · worst frame · worst tile (16x9)")
+        print(line("engine", scores.engine))
+        print(line("repeat previous", scores.repeat))
+        print(line("cross-fade", scores.blend))
     } else {
         let over = wall.filter { $0 > 1000.0 / 60 }.count
         print(String(format: "over one 60 Hz refresh (16.7 ms): %d of %d (%.0f%%)", over, wall.count, 100 * Double(over) / Double(max(wall.count, 1))))
@@ -155,8 +163,8 @@ private func stats(_ v: [Double]) -> String {
     return String(format: "mean %.1f ms · p50 %.1f · p95 %.1f · max %.1f", s.reduce(0, +) / Double(s.count), pct(0.5), pct(0.95), s.last ?? 0)
 }
 
-/// PSNR (dB) of two BGRA images of the same size, over the colour channels.
-private func psnr(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Double {
+/// How close two BGRA images of the same size are (`FrameQuality`: PSNR of the frame and of its worst tile).
+private func quality(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> FrameQuality {
     CVPixelBufferLockBaseAddress(a, .readOnly)
     CVPixelBufferLockBaseAddress(b, .readOnly)
     defer {
@@ -164,20 +172,11 @@ private func psnr(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Double {
         CVPixelBufferUnlockBaseAddress(b, .readOnly)
     }
     guard let pa = CVPixelBufferGetBaseAddress(a)?.assumingMemoryBound(to: UInt8.self),
-          let pb = CVPixelBufferGetBaseAddress(b)?.assumingMemoryBound(to: UInt8.self) else { return 0 }
-    let ra = CVPixelBufferGetBytesPerRow(a), rb = CVPixelBufferGetBytesPerRow(b)
-    let w = CVPixelBufferGetWidth(a), h = CVPixelBufferGetHeight(a)
-    var sum = 0.0
-    for y in 0..<h {
-        for x in 0..<w {
-            for c in 0..<3 {
-                let d = Double(pa[y * ra + x * 4 + c]) - Double(pb[y * rb + x * 4 + c])
-                sum += d * d
-            }
-        }
+          let pb = CVPixelBufferGetBaseAddress(b)?.assumingMemoryBound(to: UInt8.self) else {
+        return FrameQuality(psnr: 0, worstTile: 0)
     }
-    let mse = sum / Double(w * h * 3)
-    return mse == 0 ? 99 : 10 * log10(255 * 255 / mse)
+    return FrameQuality(pa, rowBytes: CVPixelBufferGetBytesPerRow(a), pb, rowBytes: CVPixelBufferGetBytesPerRow(b),
+                        width: CVPixelBufferGetWidth(a), height: CVPixelBufferGetHeight(a))
 }
 
 /// The plain cross-fade of two BGRA images.
