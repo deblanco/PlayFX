@@ -342,9 +342,10 @@ Work items:
   (picture only) or "· needs a reconnect" (resolution, frame rate, codec, bitrate or HDR differ from what
   the stream started with). A switch toasts "Switched to <name>" (" · reconnect to apply" when it needs
   one), and the Reconnect notice now sits above the tabs so it shows from any tab. A profile switch asks
-  first: the stream keeps going until Reconnect, even when only the bitrate differs; the bitrate slider
-  still reconnects on its own. Verified with UI tests (Home switch and Custom, costs only while streaming,
-  no auto-reconnect after a bitrate-only profile, the slider after it). Left: a console session to see a
+  first: the stream keeps going until Reconnect, even when only the bitrate differs (measured against the
+  running stream, so a bitrate still settling on the slider waits too); the bitrate slider still reconnects
+  on its own. Verified with UI tests (Home switch and Custom, costs only while streaming, no auto-reconnect
+  after a bitrate-only profile or a switch while the slider settles, the slider after it). Left: a console session to see a
   mid-stream switch reconnect into the new profile, and the option labels in macOS's native select popup.
 - ✅ **Rest mode on Stop**: while streaming, Stop asks "Put <console> in rest mode?" (Rest mode / Leave
   it on / Keep playing). Rest mode sends libchiaki's goto-bed (`sleep_console`), waits 1.5 s for it to

@@ -90,8 +90,11 @@ const Screens = () => {
   }, [run])
 
   const changeSettings = (next: Settings, from?: "profile") => {
-    if (!sameStreamOptions(streamOptions(settings), streamOptions(next))) {
-      setSession((s) => s && { ...s, askFirst: from === "profile" })
+    if (from === "profile") {
+      // Measured against the running stream, not the settings: a bitrate still settling on the slider waits too.
+      setSession((s) => s && { ...s, askFirst: !sameStreamOptions(s.startedWith, streamOptions(next)) })
+    } else if (!sameStreamOptions(streamOptions(settings), streamOptions(next))) {
+      setSession((s) => s && { ...s, askFirst: false })
     }
     setSettings(next)
     run(actions.changeSettings(next))

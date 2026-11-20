@@ -1686,6 +1686,26 @@ describe("settings profiles", () => {
     })
   })
 
+  it("holds a profile switch made while a bitrate is still settling on the slider", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core, {
+      testClock: true,
+      profiles: [profile("Fast and sharp", { bitrate: 10000, sharpness: 0.9 })],
+    })
+    const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Stream")
+
+    // The slider reaches the profile's bitrate; before it settles, the profile changes only the picture
+    // from here, but the stream started without that bitrate: the switch asks first.
+    nudge("Bitrate", "ArrowRight")
+    await userEvent.selectOptions(sheet.getByRole("combobox", { name: "Profile" }), "Fast and sharp")
+    expect(await screen.findByText("Switched to Fast and sharp · reconnect to apply")).toBeInTheDocument()
+    await wait(3)
+    expect(core.service.startStream).not.toHaveBeenCalled()
+    expect(sheet.getByRole("status")).toHaveTextContent("Reconnect to use the new stream settings.")
+  })
+
   it("can cancel naming a profile, and refuses an empty name", async () => {
     await startStreaming()
     const sheet = await openSettings("Stream")
