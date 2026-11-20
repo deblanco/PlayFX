@@ -3,8 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20, after frame generation from the game's rate (the playhead), the hardware round on the
-PS5, the review of that work, and ML upscaling at every stream resolution, on by default and on its own lane.
+Last updated 2026-11-20, for release v0.2.0: the v0.1.0 crash fix, pairing through PSN without a code and the
+pairing help, profiles from Home and in game, the Help page, stats as rates, and ML upscaling at every stream
+resolution, on by default and on its own lane.
 
 ---
 
@@ -563,6 +564,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   clean history. **Releases are made on demand**: `scripts/release.sh` on the owner's Mac (the signing
   certificate and the notary profile stay in its keychain, never in CI), then a GitHub release from the DMG;
   bump the version in `tauri.conf.json`, `package.json` and `Cargo.toml` first.
+  [v0.2.0](https://github.com/deblanco/PlayFX/releases/tag/v0.2.0) (2026-11-20) followed the same way: the
+  v0.1.0 crash fix, pairing without a code, the pairing help, profiles in game, the Help page and ML upscaling
+  for every stream; all suites passed on the tagged commit (TS 357, Swift 310 in both modes, Rust 55).
 - 🔶 **Packaging** *(built and launched; Developer ID certificate in the keychain; notarization profile `playfx` in the keychain: an App Store Connect API key, Developer access)*: bundle ID
   `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
   `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
@@ -763,7 +767,7 @@ requests and a bug report.
    touchpad built; **the motion axes in a game are left**. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
-   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG). Left: `release.sh`
+   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0 followed). Left: `release.sh`
    surviving a notarytool status timeout and stapling the `.app` too. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
    in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080 (the screen rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
