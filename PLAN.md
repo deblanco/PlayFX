@@ -689,8 +689,10 @@ requests and a bug report.
   screen, the playhead passing several): those stay apart as `skippedGenerated` (dev control, `psrp play`).
   Unit-tested in Swift, Rust (fake JSON), the schema, the rates and the poll. Left: see the rates on the
   75 Hz screen with quarters, where the old count grew without anything being wrong.
-- 🔶 **Light bar colour and player number** from the console (`PadLight`); `psrp pad` has `/light` and
-  `/player`. Unit-tested; **check on the pad**, then in a game that sets the light bar.
+- ✅ **Light bar colour and player number** from the console (`PadLight`); `psrp pad` has `/light` and
+  `/player`. Unit-tested, and verified in a game from the 0.1.0 release's own log (2026-11-20, GTA VI over the
+  internet, 14:56–15:11): libchiaki logged the console setting the light bar to red and blue flashes, fading
+  reds, then pink (`ff74a6`), the colours `PadLight` puts on the pad. The player number in a game is left.
 - 🔶 **The pad is left quiet when PlayFX ends** (bug: after `pkill` mid-effect the pad kept rumbling and kept
   its trigger effect): `PadQuiet` stops the rumble (waiting up to 0.3 s for the haptic engines), the DualSense
   haptics output and the trigger effects on quit (Tauri's exit event → `sc_quiet_pads`), on SIGTERM, SIGINT
@@ -748,7 +750,8 @@ requests and a bug report.
    surviving a notarytool status timeout and stapling the `.app` too. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
    in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080 (the screen rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
-   were); the pad left quiet on `pkill` and ⌘Q mid-effect; the light bar in a game that sets it; Bluetooth
+   were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
+   2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
    haptics in Astro's Playroom.
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the
    stall itself is open); the worst-tile quality score (from PushFPS); the 50 fps cadence (a picture up to
