@@ -275,7 +275,7 @@ const PicturePanel = ({ settings, capabilities, upscaleIdle, set }: {
       </div>
       <SwitchRow
         label="Stats on screen"
-        description="Shows the stats line at the top (frame rate, bitrate, ping, GPU time, lost frames, the images made in between, and why a step that’s on is idle) while playing, and keeps it there when the controls fade."
+        description="Shows the stats line at the top (frame rate, bitrate, ping, GPU time, lost frames, the images made in between, and why a step that’s on is idle) while playing, and keeps it there when the controls hide."
         checked={settings.showStats}
         onCheckedChange={(on) => { set("showStats", on) }}
       />

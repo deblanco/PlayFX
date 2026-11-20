@@ -312,12 +312,12 @@ Work items:
   finds, so a console broadcast discovery can't see still shows up and plays. Unverified on a console.
 - ✅ **Microphone** (verified on the Mac with the user allowing the prompt: capture starts — 48 kHz mono
   input converted to stereo — the stream stays clean at 60 fps / 0 lost, the amber button and the tag
-  after the HUD fades both show, and turning it off stops capture; hearing it on the console needs a
+  after the HUD hides both show, and turning it off stops capture; hearing it on the console needs a
   party chat, not checked): a **Mic** button in the stream HUD (off by default) captures the default
   input with AVAudioEngine, converts it to 48 kHz stereo 16-bit, cuts it into 10 ms frames and sends them
   through libchiaki's Opus encoder (`psrp_session_set_mic` connects the console's mic channel on first
   use, then toggles mute). While it's live the button turns amber ("Mic on") and an amber "Mic on" tag
-  stays in the corner after the HUD fades. Permission denied / no input explain what to do. The app's
+  stays in the corner after the HUD hides. Permission denied / no input explain what to do. The app's
   `Info.plist` carries the usage description (macOS kills apps that touch the mic without one; StreamCore
   refuses instead when it's missing). No echo cancellation yet (chiaki-ng's speex path) — use headphones.
 - ✅ **Keyboard-as-controller** for testing (done — see §1). Possible follow-ups: on-screen touch

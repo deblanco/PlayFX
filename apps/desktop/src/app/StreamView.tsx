@@ -198,7 +198,8 @@ export const StreamView = ({
   useFork(useMemo(() => actions.pollStats(setStats, settings.height), [settings.height]))
 
   const hudHidden = idle && !settingsOpen
-  const fade = cn("transition-opacity duration-500", hudHidden && "opacity-0")
+  // The controls show and hide at once, with no fade. transition-none also overrides the buttons' transition-all.
+  const hide = cn("transition-none", hudHidden && "opacity-0")
   const keepStats = settings.showStats && connected && reconnect.reconnecting === false && stats.rows.length > 0
 
   const end = () => { onEnd(Option.none()) }
@@ -231,15 +232,15 @@ export const StreamView = ({
           settingsOpen && "pr-[24rem]", // keep the HUD's buttons clear of the settings sheet
         )}
       >
-        <div aria-hidden className={cn("absolute inset-0 -z-10 bg-gradient-to-b from-black/70 to-transparent", fade)} />
-        <span className={cn("font-medium", fade)}>{title}</span>
+        <div aria-hidden className={cn("absolute inset-0 -z-10 bg-gradient-to-b from-black/70 to-transparent", hide)} />
+        <span className={cn("font-medium", hide)}>{title}</span>
         {/* Connection messages always; the stream's numbers only with "Stats on screen" on, and then they stay
-            when the rest of the HUD fades. */}
+            when the rest of the HUD hides. */}
         <span
           aria-label={keepStats ? "Stream stats" : undefined}
           className={cn(
             "flex-1 truncate text-xs text-muted-foreground tabular-nums [text-shadow:0_1px_2px_rgb(0_0_0/0.8)]",
-            !keepStats && fade,
+            !keepStats && hide,
           )}
         >
           {reconnect.reconnecting === "dropped"
@@ -260,7 +261,7 @@ export const StreamView = ({
                       ? <StatsLine rows={stats.rows} />
                       : settings.showStats ? stats.line : null /* off: no numbers, even with the HUD up */}
         </span>
-        <details className={cn("group relative text-xs", fade)}>
+        <details className={cn("group relative text-xs", hide)}>
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">
             Keys
           </summary>
@@ -280,21 +281,21 @@ export const StreamView = ({
           variant="secondary"
           size="sm"
           aria-pressed={mic !== "off"}
-          className={cn(fade, mic === "on" && "bg-signal/90 text-black hover:bg-signal")}
+          className={cn(hide, mic === "on" && "bg-signal/90 text-black hover:bg-signal")}
           disabled={mic === "pending"}
           onClick={onMicToggle}
         >
           {mic === "off" ? <MicOff /> : <Mic />}
           {mic === "on" ? "Mic on" : "Mic"}
         </Button>
-        <Button variant="secondary" size="sm" className={fade} onClick={toggleFullscreen}>
+        <Button variant="secondary" size="sm" className={hide} onClick={toggleFullscreen}>
           {fullscreen ? <Minimize /> : <Maximize />}
           {fullscreen ? "Exit fullscreen" : "Fullscreen"}
         </Button>
         <Button
           variant="secondary"
           size="sm"
-          className={fade}
+          className={hide}
           onClick={() => {
             setTab(reconnect.pending ? "stream" : "picture")
             setSettingsOpen(true)
@@ -303,19 +304,19 @@ export const StreamView = ({
           <SlidersHorizontal /> Settings
           {reconnect.pending && <span aria-label="Reconnect to apply" className="size-1.5 rounded-full bg-signal" />}
         </Button>
-        <Button variant="destructive" size="sm" className={fade} onClick={requestStop}>
+        <Button variant="destructive" size="sm" className={hide} onClick={requestStop}>
           Stop
         </Button>
       </header>
       {settings.view === "split" && connected && <CompareLabels />}
       {controlling && (
         <PsButton
-          className={cn(fade, hudHidden && "pointer-events-none", settings.view === "split" ? "bottom-14" : "bottom-6")}
+          className={cn(hide, hudHidden && "pointer-events-none", settings.view === "split" ? "bottom-14" : "bottom-6")}
           onPress={(down) => { pressKey("KeyP", down) }}
         />
       )}
       {mic === "on" && hudHidden && (
-        // The HUD faded: the microphone being live must still be obvious.
+        // The HUD is hidden: the microphone being live must still be obvious.
         <span
           role="status"
           className="pointer-events-none fixed top-3.5 right-4 flex items-center gap-1.5 rounded-full bg-signal/90 px-2.5 py-1 text-xs font-medium text-black shadow-lg"

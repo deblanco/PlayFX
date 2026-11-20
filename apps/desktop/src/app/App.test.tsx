@@ -1162,9 +1162,10 @@ describe("streaming", () => {
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
   })
 
-  it("fades the HUD after 2.5 s without mouse movement", async () => {
+  it("hides the HUD after 2.5 s without mouse movement, at once, with no fade", async () => {
     await startStreaming()
     const hud = screen.getByRole("banner")
+    const stop = screen.getByRole("button", { name: "Stop" })
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     fireEvent.mouseMove(window)
     expect(hud).toHaveAttribute("data-idle", "false")
@@ -1172,12 +1173,16 @@ describe("streaming", () => {
       vi.advanceTimersByTime(hudIdleMs - 1)
     })
     expect(hud).toHaveAttribute("data-idle", "false")
+    expect(stop).not.toHaveClass("opacity-0")
     act(() => {
       vi.advanceTimersByTime(1)
     })
     expect(hud).toHaveAttribute("data-idle", "true")
+    expect(stop).toHaveClass("opacity-0", "transition-none")
+    expect(stop).not.toHaveClass("transition-all")
     fireEvent.mouseMove(window)
     expect(hud).toHaveAttribute("data-idle", "false")
+    expect(stop).not.toHaveClass("opacity-0")
   })
 
   it("hides the cursor after 5 s without mouse movement, but not while the settings are open", async () => {
