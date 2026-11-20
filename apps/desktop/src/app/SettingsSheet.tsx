@@ -308,7 +308,7 @@ const PicturePanel = ({ settings, capabilities, upscaleIdle, set }: {
           label="ML upscaling first"
           description={
             capabilities.ml
-              ? "Apple's neural upscaler adds detail before the step above, when the window is larger than the stream. Adds about 6 ms of latency at 720p, 11 ms at 1080p."
+              ? "Apple's neural upscaler adds detail before the step above, when the window is larger than the stream. It runs beside the display, so it never holds up a refresh, and adds about 6 ms of latency at 720p, up to 15 ms at 1080p."
               : "Needs macOS 26 on a supported Mac."
           }
           checked={settings.mlUpscale}

@@ -80,15 +80,25 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public let view: MTKView
     public let metalFXSupported: Bool
     public var params = RenderParams() {
-        didSet { applyColorSpace() }
+        didSet {
+            applyColorSpace()
+            upscaleTarget.withLock { $0.enabled = params.mlUpscale }
+        }
     }
     /// Upscaler actually used for the last frame (MetalFX is skipped when not upscaling).
     public private(set) var activeMode: UpscaleMode = .bilinear
     /// Whether Apple's ML super-resolution can run on this Mac and OS.
-    public let mlSupported = MLSuperResolution.isAvailable
-    /// Whether the last decoded frame went through ML super-resolution.
+    public var mlSupported: Bool { upscaleLane != nil }
+    /// Whether the last frame shown went through ML super-resolution.
     public private(set) var mlActive = false
-    private let ml = MLSuperResolution()
+    /// ML upscaling, on its own lane ahead of the stream clock (nil where it can't run).
+    private let upscaleLane: UpscaleLane?
+    /// Whether to upscale decoded frames, and the screen area they're shown in (from the last draw), read
+    /// where frames arrive.
+    private let upscaleTarget = OSAllocatedUnfairLock(initialState: (enabled: false, drawable: CGSize.zero))
+    /// Counts streams (see `streamFrameRate`): a frame the lane finishes after a new stream started belongs
+    /// to the old one, and its index would hold up the new stream's clock.
+    private let upscaleGeneration = OSAllocatedUnfairLock(initialState: 0)
     /// Whether frame interpolation can run on this Mac and OS.
     public let interpolationSupported = FrameInterpolator.isAvailable
     /// Whether in-between images reached the screen in the last second.
@@ -101,8 +111,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public var streamFrameRate: Double {
         get { pacing.withLock { $0.clock.fps } }
         set {
+            upscaleGeneration.withLock { $0 += 1 }
             pacing.withLock { $0 = Pacing(fps: newValue) }
             lane?.resetCounts()
+            upscaleLane?.reset()
         }
     }
     /// Frames shown by their stream clock (see FramePacing.swift), and the in-between images made for them.
@@ -157,7 +169,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     public var repeatedFrames: Int { pacing.withLock { $0.repeated } }
     /// Frames and in-between images that were never shown (a later one was due first), and pairs that went
     /// without an in-between image.
-    public var skippedFrames: Int { pacing.withLock { $0.timeline.skippedReal } }
+    public var skippedFrames: Int { pacing.withLock { $0.timeline.skippedReal } + (upscaleLane?.dropped ?? 0) }
     public var skippedInterpolations: Int {
         pacing.withLock { $0.timeline.skippedGenerated } + (lane.map { $0.busyPairs } ?? 0)
     }
@@ -218,7 +230,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     private var scaler: MTLFXSpatialScaler?
     private var scalerOutput: MTLTexture?
 
-    public init?(inputWidth: Int = 1280, inputHeight: Int = 720) {
+    public convenience init?(inputWidth: Int = 1280, inputHeight: Int = 720) {
+        self.init(inputWidth: inputWidth, inputHeight: inputHeight,
+                  upscaler: MLSuperResolution.isAvailable ? MLSuperResolution() : nil)
+    }
+
+    /// `upscaler`: what ML upscaling runs (nil: none on this Mac).
+    init?(inputWidth: Int, inputHeight: Int, upscaler: FrameUpscaler?) {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: shaderSource, options: nil),
@@ -274,8 +292,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         self.view = view
         self.metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
         self.lane = FrameInterpolator.isAvailable ? InterpolationLane(device: device) : nil
+        self.upscaleLane = upscaler.flatMap { UpscaleLane(device: device, engine: $0) }
         Log.info(.renderer, "Renderer on \(device.name): MetalFX \(metalFXSupported ? "yes" : "no"), "
-            + "ML super-resolution \(MLSuperResolution.isAvailable ? "yes" : "no")")
+            + "ML super-resolution \(upscaleLane != nil ? "yes" : "no")")
         super.init()
         lane?.onImage = { [pacing] image in
             pacing.withLock { p in
@@ -332,21 +351,47 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// says, not when it arrives. With frame interpolation on, a frame that repeats the last picture (a game
     /// slower than the stream) is left out, and the images between the game's last two pictures, one per
     /// screen refresh between them, are made on the interpolation lane meanwhile. The first frame replaces
-    /// the idle backdrop.
+    /// the idle backdrop. With ML upscaling on, the frame is upscaled on its own lane first and joins the
+    /// stream clock when that's done, so a refresh never waits for the model.
     public func display(_ frame: CVPixelBuffer, index: UInt64? = nil, arrival: Double = CACurrentMediaTime()) {
         showsTestPattern = false
+        let i = pacing.withLock { p in
+            let i = index ?? p.nextIndex
+            p.nextIndex = i + 1
+            return i
+        }
+        let (enabled, drawable) = upscaleTarget.withLock { ($0.enabled, $0.drawable) }
+        let size = CGSize(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame))
+        let target = Self.fittedRect(source: size, drawable: drawable).size
+        // Only a frame the model can make bigger goes to the lane. Any other skips it, unless the lane still
+        // holds earlier frames: then it queues behind them, so frames reach the clock in order, one at a time.
+        let upscale = enabled && Self.interpolates(frame) && target.width > size.width
+        guard let upscaleLane, upscale || upscaleLane.isBusy else {
+            intake(frame, decoded: frame, index: i, arrival: arrival, decodedAt: arrival)
+            return
+        }
+        let generation = upscaleGeneration.withLock { $0 }
+        upscaleLane.submit(frame, target: target, upscale: upscale) { [weak self] upscaled in
+            guard let self, upscaleGeneration.withLock({ $0 }) == generation else { return } // the stream before
+            // On the clock from when it's ready: the delay planner then covers the model's time.
+            intake(upscaled ?? frame, decoded: frame, index: i, arrival: CACurrentMediaTime(), decodedAt: arrival)
+        }
+    }
+
+    /// The rest of `display` for `frame` (upscaled, or the decoded frame itself): onto the stream clock at
+    /// `arrival`, into the timeline, and in-between images for it. `decoded` is the frame as decoded (repeats
+    /// are told on it), and `decodedAt` when it arrived (for the display-latency stat).
+    private func intake(_ frame: CVPixelBuffer, decoded: CVPixelBuffer, index i: UInt64, arrival: Double, decodedAt: Double) {
         let wanted = interpolating.withLock { $0 }
         let before = pacing.withLock { p in
-            defer { p.lastDecoded = frame }
+            defer { p.lastDecoded = decoded }
             return p.lastDecoded
         }
         // Compared outside the lock: it reads both frames' luma on the CPU.
-        let difference = before.flatMap { Self.interpolates($0) && Self.interpolates(frame) ? InterpolationLane.difference($0, frame) : nil }
+        let difference = before.flatMap { Self.interpolates($0) && Self.interpolates(decoded) ? InterpolationLane.difference($0, decoded) : nil }
         let pair: (previous: CVPixelBuffer, between: [InBetween.Image], steps: Int, size: (width: Int, height: Int),
                    prepare: [(width: Int, height: Int)])? =
             pacing.withLock { p in
-                let i = index ?? p.nextIndex
-                p.nextIndex = i + 1
                 guard let stamp = p.clock.time(index: i, arrival: arrival) else { return nil }
                 // A gap or a jump of frames (a late stretch only slides the clock): no images across it, and the
                 // game's rate and cadence start over. What's in the timeline stays, and so does the playhead's
@@ -388,7 +433,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 } else {
                     p.cadence.reset()
                 }
-                p.timeline.add(TimedImage(image: frame, time: time, generated: false, arrival: arrival))
+                p.timeline.add(TimedImage(image: frame, time: time, generated: false, arrival: decodedAt))
                 if stamp.restarted { p.playhead.start(at: time) }
                 // Without images towards this picture (decided below), everything up to it is there already.
                 var paired = false
@@ -402,8 +447,11 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 guard wanted, Self.interpolates(frame), let last = p.lastReal, time - last.time <= p.clock.interval * Self.stillGap,
                       CVPixelBufferGetWidth(last.frame) == width, CVPixelBufferGetHeight(last.frame) == height else { return nil }
                 var prepare: [(width: Int, height: Int)] = []
-                if p.rungs.map({ $0.rungs[0] != (width, height) }) ?? true {
-                    p.rungs = RungSelector(width: width, height: height)
+                // Sizes from the decoded frame: an upscaled one is scaled back down to them (VideoToolbox's fast
+                // path at 720p and below), never interpolated at its upscaled size.
+                let base = (width: CVPixelBufferGetWidth(decoded), height: CVPixelBufferGetHeight(decoded))
+                if p.rungs.map({ $0.rungs[0] != base }) ?? true {
+                    p.rungs = RungSelector(width: base.width, height: base.height)
                     prepare = p.rungs?.rungs ?? []
                 }
                 guard var rungs = p.rungs else { return nil }
@@ -452,6 +500,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Waits until the interpolation lane has finished the pair in hand (tests).
     func waitForInterpolation() { lane?.waitUntilIdle() }
 
+    /// Waits until every frame handed to `display` so far is through ML upscaling and on the stream clock
+    /// (tests, offscreen renders).
+    public func waitForUpscaling() { upscaleLane?.waitUntilIdle() }
+
+    /// The screen area frames are upscaled for, which each draw sets; set it ahead for an offscreen render.
+    public func setUpscaleTarget(drawableSize: CGSize) { upscaleTarget.withLock { $0.drawable = drawableSize } }
+
     // MARK: MTKViewDelegate
 
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -489,23 +544,30 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             guard ms > 0 else { return }
             gpuTime.withLock { $0 = Self.smoothed($0, ms) }
         }
+        // Frames arriving from now on are upscaled for this screen area.
+        upscaleTarget.withLock { $0.drawable = drawableSize }
         if let frame = nextFrame(now: now) {
-            let mlTarget = fittedRect(drawable: drawableSize).size
-            let enhanced = params.mlUpscale ? ml.encode(cb, frame, target: mlTarget) : nil
-            mlActive = enhanced != nil
-            let mlState = Self.mlState(enabled: params.mlUpscale, supported: mlSupported, ran: enhanced != nil,
-                                       width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame),
-                                       eightBit: Self.interpolates(frame),
-                                       refused: ml.refuses(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame)))
+            // Upscaled on the lane before it reached the clock (an in-between image made from upscaled frames
+            // carries the decoded frame too): the decoded one is the compare view's baseline.
+            let decoded = UpscaleLane.decodedFrame(of: frame)
+            let raw = decoded ?? frame
+            mlActive = decoded != nil
+            let width = CVPixelBufferGetWidth(raw), height = CVPixelBufferGetHeight(raw)
+            let mlState = Self.mlState(enabled: params.mlUpscale, supported: mlSupported, ran: decoded != nil,
+                                       width: width, height: height, eightBit: Self.interpolates(raw),
+                                       refused: upscaleLane?.status.refused ?? false)
             pipelineState.withLock { $0.ml = mlState }
-            decodedWidth = CVPixelBufferGetWidth(frame)
-            encodeVideoFrame(enhanced ?? frame, cb)
-            if enhanced != nil, params.compare {
-                let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
-                if baselineTexture?.width != w || baselineTexture?.height != h {
-                    baselineTexture = Self.makeInputTexture(device, w, h, inputTexture.pixelFormat)
+            decodedWidth = width
+            encodeVideoFrame(frame, cb)
+            // An in-between image carries the later frame it was made towards, not a decoded frame of its own
+            // moment: it is its own baseline, so both halves show the same moment.
+            let baselineFrame = drawnItem?.generated == true ? frame : decoded
+            if decoded != nil, params.compare, let baselineFrame {
+                let bw = CVPixelBufferGetWidth(baselineFrame), bh = CVPixelBufferGetHeight(baselineFrame)
+                if baselineTexture?.width != bw || baselineTexture?.height != bh {
+                    baselineTexture = Self.makeInputTexture(device, bw, bh, inputTexture.pixelFormat)
                 }
-                if let baseline = baselineTexture { convert(frame, into: baseline, cb) }
+                if let baseline = baselineTexture { convert(baselineFrame, into: baseline, cb) }
             } else {
                 baselineTexture = nil
             }

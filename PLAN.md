@@ -4,7 +4,7 @@ Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
 Last updated 2026-11-20, after frame generation from the game's rate (the playhead), the hardware round on the
-PS5, the review of that work, and ML upscaling at every stream resolution (on by default).
+PS5, the review of that work, and ML upscaling at every stream resolution, on by default and on its own lane.
 
 ---
 
@@ -48,7 +48,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 312 tests (97% lines), Swift 282 tests (88% lines; 83% as CI's VM sees
+- Tests + gates (2026-11-20): TS 312 tests (97% lines), Swift 292 tests (89% lines; 83% as CI's VM sees
   it), Rust 53 tests (88% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 123/123. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run).
@@ -203,7 +203,13 @@ Work items:
   of 16 even where it reports them supported (1080, 540), so 540p is padded to 544 rows and 1080p goes through
   in two overlapping 1088×1088 tiles cut and joined with blits in the same command buffer: ~6 ms per frame at
   720p, ~11 ms at 1080p measured in the renderer. Verified in tests (1080p tiles, 540p padding, the cut on
-  plain Metal for CI's VM); **left: a live 1080p stream on the PS5**. Details: `docs/ML_UPSCALING.md`.*
+  plain Metal for CI's VM). On a live 1080p PS5 stream (GTA VI, 120 Hz screen) ML in the draw dragged the
+  screen from 115 to 42–54 Hz and lost up to 17 frames/s, with or without frame interpolation, so ML now runs
+  on its own lane (`UpscaleLane`) ahead of the stream clock: the draw never waits for it, the pacing delay
+  covers its time (up to 15 ms at 1080p), it upscales stream frames only (in-between images come from
+  upscaled frames), and when it falls behind it drops the waiting frame (counted as lost). Tested with a
+  stand-in engine, in CI's VM too. **Left: the same live stream with the lane.** Details:
+  `docs/ML_UPSCALING.md`.*
 - Not planned: MetalFX temporal upscaling (needs engine motion vectors + depth).
 - ✅ **Frame interpolation** (was "Smooth motion"; requested): reworked after the benchmark showed it adding
   nothing (30 fps in, 31 shown).
@@ -615,7 +621,7 @@ requests and a bug report.
    [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG). Left: `release.sh`
    surviving a notarytool status timeout and stapling the `.app` too. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
-   in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on a live 1080p stream in a window larger than 1920×1080; a stream measured with Steady Wi-Fi on (only pings
+   in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080 (the screen rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; the light bar in a game that sets it; Bluetooth
    haptics in Astro's Playroom.
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the

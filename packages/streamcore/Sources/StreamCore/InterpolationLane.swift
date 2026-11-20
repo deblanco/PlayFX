@@ -186,6 +186,9 @@ final class InterpolationLane {
             }
             guard let output = buffer(width, height, format),
                   encodeBlend(cb, previous, current, middle, into: output) else { return nil }
+            // A pooled buffer may come back with the last use's attachments: propagating only adds, so the
+            // decoded frame of an upscaled pair from before (ML since turned off) would otherwise stay on it.
+            CVBufferRemoveAttachment(output, UpscaleLane.decodedKey)
             CVBufferPropagateAttachments(current, output)
             outputs.append(output)
         }

@@ -355,8 +355,10 @@ func render(_ frame: CVPixelBuffer, params: RenderParams, width: Int, height: In
         if r == nil { r = StreamRenderer(); r?.showsTestPattern = false }
         guard let r else { return nil }
         r.params = params
-        r.display(frame)
+        r.setUpscaleTarget(drawableSize: CGSize(width: width, height: height))
         let start = DispatchTime.now()
+        r.display(frame)
+        r.waitForUpscaling() // ML upscaling runs on its own lane; the snapshot shows its result
         let image = r.snapshot(width: width, height: height)
         lastRenderMs.withLock { $0 = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e6 }
         return image

@@ -25,18 +25,73 @@ idle.
 - **1080p is cut into two overlapping 1088×1088 tiles.** Each tile goes through the model on its own
   session, and the middle of each output is copied into one 2880×1620 frame. The tiles overlap by 128
   columns, so each side of the cut has 64 columns of context and no seam shows.
-- **Cutting and joining are GPU blits in the frame's own command buffer.** Nothing waits on the CPU, and no
-  pixels are converted.
+- **Cutting and joining are GPU blits in one command buffer.** Nothing waits on the CPU, and no pixels are
+  converted.
+- **It runs on its own lane, not in the draw** (`UpscaleLane`): its own queue and Metal command queue, one
+  frame at a time. A refresh never waits for the model. Each decoded frame is upscaled first and joins the
+  stream clock when that's done, so the pacing delay covers the model's time like any other lateness.
+- **It upscales stream frames only.** In-between images are made from upscaled frames, so the model doesn't
+  run again for each of them.
+- **When it falls behind, it drops a frame instead of queueing.** One frame is upscaled while at most one
+  waits. A newer frame takes the waiting one's place, and the dropped one is counted in the frames lost.
 - **It skips frames it doesn't need to upscale**: when the picture on screen isn't larger than the stream,
   the frame passes through untouched, and ML runs again as soon as the window grows.
-- **Cost:** about 6 ms per frame at 720p and about 11 ms at 1080p, measured in the renderer. The setting
-  says so.
+- **Cost:** about 6 ms of latency per frame at 720p and up to 15 ms at 1080p. The setting says so.
 
 ## How it works
 
-`StreamRenderer.encode` hands each new frame to `MLSuperResolution.encode` with the size of the picture on
-screen. That returns an upscaled NV12 buffer, or nil to use the frame as is. The rest of the pipeline
-(colour conversion, cleanup, MetalFX, sharpening) then works from whichever it got.
+`StreamRenderer.display` hands each decoded frame to the `UpscaleLane`, with the area the picture fills on
+screen (from the last draw). On the lane's queue, `MLSuperResolution.encode` returns an upscaled NV12
+buffer, or nil to use the frame as is. Whichever it is then goes on the stream clock, into the timeline, and
+to frame interpolation, exactly as a decoded frame did before. The draw only shows what's due. The rest of
+the pipeline (colour conversion, cleanup, MetalFX, sharpening) works from it.
+
+### Why it's off the draw path (`UpscaleLane`)
+
+The first version ran the model inside the draw that goes to the screen, on every image shown. At 1080p on a
+120 Hz screen, a live PS5 stream showed what that does (20 November 2026, GTA VI, 30 fps game in a 60 fps
+stream):
+
+| | Screen rate | Shown per second | GPU per draw | Frames lost |
+|---|---|---|---|---|
+| ML on, interpolation on | 54 Hz | 46–56 | 14 ms | 3/s |
+| ML on, interpolation off | 42 Hz | 36–45 | 18 ms | 17/s |
+| ML off, interpolation on | 115 Hz | 82–117 | 5.6 ms | 3/s |
+
+ML added about 12 ms to each draw. A 60 fps stream gives a frame 16.7 ms, and a 120 Hz refresh gives 8.3 ms,
+so every draw with ML in it missed refreshes and held up the next one. It wasn't a clash with frame
+interpolation: turning that off made it worse.
+
+The lane follows `InterpolationLane`:
+
+- **Its own queue and Metal command queue.** The draw never encodes ML work and never waits for it.
+- **Ahead of the stream clock.** A frame goes on the clock when it's upscaled, with that moment as its
+  arrival. The delay planner sees the model's time as lateness and raises the delay to cover it. The
+  display-latency stat still counts from when the frame was decoded, so it includes the model.
+- **In order, one at a time, at most one waiting.** A newer frame takes the waiting one's place; the one it
+  replaces is dropped and counted in `skippedFrames`. A dropped frame leaves a one-frame gap in the indices,
+  which the stream clock takes without starting over.
+- **The decoded frame goes with the upscaled one**, as a CoreVideo attachment (`UpscaleLane.decodedKey`).
+  The split view shows it on the left, and the deblocking grid is worked out from its width. It propagates,
+  so in-between images made from upscaled frames carry it too.
+- **Repeats are told on the decoded frames**, before upscaling, as before.
+- **Only frames the model can enlarge go to the lane.** When the picture on screen isn't larger than the
+  frame, or ML is off, or the frame is 10-bit, it goes straight on the clock. While the lane still holds
+  earlier frames, it queues behind them instead, passing through untouched. That way frames reach the clock
+  in order, and from one thread at a time.
+- **A frame from the stream before is left out.** `streamFrameRate` (set for every new stream) bumps a
+  generation. A frame the lane finishes after that is discarded: its index would otherwise sit on the new
+  stream's clock and keep the new frames off it.
+- **Frame interpolation picks its sizes from the decoded frame.** It works on the upscaled frames, but its
+  sizes (`RungSelector`) come from the decoded size, so a 720p stream is still interpolated at 1280×720 on
+  VideoToolbox's fast path. The in-between image is then scaled up to the upscaled size, and still areas
+  are blended back from the upscaled frames. So moving areas in an in-between image have no ML detail.
+- **In the split view, an in-between image is its own baseline.** It carries the decoded frame of the later
+  picture it was made towards, which isn't its moment. The interpolation lane clears the attachment from
+  its pooled output buffers before copying attachments on, so a stale one never survives ML being turned
+  off.
+- **The engine is injected** (`FrameUpscaler`). Tests use a stand-in, so the lane's order, dropping and
+  attachment are tested in CI's VM, where the model never runs.
 
 ### The tiles (`MLSuperResolution.tiling`)
 
@@ -78,7 +133,7 @@ there. If the screen isn't larger than the stream at all, ML is skipped for that
    factor, into one buffer from the output pool. The padded rows aren't copied.
 4. The output gets the frame's colour attachments (matrix, range, chroma siting), so the NV12 conversion
    reads it like the original. A completion handler keeps every buffer and texture alive until the GPU is
-   done.
+   done. The lane commits the command buffer and waits for it before the frame goes on the clock.
 
 A frame the model takes whole (720p) skips the cut and join and goes straight to step 2.
 
@@ -120,8 +175,8 @@ Two 1088×1088 tiles for a 1080p frame: about 6.6 ms of model time.
 
 ### Whole frame in the renderer
 
-A throwaway test rendered 50 frames to a 3840×2160 target, ML off and on, in a debug build. The absolute
-times include the test's readback; the difference is what ML costs:
+With ML still in the draw, a throwaway test rendered 50 frames to a 3840×2160 target, ML off and on, in a
+debug build. The absolute times include the test's readback; the difference is what ML cost each draw:
 
 | Stream | ML off | ML on | Cost |
 |---|---|---|---|
@@ -131,14 +186,25 @@ times include the test's readback; the difference is what ML costs:
 At 1080p the cost is more than the model's 6.6 ms, because everything after it works on a 2880×1620
 picture instead of 1920×1080.
 
+With the lane, the same kind of test (1080p, 32 frames, debug build) times the two parts apart:
+
+| | Lane, per frame | GPU per draw |
+|---|---|---|
+| ML off | 0.7 ms (nothing to do) | 6.7 ms |
+| ML on | 15.5 ms | 3.5 ms |
+
+The lane's 15.5 ms includes the repeat check on the decoded frame, which now runs on the lane's queue too.
+It fits a 60 fps stream's 16.7 ms, with little to spare; the draw no longer carries any of it. The two GPU
+figures are smoothed averages and noisy: what matters is that ML adds nothing to the draw.
+
 ### How to measure it again
 
 - **Which sizes work, and how long a tile takes:** a short Swift script that makes a
   `VTLowLatencySuperResolutionScalerConfiguration` for a size, starts a `VTFrameProcessor` session, and
   times `try await processor.process(parameters:)` on a filled NV12 buffer. Use the async API: it throws
   where `process(with: commandBuffer, …)` fails silently.
-- **Cost in the renderer:** render the same frame with `params.mlUpscale` off and on, as the tests in
-  `MLTests.swift` do, and time the render.
+- **Cost in the renderer:** with `params.mlUpscale` off and on, time `display` plus `waitForUpscaling`
+  (the lane) apart from the render after it (the draw), as the `show` helper in `MLTests.swift` does.
 - **On a real stream:** with the dev control port, stream at 1080p in a window larger than 1920×1080 and
   check `mlActive: true` and `"ml": "on"` in the renderer status. Shrink the window to 1920×1080 or less and
   `ml` reads `notLarger`. See [dev-control.md](dev-control.md).
@@ -154,6 +220,20 @@ picture instead of 1920×1080.
     size and that brightness holds across the cut and in the padded rows. Both are skipped where ML isn't
     available.
   - `mlSaysWhyItIsIdle`: the reasons the HUD shows.
+- `swift test --package-path packages/streamcore --filter "UpscaleLane|upscalesOnItsLane|comparesAgainst|framesSkip|aDropped"`:
+  the lane with a stand-in engine, so these run in CI's VM too. They cover:
+  - order, and dropping the waiting frame;
+  - the decoded frame kept with the upscaled one;
+  - the engine running once per frame, not once per draw;
+  - the split view's baseline;
+  - frames skipping the lane with ML off or nothing to enlarge;
+  - frames queueing behind one still in the lane;
+  - a frame from the stream before left out;
+  - dropped frames counted as lost.
+
+  Not covered by a test: interpolation sizes from the decoded frame, and the in-between baseline in the
+  split view. Both need VideoToolbox's frame interpolation running on frames from the lane; check them on a
+  live stream.
 - `bun run --cwd apps/desktop check`: the setting defaults to on, and the pipeline view shows "ML + …" at
   every resolution.
 
@@ -162,22 +242,32 @@ picture instead of 1920×1080.
 | What | Where |
 |---|---|
 | Tile layout, scale factor, cut/model/join | `packages/streamcore/Sources/StreamCore/MLSuperResolution.swift` |
-| Where the renderer calls it; why it's idle (`mlState`) | `packages/streamcore/Sources/StreamCore/StreamRenderer.swift` |
-| Tests | `packages/streamcore/Tests/StreamCoreTests/MLTests.swift`, `PipelineStateTests.swift` |
+| The lane: queue, dropping, the decoded frame attachment, `FrameUpscaler` | `packages/streamcore/Sources/StreamCore/UpscaleLane.swift` |
+| Frames to the lane, then the clock (`display`, `intake`); why it's idle (`mlState`) | `packages/streamcore/Sources/StreamCore/StreamRenderer.swift` |
+| Tests | `packages/streamcore/Tests/StreamCoreTests/MLTests.swift`, `UpscaleLaneTests.swift`, `PipelineStateTests.swift` |
 | Setting and its default | `apps/desktop/src/core/schema.ts` (`mlUpscale`) |
 | Pipeline view, HUD reasons | `apps/desktop/src/app/format.ts` (`mlApplies`, `mlRow`) |
 | The switch and its latency note | `apps/desktop/src/app/SettingsSheet.tsx` |
 
 ## Known limits and open questions
 
-- **Not verified against the PS5 yet.** The 1080p path has been checked on synthetic frames in the tests,
-  not on a live stream.
-- **Latency.** About 11 ms at 1080p is most of a 60 fps frame. The setting says so; users who play fast
-  games may want it off.
+- **The lane hasn't been on a live stream yet.** ML in the draw was, and failed as the table above shows.
+  The next check is the same 1080p stream on the 120 Hz screen: the screen rate should stay near 120 Hz with
+  ML on, and the frames lost near 0.
+- **Latency.** Up to 15 ms at 1080p, almost a whole 60 fps frame, added to the pacing delay. The setting
+  says so; users who play fast games may want it off.
+- **Little headroom at 1080p60.** The lane takes about 15.5 ms per frame in a debug build, against 16.7 ms.
+  With frame interpolation also using the Neural Engine, it may fall behind; it then drops frames, counted
+  as lost. Two things would add headroom: reusing the last result for a repeated frame (a 30 fps game in a
+  60 fps stream sends every picture twice), and moving the repeat check off the lane.
 - **1080p only helps on large windows.** The output is 2880×1620, and the frame only goes through when the
   picture on screen is larger than 1920×1080.
 - **Existing installs keep their saved choice.** The default only applies to new installs and to settings
-  saved before the switch existed. Anyone who had it off keeps it off.
+  saved before the switch existed. Anyone who had it off keeps it off. Since the Recommended profile now has
+  ML on, their settings show as their own mix rather than Recommended.
+- **In-between images have no ML detail where things move** (see "Frame interpolation picks its sizes from
+  the decoded frame" above). On a 120 Hz screen, detail in moving areas may look like it flickers between
+  sharper and softer from one refresh to the next. Not yet seen on a live stream.
 - **HDR (10-bit) streams** get no ML. The model takes 8-bit frames only.
 - **Seams** don't show on the test frames, which have flat areas and one hard edge. Fine diagonal detail
   crossing the cut hasn't been checked side by side.
