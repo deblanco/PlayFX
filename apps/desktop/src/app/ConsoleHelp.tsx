@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import type { Settings } from "@/core/schema"
 import { isIpv4 } from "./format"
 
 interface AddressProps {
@@ -12,15 +13,35 @@ interface AddressProps {
   readonly onAddressChange: (address: string) => void
 }
 
+interface NoConsolesProps extends AddressProps {
+  readonly connection: Settings["connection"]
+  /** Whether a PSN sign-in for internet play is kept: undefined until PSN has answered. */
+  readonly psnSignedIn: boolean | undefined
+  readonly scanned: boolean
+  readonly listed: boolean
+  readonly onOpenLocalNetwork: () => void
+}
+
+/** Away from home, the next step: Connect › Internet, or in that mode already, what PSN needs to list the PS5. */
+const internetHint = (connection: Settings["connection"], psnSignedIn: boolean | undefined): string =>
+  connection !== "internet"
+    ? "Away from home? Play a paired PS5 over the internet with Connect › Internet."
+    : psnSignedIn === false
+      ? "Playing over the internet? Sign in with PlayStation above, and your PS5s show up here."
+      : "Playing over the internet? Your PS5 shows up here through PSN when Remote Play is on (Settings › System › " +
+        "Remote Play › Enable Remote Play) and it's on, or in rest mode with Stay Connected to the Internet turned on."
+
 /** No console on this network (paired ones may still be `listed`). Calm while the first scan runs; after it,
  * what to check and the console's IP. */
 export const NoConsoles = ({
+  connection,
+  psnSignedIn,
   scanned,
   listed,
   address,
   onAddressChange,
   onOpenLocalNetwork,
-}: AddressProps & { readonly scanned: boolean; readonly listed: boolean; readonly onOpenLocalNetwork: () => void }) => {
+}: NoConsolesProps) => {
   if (!scanned) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-dashed border-white/15 p-3 text-xs text-muted-foreground">
@@ -51,7 +72,7 @@ export const NoConsoles = ({
       </ul>
       <div className="flex flex-col gap-1.5 border-t border-white/10 pt-3">
         <p className="text-xs text-white">On a different subnet here, or behind a second router at home? Enter its IP.</p>
-        <p className="text-xs text-muted-foreground">Away from home? Play a paired PS5 over the internet with Connect › Internet.</p>
+        <p className="text-xs text-muted-foreground">{internetHint(connection, psnSignedIn)}</p>
         <ConsoleAddress
           // Keyed by the saved address: when it changes underneath (settings loading), the field restarts from it.
           key={address}

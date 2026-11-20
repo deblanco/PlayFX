@@ -158,12 +158,26 @@ describe("home: discovery", () => {
     expect(screen.queryByLabelText("Console IP address")).not.toBeInTheDocument()
   })
 
-  it("keeps the help in Internet mode when no console is listed through PSN", async () => {
+  it("keeps the help in Internet mode when no console is listed through PSN, asking for the PSN sign-in", async () => {
     const core = fakeCore()
     core.state.discovered = []
     renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "internet" } })
     expect(await (await consoleItem()).findByText("offline")).toBeInTheDocument()
-    expect(await screen.findByRole("region", { name: "No consoles on this network yet" })).toBeInTheDocument()
+    const help = within(await screen.findByRole("region", { name: "No consoles on this network yet" }))
+    // Already in Internet mode: the step that helps is the PSN sign-in, not choosing Internet.
+    expect(await help.findByText("Playing over the internet? Sign in with PlayStation above, and your PS5s show up here.")).toBeInTheDocument()
+    expect(help.queryByText(/Connect › Internet/)).not.toBeInTheDocument()
+  })
+
+  it("points to Remote Play in Internet mode when signed in and PSN lists no console", async () => {
+    const core = fakeCore()
+    core.state.discovered = []
+    core.state.psnSignedIn = true
+    renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "internet" } })
+    const help = within(await screen.findByRole("region", { name: "No consoles on this network yet" }))
+    expect(await help.findByText(/^Playing over the internet\? Your PS5 shows up here through PSN when Remote Play is on/)).toBeInTheDocument()
+    expect(help.queryByText(/Sign in with PlayStation/)).not.toBeInTheDocument()
+    expect(help.queryByText(/Connect › Internet/)).not.toBeInTheDocument()
   })
 
   it("reports discovery failures but still lists paired consoles as offline", async () => {

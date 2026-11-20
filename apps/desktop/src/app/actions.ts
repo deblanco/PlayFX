@@ -94,8 +94,10 @@ export const signOut: Effect.Effect<void, StorageError | CoreError, Preferences 
   yield* prefs.setAccountId(Option.none())
 })
 
-/** What PSN knows: the paired consoles it can reach (hostId → PSN device ID) and every PS5 on the account. */
+/** What PSN knows: whether a PSN sign-in for internet play is kept, the paired consoles it can reach
+ * (hostId → PSN device ID) and every PS5 on the account. */
 export interface PsnView {
+  readonly signedIn: boolean
   readonly reachable: Readonly<Record<string, string>>
   readonly consoles: readonly PsnConsole[]
 }
@@ -112,9 +114,9 @@ export const psnReachable = (paired: PairedConsoles): Effect.Effect<Readonly<Rec
 const askPsn = (paired: PairedConsoles): Effect.Effect<PsnView, CoreError, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
-    if (!(yield* core.psnSignedIn)) return { reachable: {}, consoles: [] }
+    if (!(yield* core.psnSignedIn)) return { signedIn: false, reachable: {}, consoles: [] }
     const consoles = yield* core.psnConsoles
-    return { reachable: psnDeviceIds(paired, consoles), consoles }
+    return { signedIn: true, reachable: psnDeviceIds(paired, consoles), consoles }
   })
 
 /** The console's PSN device ID if it can be reached over the internet right now (asks PSN). */

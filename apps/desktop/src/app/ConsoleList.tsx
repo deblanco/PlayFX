@@ -173,10 +173,13 @@ export const ConsoleList = ({
   // minute, and at once after signing in or out.
   const [onPsn, setOnPsn] = useState<Readonly<Record<string, string>>>({})
   const [account, setAccount] = useState<readonly PsnConsole[]>([])
+  // Whether a PSN sign-in for internet play is kept: undefined until PSN has answered.
+  const [psnSignedIn, setPsnSignedIn] = useState<boolean | undefined>(undefined)
   useFork(
     useMemo(
       () =>
         actions.pollPsn(paired, (view) => {
+          setPsnSignedIn(view.signedIn)
           setOnPsn(view.reachable)
           setAccount(view.consoles)
         }),
@@ -265,6 +268,8 @@ export const ConsoleList = ({
       {discovered.length === 0 ? (
         !(connection === "internet" && rows.some((row) => row.psnDuid !== undefined)) && (
           <NoConsoles
+            connection={connection}
+            psnSignedIn={psnSignedIn}
             scanned={scanned}
             listed={rows.length > 0}
             address={consoleAddress}

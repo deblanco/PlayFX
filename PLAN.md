@@ -462,6 +462,13 @@ Work items:
   In Internet mode (Connect › Internet) the help is left out under consoles listed through PSN (2026-11-20,
   owner's decision): it's about this network, which doesn't matter there. With none listed through PSN it
   still shows. Checked by unit tests (App: left out, and kept with nothing listed through PSN).
+  There, its last line no longer says to choose Connect › Internet, the mode already chosen (2026-11-20, from
+  the release review): without a PSN sign-in for internet play it says "Playing over the internet? Sign in with
+  PlayStation above, and your PS5s show up here."; signed in (or before PSN has answered), that PSN lists the
+  PS5 when Remote Play is on and it's on or in rest mode with Stay Connected to the Internet. The PSN poll now
+  reports whether the sign-in is kept. The local-network checks and the IP field stay: pairing with a code
+  still needs the console found here. Checked by unit tests (App: both lines, and no Connect › Internet in
+  Internet mode; actions: the poll's sign-in).
 - 🔶 **Say why pairing failed.** A failed pairing showed one sentence whatever went wrong. The fork's
   registration now reports the cause on its failed event (libchiaki's error, the console's HTTP status and
   RP-Application-Reason, and whether the console had answered the search; fork commits "Regist: say why a

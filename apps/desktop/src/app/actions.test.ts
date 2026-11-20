@@ -649,7 +649,7 @@ describe("psnReachable", () => {
       const reports: actions.PsnView[] = []
       const fiber = yield* Effect.forkChild(actions.pollPsn({}, (r) => reports.push(r)))
       yield* Effect.yieldNow
-      expect(reports).toEqual([{ reachable: {}, consoles: [] }])
+      expect(reports).toEqual([{ signedIn: false, reachable: {}, consoles: [] }])
       yield* Fiber.interrupt(fiber)
     }).pipe(Effect.provide(layer))
   })
@@ -681,7 +681,7 @@ describe("internet play", () => {
       const reports: actions.PsnView[] = []
       const fiber = yield* Effect.forkChild(actions.pollPsn({ HOST1: pairedPs5 }, (r) => reports.push(r)))
       yield* Effect.yieldNow
-      expect(reports).toEqual([{ reachable: { HOST1: "aa" }, consoles: [{ name: "Living Room", duid: "aa", remotePlay: true }] }])
+      expect(reports).toEqual([{ signedIn: true, reachable: { HOST1: "aa" }, consoles: [{ name: "Living Room", duid: "aa", remotePlay: true }] }])
       yield* TestClock.adjust(actions.psnPollInterval)
       expect(reports).toHaveLength(2)
       yield* Fiber.interrupt(fiber)
