@@ -1,7 +1,8 @@
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { ConsoleStatus } from "./format"
 
-// Adapted from @shadcn-studio badge-05 (dot badge).
+// shadcn/ui's Badge (outline) with a coloured dot for the console's state.
 
 const dot: Record<ConsoleStatus, string> = {
   ready: "bg-emerald-500",
@@ -11,11 +12,8 @@ const dot: Record<ConsoleStatus, string> = {
 }
 
 export const StatusBadge = ({ status }: { status: ConsoleStatus }) => (
-  <span
-    data-status={status}
-    className="inline-flex w-fit shrink-0 items-center justify-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap text-muted-foreground"
-  >
+  <Badge variant="outline" data-status={status} className="rounded-full text-muted-foreground">
     <span className={cn("size-2 rounded-full", dot[status])} aria-hidden="true" />
     {status}
-  </span>
+  </Badge>
 )

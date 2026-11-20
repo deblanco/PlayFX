@@ -1,7 +1,7 @@
 import { REGEXP_ONLY_DIGITS } from "input-otp"
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp"
 
-// Adapted from @shadcn-studio input-otp-08 (grouped OTP): the 8-digit pairing PIN as two groups of 4.
+// shadcn/ui's InputOTP with a separator (its grouped example): the 8-digit pairing PIN as two groups of 4.
 
 interface PinInputProps {
   readonly id: string

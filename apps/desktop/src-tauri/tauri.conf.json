@@ -47,7 +47,8 @@
       "entitlements": "Entitlements.plist",
       "files": {
         "Resources/LICENSE": "../../../LICENSE",
-        "Resources/NOTICE": "../../../NOTICE"
+        "Resources/NOTICE": "../../../NOTICE",
+        "Resources/THIRD_PARTY_LICENSES": "../../../THIRD_PARTY_LICENSES"
       }
     }
   }
