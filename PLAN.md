@@ -3,11 +3,15 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20 (since v0.2.0: the Wi-Fi stall warning from the stream itself; Cancel during a PSN
-pairing's registration ends it at once, and a PS5 that PSN reached but that never answers the registration gets
-its own message (PSN_REGIST_UNANSWERED)). For release v0.2.0: the v0.1.0 crash fix, pairing through PSN without
-a code and the pairing help, profiles from Home and in game, the Help page, stats as rates, and ML upscaling at
-every stream resolution, on by default and on its own lane.
+Last updated 2026-11-20, the v0.2.1 work on top of release v0.2.0: the Wi-Fi stall warning from the stream
+itself; Cancel during a PSN pairing's registration ends it at once, and a PS5 that PSN reached but that never
+answers the registration gets its own message (PSN_REGIST_UNANSWERED); a profile switch during a bitrate
+reconnect asks first; a 50 fps game's pictures stay evenly spaced while frames are generated; `psrp
+interpolate --truth` scores the worst frame and the worst tile; the release script staples the app inside the
+DMG and survives a notarization status timeout; tests for the reconnect race and the sound following the system
+default. For release v0.2.0: the v0.1.0 crash fix, pairing through PSN without a code and the pairing help,
+profiles from Home and in game, the Help page, stats as rates, and ML upscaling at every stream resolution, on
+by default and on its own lane.
 
 ---
 
@@ -51,7 +55,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 358 tests (98% lines), Swift 314 tests (89% lines; 83% as CI's VM sees
+- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 331 tests (89% lines; 84% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
