@@ -77,6 +77,8 @@ describe("home: discovery", () => {
   it("stays calm while the first scan runs", async () => {
     renderApp(fakeCore({ discover: Effect.never }))
     expect(await screen.findByText("Looking for consoles on this network…")).toBeInTheDocument()
+    // One status line for one state: the header doesn't say it too.
+    expect(within(screen.getByRole("region", { name: "Consoles" })).getByRole("status")).toBeEmptyDOMElement()
     expect(screen.queryByText("No consoles found yet")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Console IP address")).not.toBeInTheDocument()
   })
@@ -87,6 +89,7 @@ describe("home: discovery", () => {
     const { runtime } = renderApp(core)
     const help = within(await screen.findByRole("region", { name: "No consoles found yet" }))
     expect(screen.queryByText("Looking for consoles on this network…")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("region", { name: "Consoles" })).getByRole("status")).toBeEmptyDOMElement()
     expect(help.getByText(/in rest mode with Stay Connected to the Internet/)).toBeInTheDocument()
     expect(help.getByText(/same network as this Mac/)).toBeInTheDocument()
     expect(help.getByText("Any VPN on this Mac is off.")).toBeInTheDocument()

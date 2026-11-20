@@ -38,7 +38,8 @@ export const ConsoleList = ({
   const run = useRun()
   const [discovered, setDiscovered] = useState<readonly DiscoveredConsole[]>([])
   const [paired, setPaired] = useState<PairedConsoles>({})
-  const [scanMessage, setScanMessage] = useState("Searching…")
+  // Discovery errors only: an empty scan has its own box under the list (looking, then what to check).
+  const [scanMessage, setScanMessage] = useState("")
   // Whether a scan has finished: until then an empty list is just not known yet.
   const [scanned, setScanned] = useState(false)
   const [pairing, setPairing] = useState<string | null>(null)
@@ -115,7 +116,7 @@ export const ConsoleList = ({
             // Discovery hands a fresh object every scan; keeping the old one when nothing changed stops
             // the PSN poll below from restarting (and asking Sony) every few seconds.
             setPaired((current) => (samePaired(current, outcome.paired) ? current : outcome.paired))
-            setScanMessage(outcome.discovered.length > 0 ? "" : "Searching…")
+            setScanMessage("")
           } else {
             setScanMessage(outcome.message)
           }

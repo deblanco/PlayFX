@@ -427,7 +427,8 @@ Work items:
   actions, PSNAuth, bridge). **Needs a PS5 and a PS4 to confirm** the menu names as the current firmware
   shows them, and how long the code really lasts.
 - ✅ **"No consoles found" help** (2026-11-20, from the pairing review): while the first scan runs, the empty
-  console list says "Looking for consoles on this network…"; once a scan found nothing on the network (also
+  console list says "Looking for consoles on this network…" (the header's status line now only shows discovery
+  errors, so one state has one message); once a scan found nothing on the network (also
   when paired consoles are listed but none is here: "No consoles on this network yet") it shows what to check
   (the PS5 on, or in rest mode with Stay Connected to the Internet; the same network as the Mac, not a guest
   Wi-Fi; no VPN; PlayFX allowed on the local network, with **Open Local Network settings**, a new
