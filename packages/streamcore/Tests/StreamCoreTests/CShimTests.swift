@@ -79,9 +79,9 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
         #expect(String(cString: psrp_remote_error_message(unknown)) == "Connecting over the internet failed.")
     }
 
-    private func pairingMessage(_ error: Int32, reason: UInt32 = 0, ps5: Bool = true) -> String {
+    private func pairingMessage(_ error: Int32, reason: UInt32 = 0, answered: Bool = false, ps5: Bool = true) -> String {
         var out = [CChar](repeating: 0, count: 512)
-        psrp_regist_error_message(error, reason, ps5, &out, out.count)
+        psrp_regist_error_message(error, reason, answered, ps5, &out, out.count)
         return String(cString: out)
     }
 
@@ -89,9 +89,10 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
     @Test func explainsPairingFailures() {
         let (unknown, parseAddr, network, refused, hostDown, hostUnreach, disconnected, timeout, httpNonOk) =
             (Int32(1), Int32(2), Int32(6), Int32(7), Int32(8), Int32(9), Int32(10), Int32(15), Int32(21))
+        let (invalidData, bufTooSmall, invalidResponse) = (Int32(11), Int32(12), Int32(16))
         let (wrongPin, invalidPsnId, rpVersion, inUse) = (UInt32(0x8010_8b09), UInt32(0x8010_8b02),
                                                          UInt32(0x8010_8b11), UInt32(0x8010_8b10))
-        #expect(pairingMessage(httpNonOk, reason: wrongPin)
+        #expect(pairingMessage(httpNonOk, reason: wrongPin, answered: true)
             == "The code is wrong or has expired. Get a new one: Pair Device on the PS5 shows a new code.")
         #expect(pairingMessage(httpNonOk, reason: wrongPin, ps5: false).contains("Add Device on the PS4"))
         #expect(pairingMessage(httpNonOk, reason: invalidPsnId).hasPrefix(
@@ -103,14 +104,24 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
         for unreachable in [network, hostDown, hostUnreach, parseAddr, disconnected] {
             #expect(pairingMessage(unreachable).contains("Privacy & Security › Local Network"))
         }
+        // After the console answered, a failed connection means it stopped answering: no Local Network advice.
+        for stopped in [timeout, refused, network, disconnected, unknown] {
+            #expect(pairingMessage(stopped, answered: true)
+                == "The PS5 stopped answering partway through pairing. Keep Pair Device open on the PS5, and pair "
+                + "again with the code it shows.")
+        }
+        #expect(pairingMessage(timeout, answered: true, ps5: false).contains("Keep Add Device open on the PS4"))
         let fallback = "Registration failed: check the PIN (it expires after a few minutes) and that the console is on "
             + "and on the same network."
-        #expect(pairingMessage(httpNonOk, reason: inUse) == fallback)
+        #expect(pairingMessage(httpNonOk, reason: inUse, answered: true) == fallback)
+        for unusableReply in [httpNonOk, invalidData, bufTooSmall, invalidResponse] {
+            #expect(pairingMessage(unusableReply, answered: true) == fallback)
+        }
         #expect(pairingMessage(unknown) == fallback)
         var tiny = [CChar](repeating: 1, count: 8)
-        psrp_regist_error_message(unknown, 0, true, &tiny, tiny.count) // truncated, still terminated
+        psrp_regist_error_message(unknown, 0, false, true, &tiny, tiny.count) // truncated, still terminated
         #expect(String(cString: tiny) == "Registr")
-        psrp_regist_error_message(unknown, 0, true, nil, 0) // nowhere to write: no crash
+        psrp_regist_error_message(unknown, 0, false, true, nil, 0) // nowhere to write: no crash
     }
 }
 

@@ -79,9 +79,10 @@ typedef struct {
 /// Blocking. Returns true on success; on failure writes a message into `error` saying why and what to do.
 bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACCOUNT_ID_SIZE], uint32_t pin,
                    PsrpRegistration *out, char *error, size_t error_size);
-/// The user-facing message for a failed registration: libchiaki's error and the console's
-/// RP-Application-Reason (0 if it gave none), from the regist event.
-void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bool ps5, char *out, size_t size);
+/// The user-facing message for a failed registration: libchiaki's error, the console's RP-Application-Reason
+/// (0 if it gave none) and whether the console had answered before it failed, from the regist event.
+void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bool answered, bool ps5, char *out,
+                               size_t size);
 
 // ---------------------------------------------------------------------------------------------
 // Streaming session

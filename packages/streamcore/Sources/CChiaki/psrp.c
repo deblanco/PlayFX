@@ -255,6 +255,7 @@ typedef struct {
     ChiakiRegisteredHost host;
     ChiakiErrorCode error;
     uint32_t application_reason;
+    bool answered;
 } RegistCtx;
 
 static void regist_cb(ChiakiRegistEvent *event, void *user) {
@@ -264,12 +265,14 @@ static void regist_cb(ChiakiRegistEvent *event, void *user) {
     if (ctx->success && event->registered_host) ctx->host = *event->registered_host;
     ctx->error = event->error;
     ctx->application_reason = event->application_reason;
+    ctx->answered = event->console_answered;
     ctx->done = true;
     pthread_cond_signal(&ctx->cond);
     pthread_mutex_unlock(&ctx->mutex);
 }
 
-void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bool ps5, char *out, size_t size) {
+void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bool answered, bool ps5, char *out,
+                               size_t size) {
     if (!out || !size) return;
     const char *console = ps5 ? "PS5" : "PS4";
     const char *screen = ps5 ? "Pair Device" : "Add Device";
@@ -292,6 +295,21 @@ void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bo
         return;
     default:
         break;
+    }
+    if (answered) { // it answered, then: an unusable reply, or it stopped answering (screen closed, network drop)
+        switch ((ChiakiErrorCode)chiaki_error) {
+        case CHIAKI_ERR_HTTP_NONOK:
+        case CHIAKI_ERR_INVALID_RESPONSE:
+        case CHIAKI_ERR_INVALID_DATA:
+        case CHIAKI_ERR_BUF_TOO_SMALL:
+            break; // the general message below
+        default:
+            snprintf(out, size,
+                     "The %s stopped answering partway through pairing. Keep %s open on the %s, and pair again "
+                     "with the code it shows.",
+                     console, screen, console);
+            return;
+        }
     }
     switch ((ChiakiErrorCode)chiaki_error) {
     case CHIAKI_ERR_TIMEOUT:
@@ -360,7 +378,7 @@ bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACC
     pthread_mutex_destroy(&ctx.mutex);
 
     if (!ctx.success) {
-        psrp_regist_error_message(ctx.error, ctx.application_reason, ps5, error, error_size);
+        psrp_regist_error_message(ctx.error, ctx.application_reason, ctx.answered, ps5, error, error_size);
         return false;
     }
     registration_from_host(&ctx.host, out);

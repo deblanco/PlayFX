@@ -461,15 +461,18 @@ Work items:
   Automatic.
 - 🔶 **Say why pairing failed.** A failed pairing showed one sentence whatever went wrong. The fork's
   registration now reports the cause on its failed event (libchiaki's error, the console's HTTP status and
-  RP-Application-Reason; fork commit "Regist: say why a registration failed", unit test in `test/regist.c`),
-  and the C shim (`psrp_regist_error_message`) turns it into a message with the next step: wrong or expired
-  code (`0x80108b09`) → get a new one from Pair Device; another PSN account (`0x80108b02`) → open Pair
-  Device as the signed-in user, or sign in with theirs; no answer (timeout, or the search refused because
-  Pair Device is closed) → keep Pair Device open, same network; can't reach it (network errors) → Local
-  Network permission, VPN; Remote Play version mismatch (`0x80108b11`) → update; anything else → the old
-  sentence without "the account ID". A PS4 gets "Add Device". Swift, Rust and the UI pass the message
-  through unchanged. Verified by unit tests (the mapping; a pairing against loopback ends in "didn't
-  answer"), not on a console. **Needs a console session:** trigger each case once (mistyped code, expired
+  RP-Application-Reason, and whether the console had answered the search; fork commits "Regist: say why a
+  registration failed" and "Regist: say whether the console had answered when a registration failed", unit
+  tests in `test/regist.c`, the second against a loopback stand-in console), and the C shim
+  (`psrp_regist_error_message`) turns it into a message with the next step: wrong or expired code
+  (`0x80108b09`) → get a new one from Pair Device; another PSN account (`0x80108b02`) → open Pair Device as
+  the signed-in user, or sign in with theirs; before the console answered: no answer (timeout, or the search
+  refused because Pair Device is closed) → keep Pair Device open, same network; can't reach it (network
+  errors) → Local Network permission, VPN; after it answered, a lost or refused connection → it stopped
+  answering, keep Pair Device open and pair again with its code; Remote Play version mismatch
+  (`0x80108b11`) → update; anything else (an unusable reply too) → the old sentence without "the account
+  ID". A PS4 gets "Add Device". Swift, Rust and the UI pass the message through unchanged. Verified by unit
+  tests (the mapping; a pairing against loopback ends in "didn't answer"), not on a console. **Needs a console session:** trigger each case once (mistyped code, expired
   code, another PSN account, Pair Device closed, Local Network denied) and record the real codes from the
   log ("Reported Application Reason"): it isn't sure `0x80108b09` is the only wrong-code reason, nor which
   error a denied Local Network permission gives.
