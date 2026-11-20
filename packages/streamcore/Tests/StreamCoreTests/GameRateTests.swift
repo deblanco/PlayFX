@@ -343,6 +343,31 @@ extension StreamRendererTests {
         #expect(playhead.advance(now: 10.3 + 1201 * refresh, delay: 0.5) > before)
     }
 
+    /// The lane holds a pair for a second or more while VideoToolbox builds a model (a stream's start, a new
+    /// size): the playhead waits for that pair's images only for `wait`, then goes on from the newest picture
+    /// instead of holding the one before the pair until they're made.
+    @Test func aPairHeldWhileAModelIsBuiltHoldsThePictureOnlyBriefly() {
+        let picture = 1.0 / 30, step = picture / 4, delay = 0.05, wait = delay + picture
+        var playhead = Playhead()
+        let pairFrom = 10.0, handed = 10.0 + delay + picture // the pair after the picture at 10, in hand from then
+        var now = 10.0 + delay, last = 0.0, longest = 0.0, held = now
+        while now < 12 {
+            let newest = 10 + ((now - delay - 10) / picture).rounded(.down) * picture // pictures keep coming
+            let limit = Playhead.limit(populated: pairFrom, newest: newest, pendingSince: now >= handed ? handed : nil,
+                                       now: now, wait: wait, step: step)
+            let at = playhead.advance(now: now, delay: delay, limit: limit, refresh: refresh)
+            if at > last + 1e-9 { (last, held) = (at, now) } else { longest = max(longest, now - held) }
+            now += refresh
+        }
+        #expect(longest <= wait + delay, "\(longest)") // before, the whole build: here two seconds and counting
+        #expect(abs(last - (12 - delay)) < 0.1, "\(last)")
+        // Not waiting on the lane, or not for long: up to the last picture with all its images.
+        #expect(Playhead.limit(populated: 10, newest: 11, pendingSince: nil, now: 12, wait: wait, step: step) == 10 + step * 0.99)
+        #expect(Playhead.limit(populated: 10, newest: 11, pendingSince: 11.95, now: 12, wait: wait, step: step) == 10 + step * 0.99)
+        #expect(Playhead.limit(populated: 10, newest: 11, pendingSince: 11, now: 12, wait: wait, step: step) == 11 + step * 0.99)
+        #expect(Playhead.limit(populated: nil, newest: nil, pendingSince: nil, now: 12, wait: wait, step: step) == nil)
+    }
+
     /// What the screen shows over a stretch of a 30 fps game with quarters made, on a 118.8 Hz screen, while
     /// the delay drifts as it does on a real connection (eased up to 1 ms per picture): the images each
     /// refresh shows, as steps of 1/120 s.

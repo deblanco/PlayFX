@@ -285,8 +285,9 @@ The rungs are the stream's own size, then 1280×720 and 960×544 where those are
   within 60% of the budget.
 - **Broken sizes** (empty output) are blocked forever.
 
-Each size's model is built by its first image (1–2 s), on the lane's queue, so a change of size costs one
-or two late images rather than a stall.
+Each size's model is built by its first image (1–2 s), on the lane's queue. The playhead waits for a pair's
+images for the delay and one picture's time at most; past that it goes on from the newest picture, so a
+change of size costs the images of the pairs meanwhile rather than a stall.
 
 **Why 960×544, not 960×540:** VideoToolbox's fast path (at or below 1280×720) wants both sides a multiple
 of 16. At 960×540, 854×480 and 640×360 it returns success with an all-zero image, which shows as green.

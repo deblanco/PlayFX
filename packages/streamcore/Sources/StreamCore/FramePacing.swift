@@ -418,6 +418,18 @@ struct Playhead {
     /// holding the picture that long. Never back: when it's past `time` already, it stays.
     mutating func start(at time: Double) { position = max(position ?? time, time) }
 
+    /// The `limit` while images are made between the game's pictures: just before the first picture whose images
+    /// aren't all made yet, the one after `populated` (until then the picture before it is what shows anyway).
+    /// Once the lane has had a pair in hand (since `pendingSince`) for longer than `wait`, as while VideoToolbox
+    /// builds a model for a new size (a second or more), it counts from the `newest` picture instead: the screen
+    /// goes on without that pair's images rather than holding one picture until they're made. `step`: the time
+    /// between images.
+    static func limit(populated: Double?, newest: Double?, pendingSince: Double?, now: Double, wait: Double,
+                      step: Double) -> Double? {
+        let stalled = pendingSince.map { now - $0 > wait } ?? false
+        return (stalled ? newest : populated).map { $0 + step * 0.99 }
+    }
+
     /// Moves to the refresh at `now` and returns the stream time to show. `limit`: don't pass this (nil: free).
     /// `refresh` is the screen's steady time between refreshes (0: unknown): the draw callback's own timing
     /// wobbles by a millisecond or two, enough to land on the wrong side of an image's moment, so one
