@@ -12,23 +12,28 @@ interface Step {
 /** The steps to the first stream, in order, with where the user is. */
 export const setupSteps = (signedIn: boolean, paired: boolean): readonly Step[] => [
   {
+    title: "Get your PS5 ready",
+    body: "On the PS5, turn on Settings › System › Remote Play › Enable Remote Play. So PlayFX can wake it from rest mode, also turn on Stay Connected to the Internet and Enable Turning On PS5 from Network in Settings › System › Power Saving › Features Available in Rest Mode.",
+    state: signedIn || paired ? "done" : "current",
+  },
+  {
     title: "Sign in with PlayStation",
     body: "So your PS5 can tell it's you. You only do this once.",
-    state: signedIn ? "done" : "current",
+    state: signedIn ? "done" : "waiting",
   },
   {
     title: "Pair your PS5",
-    body: "On the PS5, go to Settings › System › Remote Play › Pair Device, then choose it below and type the code it shows.",
+    body: "On the PS5, open Settings › System › Remote Play › Pair Device (Link Device on some versions). Then choose your PS5 below and type the 8-digit code it shows.",
     state: paired ? "done" : signedIn ? "current" : "waiting",
   },
   {
     title: "Play",
-    body: "Press Play. PlayFX wakes your PS5 if it's resting.",
+    body: "Press Play. PlayFX wakes your PS5 if it's in rest mode.",
     state: paired ? "current" : "waiting",
   },
 ]
 
-/** First run: the three steps to a first stream. Gone once a console is paired. */
+/** First run: the steps to a first stream. Gone after the first Play. */
 export const GetStarted = ({ signedIn, paired }: { readonly signedIn: boolean; readonly paired: boolean }) => (
   <section aria-labelledby="get-started" className="flex flex-col gap-3">
     <h2 id="get-started" className="text-sm font-medium">Get started</h2>

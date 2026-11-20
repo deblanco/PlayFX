@@ -58,11 +58,11 @@ extension Serial {
                 }
             }
             #expect(await message { _ in (400, Data(#"{"error":"invalid_grant","error_description":"Bad code"}"#.utf8)) }
-                    == "PSN sign-in failed: Bad code")
-            #expect(await message { _ in (400, Data(#"{"error":"invalid_grant"}"#.utf8)) } == "PSN sign-in failed: invalid_grant")
-            #expect(await message { _ in (200, Data("{}".utf8)) } == "PSN sign-in failed: no access token")
-            #expect(await message(psnStub(userId: nil)) == "PSN sign-in failed: no user_id in token info")
-            #expect(await message(psnStub(userId: "not a number")) == "PSN sign-in failed: no user_id in token info")
+                    == "Bad code")
+            #expect(await message { _ in (400, Data(#"{"error":"invalid_grant"}"#.utf8)) } == "invalid_grant")
+            #expect(await message { _ in (200, Data("{}".utf8)) } == "no access token")
+            #expect(await message(psnStub(userId: nil)) == "no user_id in token info")
+            #expect(await message(psnStub(userId: "not a number")) == "no user_id in token info")
             #expect(await message { _ in (502, Data("<html>".utf8)) } != nil)
             #expect(await message { _ in (200, Data("[1]".utf8)) } == "Unexpected PSN response: [1]")
             #expect(await message { _ in nil } != nil) // network error

@@ -230,6 +230,12 @@ const ConsoleItem = ({ row, signedIn, onPair, onWake, waking, onPlay, onCancelWa
   )
 }
 
+/** Where the console shows its pairing code. */
+const pairingPath = (ps5: boolean): string =>
+  ps5
+    ? "On the PS5: Settings › System › Remote Play › Pair Device (Link Device on some versions)"
+    : "On the PS4: Settings › Remote Play Connection Settings › Add Device"
+
 interface PairFormProps {
   readonly console: DiscoveredConsole
   readonly onPaired: (paired: PairedConsoles) => void
@@ -241,6 +247,7 @@ const PairForm = ({ console, onPaired, onCancel }: PairFormProps) => {
   const id = useId()
   const [pin, setPin] = useState("")
   const [busy, setBusy] = useState(false)
+  const hint = `${id}-hint`
 
   return (
     <form
@@ -256,10 +263,14 @@ const PairForm = ({ console, onPaired, onCancel }: PairFormProps) => {
       }}
     >
       <Label htmlFor={id} className="text-xs text-muted-foreground">
-        On the PS5: Settings → System → Remote Play → Pair Device
+        {pairingPath(console.ps5)}
       </Label>
+      <p id={hint} className="text-xs text-muted-foreground">
+        Type the 8-digit pairing code it shows, not your console passcode. The code is valid for about 5 minutes: keep
+        that screen open.
+      </p>
       <div className="flex flex-wrap items-center gap-2">
-        <PinInput id={id} value={pin} onChange={setPin} disabled={busy} />
+        <PinInput id={id} value={pin} onChange={setPin} disabled={busy} describedBy={hint} />
         <Button type="submit" size="sm" disabled={busy || pin.length !== 8}>
           {busy ? "Pairing…" : "Pair"}
         </Button>

@@ -120,7 +120,11 @@ export const receivePsnAccount = (
 ): Effect.Effect<string, SignInFailed | ValidationError | StorageError, Preferences> =>
   "accountId" in event
     ? saveAccountId(event.accountId)
-    : Effect.fail(new SignInFailed({ message: `PSN sign-in failed: ${event.error}` }))
+    : Effect.fail(
+        new SignInFailed({
+          message: `PSN sign-in failed: ${event.error.replace(/\.$/, "")}. Sign in with PlayStation again, and check that this Mac is online.`,
+        }),
+      )
 
 export const onPsnAccount = (handler: (event: PsnAccountEvent) => void): Effect.Effect<never, CoreError, Core> =>
   Effect.gen(function* () {
@@ -602,7 +606,7 @@ export const keyboardDone = (accept: boolean): Effect.Effect<void, CoreError, Co
 export const submitLoginPin = (raw: string): Effect.Effect<void, CoreError | ValidationError, Core> =>
   Effect.gen(function* () {
     const pin = raw.trim()
-    if (!/^\d{4}$/.test(pin)) return yield* new ValidationError({ message: "The login PIN has 4 digits" })
+    if (!/^\d{4}$/.test(pin)) return yield* new ValidationError({ message: "The passcode has 4 digits" })
     const core = yield* Core
     yield* core.setLoginPin(pin)
   })

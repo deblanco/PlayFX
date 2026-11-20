@@ -409,6 +409,19 @@ Work items:
   on or in rest mode, on this Mac's network."; the account note now says the ID and sign-in stay in the
   Mac's Keychain. Checked by unit tests (the dev seed refills the webview's storage, so a clean first run
   couldn't be shown live).
+- ✅ **Pairing guide and copy** (2026-11-20, from the pairing review): the guide starts with "Get your PS5
+  ready" — Settings › System › Remote Play › Enable Remote Play, and for waking from rest mode Stay Connected
+  to the Internet and Enable Turning On PS5 from Network under Settings › System › Power Saving › Features
+  Available in Rest Mode — then Sign in, Pair, Play. It now stays after pairing, with Play as the step to
+  take, until the first Play leaves Home. The pair form names Pair Device (Link Device on some versions), the
+  PS4 path (Settings › Remote Play Connection Settings › Add Device) for a PS4, says it's the 8-digit pairing
+  code, not the console passcode, and that the code is valid for about 5 minutes. The login PIN dialog is now
+  "Console passcode": the PS5 user's 4-digit passcode, not the pairing code. Badges say "rest mode" instead of
+  "standby" (the internal value is unchanged); one arrow style (›) in the UI. A failed PSN sign-in says
+  "PSN sign-in failed" once (StreamCore now gives only Sony's reason; `psrp account-id` prints that reason
+  alone) and tells the user to sign in again and check the Mac is online. Checked by unit tests (App,
+  actions, PSNAuth, bridge). **Needs a PS5 and a PS4 to confirm** the menu names as the current firmware
+  shows them, and how long the code really lasts.
 
 ### Out of scope: other platforms
 
@@ -640,3 +653,6 @@ requests and a bug report.
    13 ms ahead of the grid still re-anchors it); the PR #817 reorder-wait test (needs the console); the
    chiaki-ng upstream PR (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer
    tuning.
+9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
+   a PS5 and a PS4); next, a real "No consoles found" state with next steps and the IP field, then the
+   specific pairing failure reasons and the denied Local Network permission (each needs a console session).

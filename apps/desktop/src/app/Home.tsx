@@ -1,6 +1,6 @@
 import { Option } from "effect"
 import { SlidersHorizontal } from "lucide-react"
-import { useEffect, useId, useState } from "react"
+import { useCallback, useEffect, useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -36,6 +36,13 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Unknown until the console list has loaded the pairings, so the guide never flashes for set-up users.
   const [hasPaired, setHasPaired] = useState<boolean | undefined>(undefined)
+  // The guide shows while nothing is paired, and stays after pairing so its last step, Play, shows. Play
+  // leaves Home, so it's gone on the way back.
+  const [guide, setGuide] = useState(false)
+  const pairedChanged = useCallback((paired: boolean) => {
+    setHasPaired(paired)
+    if (!paired) setGuide(true)
+  }, [])
   const [tab, setTab] = useState<SettingsTab>("stream")
 
   useEffect(() => {
@@ -51,15 +58,15 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
       </header>
       <Card className="w-full max-w-xl bg-card/70 shadow-2xl backdrop-blur-xl">
         <CardContent className="flex flex-col gap-4">
-          {hasPaired === false && (
+          {guide && (
             <>
-              <GetStarted signedIn={Option.isSome(accountId)} paired={false} />
+              <GetStarted signedIn={Option.isSome(accountId)} paired={hasPaired === true} />
               <Separator />
             </>
           )}
           <AccountSection accountId={accountId} onChange={setAccountId} />
           <Separator />
-          <ConsoleList accountId={accountId} connection={settings.connection} onPlay={onPlay} onPairedChange={setHasPaired} />
+          <ConsoleList accountId={accountId} connection={settings.connection} onPlay={onPlay} onPairedChange={pairedChanged} />
           <div className="flex flex-col gap-1.5">
             <Segmented
               label="Connect"
@@ -131,7 +138,7 @@ const ConsoleAddress = ({ value, onChange }: { readonly value: string; readonly 
       <p className="text-xs text-muted-foreground">
         {invalid
           ? "That isn't an IP address. It looks like 192.168.1.20."
-          : "Only needed if your PS5 doesn't show up. On the PS5: Settings → Network → Connection Status."}
+          : "Only needed if your PS5 doesn't show up. On the PS5: Settings › Network › Connection Status."}
       </p>
     </div>
   )

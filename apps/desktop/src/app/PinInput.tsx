@@ -8,9 +8,11 @@ interface PinInputProps {
   readonly value: string
   readonly onChange: (value: string) => void
   readonly disabled?: boolean
+  /** The ID of the text that explains the code. */
+  readonly describedBy?: string
 }
 
-export const PinInput = ({ id, value, onChange, disabled = false }: PinInputProps) => (
+export const PinInput = ({ id, value, onChange, disabled = false, describedBy }: PinInputProps) => (
   <InputOTP
     id={id}
     maxLength={8}
@@ -20,6 +22,7 @@ export const PinInput = ({ id, value, onChange, disabled = false }: PinInputProp
     onChange={onChange}
     disabled={disabled}
     aria-label="Pairing PIN"
+    aria-describedby={describedBy}
   >
     <InputOTPGroup>
       {[0, 1, 2, 3].map((index) => (

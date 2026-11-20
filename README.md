@@ -53,9 +53,13 @@ with Apple silicon on macOS 13 or later (frame interpolation and ML upscaling ne
 
 The first time:
 
-1. Turn on Remote Play on the console: Settings › System › Remote Play.
+1. Turn on Remote Play on the console: Settings › System › Remote Play › Enable Remote Play. So PlayFX can wake
+   it from rest mode, also turn on Stay Connected to the Internet and Enable Turning On PS5 from Network in
+   Settings › System › Power Saving › Features Available in Rest Mode.
 2. With the Mac on the console's home network, open PlayFX, sign in with PlayStation (Sony's own page),
-   pick the console and enter the code from Settings › System › Remote Play › Pair Device.
+   pick the console and enter the 8-digit code from Settings › System › Remote Play › Pair Device (Link Device
+   on some versions; on a PS4, Settings › Remote Play Connection Settings › Add Device). The code is valid for
+   about 5 minutes.
 3. Press Play. Once paired, it also plays over the internet through PSN.
 
 For real DualSense haptics, connect the pad with a USB cable and, once, set its output to 4 channels

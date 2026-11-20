@@ -76,7 +76,7 @@ extension Serial {
             #expect(try call(sc_psn_account_id, PSNAuth.redirectURL + "?code=abc")["accountId"] as? String == "AQAAAAAAAAA=")
             #expect(store.tokens?.accessToken == "tok123") // kept in the test's store only
             StubURLProtocol.handler = psnStub(userId: nil)
-            #expect(try call(sc_psn_account_id, "abc")["error"] as? String == "PSN sign-in failed: no user_id in token info")
+            #expect(try call(sc_psn_account_id, "abc")["error"] as? String == "no user_id in token info")
         }
 
         @Test func register() throws {

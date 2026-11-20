@@ -56,7 +56,14 @@ describe("account", () => {
       expect(core.counts.psnLogin).toBe(1)
       expect(yield* actions.receivePsnAccount({ accountId })).toBe(accountId)
       const error = yield* Effect.flip(actions.receivePsnAccount({ error: "denied" }))
-      expect(error).toEqual(new actions.SignInFailed({ message: "PSN sign-in failed: denied" }))
+      expect(error).toEqual(
+        new actions.SignInFailed({
+          message: "PSN sign-in failed: denied. Sign in with PlayStation again, and check that this Mac is online.",
+        }),
+      )
+      // Sony's reason may end with a period of its own.
+      const ended = yield* Effect.flip(actions.receivePsnAccount({ error: "Bad code." }))
+      expect(ended.message).toBe("PSN sign-in failed: Bad code. Sign in with PlayStation again, and check that this Mac is online.")
     }).pipe(Effect.provide(layer))
   })
 
@@ -204,7 +211,7 @@ describe("streaming", () => {
     const { core, layer } = setup()
     return Effect.gen(function* () {
       const error = yield* Effect.flip(actions.submitLoginPin("12"))
-      expect(error.message).toBe("The login PIN has 4 digits")
+      expect(error.message).toBe("The passcode has 4 digits")
       yield* actions.submitLoginPin(" 1234 ")
       expect(core.service.setLoginPin).toHaveBeenCalledWith("1234")
     }).pipe(Effect.provide(layer))

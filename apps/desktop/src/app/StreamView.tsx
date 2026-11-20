@@ -418,9 +418,9 @@ const LoginPinPrompt = ({ incorrect, onSubmitted, onCancel }: LoginPinPromptProp
     <div className="fixed inset-0 flex items-center justify-center p-6">
       <Card role="dialog" aria-labelledby={`${id}-title`} className="w-full max-w-xs bg-card/80 backdrop-blur-xl">
         <CardHeader>
-          <CardTitle id={`${id}-title`}>Console login PIN</CardTitle>
+          <CardTitle id={`${id}-title`}>Console passcode</CardTitle>
           <CardDescription>
-            {incorrect ? "Wrong PIN. Enter the console's login PIN." : "Enter the console's login PIN."}
+            {incorrect ? "Wrong passcode. " : ""}Enter your PS5 user's passcode (4 digits), not the pairing code.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -432,7 +432,7 @@ const LoginPinPrompt = ({ incorrect, onSubmitted, onCancel }: LoginPinPromptProp
             }}
           >
             <Label htmlFor={id} className="sr-only">
-              Login PIN
+              Passcode
             </Label>
             <Input
               id={id}

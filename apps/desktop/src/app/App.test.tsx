@@ -103,7 +103,10 @@ describe("home: PSN account", () => {
     act(() => {
       core.emitPsn({ error: "denied" })
     })
-    expect(await screen.findByText("PSN sign-in failed: denied")).toBeInTheDocument()
+    // One "PSN sign-in failed", and what to do next.
+    expect(
+      await screen.findByText("PSN sign-in failed: denied. Sign in with PlayStation again, and check that this Mac is online."),
+    ).toBeInTheDocument()
     core.state.psnSignedIn = true // the native side kept the tokens
     act(() => {
       core.emitPsn({ accountId })
@@ -152,9 +155,13 @@ describe("home: pairing", () => {
     renderApp(core, { accountId })
     const item = await consoleItem()
     await userEvent.click(item.getByRole("button", { name: "Pair" }))
-    expect(screen.getByText("On the PS5: Settings → System → Remote Play → Pair Device")).toBeInTheDocument()
+    expect(screen.getByText("On the PS5: Settings › System › Remote Play › Pair Device (Link Device on some versions)")).toBeInTheDocument()
     const form = within(screen.getByRole("form", { name: "Pair Living Room" }))
-    fireEvent.change(screen.getByLabelText("On the PS5: Settings → System → Remote Play → Pair Device"), {
+    // The 8-digit pairing code, not the passcode, and how long it lasts.
+    expect(screen.getByLabelText("On the PS5: Settings › System › Remote Play › Pair Device (Link Device on some versions)")).toHaveAccessibleDescription(
+      "Type the 8-digit pairing code it shows, not your console passcode. The code is valid for about 5 minutes: keep that screen open.",
+    )
+    fireEvent.change(screen.getByLabelText("On the PS5: Settings › System › Remote Play › Pair Device (Link Device on some versions)"), {
       target: { value: "12345678" },
     })
     return { core, form }
@@ -184,12 +191,24 @@ describe("home: pairing", () => {
   })
 })
 
+describe("home: pairing a PS4", () => {
+  it("shows where a PS4 shows its code", async () => {
+    const core = fakeCore()
+    core.state.discovered = [{ ...ps5, ps5: false }]
+    renderApp(core, { accountId })
+    const item = await consoleItem()
+    await userEvent.click(item.getByRole("button", { name: "Pair" }))
+    expect(screen.getByText("On the PS4: Settings › Remote Play Connection Settings › Add Device")).toBeInTheDocument()
+  })
+})
+
 describe("home: paired consoles", () => {
   it("wakes a console in standby", async () => {
     const core = fakeCore()
     core.state.discovered = [{ ...ps5, state: "standby" }]
     renderApp(core, { paired: [pairedPs5] })
     const item = await consoleItem()
+    expect(item.getByText("rest mode")).toBeInTheDocument() // Sony's words, not "standby"
     await userEvent.click(await item.findByRole("button", { name: "Wake" }))
     expect(core.service.wakeup).toHaveBeenCalledWith(credentials)
     expect(await screen.findByText("Wake-up sent; the console takes ~20 s to start.")).toBeInTheDocument()
@@ -589,17 +608,48 @@ describe("settings", () => {
   it("guides a first run step by step, and steps aside once a console is paired", async () => {
     renderApp(fakeCore()) // signed out, nothing paired
     const guide = await screen.findByRole("region", { name: "Get started" })
-    expect(within(guide).getByText("Sign in with PlayStation").closest("li")).toHaveAttribute("aria-current", "step")
-    expect(within(guide).getByText(/Settings › System › Remote Play › Pair Device/)).toBeInTheDocument()
+    // The PS5's own settings come first: Remote Play on, and waking from rest mode.
+    expect(within(guide).getByText("Get your PS5 ready").closest("li")).toHaveAttribute("aria-current", "step")
+    expect(within(guide).getByText(/Settings › System › Remote Play › Enable Remote Play/)).toBeInTheDocument()
+    expect(
+      within(guide).getByText(
+        /Stay Connected to the Internet and Enable Turning On PS5 from Network in Settings › System › Power Saving › Features Available in Rest Mode/,
+      ),
+    ).toBeInTheDocument()
+    expect(within(guide).getByText("Sign in with PlayStation").closest("li")).not.toHaveAttribute("aria-current")
+    expect(within(guide).getByText(/Pair Device \(Link Device on some versions\)/)).toBeInTheDocument()
   })
 
   it("shows the next step once signed in, and no guide for a paired console", async () => {
     const { unmount } = renderApp(fakeCore(), { accountId })
     const guide = await screen.findByRole("region", { name: "Get started" })
     expect(within(guide).getByText("Pair your PS5").closest("li")).toHaveAttribute("aria-current", "step")
-    expect(within(guide).getByLabelText("Done")).toBeInTheDocument()
+    expect(within(guide).getAllByLabelText("Done")).toHaveLength(2)
     unmount()
     renderApp(fakeCore(), { accountId, paired: [pairedPs5] })
+    await consoleItem()
+    expect(screen.queryByRole("region", { name: "Get started" })).not.toBeInTheDocument()
+  })
+
+  it("keeps the guide after pairing until the first Play, with Play as the step to take", async () => {
+    const core = fakeCore()
+    renderApp(core, { accountId })
+    const item = await consoleItem()
+    await userEvent.click(item.getByRole("button", { name: "Pair" }))
+    fireEvent.change(screen.getByLabelText(/^On the PS5:/), { target: { value: "12345678" } })
+    await userEvent.click(within(screen.getByRole("form", { name: "Pair Living Room" })).getByRole("button", { name: "Pair" }))
+    await screen.findByText("Paired with Living Room")
+    const guide = screen.getByRole("region", { name: "Get started" })
+    expect(within(guide).getByText("Play").closest("li")).toHaveAttribute("aria-current", "step")
+    expect(within(guide).getByText("Press Play. PlayFX wakes your PS5 if it's in rest mode.")).toBeInTheDocument()
+    await userEvent.click(item.getByRole("button", { name: "Play" }))
+    await waitFor(() => {
+      expect(core.streamListeners()).toBe(1)
+    })
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await stopFromHud()
     await consoleItem()
     expect(screen.queryByRole("region", { name: "Get started" })).not.toBeInTheDocument()
   })
@@ -729,11 +779,12 @@ describe("streaming", () => {
       core.emitStream({ type: "loginPin", incorrect: false })
     })
     const dialog = within(await screen.findByRole("dialog"))
-    expect(dialog.getByText("Enter the console's login PIN.")).toBeInTheDocument()
-    await userEvent.type(dialog.getByLabelText("Login PIN"), "12")
+    expect(dialog.getByText("Console passcode")).toBeInTheDocument()
+    expect(dialog.getByText("Enter your PS5 user's passcode (4 digits), not the pairing code.")).toBeInTheDocument()
+    await userEvent.type(dialog.getByLabelText("Passcode"), "12")
     await userEvent.click(dialog.getByRole("button", { name: "Send" }))
-    expect(await screen.findByText("The login PIN has 4 digits")).toBeInTheDocument()
-    await userEvent.type(dialog.getByLabelText("Login PIN"), "34")
+    expect(await screen.findByText("The passcode has 4 digits")).toBeInTheDocument()
+    await userEvent.type(dialog.getByLabelText("Passcode"), "34")
     await userEvent.click(dialog.getByRole("button", { name: "Send" }))
     expect(core.service.setLoginPin).toHaveBeenCalledWith("1234")
     await waitFor(() => {
@@ -747,7 +798,7 @@ describe("streaming", () => {
       core.emitStream({ type: "loginPin", incorrect: true })
     })
     const dialog = within(await screen.findByRole("dialog"))
-    expect(dialog.getByText("Wrong PIN. Enter the console's login PIN.")).toBeInTheDocument()
+    expect(dialog.getByText("Wrong passcode. Enter your PS5 user's passcode (4 digits), not the pairing code.")).toBeInTheDocument()
     await userEvent.click(dialog.getByRole("button", { name: "Stop" }))
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     expect(core.counts.stopStream).toBe(1)

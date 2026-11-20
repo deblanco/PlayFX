@@ -11,9 +11,17 @@ const dot: Record<ConsoleStatus, string> = {
   internet: "bg-sky-400",
 }
 
+/** What the badge says: Sony's words, "rest mode" rather than the protocol's "standby". */
+const label: Record<ConsoleStatus, string> = {
+  ready: "ready",
+  standby: "rest mode",
+  offline: "offline",
+  internet: "internet",
+}
+
 export const StatusBadge = ({ status }: { status: ConsoleStatus }) => (
   <Badge variant="outline" data-status={status} className="rounded-full text-muted-foreground">
     <span className={cn("size-2 rounded-full", dot[status])} aria-hidden="true" />
-    {status}
+    {label[status]}
   </Badge>
 )

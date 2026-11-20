@@ -65,7 +65,7 @@ public enum PSNAuth {
         info.setValue(basicAuth, forHTTPHeaderField: "Authorization")
         let user = try await json(info)
         guard let userId = (user["user_id"] as? String).flatMap(UInt64.init) else {
-            throw ConsoleError.message("PSN sign-in failed: no user_id in token info")
+            throw ConsoleError.message("no user_id in token info")
         }
         return accountId(userId: userId)
     }
@@ -76,8 +76,9 @@ public enum PSNAuth {
             .joined(separator: " — ")
     }
 
+    /// Sony's reason only: the app and the log say "PSN sign-in failed" once around it.
     static func failure(_ reply: [String: Any]) -> Error {
-        ConsoleError.message("PSN sign-in failed: \(reply["error_description"] ?? reply["error"] ?? "no access token")")
+        ConsoleError.message("\(reply["error_description"] ?? reply["error"] ?? "no access token")")
     }
 
     /// The account ID as the console expects it: 8 bytes little-endian, base64.
