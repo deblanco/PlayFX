@@ -27,7 +27,7 @@ import Testing
     }
 
     private func pairing(_ session: FakeSession, accountId: String? = nil, timeout: TimeInterval = 5) -> PSNPairing {
-        PSNPairing(token: "tok", duid: "aa", accountId: accountId ?? account, timeout: timeout, start: session.start)
+        PSNPairing(token: { "tok" }, duid: "aa", accountId: accountId ?? account, timeout: timeout, start: session.start)
     }
 
     private final class Stages: @unchecked Sendable {
@@ -94,6 +94,26 @@ import Testing
         let p = pairing(session)
         p.cancel()
         #expect(throws: PSNPairingError.cancelled) { try p.run { _ in } }
+        #expect(session.started.withLock { $0 } == nil)
+    }
+
+    /// The pairing, for a token fetch that cancels it.
+    private final class Ref: @unchecked Sendable { var pairing: PSNPairing? }
+
+    @Test func aCancelWhileTheTokenIsFetchedIsKept() {
+        let session = FakeSession([.registered(paired)])
+        let ref = Ref()
+        ref.pairing = PSNPairing(token: { ref.pairing?.cancel(); return "tok" }, duid: "aa", accountId: account,
+                                 start: session.start)
+        #expect(throws: PSNPairingError.cancelled) { try ref.pairing?.run { _ in } }
+        #expect(session.started.withLock { $0 } == nil)
+    }
+
+    @Test func aFailedTokenFetchIsTheFailure() {
+        let session = FakeSession([.registered(paired)])
+        let p = PSNPairing(token: { throw ConsoleError.message("PSN didn't answer") }, duid: "aa", accountId: account,
+                           start: session.start)
+        #expect(throws: ConsoleError.message("PSN didn't answer")) { try p.run { _ in } }
         #expect(session.started.withLock { $0 } == nil)
     }
 

@@ -30,31 +30,39 @@ public final class PSNPairing: @unchecked Sendable {
     /// Starts the session (returning at once, reports arriving later); its result stops and frees it.
     typealias Start = (Request, @escaping @Sendable (Report) -> Void) throws -> () -> Void
 
-    private let request: Request
+    private let token: @Sendable () throws -> String
+    private let duid: String
+    private let accountId: String
     private let start: Start
     private let timeout: TimeInterval
     private let outcome = OSAllocatedUnfairLock<Result<ConsoleCredentials, Error>?>(initialState: nil)
     private let finished = DispatchSemaphore(value: 0)
 
+    /// `token`: fetches the PSN token (blocking, up to ~30 s), once `run` starts, so a cancel meanwhile counts.
     /// `timeout`: the setup steps can each take up to ~30 s.
-    init(token: String, duid: String, accountId: String, timeout: TimeInterval = 120,
+    init(token: @escaping @Sendable () throws -> String, duid: String, accountId: String, timeout: TimeInterval = 120,
          start: @escaping Start = PSNPairing.startSession) {
-        request = Request(token: token, duid: duid, accountId: accountId)
+        self.token = token
+        self.duid = duid
+        self.accountId = accountId
         self.start = start
         self.timeout = timeout
     }
 
-    public convenience init(token: String, duid: String, accountId: String) {
+    public convenience init(token: @escaping @Sendable () throws -> String, duid: String, accountId: String) {
         self.init(token: token, duid: duid, accountId: accountId, timeout: 120)
     }
 
     /// Blocking (not on the main thread): pairs, reporting each stage to `progress` as it starts (from
     /// libchiaki's threads). Throws the reason, with what to do next, when it fails or is cancelled.
     public func run(progress: @escaping @Sendable (Stage) -> Void) throws -> ConsoleCredentials {
-        guard let account = Data(base64Encoded: request.accountId), account.count == Int(PSRP_ACCOUNT_ID_SIZE) else {
+        guard let account = Data(base64Encoded: accountId), account.count == Int(PSRP_ACCOUNT_ID_SIZE) else {
             throw ConsoleError.message("Sign in to PlayStation first")
         }
         if let done = outcome.withLock({ $0 }) { return try done.get() } // cancelled before it started
+        let token = Result { try self.token() }
+        if let done = outcome.withLock({ $0 }) { return try done.get() } // cancelled while fetching the token
+        let request = Request(token: try token.get(), duid: duid, accountId: accountId)
         Log.info(.console, "Pairing through PSN")
         let stop = try start(request) { [self] report in handle(report, progress) }
         if finished.wait(timeout: .now() + timeout) == .timedOut {

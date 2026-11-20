@@ -326,8 +326,10 @@ public func sc_psn_pair(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer
     struct Request: Decodable { let duid: String; let accountId: String }
     do {
         let r = try decode(Request.self, request)
-        let token = try blocking(timedOut: "PSN didn't answer", { try await PSNAccount.shared.validAccessToken() }).get()
-        let pairing = PSNPairing(token: token, duid: r.duid, accountId: r.accountId)
+        // Under way (and cancellable) from here, while the token is fetched too.
+        let pairing = PSNPairing(token: {
+            try blocking(timedOut: "PSN didn't answer", { try await PSNAccount.shared.validAccessToken() }).get()
+        }, duid: r.duid, accountId: r.accountId)
         psnPairing.withLock { $0 = pairing }
         defer { psnPairing.withLock { if $0 === pairing { $0 = nil } } }
         return json(encodable: try pairing.run { stage in emit(psnPairProgressPayload(stage)) })
