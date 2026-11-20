@@ -58,6 +58,20 @@ import Testing
         #expect(session.stops.withLock { $0 } == 1)
     }
 
+    /// libchiaki (fork: "Session: keep a failed PSN registration's quit reason") ends a refused registration
+    /// with its reason, an unanswered one as a plain stop: the user is told which.
+    @Test func aRefusalIsToldApartFromNoAnswer() {
+        func failure(_ quit: PSNPairing.Report) -> String {
+            do {
+                _ = try pairing(FakeSession([.progress(.linking), .progress(.registering), quit])).run { _ in }
+                return "paired"
+            } catch { return error.localizedDescription }
+        }
+        #expect(failure(.quit(reason: PSNPairing.psnRegistFailed, error: true))
+            .hasPrefix("The PS5 didn't accept pairing through PSN."))
+        #expect(failure(.quit(reason: "Stopped", error: false)).hasPrefix("The PS5 didn't answer through PSN."))
+    }
+
     @Test func explainsEachWayItCanEnd() {
         #expect(PSNPairing.failureMessage(reason: "Stopped", error: false).hasPrefix("The PS5 didn't answer through PSN."))
         #expect(PSNPairing.failureMessage(reason: PSNPairing.psnRegistFailed + ": details", error: true)

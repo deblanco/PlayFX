@@ -483,7 +483,9 @@ Work items:
   and hands over the same keys a PIN pairing gives. The shim gets a `register_only` start mode (PSN token, the
   console's PSN device ID and the account ID; no keys) that sets `auto_regist` and forwards the result through
   a new `registered` callback (keys, nickname, MAC, PS5), with a "registering" progress stage; StreamCore's
-  `PSNPairing` runs it, treats a quit without the keys as a failure with a next step, and cancels it;
+  `PSNPairing` runs it, treats a quit without the keys as a failure with a next step (a refused registration
+  apart from no answer: fork commit "Session: keep a failed PSN registration's quit reason", as libchiaki
+  turned every failed PSN registration into a clean stop), and cancels it;
   `sc_psn_pair` / `sc_psn_pair_cancel`, the Tauri commands `pair_psn` / `cancel_psn_pair` (the PSN token stays
   native), and `Core.pairPsn` (progress from "psnPairProgress" stream events; interrupting it cancels). In the
   UI, after the PSN sign-in, the account's unpaired PS5s get "Pair (no code needed)": on the row of the console
