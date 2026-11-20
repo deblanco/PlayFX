@@ -549,8 +549,13 @@ const SoundOutput = ({ settings, set }: { readonly settings: Settings; readonly 
 
 const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; readonly set: Set }) => {
   const run = useRun()
+  const [build, setBuild] = useState<string | null>(null)
+  useEffect(() => { run(actions.appInfo, { onSuccess: (info) => { setBuild(actions.buildLine(info)) } }) }, [run])
   return (
     <>
+      {build !== null && (
+        <p className="text-sm font-medium text-foreground select-text" aria-label="Version">{build}</p>
+      )}
       <SwitchRow
         label="Detailed logs"
         description="Records much more about connections and the picture. Turn it off once the problem is found."

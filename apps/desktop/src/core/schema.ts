@@ -207,9 +207,18 @@ export interface PointerTouch {
 
 export const idleController: ControllerState = { buttons: 0, l2: 0, r2: 0, leftX: 0, leftY: 0, rightX: 0, rightY: 0 }
 
+/** The app's version, the commit it was built from ("e038cd8", "+changes" if the tree differed) and macOS. */
+export const AppInfo = Schema.Struct({
+  appVersion: Schema.String,
+  commit: Schema.String,
+  os: Schema.String,
+})
+export type AppInfo = typeof AppInfo.Type
+
 /** For bug reports: versions and the end of the log file (already scrubbed). */
 export const Diagnostics = Schema.Struct({
   appVersion: Schema.String,
+  commit: Schema.String,
   os: Schema.String,
   logFolder: Schema.String,
   recentLog: Schema.String,

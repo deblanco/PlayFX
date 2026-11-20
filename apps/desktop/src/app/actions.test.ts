@@ -643,11 +643,11 @@ describe("diagnostics", () => {
 
   it("builds a report with versions, renderer, settings and the recent log", () => {
     const report = actions.diagnosticsReport(
-      { appVersion: "0.1.0", os: "macOS 27.2", logFolder: "/logs", recentLog: "[INFO] hello" },
+      { appVersion: "0.1.0", commit: "abc1234", os: "macOS 27.2", logFolder: "/logs", recentLog: "[INFO] hello" },
       { ...status(), mlSupported: true },
       defaultSettings,
     )
-    expect(report).toContain("PlayFX 0.1.0 on macOS 27.2")
+    expect(report.startsWith("PlayFX 0.1.0 (abc1234) on macOS 27.2\n")).toBe(true)
     expect(report).toContain("Renderer: MetalFX yes, ML super-resolution yes")
     expect(report).toContain('"upscaler":"metalfx"')
     expect(report.endsWith("Recent log:\n[INFO] hello")).toBe(true)

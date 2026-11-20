@@ -140,8 +140,10 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     openSourceCode: Effect.sync(() => {
       counts.openSourceCode++
     }),
+    appInfo: Effect.sync(() => ({ appVersion: "0.1.0", commit: "abc1234", os: "macOS 27.2" })),
     diagnostics: Effect.sync(() => ({
       appVersion: "0.1.0",
+      commit: "abc1234",
       os: "macOS 27.2",
       logFolder: "/Users/me/Library/Logs/dev.deblanco.playfx",
       recentLog: "[INFO] Stream connected",

@@ -246,12 +246,14 @@ describe("CoreLive", () => {
     })
 
     it.effect("diagnostics commands", () => {
-      const report = { appVersion: "0.1.0", os: "macOS 27.2", logFolder: "/logs", recentLog: "" }
+      const report = { appVersion: "0.1.0", commit: "abc1234", os: "macOS 27.2", logFolder: "/logs", recentLog: "" }
+      const info = { appVersion: "0.1.0", commit: "abc1234", os: "macOS 27.2" }
       const fake = fakeBridge({
         set_detailed_logs: Effect.succeed(null),
         open_logs_folder: Effect.succeed(null),
         open_source_code: Effect.succeed(null),
         diagnostics: Effect.succeed(report),
+        app_info: Effect.succeed(info),
       })
       return Effect.gen(function* () {
         const core = yield* Core
@@ -259,6 +261,7 @@ describe("CoreLive", () => {
         yield* core.openLogsFolder
         yield* core.openSourceCode
         expect(yield* core.diagnostics).toEqual(report)
+        expect(yield* core.appInfo).toEqual(info)
         expect(fake.calls[0]).toEqual({ command: "set_detailed_logs", args: { on: true } })
       }).pipe(Effect.provide(fake.layer))
     })

@@ -39,6 +39,7 @@
     "allow-open-logs-folder",
     "allow-open-source-code",
     "allow-diagnostics",
+    "allow-app-info",
     "allow-renderer-status"
   ]
 }

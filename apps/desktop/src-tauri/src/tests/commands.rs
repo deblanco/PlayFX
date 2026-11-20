@@ -239,8 +239,22 @@ fn diagnostics_and_detailed_logs() {
     assert_eq!(core.calls(), ["set_detailed_logs true"]);
     let report = diagnostics(app.handle().clone()).expect("diagnostics");
     assert!(report["os"].as_str().is_some_and(|os| os.starts_with("macOS")));
+    assert_eq!(report["commit"], json!(COMMIT));
     assert!(report["logFolder"].as_str().is_some_and(|dir| !dir.is_empty()));
     assert!(report["recentLog"].is_string());
+}
+
+#[test]
+fn app_info_names_the_version_the_build_and_macos() {
+    let app = mock(FakeCore::default().leak());
+    let info = app_info(app.handle().clone());
+    assert_eq!(info["appVersion"], json!(app.package_info().version.to_string()));
+    assert_eq!(info["commit"], json!(COMMIT));
+    assert!(info["os"].as_str().is_some_and(|os| os.starts_with("macOS")));
+    // A commit hash, or "unknown" outside a git checkout; "+changes" for a tree that differs from it.
+    let hash = COMMIT.trim_end_matches("+changes");
+    assert!(hash == "unknown" || (hash.len() >= 7 && hash.chars().all(|c| c.is_ascii_hexdigit())), "{COMMIT}");
+    assert_eq!(build_line("0.1.0", "e038cd8", "macOS 27.2"), "PlayFX 0.1.0 (e038cd8) on macOS 27.2");
 }
 
 #[test]
@@ -402,6 +416,7 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     ok("psn_consoles", json!({}));
     ok("psn_sign_out", json!({}));
     ok("diagnostics", json!({}));
+    assert_eq!(ok("app_info", json!({}))["commit"], json!(COMMIT));
     ok("toggle_fullscreen", json!({}));
     assert_eq!(ok("fullscreen_state", json!({})), json!(false));
 }

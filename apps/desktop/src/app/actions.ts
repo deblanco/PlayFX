@@ -7,6 +7,7 @@ import {
   isAccountId,
   type AudioDevice,
   type DevCommand,
+  type AppInfo,
   type Diagnostics,
   type Profile,
   type RendererStatus,
@@ -372,9 +373,15 @@ export class ClipboardFailed extends Schema.TaggedError<ClipboardFailed>()("Clip
 
 /** A bug-report text: versions, what the renderer supports, the settings (nothing secret in them), and
  * the end of the log file (already scrubbed of credentials). */
+/** "PlayFX 0.1.0 (e038cd8) on macOS 27.2": the Diagnostics panel, the report and the log's start line say this. */
+export const buildLine = (info: Pick<AppInfo, "appVersion" | "commit" | "os">): string =>
+  `PlayFX ${info.appVersion} (${info.commit}) on ${info.os}`
+
+export const appInfo: Effect.Effect<AppInfo, CoreError, Core> = Effect.flatMap(Core, (core) => core.appInfo)
+
 export const diagnosticsReport = (d: Diagnostics, status: RendererStatus, settings: Settings): string =>
   [
-    `PlayFX ${d.appVersion} on ${d.os}`,
+    buildLine(d),
     `Renderer: MetalFX ${status.metalfxSupported ? "yes" : "no"}, ML super-resolution ${status.mlSupported ? "yes" : "no"}`,
     `Settings: ${JSON.stringify(settings)}`,
     `Log folder: ${d.logFolder}`,

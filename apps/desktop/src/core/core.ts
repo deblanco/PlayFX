@@ -17,6 +17,7 @@ import {
   type StreamOptions,
   type RenderParams,
   PsnConsole,
+  AppInfo,
   Diagnostics,
   PeerWifiReply,
   PeerWifiStatus,
@@ -83,6 +84,8 @@ export class Core extends Context.Service<
     /** Opens PlayFX's source code (AGPL-3.0) in the browser. */
     readonly openSourceCode: Effect.Effect<void, CoreError>
     readonly diagnostics: Effect.Effect<Diagnostics, CoreError>
+    /** The app's version, build commit and macOS version. */
+    readonly appInfo: Effect.Effect<AppInfo, CoreError>
     /** Toggles native fullscreen; succeeds with the new state. */
     readonly toggleFullscreen: Effect.Effect<boolean, CoreError>
     /** Whether the window is fullscreen now (the green button and ⌃⌘F change it too). */
@@ -183,6 +186,7 @@ export const CoreLive = Layer.effect(
       openLogsFolder: Effect.asVoid(call(unit, "open_logs_folder")),
       openSourceCode: Effect.asVoid(call(unit, "open_source_code")),
       diagnostics: call(Diagnostics, "diagnostics"),
+      appInfo: call(AppInfo, "app_info"),
       rendererStatus: call(RendererStatus, "renderer_status"),
       onStreamEvent: subscribe(StreamEvent, "stream-event"),
       onPsnAccount: subscribe(PsnAccountEvent, "psn-account"),

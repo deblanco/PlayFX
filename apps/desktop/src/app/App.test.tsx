@@ -526,6 +526,8 @@ describe("settings", () => {
     renderApp(core)
     const sheet = await openSettings("Diagnostics")
     expect(sheet.getByText("For tracking down problems and reporting bugs.")).toBeInTheDocument()
+    // The version and the commit it was built from, first thing in the panel.
+    expect(await sheet.findByLabelText("Version")).toHaveTextContent("PlayFX 0.1.0 (abc1234) on macOS 27.2")
     expect(sheet.getByText(/never contain your PlayStation sign-in/)).toBeInTheDocument()
     await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ }))
     await waitFor(() => {

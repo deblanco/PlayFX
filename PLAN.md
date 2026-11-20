@@ -472,6 +472,9 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   entries on, applied at startup and when it changes), "Copy diagnostics" (app and macOS versions,
   renderer capabilities, settings, the last 200 log lines — already scrubbed) and "Open logs folder".
   Live click-through pending (the screen was locked).
+  - The version and build (2026-11-20, requested): the Diagnostics panel opens with "PlayFX 0.1.0 (e038cd8) on
+    macOS 27.2", the log's first line at each start says the same, and so does a copied report. The commit is
+    embedded at build time (`build.rs`, `PLAYFX_COMMIT`; "+changes" when built from a tree that differs from it).
 - Development builds keep the PSN sign-in in a 0600 JSON file (`~/.config/psrp/psn-tokens.json`, or
   `$PSRP_TOKEN_FILE`) instead of the Keychain, which would prompt after every rebuild of an unsigned
   build — unanswerable when developing remotely. Release builds use the Keychain.

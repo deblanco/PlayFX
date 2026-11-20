@@ -2,6 +2,7 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         link_streamcore();
     }
+    embed_commit();
     // The app's own commands are access-controlled like plugin ones: only windows granted them (the main
     // window, capabilities/default.json) can call them. The PSN sign-in window shows Sony's site and must
     // never reach secret_get or start_stream.
@@ -37,9 +38,31 @@ fn main() {
         "open_logs_folder",
         "open_source_code",
         "diagnostics",
+        "app_info",
         "renderer_status",
     ])))
     .expect("tauri build");
+}
+
+/// The commit the app is built from, as `PLAYFX_COMMIT` (short hash, "+changes" when the tree differs from it;
+/// "unknown" outside a git checkout), so the Diagnostics panel, the log and a bug report name the exact code.
+fn embed_commit() {
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let commit = git(&["rev-parse", "--short=7", "HEAD"]).unwrap_or_else(|| "unknown".into());
+    let changed = git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
+    println!("cargo:rustc-env=PLAYFX_COMMIT={commit}{}", if changed { "+changes" } else { "" });
+    // Again after a commit or checkout (the reflog moves with both).
+    if let Some(dir) = git(&["rev-parse", "--absolute-git-dir"]) {
+        println!("cargo:rerun-if-changed={dir}/logs/HEAD");
+        println!("cargo:rerun-if-changed={dir}/index");
+    }
 }
 
 /// Compiles and links the shared Swift core (Metal/MetalFX renderer + libchiaki session).

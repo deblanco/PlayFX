@@ -367,19 +367,43 @@ fn open_source_code() -> Result<(), String> {
     open(SOURCE_URL)
 }
 
+/// The commit the app was built from (see build.rs): "e038cd8", "e038cd8+changes", or "unknown".
+pub const COMMIT: &str = env!("PLAYFX_COMMIT");
+
+/// "macOS 27.2", from `sw_vers` ("macOS" alone if it can't be read).
+fn macos_version() -> String {
+    let version = std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    format!("macOS {version}").trim_end().to_string()
+}
+
+/// "PlayFX 0.1.0 (e038cd8) on macOS 27.2": what the log says at start and the Diagnostics panel shows.
+pub fn build_line(version: &str, commit: &str, os: &str) -> String {
+    format!("PlayFX {version} ({commit}) on {os}")
+}
+
+/// The app's version, the commit it was built from and the macOS version, for the Diagnostics panel.
+#[tauri::command(async)]
+fn app_info<R: Runtime>(app: AppHandle<R>) -> Value {
+    serde_json::json!({
+        "appVersion": app.package_info().version.to_string(),
+        "commit": COMMIT,
+        "os": macos_version(),
+    })
+}
+
 /// For bug reports: versions and the end of the log file (already scrubbed of credentials).
 #[tauri::command(async)]
 fn diagnostics<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     let dir = app.path().app_log_dir().map_err(error_text)?;
     let log = std::fs::read_to_string(dir.join("playfx.log")).unwrap_or_default();
-    let os = std::process::Command::new("sw_vers")
-        .arg("-productVersion")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
     Ok(serde_json::json!({
         "appVersion": app.package_info().version.to_string(),
-        "os": format!("macOS {os}"),
+        "commit": COMMIT,
+        "os": macos_version(),
         "logFolder": dir.display().to_string(),
         "recentLog": tail_lines(&log, 200),
     }))
@@ -439,6 +463,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         open_logs_folder,
         open_source_code,
         diagnostics,
+        app_info,
         renderer_status
     ])
 }
@@ -503,7 +528,7 @@ pub fn start_dev_control<R: Runtime>(app: &AppHandle<R>, port: Option<u16>) -> O
 /// and its Metal view under the main window's web view. Called from `main.rs` during setup, on the
 /// main thread, as AppKit requires.
 pub fn attach_streamcore(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("PlayFX {} starting", app.package_info().version);
+    log::info!("{} starting", build_line(&app.package_info().version.to_string(), COMMIT, &macos_version()));
     let _ = APP.set(app.handle().clone());
     #[cfg(target_os = "macos")]
     {
