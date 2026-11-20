@@ -3,6 +3,7 @@ import CoreVideo
 import Foundation
 import Metal
 import os
+import QuartzCore
 import Testing
 @testable import StreamCore
 
@@ -160,6 +161,97 @@ extension StreamRendererTests {
         r.streamFrameRate = 60
         _ = try show(r, try makeNV12(width: 128, height: 128, y: 90, cb: 128, cr: 128), size: (2560, 1440), index: 0)
         #expect(r.inputSize == (192, 192)) // the new stream's first frame, upscaled, is on screen
+    }
+
+    @Test func aRepeatedPictureIsNotUpscaledAgain() throws {
+        let engine = FakeUpscaler()
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: engine))
+        r.showsTestPattern = false
+        r.params.mlUpscale = true
+        r.params.sharpness = 0
+        r.params.upscaler = .bilinear
+        r.setFrameInterpolationActive(true)
+        r.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
+        let frames = try (0..<6).map { _ in try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128) }
+        r.display(frames[0], index: 0)
+        r.waitForUpscaling()
+        let start = CACurrentMediaTime()
+        for i in 1..<frames.count {
+            r.display(frames[i], index: UInt64(i), arrival: start + Double(i) / 60)
+        }
+        #expect(engine.calls == 1)
+        #expect(r.repeatedFrames == 5)
+    }
+
+    @Test func aRepeatedPictureKeepsTheUpscaledFrame() throws {
+        let engine = FakeUpscaler()
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: engine))
+        r.showsTestPattern = false
+        r.params.mlUpscale = true
+        r.params.sharpness = 0
+        r.params.upscaler = .bilinear
+        r.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
+        let frames = try (0..<4).map { _ in try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128) }
+        r.display(frames[0], index: 0)
+        r.waitForUpscaling()
+        let start = CACurrentMediaTime()
+        for i in 1..<frames.count {
+            r.display(frames[i], index: UInt64(i), arrival: start + Double(i) / 60)
+        }
+        _ = try render(r, size: (2560, 1440))
+        #expect(engine.calls == 1 && r.repeatedFrames == 3)
+        #expect(r.inputSize == (96, 96)) // the last upscaled frame, not the decoded 64×64
+        #expect(r.mlActive)
+    }
+
+    @Test func aRepeatArrivingWhileTheModelRunsIsNotUpscaled() throws {
+        let engine = FakeUpscaler(delay: 0.2)
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: engine))
+        r.showsTestPattern = false
+        r.params.mlUpscale = true
+        r.setFrameInterpolationActive(true)
+        r.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
+        let start = CACurrentMediaTime()
+        let first = try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128)
+        r.display(first, index: 0, arrival: start)
+        r.display(try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128), index: 1, arrival: start + 1 / 60)
+        r.waitForUpscaling()
+        #expect(engine.calls == 1 && r.repeatedFrames == 1)
+
+        // Interpolation off: the repeat waits behind the model, then shows that upscaled frame.
+        let engine2 = FakeUpscaler(delay: 0.2)
+        let r2 = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: engine2))
+        r2.showsTestPattern = false
+        r2.params.mlUpscale = true
+        r2.params.sharpness = 0
+        r2.params.upscaler = .bilinear
+        r2.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
+        let start2 = CACurrentMediaTime()
+        r2.display(try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128), index: 0, arrival: start2)
+        r2.display(try makeNV12(width: 64, height: 64, y: 90, cb: 128, cr: 128), index: 1, arrival: start2 + 1 / 60)
+        r2.waitForUpscaling()
+        _ = try render(r2, size: (2560, 1440))
+        #expect(engine2.calls == 1 && r2.repeatedFrames == 1)
+        #expect(r2.inputSize == (96, 96))
+    }
+
+    @Test func aNewPictureIsUpscaledAndAGapUpscalesAgain() throws {
+        let engine = FakeUpscaler()
+        let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: engine))
+        r.showsTestPattern = false
+        r.params.mlUpscale = true
+        r.setFrameInterpolationActive(true)
+        r.setUpscaleTarget(drawableSize: CGSize(width: 2560, height: 1440))
+        r.display(try makeNV12(width: 64, height: 64, y: 40, cb: 128, cr: 128), index: 0)
+        r.waitForUpscaling()
+        let start = CACurrentMediaTime()
+        r.display(try makeNV12(width: 64, height: 64, y: 200, cb: 128, cr: 128), index: 1, arrival: start + 1 / 60)
+        r.waitForUpscaling()
+        #expect(engine.calls == 2 && r.repeatedFrames == 0)
+        // The same picture again, after a gap the clock starts over for: upscale it, don't reuse across the break.
+        r.display(try makeNV12(width: 64, height: 64, y: 200, cb: 128, cr: 128), index: 2, arrival: start + 0.5)
+        r.waitForUpscaling()
+        #expect(engine.calls == 3)
     }
 
     @Test func aDroppedFrameCountsAsSkipped() throws {

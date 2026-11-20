@@ -3,7 +3,8 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20, after release v0.2.1: VideoToolbox no longer leaks a Metal shared event per frame
+Last updated 2026-11-20: a repeated picture is no longer run through ML super-resolution (a 30 fps game in a
+60 fps stream was upscaling every frame, then throwing the repeat away). Previously, after release v0.2.1: VideoToolbox no longer leaks a Metal shared event per frame
 (the crash 10–40 minutes into a session with frame interpolation or ML upscaling on), and a video processor that
 fails is restarted, or its feature turned off, instead of ending the app. Release v0.2.1: the Wi-Fi stall warning from the stream
 itself; Cancel during a PSN pairing's registration ends it at once, and a PS5 that PSN reached but that never
@@ -811,6 +812,21 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 Ideas from PushFPS (frame generation for console capture) and Veyra's Remote Play pull requests, plus two
 requests and a bug report.
 
+- 🔶 **ML skips a repeated picture** (issue #2, 2026-11-20): a 30 fps game in a 60 fps stream upscaled every
+  frame, then interpolation threw the repeat away. The GPU time stayed ~14 ms (the model is not in the draw)
+  while the shown rate fell toward 60 and interpolation misses climbed. The repeat is now told before the
+  model, against the last frame submitted, so one still in the model counts. Interpolation on leaves it out;
+  interpolation off shows the last upscaled frame again. A gap the clock starts over for still upscales the
+  next picture. Verified with a stand-in upscaler, no console: six identical frames call it once; a repeat
+  that arrives during the upscale is not upscaled; with interpolation off the shown frame stays the upscaled
+  size; a new picture is upscaled; the same picture after a 0.5 s gap is upscaled again. On this Mac the
+  low-latency model is spatial (a second pass, and a frame run after a different one, match a fresh run,
+  mean luma difference 0). macOS 27's `maximumDimension` / `maximumPixelCount` confirm the 1280 px and
+  1,638,400 px caps at 1.5×; 1920×1080 lists no scale factor. MetalFX stays the spatial scaler, perceptual
+  for SDR and HDR for float output. Help (`docs/HELP.md`, GTA VI) names the two setups: 1080p60 with ML
+  and frame interpolation to play, 1080p30 with ML and interpolation off for the sharpest picture. Left:
+  the live 1080p stream on the 120 Hz screen. Moving areas of in-between images are still bilinear from
+  the decoded frame, so foliage there can look softer than MetalFX alone.
 - ✅ **Frame generation from the game's frame rate** (verified on the PS5 with GTA VI, the user: "smoother",
   "latency wise seems better"): the game measured as 30 fps in the 60 fps stream; its repeats aren't
   exact copies (the encoder refines them: 2–4 KB, mean luma change 0.02–0.4 against 0.6–8 for new
@@ -911,7 +927,7 @@ requests and a bug report.
    status timeout and staples the `.app` too (built and tested with a fake notarytool); left: its first real run,
    at the next release. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
-   in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080 (the screen rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
+   in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080, now skipping repeated pictures (the shown rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
    haptics in Astro's Playroom.

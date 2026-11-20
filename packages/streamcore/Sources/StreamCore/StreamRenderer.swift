@@ -133,6 +133,9 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         /// The last decoded frame (repeat or not), to tell a repeat of it; the game's rate from its new
         /// pictures; even times for them; and frames that repeated the one before.
         var lastDecoded: CVPixelBuffer?
+        /// The last decoded frame handed to ML, including one still in the model. With ML on, a repeat is
+        /// told against this: `lastDecoded` only moves once a frame reaches the clock, which is after the model.
+        var submitted: CVPixelBuffer?
         var content = ContentRate()
         var cadence = CadenceClock()
         var repeats = RepeatDetector()
@@ -359,8 +362,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// says, not when it arrives. With frame interpolation on, a frame that repeats the last picture (a game
     /// slower than the stream) is left out, and the images between the game's last two pictures, one per
     /// screen refresh between them, are made on the interpolation lane meanwhile. The first frame replaces
-    /// the idle backdrop. With ML upscaling on, the frame is upscaled on its own lane first and joins the
-    /// stream clock when that's done, so a refresh never waits for the model.
+    /// the idle backdrop. With ML upscaling on, a new picture is upscaled on its own lane first and joins the
+    /// stream clock when that's done, so a refresh never waits for the model. A repeat of that picture does
+    /// not run the model again: with interpolation on it is left out, and with it off the last upscaled
+    /// frame is shown.
     public func display(_ frame: CVPixelBuffer, index: UInt64? = nil, arrival: Double = CACurrentMediaTime()) {
         showsTestPattern = false
         let (i, stalls) = pacing.withLock { p in
@@ -391,25 +396,105 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             intake(frame, decoded: frame, index: i, arrival: arrival, decodedAt: arrival)
             return
         }
-        let generation = upscaleGeneration.withLock { $0 }
-        upscaleLane.submit(frame, target: target, upscale: upscale) { [weak self] upscaled in
-            guard let self, upscaleGeneration.withLock({ $0 }) == generation else { return } // the stream before
-            // On the clock from when it's ready: the delay planner then covers the model's time.
-            intake(upscaled ?? frame, decoded: frame, index: i, arrival: CACurrentMediaTime(), decodedAt: arrival)
+        // Read once: a repeat takes the branch this saw. The lane only goes idle after its callback returns,
+        // so an idle lane isn't inside `intake`, and a busy one keeps this frame behind the one it holds.
+        let busy = upscaleLane.isBusy
+        if upscale {
+            switch takeRepeat(frame, index: i, arrival: arrival, laneBusy: busy) {
+            case .samePicture:
+                let wanted = interpolating.withLock { $0 }
+                if busy {
+                    // Behind the frame already in the model, so the clock still sees frames in order.
+                    // Interpolation off reuses that frame's upscale; on, the repeat is left out below.
+                    submit(frame, to: upscaleLane, target: target, upscale: false, reuse: !wanted, index: i,
+                           arrival: arrival, repeated: true)
+                } else {
+                    let shown = wanted ? frame : (upscaleLane.lastUpscaled ?? frame)
+                    intake(shown, decoded: frame, index: i, arrival: arrival, decodedAt: arrival, repeated: true)
+                }
+                return
+            case .newPicture:
+                submit(frame, to: upscaleLane, target: target, upscale: true, index: i, arrival: arrival, repeated: false)
+                return
+            case .undecided:
+                break
+            }
         }
+        submit(frame, to: upscaleLane, target: target, upscale: upscale, index: i, arrival: arrival, repeated: nil)
+    }
+
+    /// Hands `frame` to the lane. `done` runs on the lane's queue once it's this frame's turn; a frame from
+    /// the stream before (the generation moved) is left out. `repeated` nil lets `intake` classify it.
+    private func submit(_ frame: CVPixelBuffer, to lane: UpscaleLane, target: CGSize, upscale: Bool, reuse: Bool = false,
+                        index i: UInt64, arrival: Double, repeated: Bool?) {
+        let generation = upscaleGeneration.withLock { $0 }
+        lane.submit(frame, target: target, upscale: upscale, reuse: reuse) { [weak self] upscaled in
+            guard let self, upscaleGeneration.withLock({ $0 }) == generation else { return }
+            // On the clock from when it's ready: the delay planner then covers the model's time.
+            intake(upscaled ?? frame, decoded: frame, index: i, arrival: CACurrentMediaTime(), decodedAt: arrival,
+                   repeated: repeated)
+        }
+    }
+
+    /// How a frame ML would upscale compares with the last one submitted. `.undecided` still runs the model
+    /// (the first frame, a size change, a frame out of order, or a real gap with the lane idle) and `intake`
+    /// classifies it. A gap while the lane is busy is classified here: the frame already in the model is the
+    /// one the clock hasn't taken yet, and this one repeats it.
+    private enum SubmittedRepeat { case samePicture, newPicture, undecided }
+
+    private func takeRepeat(_ frame: CVPixelBuffer, index: UInt64, arrival: Double, laneBusy: Bool) -> SubmittedRepeat {
+        enum Peek { case classify(CVPixelBuffer), undecided }
+        let peek: Peek = pacing.withLock { p in
+            switch p.clock.wouldRestart(index: index, arrival: arrival) {
+            case nil:
+                return .undecided // out of order: intake drops it, so the detector stays put
+            case .some(true) where !laneBusy:
+                p.submitted = frame
+                return .undecided
+            default:
+                break
+            }
+            if let submitted = p.submitted {
+                let same = CVPixelBufferGetWidth(submitted) == CVPixelBufferGetWidth(frame)
+                    && CVPixelBufferGetHeight(submitted) == CVPixelBufferGetHeight(frame)
+                if !same {
+                    p.repeats.reset()
+                    p.submitted = frame
+                    return .undecided
+                }
+                return .classify(submitted)
+            }
+            p.submitted = frame
+            return .undecided
+        }
+        guard case .classify(let previous) = peek else { return .undecided }
+        // Outside the lock: it reads both frames' luma on the CPU.
+        let difference = Self.interpolates(previous) && Self.interpolates(frame)
+            ? InterpolationLane.difference(previous, frame) : nil
+        let repeated = pacing.withLock { p in
+            p.submitted = frame
+            return difference.map { p.repeats.isRepeat(difference: $0) } ?? false
+        }
+        return repeated ? .samePicture : .newPicture
     }
 
     /// The rest of `display` for `frame` (upscaled, or the decoded frame itself): onto the stream clock at
     /// `arrival`, into the timeline, and in-between images for it. `decoded` is the frame as decoded (repeats
-    /// are told on it), and `decodedAt` when it arrived (for the display-latency stat).
-    private func intake(_ frame: CVPixelBuffer, decoded: CVPixelBuffer, index i: UInt64, arrival: Double, decodedAt: Double) {
+    /// are told on it), and `decodedAt` when it arrived (for the display-latency stat). `repeated` set means
+    /// `display` already classified this frame against the one it submitted; nil classifies here, which is
+    /// the path with ML off.
+    private func intake(_ frame: CVPixelBuffer, decoded: CVPixelBuffer, index i: UInt64, arrival: Double, decodedAt: Double,
+                        repeated known: Bool? = nil) {
         let wanted = interpolating.withLock { $0 }
         let before = pacing.withLock { p in
             defer { p.lastDecoded = decoded }
             return p.lastDecoded
         }
-        // Compared outside the lock: it reads both frames' luma on the CPU.
-        let difference = before.flatMap { Self.interpolates($0) && Self.interpolates(decoded) ? InterpolationLane.difference($0, decoded) : nil }
+        // Compared outside the lock: it reads both frames' luma on the CPU. Skipped when `display` already
+        // classified this frame, so the detector moves once.
+        let difference = known != nil ? nil : before.flatMap {
+            Self.interpolates($0) && Self.interpolates(decoded) ? InterpolationLane.difference($0, decoded) : nil
+        }
         let pair: (previous: CVPixelBuffer, between: [InBetween.Image], steps: Int, size: (width: Int, height: Int),
                    prepare: [(width: Int, height: Int)])? =
             pacing.withLock { p in
@@ -425,7 +510,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                     p.repeats.reset()
                     p.populated = nil
                 }
-                let repeated = difference.map { p.repeats.isRepeat(difference: $0) } ?? false
+                let repeated = known ?? (difference.map { p.repeats.isRepeat(difference: $0) } ?? false)
                 p.lastArrival = arrival
                 if repeated {
                     p.repeated += 1
@@ -524,6 +609,10 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     /// Waits until every frame handed to `display` so far is through ML upscaling and on the stream clock
     /// (tests, offscreen renders).
     public func waitForUpscaling() { upscaleLane?.waitUntilIdle() }
+
+    /// Tests: whether in-between images are being made. `nextFrame` normally decides this from the screen's
+    /// rate; a test forces it so a repeated picture can be checked without a 120 Hz display.
+    func setFrameInterpolationActive(_ on: Bool) { interpolating.withLock { $0 = on } }
 
     /// The screen area frames are upscaled for, which each draw sets; set it ahead for an offscreen render.
     public func setUpscaleTarget(drawableSize: CGSize) { upscaleTarget.withLock { $0.drawable = drawableSize } }

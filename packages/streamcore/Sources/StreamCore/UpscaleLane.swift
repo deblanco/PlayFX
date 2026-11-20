@@ -22,6 +22,7 @@ extension MLSuperResolution: FrameUpscaler {}
 /// so a refresh never waits for the model (at 1080p it takes most of a 60 fps frame). Frames come out in the
 /// order they went in. One frame is upscaled while at most one waits: a newer frame takes the waiting one's
 /// place, and the one it replaces is dropped (counted), so the lane never falls more than a frame behind.
+/// A repeated picture does not run the model again: it passes through, and can reuse the last upscaled frame.
 /// See docs/ML_UPSCALING.md.
 final class UpscaleLane {
     /// An upscaled frame carries the decoded frame it was made from under this attachment, for the compare
@@ -41,6 +42,9 @@ final class UpscaleLane {
         let target: CGSize
         /// False: the frame only passes through, in its place in the order.
         let upscale: Bool
+        /// With `upscale` false: hand back the last upscaled frame instead of nil. Its decoded-frame
+        /// attachment is left as it was (the timeline may still be showing that same buffer).
+        let reuse: Bool
         /// Called on the lane's queue with the upscaled frame, or nil when it wasn't upscaled.
         let done: (CVPixelBuffer?) -> Void
     }
@@ -49,6 +53,10 @@ final class UpscaleLane {
         var busy = false
         var waiting: Job?
         var dropped = 0
+        /// The last frame the model produced. Nil after `reset`, or when the last upscale produced nothing.
+        var cached: CVPixelBuffer?
+        /// Bumped by `reset`, so an upscale that started on the stream before doesn't refill `cached`.
+        var epoch = 0
         /// Whether the last frame was upscaled, and whether its size can never be.
         var ran = false
         var refused = false
@@ -72,6 +80,8 @@ final class UpscaleLane {
     var dropped: Int { state.withLock { $0.dropped } }
     /// Whether a frame is being upscaled or waiting: a frame that skips the lane would overtake it.
     var isBusy: Bool { state.withLock { $0.busy } }
+    /// The last upscaled frame, for a repeat that doesn't run the model. Nil after `reset` or a failed upscale.
+    var lastUpscaled: CVPixelBuffer? { state.withLock { $0.cached } }
     /// Whether the last frame was upscaled, and whether its size is one the engine never takes.
     var status: (ran: Bool, refused: Bool) { state.withLock { ($0.ran, $0.refused) } }
     /// Whether the engine is off for the rest of the run (its video processor kept failing).
@@ -84,10 +94,12 @@ final class UpscaleLane {
 
     /// Queues `frame` for a picture of `target` size; `done` gets the upscaled frame (nil: use `frame` as is)
     /// on the lane's queue, in submission order. `upscale` false passes the frame through untouched, behind
-    /// the ones already in the lane. A frame still waiting when the next one arrives is dropped, and its
-    /// `done` is never called.
-    func submit(_ frame: CVPixelBuffer, target: CGSize, upscale: Bool = true, done: @escaping (CVPixelBuffer?) -> Void) {
-        let job = Job(frame: frame, target: target, upscale: upscale, done: done)
+    /// the ones already in the lane; `reuse` then hands back the last upscaled frame instead of nil. A frame
+    /// still waiting when the next one arrives is dropped, and its `done` is never called. A pass-through is
+    /// not counted as dropped.
+    func submit(_ frame: CVPixelBuffer, target: CGSize, upscale: Bool = true, reuse: Bool = false,
+                done: @escaping (CVPixelBuffer?) -> Void) {
+        let job = Job(frame: frame, target: target, upscale: upscale, reuse: reuse, done: done)
         let start = state.withLock { s -> Bool in
             guard s.busy else { s.busy = true; return true }
             if s.waiting != nil { s.dropped += 1 }
@@ -108,8 +120,15 @@ final class UpscaleLane {
         }
     }
 
-    /// Drops a waiting frame and starts the count over (a new stream).
-    func reset() { state.withLock { $0.waiting = nil; $0.dropped = 0 } }
+    /// Drops a waiting frame, forgets the last upscaled frame, and starts the count over (a new stream).
+    func reset() {
+        state.withLock { s in
+            s.waiting = nil
+            s.dropped = 0
+            s.cached = nil
+            s.epoch += 1
+        }
+    }
 
     /// Waits until every frame handed in so far is done; for tests and offscreen renders.
     func waitUntilIdle() {
@@ -117,13 +136,20 @@ final class UpscaleLane {
     }
 
     private func process(_ job: Job) -> CVPixelBuffer? {
-        guard job.upscale else { return nil }
+        guard job.upscale else { return job.reuse ? state.withLock { $0.cached } : nil }
+        let epoch = state.withLock { $0.epoch }
         let width = CVPixelBufferGetWidth(job.frame), height = CVPixelBufferGetHeight(job.frame)
         state.withLock { $0.since = CACurrentMediaTime() }
         let output = engine.upscale(job.frame, target: job.target)
         if let output { CVBufferSetAttachment(output, Self.decodedKey, job.frame, .shouldPropagate) }
         let ran = output != nil, refused = engine.refuses(width: width, height: height)
-        state.withLock { $0.ran = ran; $0.refused = refused; $0.since = nil }
+        // A reset during the upscale belongs to the next stream: don't put this frame back in the cache.
+        state.withLock { s in
+            if s.epoch == epoch { s.cached = output }
+            s.ran = ran
+            s.refused = refused
+            s.since = nil
+        }
         return output
     }
 }

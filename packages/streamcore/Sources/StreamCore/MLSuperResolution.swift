@@ -26,7 +26,9 @@ struct MLTiling: Equatable {
 /// Apple's low-latency ML super-resolution (VideoToolbox, macOS 26+), run on the decoded NV12 frame
 /// before the rest of the pipeline. 1.5× (and 2× for small frames); 1080p and 540p go through `MLTiling`.
 final class MLSuperResolution {
-    /// The largest side the model takes.
+    /// The largest side the model takes. macOS 27 reports the same cap:
+    /// `maximumDimension(forSpatialScaleFactor: 1.5)` is 1280 and the pixel cap is 1,638,400.
+    /// 1920×1080 lists no scale factor, so a whole 1080p frame cannot go through.
     static let maxInputSide = 1280
     /// Columns of context each tile gets beyond the part of it that's kept.
     static let overlap = 64

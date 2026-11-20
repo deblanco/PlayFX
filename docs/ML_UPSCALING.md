@@ -19,7 +19,10 @@ idle.
   Engine, so the GPU's time per frame barely moves. It takes 8-bit NV12 frames and scales them 1.5×, or 2×
   for small ones.
 - **It only takes sides up to 1280 px that are multiples of 16.** It reports other sizes as supported, then
-  fails on them. 1080 and 540 aren't multiples of 16.
+  fails on them. 1080 and 540 aren't multiples of 16. On macOS 27 the new queries agree:
+  `maximumDimension(forSpatialScaleFactor: 1.5)` is 1280 and `maximumPixelCount` is 1,638,400 (1280×1280).
+  2× is capped at 960 and 921,600 px; 4× at 480 and 230,400. 1920×1080 lists no scale factor. The header's
+  example of a whole 1080p frame is only valid if those limits allow it, and on this OS they do not.
 - **540p is padded to 960×544**: the last 4 rows are repeated, and the extra rows are dropped from the
   output. 540p gets 2× when the window has room for it.
 - **1080p is cut into two overlapping 1088×1088 tiles.** Each tile goes through the model on its own
@@ -28,8 +31,10 @@ idle.
 - **Cutting and joining are GPU blits**, one command buffer before the model and one after. No pixels are
   converted.
 - **It runs on its own lane, not in the draw** (`UpscaleLane`): its own queue and Metal command queue, one
-  frame at a time. A refresh never waits for the model. Each decoded frame is upscaled first and joins the
+  frame at a time. A refresh never waits for the model. A new picture is upscaled first and joins the
   stream clock when that's done, so the pacing delay covers the model's time like any other lateness.
+  A repeat of that picture does not run the model: with frame interpolation on it is left out, and with it
+  off the last upscaled frame is shown again.
 - **It upscales stream frames only.** In-between images are made from upscaled frames, so the model doesn't
   run again for each of them.
 - **When it falls behind, it drops a frame instead of queueing.** One frame is upscaled while at most one
@@ -200,8 +205,9 @@ With the lane, the same kind of test (1080p, 32 frames, debug build) times the t
 | ML off | 0.7 ms (nothing to do) | 6.7 ms |
 | ML on | 15.5 ms | 3.5 ms |
 
-The lane's 15.5 ms includes the repeat check on the decoded frame, which now runs on the lane's queue too.
-It fits a 60 fps stream's 16.7 ms, with little to spare; the draw no longer carries any of it. The two GPU
+The lane's 15.5 ms includes the repeat check on the decoded frame, which at the time ran on the lane's queue
+too. It now runs before the model, and a repeat doesn't enter it. It fits a 60 fps stream's 16.7 ms, with
+little to spare; the draw no longer carries any of it. The two GPU
 figures are smoothed averages and noisy: what matters is that ML adds nothing to the draw.
 
 ### How to measure it again
@@ -228,7 +234,7 @@ figures are smoothed averages and noisy: what matters is that ML adds nothing to
     size and that brightness holds across the cut and in the padded rows. Both are skipped where ML isn't
     available.
   - `mlSaysWhyItIsIdle`: the reasons the HUD shows.
-- `swift test --package-path packages/streamcore --filter "UpscaleLane|upscalesOnItsLane|comparesAgainst|framesSkip|aDropped"`:
+- `swift test --package-path packages/streamcore --filter "UpscaleLane|upscalesOnItsLane|comparesAgainst|framesSkip|aDropped|aRepeated|aRepeat|aNewPicture"`:
   the lane with a stand-in engine, so these run in CI's VM too. They cover:
   - order, and dropping the waiting frame;
   - the decoded frame kept with the upscaled one;
@@ -237,7 +243,10 @@ figures are smoothed averages and noisy: what matters is that ML adds nothing to
   - frames skipping the lane with ML off or nothing to enlarge;
   - frames queueing behind one still in the lane;
   - a frame from the stream before left out;
-  - dropped frames counted as lost.
+  - dropped frames counted as lost;
+  - a repeated picture upscaled once (also when the repeat arrives while the model is still busy), the
+    last upscaled frame kept when interpolation is off, a new picture upscaled, and a picture after a
+    clock gap upscaled again.
 
   Not covered by a test: interpolation sizes from the decoded frame, and the in-between baseline in the
   split view. Both need VideoToolbox's frame interpolation running on frames from the lane; check them on a
@@ -259,23 +268,25 @@ figures are smoothed averages and noisy: what matters is that ML adds nothing to
 
 ## Known limits and open questions
 
-- **The lane hasn't been on a live stream yet.** ML in the draw was, and failed as the table above shows.
-  The next check is the same 1080p stream on the 120 Hz screen: the screen rate should stay near 120 Hz with
-  ML on, and the frames lost near 0.
+- **The lane's repeat skip hasn't been on a live stream yet.** A 30 fps game in a 60 fps stream used to
+  upscale every frame and then throw the repeat away, which is the headroom problem below. The repeat is
+  now told before the model. The next check is the same 1080p stream on the 120 Hz screen: the shown rate
+  should stay near the refresh rate with ML on, and the frames lost near 0.
 - **Latency.** Up to 15 ms at 1080p, almost a whole 60 fps frame, added to the pacing delay. The setting
-  says so; users who play fast games may want it off.
-- **Little headroom at 1080p60.** The lane takes about 15.5 ms per frame in a debug build, against 16.7 ms.
-  With frame interpolation also using the Neural Engine, it may fall behind; it then drops frames, counted
-  as lost. Two things would add headroom: reusing the last result for a repeated frame (a 30 fps game in a
-  60 fps stream sends every picture twice), and moving the repeat check off the lane.
+  says so; users who play fast games may want it off. A repeated picture no longer adds that cost.
+- **Little headroom at 1080p60.** The lane takes about 15.5 ms per new picture in a debug build, against
+  16.7 ms. With frame interpolation also using the Neural Engine, a stream of all-new pictures may still
+  fall behind; it then drops frames, counted as lost. A 30 fps game no longer pays that cost twice. The
+  model itself is spatial: running a frame twice, or after a different frame, matches a fresh run.
 - **1080p only helps on large windows.** The output is 2880×1620, and the frame only goes through when the
   picture on screen is larger than 1920×1080.
 - **Existing installs keep their saved choice.** The default only applies to new installs and to settings
   saved before the switch existed. Anyone who had it off keeps it off. Since the Recommended profile now has
   ML on, their settings show as their own mix rather than Recommended.
 - **In-between images have no ML detail where things move** (see "Frame interpolation picks its sizes from
-  the decoded frame" above). On a 120 Hz screen, detail in moving areas may look like it flickers between
-  sharper and softer from one refresh to the next. Not yet seen on a live stream.
+  the decoded frame" above). On a 120 Hz screen, detail in moving areas may look softer than MetalFX alone,
+  because the generated image is bilinear from the decoded frame and MetalFX then only covers the last step.
+  Seen on a 1080p recording (issue #2); not separately rechecked after the repeat skip.
 - **HDR (10-bit) streams** get no ML. The model takes 8-bit frames only.
 - **Seams** don't show on the test frames, which have flat areas and one hard edge. Fine diagonal detail
   crossing the cut hasn't been checked side by side.

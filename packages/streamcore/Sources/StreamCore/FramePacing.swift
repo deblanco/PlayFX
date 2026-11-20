@@ -41,8 +41,7 @@ struct StreamClock {
     mutating func time(index: UInt64, arrival: Double) -> (time: Double, restarted: Bool)? {
         if anchored, index <= lastIndex || arrival < lastArrival { return nil }
         let expected = anchor + Double(index - firstIndex) / fps + phase
-        let restarted = !anchored || arrival - lastArrival > 0.2 || Double(index - lastIndex) > fps / 2
-            || abs(arrival - max(expected, lastTime)) > Self.reach
+        let restarted = startsOver(index: index, arrival: arrival, expected: expected)
         if restarted {
             anchor = arrival
             firstIndex = index
@@ -63,6 +62,20 @@ struct StreamClock {
         lastArrival = arrival
         lastTime = time
         return (time, restarted)
+    }
+
+    /// Whether `time(index:arrival:)` would start the clock over. Nil when that call would ignore the frame
+    /// (it arrived out of order). Does not move the clock. The first frame counts as a start.
+    func wouldRestart(index: UInt64, arrival: Double) -> Bool? {
+        guard anchored else { return true }
+        if index <= lastIndex || arrival < lastArrival { return nil }
+        let expected = anchor + Double(index - firstIndex) / fps + phase
+        return startsOver(index: index, arrival: arrival, expected: expected)
+    }
+
+    private func startsOver(index: UInt64, arrival: Double, expected: Double) -> Bool {
+        !anchored || arrival - lastArrival > 0.2 || Double(index - lastIndex) > fps / 2
+            || abs(arrival - max(expected, lastTime)) > Self.reach
     }
 }
 

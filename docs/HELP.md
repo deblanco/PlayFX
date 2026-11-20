@@ -6,6 +6,7 @@ PlayFX plays your PlayStation 5 or PlayStation 4 on your Mac. It isn't made by S
 - [Requirements](#requirements)
 - [First-time setup](#first-time-setup)
 - [FAQ](#faq)
+- [GTA VI](#gta-vi)
 - [Keyboard as controller](#keyboard-as-controller)
 - [What PlayFX stores, and where](#what-playfx-stores-and-where)
 - [Logs and bug reports](#logs-and-bug-reports)
@@ -186,7 +187,7 @@ Turn it on with **Stats on screen** in Settings › Picture. Numbers in amber po
 | `GPU 2.9 ms` | The Mac's graphics time per frame. Amber from 8 ms. |
 | `latency 20 ms` | Decoding plus waiting for the screen, on the Mac (the network's part is the ping). Amber from 33 ms. |
 | `MetalFX` | The upscaler at work: `MetalFX`, `Bilinear`, or `ML + MetalFX` with ML upscaling. `(no upscale needed)` when the stream is already as large as the window. |
-| `ML idle (…)` | ML upscaling is on but not used, and why (only for 720p and lower, not for HDR, unavailable on this Mac). |
+| `ML idle (…)` | ML upscaling is on but not used, and why: the window isn't larger than the stream, the stream is too large, it's HDR, or this Mac can't run it. |
 | `+30 generated` | Frame interpolation: images made between the game's frames each second. |
 | `(2/s missed)` | Pairs of frames per second that got no image in between, so the picture held for a moment. Amber from 3 a second. |
 | `no interpolation: …` | Frame interpolation is on but idle, and why: for example `60 fps on a 60 Hz screen` (nothing to fill), or `still picture`. |
@@ -211,11 +212,26 @@ default; turn it on in Settings › Picture.
 
 The console sends at most 1080p. PlayFX enlarges each frame to your window with **MetalFX** (the
 default), then sharpens it. **ML upscaling first** (Settings › Picture) runs Apple's neural upscaler
-before that: the biggest gain at 720p (crisper hair and edges), for about 5 ms of latency. It needs
-macOS 26, works on 720p and lower streams, and sits out in HDR.
+before that. The biggest gain is at 720p. At 1080p it enlarges to 2880×1620, then MetalFX finishes
+the rest, for up to about 15 ms of latency. It needs macOS 26 and sits out in HDR. A game that sends
+each picture twice (30 fps inside a 60 fps stream) is upscaled once.
 
 Picture settings change the video right away. Set **View** to **Split** in Settings › Picture to see the
 stream as it arrives on the left and with your settings on the right.
+
+### GTA VI
+
+GTA VI draws about 30 new pictures a second. Use one of these:
+
+- **Playing.** Settings › Stream: **1080p**, **60 fps**, HEVC, Bitrate **Auto** (raise it if motion looks
+  soft and the network can take it). Settings › Picture: **ML upscaling** on, upscaler **MetalFX**,
+  sharpness **0.3**, **frame interpolation** on. PlayFX upscales each new picture once and fills the
+  screen toward its refresh rate (about 120 on a ProMotion display). Moving foliage is softer than still
+  scenery, because the images in between start from the decoded frame.
+- **Sharpest picture.** The same, with the stream at **30 fps** and frame interpolation **off**. Every
+  frame on screen went through ML, and motion steps at 30.
+
+Leave **HDR** off for either one. HDR turns ML upscaling and frame interpolation off.
 
 ### HDR
 
