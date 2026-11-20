@@ -90,7 +90,10 @@ describe("home: discovery", () => {
     expect(help.getByText(/in rest mode with Stay Connected to the Internet/)).toBeInTheDocument()
     expect(help.getByText(/same network as this Mac/)).toBeInTheDocument()
     expect(help.getByText("Any VPN on this Mac is off.")).toBeInTheDocument()
-    expect(help.getByText("Your PS5 on another network or behind a second router? Enter its IP.")).toBeInTheDocument()
+    expect(help.getByText("PlayFX keeps looking. If your console doesn't show up, check that:")).toBeInTheDocument()
+    expect(help.getByText("On a different subnet here, or behind a second router at home? Enter its IP.")).toBeInTheDocument()
+    // Someone away from home is pointed to the internet, not to an IP that can't work.
+    expect(help.getByText("Away from home? Play a paired PS5 over the internet with Connect › Internet.")).toBeInTheDocument()
     expect(screen.getByRole("radio", { name: "Automatic" })).toBeChecked()
     await userEvent.click(help.getByRole("button", { name: "Open Local Network settings" }))
     await waitFor(() => {

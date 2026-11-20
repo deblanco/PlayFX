@@ -36,7 +36,7 @@ export const NoConsoles = ({
     >
       <div className="flex flex-col gap-0.5">
         <h3 id="no-consoles" className="text-sm text-white">{listed ? "No consoles on this network yet" : "No consoles found yet"}</h3>
-        <p className="text-xs text-muted-foreground">PlayFX keeps looking. If your PS5 doesn't show up, check that:</p>
+        <p className="text-xs text-muted-foreground">PlayFX keeps looking. If your console doesn't show up, check that:</p>
       </div>
       <ul className="flex flex-col gap-2">
         <CheckItem icon={Power}>It's on, or in rest mode with Stay Connected to the Internet turned on.</CheckItem>
@@ -50,7 +50,8 @@ export const NoConsoles = ({
         </CheckItem>
       </ul>
       <div className="flex flex-col gap-1.5 border-t border-white/10 pt-3">
-        <p className="text-xs text-white">Your PS5 on another network or behind a second router? Enter its IP.</p>
+        <p className="text-xs text-white">On a different subnet here, or behind a second router at home? Enter its IP.</p>
+        <p className="text-xs text-muted-foreground">Away from home? Play a paired PS5 over the internet with Connect › Internet.</p>
         <ConsoleAddress
           // Keyed by the saved address: when it changes underneath (settings loading), the field restarts from it.
           key={address}

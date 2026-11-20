@@ -432,9 +432,10 @@ Work items:
   (the PS5 on, or in rest mode with Stay Connected to the Internet; the same network as the Mac, not a guest
   Wi-Fi; no VPN; PlayFX allowed on the local network, with **Open Local Network settings**, a new
   `open_local_network_settings` command that opens System Settings › Privacy & Security › Local Network at a
-  fixed URL) and "Your PS5 on another network or behind a second router? Enter its IP." with the console IP
-  field, whatever the Connect mode. With a console found here, the field sits folded under the list ("Console
-  missing? Add it by IP"), open when an IP is saved. Every scan now asks a saved IP directly, not only in
+  fixed URL) and "On a different subnet here, or behind a second router at home? Enter its IP." with the
+  console IP field, whatever the Connect mode, and "Away from home? Play a paired PS5 over the internet with
+  Connect › Internet." With a console found here, the field sits folded under the list ("Console missing? Add
+  it by IP"), open when an IP is saved. Every scan now asks a saved IP directly, not only in
   Home network mode, so a console paired through the IP field plays in Automatic too. Checked by unit tests
   (App: calm then help, the button, the field saving, the help hiding, playing in Automatic; actions: the IP
   asked in every mode; Rust: the command through the real ACL, with `open` recorded instead of run in
