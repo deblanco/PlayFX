@@ -1686,6 +1686,26 @@ describe("settings profiles", () => {
     })
   })
 
+  it("holds a profile switch for Reconnect until the bitrate slider moves", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core, { testClock: true, profiles: [profile("Fast", { bitrate: 15000 })] })
+    const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Stream")
+
+    await userEvent.selectOptions(sheet.getByRole("combobox", { name: "Profile" }), "Fast")
+    await wait(3)
+    expect(core.service.startStream).not.toHaveBeenCalled()
+
+    // Changed another way: the slider's bitrate applies on its own once it settles.
+    nudge("Bitrate", "ArrowRight")
+    await wait(2)
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 20000 }), undefined)
+  })
+
   it("holds a profile switch made while a bitrate is still settling on the slider", async () => {
     const core = fakeCore()
     const { runtime } = await startStreaming(core, {
