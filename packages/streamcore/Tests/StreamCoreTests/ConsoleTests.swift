@@ -91,7 +91,8 @@ extension Serial {
                     _ = try Console.register(address: "127.0.0.1", ps5: ps5, accountId: account, pin: "1234-5678")
                     Issue.record("registration against loopback should fail")
                 } catch {
-                    #expect(error.localizedDescription.hasPrefix("Registration failed"))
+                    // Nothing listens on loopback: the search is refused (or unanswered), so the console "didn't answer".
+                    #expect(error.localizedDescription.hasPrefix("The \(ps5 ? "PS5" : "PS4") didn't answer"))
                 }
             }
             #expect(!logs.lines.isEmpty)

@@ -253,6 +253,8 @@ typedef struct {
     bool done;
     bool success;
     ChiakiRegisteredHost host;
+    ChiakiErrorCode error;
+    uint32_t application_reason;
 } RegistCtx;
 
 static void regist_cb(ChiakiRegistEvent *event, void *user) {
@@ -260,9 +262,61 @@ static void regist_cb(ChiakiRegistEvent *event, void *user) {
     pthread_mutex_lock(&ctx->mutex);
     ctx->success = event->type == CHIAKI_REGIST_EVENT_TYPE_FINISHED_SUCCESS;
     if (ctx->success && event->registered_host) ctx->host = *event->registered_host;
+    ctx->error = event->error;
+    ctx->application_reason = event->application_reason;
     ctx->done = true;
     pthread_cond_signal(&ctx->cond);
     pthread_mutex_unlock(&ctx->mutex);
+}
+
+void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bool ps5, char *out, size_t size) {
+    if (!out || !size) return;
+    const char *console = ps5 ? "PS5" : "PS4";
+    const char *screen = ps5 ? "Pair Device" : "Add Device";
+    switch (application_reason) {
+    case CHIAKI_RP_APPLICATION_REASON_REGIST_FAILED:
+        snprintf(out, size, "The code is wrong or has expired. Get a new one: %s on the %s shows a new code.", screen,
+                 console);
+        return;
+    case CHIAKI_RP_APPLICATION_REASON_INVALID_PSN_ID:
+        snprintf(out, size,
+                 "The PlayStation account you signed in with isn't the %s user who opened %s. Open %s as that "
+                 "user, or sign in with their account.",
+                 console, screen, screen);
+        return;
+    case CHIAKI_RP_APPLICATION_REASON_RP_VERSION:
+        snprintf(out, size,
+                 "The %s's Remote Play version doesn't match PlayFX's. Update the %s's system software and "
+                 "PlayFX, then pair again.",
+                 console, console);
+        return;
+    default:
+        break;
+    }
+    switch ((ChiakiErrorCode)chiaki_error) {
+    case CHIAKI_ERR_TIMEOUT:
+    case CHIAKI_ERR_CONNECTION_REFUSED:
+        snprintf(out, size,
+                 "The %s didn't answer. Keep %s open on the %s while you pair, and check that it's on the same "
+                 "network as this Mac.",
+                 console, screen, console);
+        return;
+    case CHIAKI_ERR_NETWORK:
+    case CHIAKI_ERR_HOST_DOWN:
+    case CHIAKI_ERR_HOST_UNREACH:
+    case CHIAKI_ERR_PARSE_ADDR:
+    case CHIAKI_ERR_DISCONNECTED:
+        snprintf(out, size,
+                 "Couldn't reach the %s. Allow PlayFX in System Settings › Privacy & Security › Local Network, "
+                 "and turn off any VPN.",
+                 console);
+        return;
+    default:
+        snprintf(out, size,
+                 "Registration failed: check the PIN (it expires after a few minutes) and that the console is on "
+                 "and on the same network.");
+        return;
+    }
 }
 
 bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACCOUNT_ID_SIZE], uint32_t pin,
@@ -296,10 +350,7 @@ bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACC
     pthread_mutex_destroy(&ctx.mutex);
 
     if (!ctx.success) {
-        set_error(error, error_size,
-                  "Registration failed%s: check the PIN (it expires after a few minutes), the account ID, "
-                  "and that the console is on and on the same network",
-                  NULL);
+        psrp_regist_error_message(ctx.error, ctx.application_reason, ps5, error, error_size);
         return false;
     }
     memset(out, 0, sizeof(*out));

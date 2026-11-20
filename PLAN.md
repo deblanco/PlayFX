@@ -456,6 +456,20 @@ Work items:
   tests). **Needs a Mac to confirm** that the button lands on the Local Network pane on the macOS versions we
   support (the URL is Apple's, not documented), and a console on another subnet to confirm the IP path in
   Automatic.
+- 🔶 **Say why pairing failed.** A failed pairing showed one sentence whatever went wrong. The fork's
+  registration now reports the cause on its failed event (libchiaki's error, the console's HTTP status and
+  RP-Application-Reason; fork commit "Regist: say why a registration failed", unit test in `test/regist.c`),
+  and the C shim (`psrp_regist_error_message`) turns it into a message with the next step: wrong or expired
+  code (`0x80108b09`) → get a new one from Pair Device; another PSN account (`0x80108b02`) → open Pair
+  Device as the signed-in user, or sign in with theirs; no answer (timeout, or the search refused because
+  Pair Device is closed) → keep Pair Device open, same network; can't reach it (network errors) → Local
+  Network permission, VPN; Remote Play version mismatch (`0x80108b11`) → update; anything else → the old
+  sentence without "the account ID". A PS4 gets "Add Device". Swift, Rust and the UI pass the message
+  through unchanged. Verified by unit tests (the mapping; a pairing against loopback ends in "didn't
+  answer"), not on a console. **Needs a console session:** trigger each case once (mistyped code, expired
+  code, another PSN account, Pair Device closed, Local Network denied) and record the real codes from the
+  log ("Reported Application Reason"): it isn't sure `0x80108b09` is the only wrong-code reason, nor which
+  error a denied Local Network permission gives.
 
 ### Out of scope: other platforms
 
@@ -698,5 +712,6 @@ requests and a bug report.
    tuning.
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
    a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
-   Local Network button needs a look on the Mac); next, the specific pairing failure reasons and the denied
-   Local Network permission (each needs a console session).
+   Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the
+   console: trigger each pairing failure once and record its reason code (see "Say why pairing failed"), and the
+   denied Local Network permission. *(P2)*

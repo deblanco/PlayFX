@@ -78,5 +78,39 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
         #expect(String(cString: psrp_remote_error_message(hostUnreach)).contains("Try another network"))
         #expect(String(cString: psrp_remote_error_message(unknown)) == "Connecting over the internet failed.")
     }
+
+    private func pairingMessage(_ error: Int32, reason: UInt32 = 0, ps5: Bool = true) -> String {
+        var out = [CChar](repeating: 0, count: 512)
+        psrp_regist_error_message(error, reason, ps5, &out, out.count)
+        return String(cString: out)
+    }
+
+    /// libchiaki's ChiakiErrorCode values (common.h) and RP-Application-Reason codes (session.h).
+    @Test func explainsPairingFailures() {
+        let (unknown, parseAddr, network, refused, hostDown, hostUnreach, disconnected, timeout, httpNonOk) =
+            (Int32(1), Int32(2), Int32(6), Int32(7), Int32(8), Int32(9), Int32(10), Int32(15), Int32(21))
+        let (wrongPin, invalidPsnId, rpVersion, inUse) = (UInt32(0x8010_8b09), UInt32(0x8010_8b02),
+                                                         UInt32(0x8010_8b11), UInt32(0x8010_8b10))
+        #expect(pairingMessage(httpNonOk, reason: wrongPin)
+            == "The code is wrong or has expired. Get a new one: Pair Device on the PS5 shows a new code.")
+        #expect(pairingMessage(httpNonOk, reason: wrongPin, ps5: false).contains("Add Device on the PS4"))
+        #expect(pairingMessage(httpNonOk, reason: invalidPsnId).hasPrefix(
+            "The PlayStation account you signed in with isn't the PS5 user who opened Pair Device."))
+        #expect(pairingMessage(httpNonOk, reason: rpVersion).contains("Update the PS5's system software"))
+        for noAnswer in [timeout, refused] {
+            #expect(pairingMessage(noAnswer).hasPrefix("The PS5 didn't answer. Keep Pair Device open on the PS5"))
+        }
+        for unreachable in [network, hostDown, hostUnreach, parseAddr, disconnected] {
+            #expect(pairingMessage(unreachable).contains("Privacy & Security › Local Network"))
+        }
+        let fallback = "Registration failed: check the PIN (it expires after a few minutes) and that the console is on "
+            + "and on the same network."
+        #expect(pairingMessage(httpNonOk, reason: inUse) == fallback)
+        #expect(pairingMessage(unknown) == fallback)
+        var tiny = [CChar](repeating: 1, count: 8)
+        psrp_regist_error_message(unknown, 0, true, &tiny, tiny.count) // truncated, still terminated
+        #expect(String(cString: tiny) == "Registr")
+        psrp_regist_error_message(unknown, 0, true, nil, 0) // nowhere to write: no crash
+    }
 }
 

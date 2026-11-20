@@ -85,7 +85,7 @@ extension Serial {
             let bad = #"{"address":"127.0.0.1","ps5":true,"accountId":"AQID","pin":"12345678"}"#
             #expect(try call(sc_register, bad)["error"] as? String == "The PSN account ID must be 8 bytes encoded as base64")
             let loopback = #"{"address":"127.0.0.1","ps5":true,"accountId":"AQEBAQEBAQE=","pin":"12345678"}"#
-            #expect((try call(sc_register, loopback)["error"] as? String)?.hasPrefix("Registration failed") == true)
+            #expect((try call(sc_register, loopback)["error"] as? String)?.hasPrefix("The PS5 didn't answer") == true)
         }
 
         @Test func wakeup() {
