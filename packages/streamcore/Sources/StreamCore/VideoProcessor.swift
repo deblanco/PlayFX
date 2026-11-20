@@ -178,6 +178,9 @@ final class GuardedProcessor {
 final class VideoProcessorHealth: @unchecked Sendable {
     static let interpolation = VideoProcessorHealth(feature: "Frame interpolation")
     static let upscaling = VideoProcessorHealth(feature: "ML upscaling")
+    /// MetalFX's frame interpolation on HDR streams (`HDRFrameInterpolator`): its own budget, so GPU errors there leave
+    /// VideoToolbox's on SDR streams alone, and the other way round.
+    static let hdrInterpolation = VideoProcessorHealth(feature: "HDR frame interpolation")
 
     enum Retirement { case wait, end, skip }
 

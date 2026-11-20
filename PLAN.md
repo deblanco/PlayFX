@@ -3,7 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20: a repeated picture is no longer run through ML super-resolution (a 30 fps game in a
+Last updated 2026-11-20, after frame generation on HDR streams: MetalFX's frame interpolator makes the in-between
+images where VideoToolbox's can't (10-bit frames), built and tested offscreen on synthetic HDR frames, not yet on
+the console. Before that, a repeated picture is no longer run through ML super-resolution (a 30 fps game in a
 60 fps stream was upscaling every frame, then throwing the repeat away). Previously, after release v0.2.1: VideoToolbox no longer leaks a Metal shared event per frame
 (the crash 10–40 minutes into a session with frame interpolation or ML upscaling on), and a video processor that
 fails is restarted, or its feature turned off, instead of ending the app. Release v0.2.1: the Wi-Fi stall warning from the stream
@@ -58,7 +60,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 373 tests (90% lines; 88% as CI's VM sees
+- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 386 tests (90% lines; 88% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -241,7 +243,8 @@ Work items:
   - The lane takes its engine as a parameter (VideoToolbox in the app, stand-ins in tests), so its logic
     is tested in CI's VM too.
   - Review fixes: the size climbs back up after a spike; a late in-between image never shows after a
-    newer one; the extra delay only while images are being made; 10-bit HDR frames aren't sent to the lane.
+    newer one; the extra delay only while images are being made; 10-bit HDR frames aren't sent to the lane
+    (until HDR frame generation, below).
   - **Crash fixed** (2026-11-20, v0.1.0, seen once 39 minutes into a session): VideoToolbox's frame processor
     threw an Objective-C exception ("insertObject: object cannot be nil") from inside its own call, right after
     a burst of model rebuilds, and Swift can't catch those, so the app ended. The call now runs inside a small
@@ -259,6 +262,22 @@ Work items:
     A 7-minute trace had 51 start-overs, each a moment of plain stream and a held picture; replayed through
     the new pacing, only its 3 real gaps start over. Not yet seen live.
   - Not yet checked on the PS5.
+  - 🔶 **HDR streams** (2026-11-20): VideoToolbox's interpolation takes `420v` only, so HDR pairs (10-bit `x420`,
+    PQ) go to MetalFX's frame interpolator instead (`HDRFrameInterpolator`): each frame's YCbCr → PQ-encoded R'G'B'
+    (the present pass's own conversion, PQ → light step off; a spike showed linear light worse than a cross-fade),
+    MetalFX with a zero motion field and flat depth (history kept across following pairs), then back to 10-bit
+    YCbCr with the frame's matrix, range, siting and attachments, so the still-area blend (now on 16-bit planes),
+    the HDR present path and EDR take it as a frame. Halves only (MetalFX has no phase), the stream's own size
+    (one rung), its own failure budget and `failed` state; a pair across an SDR ↔ HDR switch gets nothing and
+    resets the history. The stats follow the stream: `on`, or `unsupported` where MetalFX's interpolator can't run
+    (CI's VMs). Repeats are now told apart in HDR too (10-bit luma read by its high byte). Verified offscreen on
+    this M2 Pro (no console): codes round-trip within ±1 (limited and full range); on the spike's synthetic scene
+    at 1080p the midpoint scores 44.4 dB against a cross-fade's 43.3, 30.1 vs 25.6 around the fast square, the
+    2600-nit core survives (2248 nits at 540p), no NaN; 4.9 ms a 1080p pair, wall clock; 200 pairs make no Metal
+    shared event. Below 1080p it scores under a cross-fade over the whole frame (still better on the square).
+    Unit tests with stand-ins for MetalFX cover the round trip, history, failures, routing and the stats in CI's
+    VM. **Left: an HDR game with frame interpolation on, on the console** (see section 4). See
+    [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md), "HDR".
 - ✅ **Network** (requested): see [docs/NETWORK.md](docs/NETWORK.md).
   - **Cause found:** AirDrop and Handoff (AWDL) stall the Mac's Wi-Fi about 90 ms every second. Pings to
     the PS5 peaked at 105 ms; with AWDL off, 21 ms.
@@ -413,8 +432,9 @@ Work items:
   (rgba16F) textures through clean-up / MetalFX (HDR processing mode) / sharpen, the PQ curve turned into
   light (203 nits = SDR white = 1.0) in BT.2020, and an EDR layer (`extendedLinearITUR_2020`) so highlights
   go brighter than white on XDR / HDR displays (macOS clips beyond the display's headroom). It switches
-  back to SDR for SDR frames or the backdrop. ML upscaling and frame interpolation only take 8-bit frames, so they
-  sit out in HDR. The stats line says "HDR" while it's on. Unit test: a 1000-nit HDR10 frame renders at
+  back to SDR for SDR frames or the backdrop. ML upscaling only takes 8-bit frames, so it sits out in HDR; frame
+  interpolation runs on HDR streams with MetalFX's frame interpolator (2026-11-20, offscreen only so far: see
+  "Frame interpolation", HDR streams). The stats line says "HDR" while it's on. Unit test: a 1000-nit HDR10 frame renders at
   ~4.9× SDR white. `psrp stream --hdr` for CLI checks (`/frameinfo` shows the curve).
 - 🔶 **Login PIN (console passcode) flow.** Plumbed end to end but not verified on a console that
   requires it; confirm and polish the dialog.
@@ -938,6 +958,11 @@ requests and a bug report.
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
    haptics in Astro's Playroom.
+7b. **On the console: an HDR game with frame interpolation on** (Silent Hill 2 on the MacBook Pro's XDR display),
+   new since 2026-11-20 and only tested offscreen: `pacing.interpolation` reads `on` (not `failed`), about 60
+   shown/s for a 30 fps game on 60 Hz and on 120 Hz (halves only in HDR), highlights still above SDR white in the
+   in-between images, no colour shift between real and generated images, and `costMs` near 5 ms at 1080p. Also
+   whether a 720p HDR stream looks worse with it than without (it scored under a cross-fade there). *(P1)*
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
    itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
    quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a

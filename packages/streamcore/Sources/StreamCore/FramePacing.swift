@@ -177,9 +177,14 @@ struct DelayPlanner {
 /// (the Neural Engine's fast path, at or below 1280×720). Leaves a size at once when it misses its
 /// budget, and doesn't try it again for 30 s; moves to a larger one after the choice has stood for 10 s,
 /// when that size's measured cost fits with room to spare or it was last left over a cost spike.
+/// HDR pairs have one rung, the frame's own size: MetalFX makes a 1080p image in about 4 ms, well inside even a 60 fps
+/// game's budget, and scaled copies would be new frames to it each time, losing the history it carries from pair to
+/// pair (see `HDRFrameInterpolator`).
 struct RungSelector {
     /// Largest first. Each is a frame size the in-between images can be made at.
     let rungs: [(width: Int, height: Int)]
+    /// Whether smaller sizes are tried (SDR pairs) or the frame's own is the only one (HDR pairs).
+    let scales: Bool
     private(set) var current = 0
     private var lastCost: [Int: Double] = [:]
     private var blockedUntil: [Int: Double] = [:]
@@ -189,7 +194,12 @@ struct RungSelector {
     /// 1280×720 (VideoToolbox's fast path) both sides must be a multiple of 16, so a stream's own size is
     /// rounded down there and the lane scales back to the frame's size: otherwise VideoToolbox writes an empty
     /// image (measured at 960×540, 854×480 and 640×360; 1920×1080, on the slow path, is fine).
-    init(width: Int, height: Int) {
+    init(width: Int, height: Int, scales: Bool = true) {
+        self.scales = scales
+        guard scales else {
+            rungs = [(width, height)]
+            return
+        }
         let fastPath = width * height <= 1280 * 720
         var list = [fastPath ? (width & ~15, height & ~15) : (width, height)]
         for r in [(1280, 720), (960, 544)] where r.0 * r.1 < width * height { list.append(r) }
@@ -269,10 +279,11 @@ public struct RepeatDetector {
     public init() {}
 
     /// The mean luma change between two frames, every `step` pixels both ways (staggered): `a` / `b` are their luma
-    /// planes (0–255), `aRow` / `bRow` the bytes from one row to the next.
+    /// planes (0–255), `aRow` / `bRow` the bytes from one row to the next, `pixel` from one sample to the next (2 for
+    /// the high bytes of 10-bit samples).
     @_optimize(speed) // optimized in debug builds too: a debug loop takes ~10 ms, most of a frame
     static func difference(width: Int, height: Int, a: UnsafePointer<UInt8>, aRow: Int,
-                           b: UnsafePointer<UInt8>, bRow: Int) -> Double {
+                           b: UnsafePointer<UInt8>, bRow: Int, pixel: Int = 1) -> Double {
         guard width > 0, height > 0 else { return 0 }
         var total = 0, count = 0, y = 0
         // Plain loops: `stride` and `abs` aren't specialized in a debug build. Each sampled row starts one
@@ -282,7 +293,7 @@ public struct RepeatDetector {
             let ra = a + y * aRow, rb = b + y * bRow
             var x = (y / step) % step
             while x < width {
-                let d = Int(ra[x]) &- Int(rb[x])
+                let d = Int(ra[x &* pixel]) &- Int(rb[x &* pixel])
                 total &+= d < 0 ? -d : d
                 count &+= 1
                 x &+= step
@@ -393,9 +404,10 @@ enum InBetween {
     /// halves (one image) while the screen shows about two refreshes per picture or fewer, quarters (three)
     /// beyond that. Each change rebuilds VideoToolbox's session, so a game whose rate wanders near the edge
     /// (50–57 fps on 120 Hz) keeps what it has: quarters are taken from 2.3× and kept down to 2.1×.
-    static func steps(interval: Double, refreshInterval: Double, current: Int = 2) -> Int {
-        guard interval > 0, refreshInterval > 0 else { return current }
-        return interval / refreshInterval < (current == 1 ? 2.3 : 2.1) ? 1 : 2
+    /// `most`: the most the engine makes (1 for HDR pairs: MetalFX makes the midpoint only).
+    static func steps(interval: Double, refreshInterval: Double, current: Int = 2, most: Int = 2) -> Int {
+        guard interval > 0, refreshInterval > 0 else { return min(current, most) }
+        return min(most, interval / refreshInterval < (current == 1 ? 2.3 : 2.1) ? 1 : 2)
     }
 
     /// The screen's fastest recent refresh interval, from one more measured `sample`: it follows a faster

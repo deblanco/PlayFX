@@ -204,7 +204,8 @@ default; turn it on in Settings › Picture.
 
 - It runs only when the screen refreshes at least 1.2 times as often as the game: a 60 fps game on a
   60 Hz screen gets nothing (the stats say so).
-- It needs macOS 26, and sits out in HDR.
+- It needs macOS 26. In HDR it makes one image between two of the game's frames (MetalFX instead of the
+  Neural Engine), so a 30 fps game shows at 60 even on a 120 Hz screen.
 - **The cost is latency:** at 30 fps, frames show about 40 ms later. It suits slower games; for fast
   games, 60 fps without interpolation feels more responsive.
 
@@ -237,8 +238,8 @@ Leave **HDR** off for either one. HDR turns ML upscaling and frame interpolation
 
 Turn on **HDR** in Settings › Stream (it needs the HEVC codec), and turn on HDR in the PS5's screen
 settings too. On a Mac screen that shows HDR (such as a MacBook Pro's XDR display), highlights go
-brighter than white. PlayFX switches back to SDR by itself for SDR games. Frame interpolation and ML
-upscaling sit out in HDR.
+brighter than white. PlayFX switches back to SDR by itself for SDR games. ML upscaling sits out in HDR;
+frame interpolation works in HDR too, with one image between two frames.
 
 ### Bitrate, stream settings and profiles
 

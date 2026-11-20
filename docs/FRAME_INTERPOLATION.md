@@ -25,6 +25,9 @@ stats.
   36–45 ms. The setting says so.
 - **VideoToolbox low-latency frame interpolation** makes the images, on the Neural Engine, so the GPU stays
   free for MetalFX upscaling. When the stream's own size is too slow, it works at 1280×720 or 960×544.
+- **HDR streams use MetalFX's frame interpolator instead** (2026-11-20), since VideoToolbox's takes 8-bit
+  frames only: the frames go to it as PQ-encoded R'G'B' and come back as 10-bit YCbCr, one image per pair
+  (halves only), at the stream's own size. See "HDR" below.
 - **Still areas are blended back from the real frames.** Scene cuts get no in-between image. An empty
   result is never shown.
 - **Repeats are left out, and the game's rate measured** (2026-11-20; see "The game's frame rate" below).
@@ -172,7 +175,9 @@ game makes pictures (`FrameInterpolator.helps`, `minimumRatio`): a 30 fps game o
 75 or 120 Hz. On a 60 Hz screen a 60 fps game gets none: no refresh is left over. Until 2026-11-20 the rule
 was 1.8× the *stream's* rate, so a 30 fps game in a 60 fps stream never got images on a 60 Hz screen.
 Interpolation is not available in virtual machines (`kern.hv_vmm_present`), where VideoToolbox claims
-support and then crashes or writes nothing.
+support and then crashes or writes nothing. For HDR streams "supported" means MetalFX's frame interpolator
+runs here (macOS 26, `MTLFXFrameInterpolatorDescriptor.supportsDevice`, not a virtual machine); the state
+follows the stream as it is, so an HDR stream on a Mac without it reads `unsupported`.
 
 `sc_pacing_stats` says what it's doing (`interpolation`: `off`, `on`, `unsupported`, `screen`), with the
 screen's measured rate (`displayHz`) and the rate it works from (`streamFps`, the game's once measured), so
@@ -259,6 +264,9 @@ is counted as `failedPairs`. The two together are the stats' missed pairs (`miss
 
 For each pair:
 
+0. **SDR or HDR:** HDR pairs (10-bit, PQ) go to MetalFX's engine, others to VideoToolbox's, each with its own
+   engines per size and its own failure budget. A pair with one of each (the moment the stream switches) gets
+   no images, like a cut, and MetalFX's history starts afresh after it.
 1. **Scene cut check:** the mean luma difference over a 32×18 grid. Above 40 out of 255 it's a cut, the
    pair is skipped and counted as `cutPairs` (`SceneCut`).
 2. **Three steps, each finished before the next:**
@@ -275,6 +283,9 @@ For each pair:
 3. **Still-area blend** (`blendStaticLuma` / `blendStaticChroma`): where A and B differ by less than
    2/255, the pixel comes from the real frames. Above 8/255 it comes from the generated image, with a
    smoothstep in between. Generated images are lossy exactly where nothing moves: HUDs, subtitles, menus.
+   10-bit planes are read as 16-bit unorm, on the same 0–1 scale, so the thresholds are the same share of
+   the signal (8 and 32 10-bit codes); the CPU checks (cuts, repeats, empty images) read a 10-bit sample's
+   high byte, so their thresholds hold unchanged.
 4. **Empty output check**, on VideoToolbox's own image, before the blend. Its command-buffer call reported
    success and wrote nothing at some sizes (see sizes below); the synchronous call returns an error there
    instead, but the check stays. A 16×9 luma sample with a mean below 8 is "empty", since video-range black
@@ -293,6 +304,9 @@ The rungs are the stream's own size, then 1280×720 and 960×544 where those are
 - **Stepping up:** only after the choice has stood for 10 s, and only if that size's last measured cost was
   within 60% of the budget.
 - **Broken sizes** (empty output) are blocked forever.
+- **HDR pairs have one rung**, the stream's own size: MetalFX makes a 1080p image in about 4–5 ms, inside even
+  a 60 fps game's budget, and a scaled copy would be a new frame to it every time, losing the history it
+  carries from pair to pair. A cost over the budget has nowhere to go; the delay planner still covers it.
 
 Each size's model is built by its first image (1–2 s), on the lane's queue. The playhead waits for a pair's
 images for the delay and one picture's time at most; past that it goes on from the newest picture, so a
@@ -415,6 +429,84 @@ The app reads the counts through:
   `gameFps` and `repeatedFrames`,
 - `sc_smooth_supported` / `sc_smooth_active`.
 
+## HDR (`HDRFrameInterpolation.swift`)
+
+HDR10 streams decode to 10-bit `x420` (BT.2020, PQ). VideoToolbox's low-latency frame interpolation takes
+`420v` only (8-bit 4:2:0, video range; verified on an M2 Pro), so until 2026-11-20 frame interpolation sat out
+in HDR. MetalFX's frame interpolator (`MTLFXFrameInterpolator`, macOS 26) takes float and 10-bit colour:
+`bgra8Unorm`, `rgba16Float`, `rgb10a2Unorm`, `bgr10a2Unorm`, `rg11b10Float` and `rgba32Float` were all
+accepted. It's built for games and wants motion vectors and depth; a stream has neither, and with zero motion
+it finds the motion itself (the same setup as in the SDR comparison above).
+
+### What it's fed: PQ R'G'B', not light
+
+A spike (synthetic 1080p HDR scene: a textured ground panning 8,3 px a frame, a 400-nit sky band, a sun with a
+1000-nit disc and a 2600-nit core, a red square crossing at 60 px a frame) scored the generated midpoint against
+the exact in-between picture, as PSNR in PQ over RGB, mean over the frames · worst 64 px tile, 40 pairs:
+
+| | Mean | Worst tile | Notes |
+|---|---|---|---|
+| Repeat previous | 39.0 dB | 18.0 dB | |
+| Cross-fade (in PQ) | 44.4 dB | 22.5 dB | |
+| MetalFX on **linear light** | 35.4 dB | 23.1 dB | worse than a cross-fade: don't |
+| MetalFX on **PQ-encoded R'G'B'** | 45.0 dB | 26.3 dB | 2600-nit peak survives, no NaN or infinity |
+
+MetalFX's maths is perceptual; linear light puts almost all the code values in the darks. Cost per image, M2
+Pro: 720p 1.9 ms GPU (2.2 ms wall), 1080p 4.2 ms GPU (4.5 ms wall).
+
+### How a pair goes through
+
+`HDRFrameInterpolator`, one per size, on the lane's queue, one command buffer per pair, waited for:
+
+1. **YCbCr → R'G'B'**: the present pass's own kernel (`nv12ToRGB` in `Shaders.swift`) with the frame's own
+   matrix, range and chroma siting (no user overrides) and its PQ → light step off, into `rgba16Float`.
+   Values are clipped to 0–1, as the present pass clips them before PQ anyway.
+2. **MetalFX**: colour and previous colour, a zero `rg16Float` motion field and a `depth32Float` depth cleared to
+   0.5, both at 1/16 of the frame, cleared at each fresh start; placeholder camera values (it has no camera);
+   `shouldResetHistory` on a fresh start.
+3. **R'G'B' → YCbCr** (`rgbToLuma` / `rgbToChroma`): the inverse of the same matrix and range, rounded to whole
+   10-bit codes, into a buffer of the frame's own format (`x420` or `xf20`), and the frame's attachments
+   (matrix, primaries, transfer, chroma siting) copied on. Chroma is filtered down to where its samples sit, a
+   tent two luma pixels wide each way ([1 2 1]/4 on a co-sited axis, [1 3 3 1]/8 on a centred one). From here
+   the image is a decoded frame to the rest: the still-area blend, the timeline, the HDR present path, MetalFX
+   upscaling, EDR.
+
+**History:** the two R'G'B' images are used in turn. A pair that starts from the last pair's newer frame (the
+same buffer, which the engine holds so it can't come back as another frame) goes on from it, without
+converting it again, and keeps MetalFX's history; any other pair (the first, after a busy or skipped pair, a
+cut, a switch from SDR) starts afresh. **Halves only:** MetalFX makes the midpoint and nothing else, so HDR
+pairs get one image (`HDRFrameInterpolator.maxSteps`); where SDR would make quarters (a 30 fps game on a
+120 Hz screen), HDR makes halves. **Failures:** GPU work that can't be encoded or ends in a command-buffer
+error counts against its own budget (`VideoProcessorHealth.hdrInterpolation`, the same 3-a-minute or 10-a-run
+rule as VideoToolbox's), after which it's `failed` for the run; VideoToolbox's on SDR streams isn't touched.
+A size MetalFX can't be set up for is never tried again. **No shared events:** MetalFX makes no Metal shared
+event per call, unlike VideoToolbox's Metal call (`SharedEventTests`).
+
+### Measured through the app's code
+
+The same scene drawn into `x420` frames (by the unit tests' generator) and run through `HDRFrameInterpolator`,
+scored in R'G'B' from the output codes, 32 px tiles, against a cross-fade of the frames' codes:
+
+| Size | MetalFX mean · worst tile | Cross-fade mean · worst tile | Around the moving square |
+|---|---|---|---|
+| 1920×1080 | 44.4 · 20.0 dB | 43.3 · 20.3 dB | 30.1 vs 25.6 dB |
+| 1280×720 | 40.6 · 23.6 dB | 43.4 · 21.9 dB | |
+| 960×540 | 38.5 · 26.3 dB | 43.3 · 22.9 dB | 29.1 vs 25.6 dB |
+
+At 1080p (what the PS5 sends) it's about 1 dB better than a cross-fade over the frame, as in the spike, and
+3–4.5 dB better around the fast square. At smaller sizes the whole-frame score drops below the cross-fade:
+the panning texture picks up small blob artifacts, while the moving square is still better. The YCbCr round
+trip alone costs nothing visible (67 dB over the frame). The whole pair through the app's code, 1080p, wall
+clock: 4.9 ms median.
+
+Unit tests: the round trip lands on the same codes (±1) in limited and full range; luma detail survives pixel
+for pixel and chroma stays at its siting; attachments are copied; history only across following pairs; no
+quarters, no SDR frames, no mixed sizes; a size MetalFX refuses isn't retried; failures turn it off for the
+run; the lane routes HDR, SDR and mixed pairs and blends still areas on 10-bit planes; the renderer reports
+`on` / `unsupported` per stream kind and shows an HDR in-between image before the new frame. On a Mac with
+MetalFX (skipped in CI's VMs): the midpoint beats a cross-fade around the square by more than 1 dB, the sun's
+core stays above 1000 nits, no NaN or infinity, 1080p under 12.5 ms, and 200 pairs make no shared event.
+
 ## Measurements
 
 All measurements are on an M2 Pro, with a 1080p30 GTA VI clip recorded from the PS5 with the character
@@ -453,13 +545,13 @@ upscale, moving 8 px right and 3 px down per frame. That gives true global motio
 ¹ Raw VideoToolbox output, before the lane's still-area blend. VideoToolbox is built for motion, and on
 still areas it is less faithful than the frames themselves; this is what the blend fixes.
 
-**Conclusion: VideoToolbox stays the engine.** On motion all four engines land within 0.6 dB of each other,
-and all are 4 dB better than a cross-fade. MetalFX would need about 8 ms of GPU per image, and the GPU is
-already busy with MetalFX upscaling in the default profile. VideoToolbox leaves the GPU free. MetalFX's
-motion sources add nothing over zero motion here: MetalFX refines motion itself, as MacNativeGames found.
-The media engine's block vectors even cost 3 dB on still content. The MetalFX engines stay in the bench,
-in case a future case changes this (heavier camera motion, or an Apple Silicon generation with GPU to
-spare).
+**Conclusion: VideoToolbox stays the engine** (for SDR streams; HDR ones need MetalFX, see "HDR"). On motion
+all four engines land within 0.6 dB of each other, and all are 4 dB better than a cross-fade. MetalFX would
+need about 8 ms of GPU per image, and the GPU is already busy with MetalFX upscaling in the default profile.
+VideoToolbox leaves the GPU free. MetalFX's motion sources add nothing over zero motion here: MetalFX
+refines motion itself, as MacNativeGames found. The media engine's block vectors even cost 3 dB on still
+content. The MetalFX engines stay in the bench, in case a future case changes this (heavier camera motion,
+or an Apple Silicon generation with GPU to spare).
 
 ### Live, on a real screen (`psrp play`, Sidecar iPad at 60 Hz)
 
@@ -542,8 +634,9 @@ Unit tests (`swift test`) cover:
 - scene cuts,
 - presentation counting (including Sidecar),
 - empty-image detection,
-- the lane (cuts, busy pairs, smaller sizes),
-- an in-between image of a moving bar landing between its two positions.
+- the lane (cuts, busy pairs, smaller sizes, SDR and HDR routing, the switch between them, 10-bit planes),
+- an in-between image of a moving bar landing between its two positions, in SDR and in HDR,
+- the HDR engine (see "HDR": the colour round trip, history, failures, and MetalFX itself on a Mac that has it).
 
 ## Code map
 
@@ -552,6 +645,7 @@ Unit tests (`swift test`) cover:
 | Clock, timeline, delay, size choice, scene cut | `Sources/StreamCore/FramePacing.swift` |
 | The lane: queue, scaling, blend, empty check | `Sources/StreamCore/InterpolationLane.swift` |
 | VideoToolbox wrapper, `helps`, VM check | `Sources/StreamCore/FrameInterpolation.swift` |
+| HDR engine: MetalFX, PQ R'G'B' round trip | `Sources/StreamCore/HDRFrameInterpolation.swift` |
 | Processor calls, quarantine, failure budget, retirement | `Sources/StreamCore/VideoProcessor.swift`, `Sources/CObjCCatch` |
 | Pacing state, display, nextFrame, presentation counts | `Sources/StreamCore/StreamRenderer.swift` |
 | Frame index from libchiaki | `StreamSession.swift`, `VideoDecoder.swift` |
@@ -572,7 +666,10 @@ Unit tests (`swift test`) cover:
   feel more responsive.
 - **The quality of the smaller sizes** (scaled down, interpolated, scaled up) hasn't been measured against
   the truth yet. MetalGoose reports the fast path as 3–7 dB further from the real frame than the slow one.
-- **HDR (10-bit) frames** get no in-between images. `FrameInterpolator` takes 8-bit 4:2:0 only, and
-  refuses each pair.
+- **HDR frame generation isn't verified on the PS5 yet.** Everything in "HDR" is offscreen, on synthetic HDR
+  frames. The check left: an HDR game with frame interpolation on (Silent Hill 2 on the XDR display), at 30
+  fps on 60 and 120 Hz. Below 1080p, MetalFX with no motion given scores under a plain cross-fade over the
+  whole synthetic frame (still better around the fast object); the repeat detector's thresholds were measured
+  on SDR frames and are applied to PQ codes as they are.
 - **The test clips** are a mostly still scene and a synthetic pan. Fast, uneven motion (a turning camera,
   explosions) is where every engine is weakest, and is not in the numbers above.

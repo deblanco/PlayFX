@@ -141,8 +141,11 @@ the renderer to HDR:
 - PQ turned into light in BT.2020, with SDR white (203 nits) at 1.0;
 - an EDR layer, so highlights go brighter than white on XDR and other HDR displays.
 
-It switches back to SDR on its own for SDR frames. ML upscaling and frame interpolation take 8-bit
-frames only, so they sit out in HDR. Verified on a PS5 with Silent Hill 2 on a MacBook Pro's XDR display.
+It switches back to SDR on its own for SDR frames. ML upscaling takes 8-bit frames only, so it sits out in
+HDR. Frame interpolation works in HDR with MetalFX's frame interpolator instead of VideoToolbox's (which takes
+8-bit frames only), making one image between two frames rather than up to three. HDR is verified on a PS5
+with Silent Hill 2 on a MacBook Pro's XDR display; frame interpolation in HDR so far only offscreen, on
+synthetic HDR frames.
 
 ### Frame pacing and interpolation
 
@@ -154,7 +157,7 @@ frames only, so they sit out in HDR. Verified on a PS5 with Silent Hill 2 on a M
   screen refresh, so a 30 fps game fills a 60 Hz screen (and a 120 Hz one), even when it comes in a 60 fps
   stream: the frames the console repeats are left out first. It runs when the screen refreshes at least
   1.2× as often as the game. The images come from VideoToolbox frame interpolation on the Neural
-  Engine, on their own queue, so the GPU stays free for MetalFX and a refresh never waits for one. It
+  Engine (MetalFX's frame interpolator for HDR streams), on their own queue, so a refresh never waits for one. It
   works at a smaller size when the stream's own is too slow, blends still areas (HUDs, subtitles) back
   from the real frames, and skips scene cuts.
 - Measured on a 30 fps clip with jitter: 57–59 images shown a second. The cost is latency: the display
