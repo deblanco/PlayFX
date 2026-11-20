@@ -499,7 +499,10 @@ Work items:
   native), and `Core.pairPsn` (progress from "psnPairProgress" stream events; interrupting it cancels). In the
   UI, after the PSN sign-in, the account's unpaired PS5s get "Pair (no code needed)": on the row of the console
   found here with the same name (next to "Pair with a code"), or on a row of their own ("PS5 · on your PSN
-  account"); a PS5 with Remote Play off says so and how to turn it on. Pairing shows its step ("Finding … through
+  account"); a PS5 with Remote Play off says so and how to turn it on. A PS5 paired with a code and renamed since
+  (the pairing keeps the old name) isn't offered again when it's found here under the new name (2026-11-20, from
+  the release review: it showed twice, paired and "Pair (no code needed)"); away from home it still can be, as
+  only its old name is known there. Pairing shows its step ("Finding … through
   PSN", "Pairing this Mac with …"), the seconds so far and Cancel. On failure the PIN form opens with the reason,
   or, for a console not on this network, a note says to connect it to pair with a code. Both follow the console
   by its PSN device ID, so they stay on it when discovery finds it mid-pairing (its row's host ID changes), and

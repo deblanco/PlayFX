@@ -210,6 +210,15 @@ describe("consoleRows with the PSN account's PS5s", () => {
     const ps4 = { ...unpaired, ps5: false }
     expect(consoleRows([ps4], {}, {}, [psnPs5]).map((r) => [r.hostId, r.psn])).toEqual([["HOST9", undefined], ["psn:aa", psnPs5]])
   })
+
+  it("leaves out a PS5 paired with a code and renamed since, by the name it's found under here", () => {
+    const oldName = { ...pairedPs5, name: "Old Name", credentials: { ...pairedPs5.credentials, nickname: "Old Name" } }
+    const rows = consoleRows([ps5], { HOST1: oldName }, {}, [psnPs5])
+    expect(rows.map((r) => [r.hostId, r.psn])).toEqual([["HOST1", undefined]])
+    // Paired through PSN, it's matched by device ID only: the account's other PS5 of that name stays.
+    const viaPsn = { ...oldName, psnDuid: "bb" }
+    expect(consoleRows([ps5], { HOST1: viaPsn }, {}, [psnPs5]).map((r) => r.hostId)).toEqual(["HOST1", "psn:aa"])
+  })
 })
 
 describe("psnHostId", () => {

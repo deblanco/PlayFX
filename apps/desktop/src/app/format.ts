@@ -52,7 +52,13 @@ export const consoleRows = (
   onPsn: Readonly<Record<string, string>> = {},
   account: readonly PsnConsole[] = [],
 ): readonly ConsoleRow[] => {
-  const unpaired = account.filter((c) => !Object.values(paired).some((p) => isPairedAs(c, p)))
+  // A console paired with a code keeps the name it had then: renamed since, PSN and discovery list the new one.
+  const pairedHere = (c: PsnConsole) =>
+    discovered.some((d) => {
+      const p = paired[d.hostId]
+      return d.ps5 && d.name === c.name && p !== undefined && p.psnDuid === undefined
+    })
+  const unpaired = account.filter((c) => !pairedHere(c) && !Object.values(paired).some((p) => isPairedAs(c, p)))
   const foundHere = (d: DiscoveredConsole | undefined) =>
     d?.ps5 === true && paired[d.hostId] === undefined ? unpaired.find((c) => c.name === d.name) : undefined
   const awayRows = unpaired
