@@ -3,7 +3,8 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-19, after the frame-interpolation, network and project-wide review work.
+Last updated 2026-11-20, after frame generation from the game's rate (the playhead), the hardware round on the
+PS5 and the review of that work.
 
 ---
 
@@ -47,9 +48,10 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-19): TS 287 tests (97% lines), Swift 197 tests (87% lines; 83% as CI's VM sees
-  it), Rust 51 tests (89% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`. Each
-  package's gate fails below 80%; CI runs them all on every push.
+- Tests + gates (2026-11-20): TS 311 tests (97% lines), Swift 274 tests (88% lines; 84% as CI's VM sees
+  it), Rust 53 tests (88% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+  own unit tests 123/123. Each package's gate fails below 80%; CI runs them all on every push. No test
+  reaches a real controller (`PadHardware` is closed in a test run).
 - Ops: local rest-mode watchdog (`~/.config/psrp/rest-watchdog.sh`), auto-sleep after 2 h idle.
 
 ---
@@ -249,7 +251,7 @@ Work items:
 
 ### P1 — making a stream feel complete
 
-- 🔶 **Rumble.** *(plays on a DualSense over Bluetooth — `psrp pad` /rumble; feel in a game unverified):
+- ✅ **Rumble.** *(works in a game: GTA VI on the PS5, pad on USB, 2026-11-20, the user. Plays on a DualSense over Bluetooth — `psrp pad` /rumble; feel in a game unverified):
   the console's two motor levels play through GameController haptics, the heavy motor on the left handle
   and the light one on the right (or the stronger one on single-actuator pads); stopped when the session
   ends. **It never played before**: on macOS 27 gamecontrollerd rejects patterns sent for an *advanced*
@@ -257,7 +259,7 @@ Work items:
   4097). Now a plain player runs one 30 s continuous event, its intensity follows the console through
   dynamic parameters, and it is replaced every 25 s while rumbling. Engine failures are logged. Felt in a
   game on 2026-11-19, which found the non-stop rumble below.)*
-- 🔶 **Adaptive triggers** (DualSense). *(**felt on a DualSense over Bluetooth** with `psrp pad`: feedback,
+- ✅ **Adaptive triggers** (DualSense). *(**felt in a game**: GTA VI on the PS5, 2026-11-20, the user: works. Earlier **felt on a DualSense over Bluetooth** with `psrp pad`: feedback,
   weapon, and raw console effects through the decoder (0x25 weapon, 0x26 vibration) all play; in a game
   unverified. The console's vibration frequency (Hz) is mapped to GameController's 0–1 as Hz/255, a guess
   to tune in a game. The shim forwards
@@ -283,7 +285,8 @@ Work items:
   game) and tells the shim not to make rumble from it. Devices are looked at every 2 s off the receive
   thread, so plugging or unplugging mid-stream switches between the two. A pad left at 2-channel sound gets
   a hint in the log (set it to Quadraphonic in Audio MIDI Setup) and stays on rumble, as chiaki-ng does.
-  To check: a game with haptics (Astro's Playroom) with the pad on a cable.
+  **Works in a game** (GTA VI, pad on a cable, 2026-11-20: the log shows the haptics stream playing on the pad,
+  and the user reports rumble and triggers working). Astro's Playroom would show the fine textures best.
 - 🔶 **Touchpad + motion.** *(touchpad built, **unverified on hardware**: the shim takes a struct-based
   controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
   DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new
@@ -512,22 +515,25 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 
 ---
 
-### From PushFPS and Veyra (2026-11-20, built overnight without the console; everything here waits for a hardware round)
+### From PushFPS and Veyra (2026-11-20: built overnight, then a hardware round on the PS5 the same day)
 
 Ideas from PushFPS (frame generation for console capture) and Veyra's Remote Play pull requests, plus two
 requests and a bug report. Plan: `~/.claude/plans/we-must-also-be-fancy-pearl.md`.
 
-- 🔶 **Frame generation from the game's frame rate**: repeats left out, the game's rate measured, its
-  pictures on an even grid, one image per screen refresh at VideoToolbox's ½ or ¼ ½ ¾ points; the rule is
-  now 1.2× the game's rate (a 60 fps game on 75 Hz qualifies). See FRAME_INTERPOLATION.md. Unit-tested,
-  including a renderer test of a 30 fps game in a 60 fps stream. **To do on the console**:
-  `psrp stream --frame-log` with a 30 fps game (are the repeats exact? how small?), then 30-in-60 on the
-  60/75 Hz external screen and on the built-in one.
-- 🔶 **Stats say why a step is idle, and count the generated frames** (requested; also the "MetalFX
+- ✅ **Frame generation from the game's frame rate** (verified on the PS5 with GTA VI, the user: "smoother",
+  "latency wise seems better"): the game measured as 30 fps in the 60 fps stream; its repeats aren't
+  exact copies (the encoder refines them: 2–4 KB, mean luma change 0.02–0.4 against 0.6–8 for new
+  pictures), so they're told apart by their change relative to the last new picture. Images are made at
+  VideoToolbox's ½ or ¼ ½ ¾ points and shown by a **playhead** that follows the clock with at most 8%
+  speed change instead of holding and jumping; it never passes an image not made yet, but doesn't wait
+  for one longer than the delay plus a picture (a model build at stream start no longer freezes the
+  picture). The stream clock slides through a late stretch instead of starting over. See
+  FRAME_INTERPOLATION.md. To check: 30-in-60 on the 75 Hz external screen.
+- ✅ **Stats say why a step is idle, and count the generated frames** (requested; also the "MetalFX
   selected, stats say Bilinear" report, which is MetalFX only enlarging, with a 1080p stream on a 1080p
   screen): `Bilinear (no upscale needed)`, `ML idle (only for 720p and lower)`, `+30 generated (2 missed)`,
   `no interpolation: 60 fps on a 60 Hz screen`, `30 fps game · 60 fps stream · 60 shown`; the Picture
-  tab's Upscale card says "not needed". Unit-tested.
+  tab's Upscale card says "not needed". Seen live on the PS5: game 30 · stream 60 · ~100 shown on 120 Hz.
 - 🔶 **Light bar colour and player number** from the console (`PadLight`); `psrp pad` has `/light` and
   `/player`. Unit-tested; **check on the pad**, then in a game that sets the light bar.
 - 🔶 **The pad is left quiet when PlayFX ends** (bug: after `pkill` mid-effect the pad kept rumbling and kept
@@ -553,7 +559,22 @@ requests and a bug report. Plan: `~/.claude/plans/we-must-also-be-fancy-pearl.md
   protocol hexdumps (which can carry session material) no longer reach the log.
 - 🔶 **Frames skipped without packet loss** on the 75 Hz screen (1,379 → 1,530 in one session): to trace with
   `STREAMCORE_PACING_TRACE` on that screen. On the built-in screen the cause of most hops was AirDrop's
-  radio (AWDL) with Steady Wi-Fi off: a ~100 ms stall every half second.
+  radio (AWDL) with Steady Wi-Fi off: a ~100 ms stall every half second (router pings 4 ms median, spikes
+  to 120 ms). With Steady Wi-Fi on it went away.
+- ✅ **The stream controls show and hide at once** (requested): no fade either way.
+- ✅ **Review of the day's work** (six reviewers, three skeptics per finding; 14 raised, 6 refuted, 8 fixed,
+  one commit each): keyframe requests were refused by the app's permission list (never worked); the cadence
+  grid drifted for 40/45 fps games (pictures 1.5–48 ms apart instead of 25); the picture froze while
+  VideoToolbox built a model; a race could leave a pair counted as in the lane forever; interpolation
+  flipped on and off for games near the 1.2× threshold (now on at 1.2×, off below 1.1×); the latency test
+  read the session off the main thread; `psrp`'s /quit waited a second on itself; a pad connecting during a
+  test run could take a test's light bar. One fix (a wait on main without a limit) hung the Rust tests; the final run caught it,
+  and the wait is now at most 2 s.
+- **PushFPS, second page of commits** (reviewed 2026-11-20, 35 commits): little applies. Worth doing: a
+  worst-frame and worst-tile (16×9) quality score in `psrp interpolate --truth`, which catches a fast object
+  vanishing from a generated frame that the mean hides (~30 lines, no console). Their measured negative
+  result supports leaving a HUD/ghost guard out without evidence; their stuck-buttons fix is already in our
+  fork, and their concealed-frame fix is covered by VideoToolbox plus our keyframe retries.
 - Left for evidence: a HUD lock that remembers over several frames (if generated frames flicker on HUDs),
   and the console's real frame number from chiaki (if pacing looks off after packet loss).
 
@@ -562,13 +583,20 @@ requests and a bug report. Plan: `~/.claude/plans/we-must-also-be-fancy-pearl.md
 0. ~~Picture quality & full stream configuration, Q1 → Q7~~ (done). *(P1, requested)*
 1. ~~Auto-wake on Play~~ (done). *(P0)*
 2. ~~Reconnect/resilience + clear quit-reason UI~~ (done). *(P0)*
-3. Remote Play over the internet: built and verified from the home network; **a run from another network
-   (phone hotspot) is left**. *(P0)*
-4. Rumble + adaptive triggers + touchpad/motion: built; **feel and motion axes in a game are left**. *(P1)*
+3. Remote Play over the internet: built, and used for every stream on 2026-11-20 (through PSN, from the home
+   network); **a run from another network (phone hotspot) is left** (needs the user). *(P0)*
+4. ~~Rumble + adaptive triggers in a game~~ (done 2026-11-20: GTA VI, pad on USB, the user: works);
+   touchpad built; **the motion axes in a game are left**. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
-6. Packaging + AGPL/licensing + CI: done; **notarization result pending, then a public release** (make the
-   repo public with it). *(P4)*
-7. On the PS5: frame interpolation (30 fps on 60 Hz, then 60 on 120 Hz), and a stream measured with Steady
-   Wi-Fi on.
-8. Smaller follow-ups: the PR #817 reorder-wait test, the chiaki-ng upstream PR,
-   echo cancellation for the microphone, audio jitter-buffer tuning.
+6. Packaging + AGPL/licensing + CI: done, and notarization accepted (2026-11-19). Left: **the public release**
+   (make the repo public with it; the user's call), and `release.sh` surviving a notarytool status timeout and
+   stapling the `.app` too. *(P4)*
+7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
+   in 60, ~100 shown/s); left: the 75 Hz external screen; a stream measured with Steady Wi-Fi on (only pings
+   were); the pad left quiet on `pkill` and ⌘Q mid-effect; the light bar in a game that sets it; Bluetooth
+   haptics in Astro's Playroom.
+8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the
+   stall itself is open); the worst-tile quality score (from PushFPS); the 50 fps cadence (a picture up to
+   13 ms ahead of the grid still re-anchors it); the PR #817 reorder-wait test (needs the console); the
+   chiaki-ng upstream PR (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer
+   tuning.

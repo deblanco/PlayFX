@@ -21,6 +21,11 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
   `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`), ESLint with `typescript-eslint`
   strict-type-checked, and the Effect language service.
 
+### PLAN.md stays current
+- Every feature or fix commit updates `PLAN.md` in the same commit: its entry (✅/🔶, what was verified and
+  how, what's left), section 4 "Suggested order of work", and the "Last updated" line and test counts
+  when they change. One commit per feature, pushed after each.
+
 ### UI
 - Tailwind CSS v4 for styling; no hand-written CSS beyond Tailwind's theme layer.
 - Components come from shadcn/ui, preferring blocks/components from the shadcn studio registry
