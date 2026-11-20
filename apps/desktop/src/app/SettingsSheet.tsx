@@ -107,7 +107,11 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
         </SheetHeader>
         <ProfileBar settings={settings} running={props.reconnect?.startedWith} onChange={onChange} />
         {/* Above the tabs: a profile switch can need it from any tab. */}
-        {props.reconnect?.pending === true && <ReconnectNotice {...props.reconnect} />}
+        {props.reconnect?.pending === true && (
+          <div className="px-5 pb-4">
+            <ReconnectNotice {...props.reconnect} />
+          </div>
+        )}
         <Tabs
           value={props.tab}
           onValueChange={(tab) => { props.onTabChange(tab === "stream" || tab === "diagnostics" ? tab : "picture") }}
