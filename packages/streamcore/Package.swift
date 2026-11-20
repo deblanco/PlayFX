@@ -31,12 +31,14 @@ let package = Package(
     targets: [
         // Thin C API over libchiaki (PS Remote Play protocol).
         .target(name: "CChiaki", cSettings: cCoverage, linkerSettings: chiakiLinkerSettings),
-        .target(name: "StreamCore", dependencies: ["CChiaki"]),
+        // Catches Objective-C exceptions thrown inside framework calls, which Swift can't.
+        .target(name: "CObjCCatch"),
+        .target(name: "StreamCore", dependencies: ["CChiaki", "CObjCCatch"]),
         .executableTarget(name: "psrp", dependencies: ["StreamCore"]),
         // swift-testing ships with the Command Line Tools as a framework outside the default search
         // paths, and its Foundation cross-import overlay has no module there, so overlays are off.
         .testTarget(
-            name: "StreamCoreTests", dependencies: ["StreamCore", "CChiaki"],
+            name: "StreamCoreTests", dependencies: ["StreamCore", "CChiaki", "CObjCCatch"],
             swiftSettings: [.unsafeFlags(["-F", cltFrameworks, "-Xfrontend", "-disable-cross-import-overlays"])],
             linkerSettings: [.unsafeFlags(["-F", cltFrameworks, "-Xlinker", "-rpath", "-Xlinker", cltFrameworks])]),
     ]

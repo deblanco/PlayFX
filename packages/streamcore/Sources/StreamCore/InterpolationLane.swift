@@ -171,6 +171,10 @@ final class InterpolationLane {
         if scaled {
             guard let sa = buffer(size.width, size.height, format), let sb = buffer(size.width, size.height, format),
                   encodeScale(cb, previous, into: sa), encodeScale(cb, current, into: sb) else { return nil }
+            // The scaled copies keep the frames' colorimetry (matrix, primaries, transfer, chroma siting), as
+            // VideoToolbox expects of the frames it's given.
+            CVBufferPropagateAttachments(previous, sa)
+            CVBufferPropagateAttachments(current, sb)
             a = sa
             b = sb
         }

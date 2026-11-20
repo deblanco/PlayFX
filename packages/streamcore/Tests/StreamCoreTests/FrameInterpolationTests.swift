@@ -1,3 +1,4 @@
+import CObjCCatch
 import CoreVideo
 import Foundation
 import Testing
@@ -303,5 +304,20 @@ final class StandInMaker: MiddleFrameMaker {
         lane.submit(previous: try frame(bar: 200), current: try frame(bar: 300), between: [InBetween.Image(phase: 0.5, time: 1)], steps: 1, size: (640, 360))
         lane.waitUntilIdle()
         #expect(made == 0 && !lane.isBroken((640, 360)))
+    }
+}
+
+/// An Objective-C exception thrown inside a framework call (VideoToolbox's frame processor threw one in a
+/// release build) is caught, not left to end the app.
+@Suite struct ObjCCatchTests {
+    @Test func catchesAnObjectiveCException() {
+        #expect(playfx_catch {} == nil)
+        var ran = false
+        #expect(playfx_catch { ran = true } == nil && ran)
+        let reason = playfx_catch {
+            NSException(name: .invalidArgumentException, reason: "*** -[__NSArrayM insertObject:atIndex:]: object cannot be nil").raise()
+        }
+        #expect(reason == "*** -[__NSArrayM insertObject:atIndex:]: object cannot be nil")
+        #expect(playfx_catch { NSException(name: .genericException, reason: nil).raise() } == NSExceptionName.genericException.rawValue)
     }
 }

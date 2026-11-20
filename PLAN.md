@@ -218,6 +218,12 @@ Work items:
     is tested in CI's VM too.
   - Review fixes: the size climbs back up after a spike; a late in-between image never shows after a
     newer one; the extra delay only while images are being made; 10-bit HDR frames aren't sent to the lane.
+  - **Crash fixed** (2026-11-20, v0.1.0, seen once 39 minutes into a session): VideoToolbox's frame processor
+    threw an Objective-C exception ("insertObject: object cannot be nil") from inside its own call, right after
+    a burst of model rebuilds, and Swift can't catch those, so the app ended. The call now runs inside a small
+    Objective-C catch (`CObjCCatch`): that pair gets no images and the session starts over; a size that keeps
+    failing is dropped. The scaled-down copies of the frames now keep their colorimetry, which VideoToolbox may
+    look up (a likely trigger). The rebuild churn behind it is fixed below.
   - Halves and quarters each keep their own VideoToolbox session (2026-11-20): the release on a ProMotion screen
     rebuilt the model every 20–60 s as the screen's rate moved and the choice flipped (seen in the log: "at halves"
     then "at quarters" in the same second), each rebuild a second or two with no images, which made most of a

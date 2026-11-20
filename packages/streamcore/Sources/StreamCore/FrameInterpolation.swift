@@ -1,3 +1,4 @@
+import CObjCCatch
 import CoreMedia
 import CoreVideo
 import Metal
@@ -89,7 +90,15 @@ public final class FrameInterpolator {
               let parameters = VTLowLatencyFrameInterpolationParameters(sourceFrame: after, previousFrame: before,
                                                                         interpolationPhase: phases, destinationFrames: destinations)
         else { return nil }
-        processor.process(with: cb, parameters: parameters)
+        // VideoToolbox can throw an Objective-C exception from inside this call (seen once in a 40-minute
+        // session: "insertObject: object cannot be nil"), which would end the app. Caught: this pair gets no
+        // images, and the session starts over with the next pair (a size that keeps failing is dropped by
+        // the lane).
+        if let reason = playfx_catch({ processor.process(with: cb, parameters: parameters) }) {
+            Log.error(.renderer, "Frame interpolation failed at \(w)x\(h) (\(reason)); starting its session over")
+            (sessions.removeValue(forKey: steps)?.processor as? VTFrameProcessor)?.endSession()
+            return nil
+        }
         return outputs
     }
 
