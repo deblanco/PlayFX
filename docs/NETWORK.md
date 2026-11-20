@@ -9,7 +9,7 @@ are in [FRAME_INTERPOLATION.md](FRAME_INTERPOLATION.md).
 - **AirDrop and Handoff stall the Mac's Wi-Fi once a second.** They run over AWDL, a peer-to-peer Wi-Fi
   link. To listen for nearby Apple devices, the Mac's one radio leaves your network's channel for about
   90 ms each second. The **Steady Wi-Fi** switch, on Home and in Settings → Stream, pauses them while
-  PlayFX is open.
+  PlayFX is open. PlayFX remembers it's on, and while streaming the HUD warns when AirDrop is stalling.
 - **libchiaki comes from our fork**, [deblanco/chiaki-ng](https://github.com/deblanco/chiaki-ng), branch
   `playfx`. It carries fixes for false packet loss, a too-small receive buffer, Wi-Fi priority marking and
   dropped acks. PlayFX also runs libchiaki's receive and input threads at the highest scheduling class.
@@ -97,10 +97,19 @@ the other.
 | `off` | Off, but not by PlayFX. |
 | `paused` | Kept off by PlayFX. |
 
-The UI polls the state every 3 s, because macOS changes it underneath.
+The UI polls the state every 3 s, because macOS changes it underneath. The same poll runs while
+streaming.
 
 **While paused**, AirDrop, Handoff, Universal Control and wireless Sidecar don't work. The switch says
 so, and switching it off brings them back at once.
+
+**Remembered.** The pause can't outlive PlayFX, so after a relaunch AWDL is on again. PlayFX therefore
+remembers the choice instead (`psrp.steadyWifi` in the webview's storage, decoded as a yes/no; anything
+else reads as no). Turning the switch on saves yes once the pause is done; turning it off by hand saves
+no. With yes saved, pressing Play while AWDL reads `active` asks for the password again, the same prompt
+as the switch. It isn't asked at launch, only when a stream starts. The stream starts at the same time
+and doesn't wait for the answer. If the prompt is dismissed (or fails), PlayFX doesn't ask again until the
+next launch, and the saved choice stays yes.
 
 ### The UI
 
@@ -109,6 +118,10 @@ so, and switching it off brings them back at once.
   stall: packets wait, then arrive in a burst. Paused, it flows evenly and glows, and a light crosses it
   once. (A first version blinked the whole line instead, which read as a rendering glitch.)
 - **Settings → Stream:** the same switch, with the measurement and what pausing costs.
+- **While streaming:** when AWDL reads `active` (and not while connecting or reconnecting), the HUD shows
+  "AirDrop is stalling the Wi-Fi" in the warning colour, with a "Turn on Steady Wi-Fi" button. It stays
+  when the rest of the HUD fades, like the stats, because it explains a stuttering stream. It's gone once
+  AWDL reads `paused`, `off` or `absent`.
 
 The code is in `apps/desktop/src/app/SteadyWifi.tsx`.
 

@@ -47,7 +47,13 @@ export const memoryStore = (initial: Record<string, string> = {}) => {
   })
 }
 
-const keys = { accountId: "psrp.accountId", consoles: "psrp.consoles", settings: "psrp.settings", profiles: "psrp.profiles" } as const
+const keys = {
+  accountId: "psrp.accountId",
+  consoles: "psrp.consoles",
+  settings: "psrp.settings",
+  profiles: "psrp.profiles",
+  steadyWifi: "psrp.steadyWifi",
+} as const
 
 /** What the user keeps on this machine: PSN account ID, pairing keys, stream settings. */
 export class Preferences extends Context.Service<
@@ -65,6 +71,9 @@ export class Preferences extends Context.Service<
     /** Settings profiles the user saved (the built-in one isn't stored). */
     readonly profiles: Effect.Effect<readonly Profile[], StorageError>
     readonly saveProfiles: (profiles: readonly Profile[]) => Effect.Effect<void, StorageError>
+    /** Whether the user last turned Steady Wi-Fi on (and not off since), to offer it again at the next stream. */
+    readonly steadyWifi: Effect.Effect<boolean, StorageError>
+    readonly saveSteadyWifi: (on: boolean) => Effect.Effect<void, StorageError>
   }
 >()("Preferences") {}
 
@@ -105,6 +114,10 @@ export const renamedSettingKeys = (json: unknown): unknown => {
 }
 
 const parseJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
+
+/** The remembered Steady Wi-Fi choice; anything but `true` reads as off. */
+const steadyWifiFrom = (json: unknown): boolean =>
+  Option.getOrElse(Schema.decodeUnknownOption(Schema.Boolean)(json), () => false)
 
 /** Stored settings, field by field: a value that doesn't decode (from another version, or hand-edited) falls
  * back to its default and the rest are kept. Decoding them as one let a single bad value reset everything,
@@ -204,6 +217,8 @@ const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore[
       saveSettings: (settings) => write(keys.settings, settings),
       profiles: read(keys.profiles, profilesFrom),
       saveProfiles: (profiles) => write(keys.profiles, profiles),
+      steadyWifi: read(keys.steadyWifi, steadyWifiFrom),
+      saveSteadyWifi: (on) => write(keys.steadyWifi, on),
     } satisfies Preferences["Service"]
 }
 

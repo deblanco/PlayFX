@@ -195,13 +195,16 @@ export interface StoredPrefs {
   readonly accountId?: string
   readonly paired?: readonly PairedConsole[]
   readonly settings?: Settings
+  /** Steady Wi-Fi left on last time. */
+  readonly steadyWifi?: boolean
 }
 
 /** localStorage contents for `memoryStore`. */
-export const storedPrefs = ({ accountId: id, paired, settings }: StoredPrefs = {}): Record<string, string> => ({
+export const storedPrefs = ({ accountId: id, paired, settings, steadyWifi }: StoredPrefs = {}): Record<string, string> => ({
   ...(id === undefined ? {} : { "psrp.accountId": id }),
   ...(paired === undefined ? {} : { "psrp.consoles": JSON.stringify(Object.fromEntries(paired.map((p) => [p.hostId, p]))) }),
   ...(settings === undefined ? {} : { "psrp.settings": JSON.stringify(settings) }),
+  ...(steadyWifi === undefined ? {} : { "psrp.steadyWifi": JSON.stringify(steadyWifi) }),
 })
 
 export const prefsLayer = (prefs: StoredPrefs = {}) => PreferencesLive.pipe(Layer.provide(memoryStore(storedPrefs(prefs))))

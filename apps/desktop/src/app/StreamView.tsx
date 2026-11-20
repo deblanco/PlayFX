@@ -25,6 +25,7 @@ import type { Capabilities, MicState, Route, StatRow } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
 import { useFork, useRun, useRuntime } from "./runtime"
 import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
+import { SteadyWifiWarning } from "./SteadyWifi"
 
 export const hudIdleMs = 2500
 /** The cursor hides over the video after this long without moving (it comes back on any movement). */
@@ -261,6 +262,8 @@ export const StreamView = ({
                       ? <StatsLine rows={stats.rows} />
                       : settings.showStats ? stats.line : null /* off: no numbers, even with the HUD up */}
         </span>
+        {/* Stays when the HUD hides, like the stats: it explains a stuttering stream. */}
+        {connected && reconnect.reconnecting === false && <SteadyWifiWarning />}
         <details className={cn("group relative text-xs", hide)}>
           <summary className="cursor-pointer list-none rounded-md border px-2 py-1 text-muted-foreground select-none hover:text-foreground">
             Keys

@@ -351,6 +351,26 @@ describe("settings saved before the rename to Frame interpolation", () => {
   })
 })
 
+describe("the remembered Steady Wi-Fi choice", () => {
+  it.effect("is off until turned on, and forgotten when turned off", () =>
+    Effect.gen(function* () {
+      const prefs = yield* Preferences
+      expect(yield* prefs.steadyWifi).toBe(false)
+      yield* prefs.saveSteadyWifi(true)
+      expect(yield* rawGet("psrp.steadyWifi")).toEqual(Option.some("true"))
+      expect(yield* prefs.steadyWifi).toBe(true)
+      yield* prefs.saveSteadyWifi(false)
+      expect(yield* prefs.steadyWifi).toBe(false)
+    }).pipe(Effect.provide(withMemory())),
+  )
+
+  it.effect("reads anything stored that isn't a yes or no as off", () =>
+    Effect.gen(function* () {
+      expect(yield* (yield* Preferences).steadyWifi).toBe(false)
+    }).pipe(Effect.provide(withMemory({ "psrp.steadyWifi": JSON.stringify("yes") }))),
+  )
+})
+
 describe("damaged stored data", () => {
   it.effect("keeps every setting that still decodes when one doesn't", () =>
     Effect.gen(function* () {

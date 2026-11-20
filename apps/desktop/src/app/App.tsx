@@ -27,7 +27,7 @@ import {
 import { Home } from "./Home"
 import { useRun, useRuntime } from "./runtime"
 import { StreamView } from "./StreamView"
-import { PeerWifiProvider } from "./SteadyWifi"
+import { PeerWifiProvider, usePeerWifiContext } from "./SteadyWifi"
 
 /** A stream being started (`started: false`) or running, with what its events have told us so far. */
 interface Session {
@@ -56,8 +56,15 @@ interface Session {
   readonly autoReconnects: number
 }
 
-export const App = () => {
+export const App = () => (
+  <PeerWifiProvider>
+    <Screens />
+  </PeerWifiProvider>
+)
+
+const Screens = () => {
   const run = useRun()
+  const wifi = usePeerWifiContext()
   const [settings, setSettings] = useState<Settings>(defaultSettings)
   const [capabilities, setCapabilities] = useState<Capabilities>({ metalfx: true, ml: false, interpolation: false })
   const [session, setSession] = useState<Session | null>(null)
@@ -127,6 +134,8 @@ export const App = () => {
       remoteStage: psnDuid === undefined ? undefined : "linking",
     }
     setSession(starting)
+    // Steady Wi-Fi left on last time: macOS asks for the password while the stream connects.
+    wifi.beforeStream()
     run(actions.play(console, settings, psnDuid), {
       // A quit that arrived while starting already cleared (or replaced) the session.
       onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },
@@ -293,7 +302,7 @@ export const App = () => {
   }, [])
 
   return (
-    <PeerWifiProvider>
+    <>
       {session?.started === true ? (
         <StreamView
           title={session.title}
@@ -326,6 +335,6 @@ export const App = () => {
         <Home settings={settings} capabilities={capabilities} onSettingsChange={changeSettings} onPlay={play} />
       )}
       <Toaster position="bottom-center" />
-    </PeerWifiProvider>
+    </>
   )
 }

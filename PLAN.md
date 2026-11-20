@@ -222,7 +222,9 @@ Work items:
   - **Cause found:** AirDrop and Handoff (AWDL) stall the Mac's Wi-Fi about 90 ms every second. Pings to
     the PS5 peaked at 105 ms; with AWDL off, 21 ms.
   - **Steady Wi-Fi** (Home and Settings → Stream) pauses AWDL while PlayFX is open: one password prompt,
-    and a root helper that ends on quit or crash.
+    and a root helper that ends on quit or crash. The choice is remembered: after a relaunch, Play asks
+    for the password again (once per launch if dismissed). While streaming, the HUD warns when AirDrop is
+    stalling the Wi-Fi, with a button to turn Steady Wi-Fi on.
   - **libchiaki now comes from our fork** (deblanco/chiaki-ng, branch `playfx`), with four fixes: false
     packet loss on wrap, a 4 MB receive buffer, Wi-Fi priority marking, and gap-block acks.
   - **Threads:** libchiaki's receive and input threads run at user-interactive QoS.
@@ -237,7 +239,7 @@ Work items:
   - **Open:**
     - the 33 ms reorder wait from PR #817 is untested;
     - the stream with Steady Wi-Fi on hasn't been measured (only pings were);
-    - a warning in the app when the once-a-second Wi-Fi stall pattern shows (not built);
+    - the HUD warns while AWDL is on, but not from the stall itself (the once-a-second ping pattern);
     - offer the packet-loss wrap fix upstream to chiaki-ng (not sent).
 
 ### P1 — making a stream feel complete
@@ -557,5 +559,5 @@ requests and a bug report. Plan: `~/.claude/plans/we-must-also-be-fancy-pearl.md
    repo public with it). *(P4)*
 7. On the PS5: frame interpolation (30 fps on 60 Hz, then 60 on 120 Hz), and a stream measured with Steady
    Wi-Fi on.
-8. Smaller follow-ups: the Wi-Fi stall warning, the PR #817 reorder-wait test, the chiaki-ng upstream PR,
+8. Smaller follow-ups: the PR #817 reorder-wait test, the chiaki-ng upstream PR,
    echo cancellation for the microphone, audio jitter-buffer tuning.

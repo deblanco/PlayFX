@@ -1,5 +1,6 @@
-import { Gamepad2, Laptop } from "lucide-react"
-import { createContext, use, useCallback, useId, useMemo, useState, type ReactNode } from "react"
+import { Gamepad2, Laptop, TriangleAlert } from "lucide-react"
+import { createContext, use, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
+import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import type { PeerWifiState } from "@/core/schema"
@@ -17,6 +18,9 @@ export interface PeerWifi {
   /** The password prompt is open (pausing) or the helper is stopping (resuming). */
   readonly pending: boolean
   readonly setPaused: (paused: boolean) => void
+  /** A stream is starting: if Steady Wi-Fi was left on and AirDrop and Handoff are on again (after a
+   * relaunch), asks to pause them. Never twice in a run of the app once the prompt was dismissed. */
+  readonly beforeStream: () => void
 }
 
 /** The state of AirDrop and Handoff, kept current while mounted, and the switch to pause them. */
@@ -26,7 +30,12 @@ const usePeerWifi = (): PeerWifi => {
   // While a change is in flight, what it started from: readings taken meanwhile (the prompt can stay open
   // for minutes) don't move the switch; the change's reply has the last word.
   const [pending, setPending] = useState<{ readonly from: PeerWifiState | undefined } | undefined>(undefined)
+  // Steady Wi-Fi was left on (saved): a stream start offers it again.
+  const [remembered, setRemembered] = useState(false)
+  // A pause prompt was dismissed (or failed) in this run of the app: stream starts don't ask again.
+  const declined = useRef(false)
   useFork(useMemo(() => actions.pollPeerWifi(setReading), []))
+  useEffect(() => { run(actions.loadSteadyWifi, { onSuccess: setRemembered }) }, [run])
   const setPaused = useCallback(
     (paused: boolean) => {
       setPending({ from: reading })
@@ -35,24 +44,32 @@ const usePeerWifi = (): PeerWifi => {
         onSuccess: (reply) => {
           setReading(reply.state)
           setPending(undefined)
+          if (reply.outcome === "done") setRemembered(paused)
+          else declined.current = true
         },
-        onFailure: () => { setPending(undefined) },
+        onFailure: () => {
+          setPending(undefined)
+          if (paused) declined.current = true
+        },
       })
     },
     [run, reading],
   )
-  return { state: pending === undefined ? reading : pending.from, pending: pending !== undefined, setPaused }
+  const beforeStream = useCallback(() => {
+    if (remembered && reading === "active" && pending === undefined && !declined.current) setPaused(true)
+  }, [remembered, reading, pending, setPaused])
+  return { state: pending === undefined ? reading : pending.from, pending: pending !== undefined, setPaused, beforeStream }
 }
 
 const PeerWifiContext = createContext<PeerWifi | null>(null)
 
-/** One reading and one switch for the whole app: the Home row and the Settings section (on Home and while
- * streaming) show the same state, and a pause started in one disables the other. */
+/** One reading and one switch for the whole app: the Home row, the Settings section (on Home and while
+ * streaming) and the stream's warning show the same state, and a pause started in one disables the others. */
 export const PeerWifiProvider = ({ children }: { readonly children: ReactNode }) => (
   <PeerWifiContext value={usePeerWifi()}>{children}</PeerWifiContext>
 )
 
-const usePeerWifiContext = (): PeerWifi => {
+export const usePeerWifiContext = (): PeerWifi => {
   const wifi = use(PeerWifiContext)
   if (wifi === null) throw new Error("Steady Wi-Fi needs a <PeerWifiProvider> above it")
   return wifi
@@ -206,5 +223,27 @@ export const SteadyWifiSection = () => {
         for your password each time you turn this on.
       </p>
     </section>
+  )
+}
+
+/** While streaming, in the HUD: AirDrop and Handoff are on and stalling the stream right now, with the switch
+ * at hand. Nothing when they're off, paused or missing. */
+export const SteadyWifiWarning = () => {
+  const wifi = usePeerWifiContext()
+  if (wifi.state !== "active") return null
+  return (
+    <span role="status" className="flex shrink-0 items-center gap-1.5 text-xs text-signal [text-shadow:0_1px_2px_rgb(0_0_0/0.8)]">
+      <TriangleAlert className="size-3.5" aria-hidden />
+      AirDrop is stalling the Wi-Fi
+      <Button
+        variant="link"
+        size="xs"
+        disabled={wifi.pending}
+        onClick={() => { wifi.setPaused(true) }}
+        className="px-0 text-signal underline"
+      >
+        {wifi.pending ? "Waiting for your password…" : "Turn on Steady Wi-Fi"}
+      </Button>
+    </span>
   )
 }

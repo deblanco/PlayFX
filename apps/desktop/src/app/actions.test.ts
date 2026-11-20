@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "@effect/vitest"
 import { Effect, Fiber, Layer, Logger, Option } from "effect"
 import { TestClock } from "effect/testing"
-import { CoreError } from "@/core/errors"
-import { Preferences } from "@/core/preferences"
+import { CoreError, StorageError } from "@/core/errors"
+import { KeyValueStore, Preferences, PreferencesLive } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
 import { makeLogger } from "@/core/logging"
 import * as actions from "./actions"
@@ -664,6 +664,21 @@ describe("diagnostics", () => {
       const error = yield* Effect.flip(actions.copyDiagnostics(defaultSettings))
       expect(error).toMatchObject({ _tag: "ClipboardFailed" })
     }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("Steady Wi-Fi", () => {
+  it.effect("still reports the pause when the choice can't be remembered", () => {
+    const core = fakeCore()
+    const full = Layer.succeed(KeyValueStore, {
+      get: () => Effect.succeed(Option.none()),
+      set: (key) => Effect.fail(new StorageError({ key, message: "full" })),
+      remove: () => Effect.void,
+    })
+    return Effect.gen(function* () {
+      expect(yield* actions.setPeerWifiPaused(true)).toEqual({ state: "paused", outcome: "done" })
+      expect(yield* actions.loadSteadyWifi).toBe(false)
+    }).pipe(Effect.provide(Layer.merge(core.layer, PreferencesLive.pipe(Layer.provide(full)))))
   })
 })
 

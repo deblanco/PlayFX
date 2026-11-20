@@ -226,9 +226,26 @@ export const pollPeerWifi = (report: (state: PeerWifiState) => void): Effect.Eff
     Effect.repeat(Schedule.spaced(peerWifiInterval)),
   )
 
-/** Pauses AirDrop and Handoff while PlayFX is open (macOS asks for the password), or lets them back. */
-export const setPeerWifiPaused = (paused: boolean): Effect.Effect<PeerWifiReply, CoreError, Core> =>
-  Effect.flatMap(Core, (core) => core.setPeerWifiPaused(paused))
+/** Pauses AirDrop and Handoff while PlayFX is open (macOS asks for the password), or lets them back. Once
+ * done, the choice is remembered (turning it off forgets it), so after a relaunch the first stream offers
+ * it again. A choice that couldn't be saved is only logged: the pause itself happened. */
+export const setPeerWifiPaused = (paused: boolean): Effect.Effect<PeerWifiReply, CoreError, Core | Preferences> =>
+  Effect.gen(function* () {
+    const reply = yield* Effect.flatMap(Core, (core) => core.setPeerWifiPaused(paused))
+    if (reply.outcome === "done") {
+      const prefs = yield* Preferences
+      yield* prefs.saveSteadyWifi(paused).pipe(
+        Effect.catch((error) => Effect.logWarning(`Couldn't remember Steady Wi-Fi: ${error.message}`)),
+      )
+    }
+    return reply
+  })
+
+/** Whether Steady Wi-Fi was left on: then the next stream offers to pause AirDrop and Handoff again. */
+export const loadSteadyWifi: Effect.Effect<boolean, StorageError, Preferences> = Effect.flatMap(
+  Preferences,
+  (prefs) => prefs.steadyWifi,
+)
 
 /** Pairs with a console using the PIN it shows; returns the updated paired list. */
 export const pair = (
