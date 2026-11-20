@@ -1303,6 +1303,38 @@ describe("streaming", () => {
     expect(screen.queryByText(/Reconnect failed/)).not.toBeInTheDocument()
   })
 
+  it("keeps the new session when a reconnect supersedes one under way", async () => {
+    // A network change on top of a drop: the second reconnect replaces the first, which is interrupted before
+    // the second starts. Stopping it on the side raced the new attempt: the stop could land after the new
+    // session started and end it.
+    const calls: string[] = []
+    const core = fakeCore({
+      startStream: vi.fn(() => Effect.sync(() => { calls.push("start") })),
+      stopStream: Effect.sync(() => { calls.push("stop") }),
+    })
+    await startStreaming(core)
+    calls.length = 0
+    act(() => {
+      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      core.emitStream({ type: "network", online: true }) // before the drop's reconnect has shown
+    })
+    expect(await screen.findByRole("region", { name: "Your network changed. Reconnecting to Living Room" })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(calls.at(-1)).toBe("start")
+    })
+    // The app's own listener and the second attempt's: the first attempt is gone, not left waiting for an
+    // answer (if it later failed or timed out, it would end the stream the second one brought up).
+    expect(core.streamListeners()).toBe(2)
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await waitFor(() => {
+      expect(screen.getByRole("banner")).not.toHaveTextContent("Reconnecting")
+    })
+    expect(calls).not.toContain("stop") // the new session was never stopped
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument()
+  })
+
   it("waits out a console that's still busy when the stream starts", async () => {
     const { core } = await startStreaming(fakeCore(), { connected: false })
     act(() => {

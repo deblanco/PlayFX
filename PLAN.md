@@ -49,8 +49,8 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 312 tests (97% lines), Swift 292 tests (89% lines; 83% as CI's VM sees
-  it), Rust 53 tests (88% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+- Tests + gates (2026-11-20): TS 358 tests (98% lines), Swift 314 tests (89% lines; 83% as CI's VM sees
+  it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 123/123. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -658,7 +658,13 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 - **Behaviour changes users will notice:** the keyboard's PS button is **P** (it was H in the removed
   StreamCore path); Sound → "System default" follows macOS when its output changes; the dev control port
   needs `-H 'X-PlayFX-Dev: 1'` and `psrp`'s control API `-H 'X-PSRP: 1'`.
-- 🔶 Not covered by a test: the reconnect race fix, and the audio output following the system default.
+- ✅ Covered by tests now (2026-11-20): the reconnect race fix (App: a network change on top of a drop starts a
+  second reconnect, which keeps its new session, stops nothing, and leaves only its own attempt listening: the
+  first is interrupted, not left waiting) and the audio output following the system default (the decisions
+  moved from `AudioPlayer` into `OutputRoute`; macOS's default-output notices and the switch of the output unit
+  go through an injected `OutputDevices`, so a playing player is checked to move to the new default, and to
+  stay once stopped, without switching a real output). Each test was checked to fail with its fix reverted
+  (and the reconnect one with the interrupt dropped, the player one with the switch dropped).
 
 ## 3. Known issues / tech debt
 
@@ -793,9 +799,9 @@ requests and a bug report.
    haptics in Astro's Playroom.
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state; warning from the
    stall itself is open); the worst-tile quality score (from PushFPS); the 50 fps cadence (a picture up to
-   13 ms ahead of the grid still re-anchors it); the PR #817 reorder-wait test (needs the console); the
-   chiaki-ng upstream PR (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer
-   tuning.
+   13 ms ahead of the grid still re-anchors it); the PR #817 reorder-wait test (needs the console); ~~tests for
+   the reconnect race and the audio output following the system default~~ (done 2026-11-20); the chiaki-ng
+   upstream PR (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer tuning.
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
    a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
    Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the
