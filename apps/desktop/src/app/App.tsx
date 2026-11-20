@@ -42,6 +42,9 @@ interface Session {
   readonly keyboard: Option.Option<string>
   /** The stream options the running session was started with. */
   readonly startedWith: StreamOptions
+  /** The stream options the stream runs with once a reconnect under way is back (`startedWith` otherwise):
+   * what a profile switch is measured against. */
+  readonly runsWith: StreamOptions
   /** The console accepted the stream (as opposed to still connecting). */
   readonly connected: boolean
   /** Restarting the stream; quit events then belong to the reconnect. */
@@ -92,7 +95,7 @@ const Screens = () => {
   const changeSettings = (next: Settings, from?: "profile") => {
     if (from === "profile") {
       // Measured against the running stream, not the settings: a bitrate still settling on the slider waits too.
-      setSession((s) => s && { ...s, askFirst: !sameStreamOptions(s.startedWith, streamOptions(next)) })
+      setSession((s) => s && { ...s, askFirst: !sameStreamOptions(s.runsWith, streamOptions(next)) })
     } else if (!sameStreamOptions(streamOptions(settings), streamOptions(next))) {
       setSession((s) => s && { ...s, askFirst: false })
     }
@@ -138,6 +141,7 @@ const Screens = () => {
       keyboard: Option.none(),
       mic: "off",
       startedWith: streamOptions(settings),
+      runsWith: streamOptions(settings),
       connected: false,
       reconnecting: false,
       autoReconnects: 0,
@@ -175,6 +179,7 @@ const Screens = () => {
       mic: "off", // the new session starts without it
       reconnecting: why,
       askFirst: false, // it starts with the settings as they are now
+      runsWith: streamOptions(settings),
       autoReconnects: session.autoReconnects + (why === "dropped" || why === "stalled" ? 1 : 0),
     })
     // A reconnect already under way is interrupted first and only then the new attempt starts (which
@@ -340,7 +345,7 @@ const Screens = () => {
             pending: !sameStreamOptions(session.startedWith, streamOptions(settings)),
             reconnecting: session.reconnecting,
             onReconnect: () => { reconnect("apply") },
-            startedWith: session.startedWith,
+            runsWith: session.runsWith,
           }}
           remoteStage={session.remoteStage}
           connected={session.connected}

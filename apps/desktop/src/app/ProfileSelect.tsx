@@ -34,7 +34,7 @@ export const useSavedProfiles = (): SavedProfiles => {
 }
 
 /** Picks a profile to apply its stream and picture settings; "Custom" when the settings match none.
- * While streaming (`running`: the options the stream started with), each other profile says what
+ * While streaming (`running`: the options the stream runs with), each other profile says what
  * switching to it costs: "applies now" (picture only) or "needs a reconnect" (stream settings). */
 export const ProfileSelect = ({ id, settings, running, onChange, className }: {
   readonly id: string

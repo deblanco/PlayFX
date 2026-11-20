@@ -348,9 +348,14 @@ Work items:
   one), and the Reconnect notice now sits above the tabs so it shows from any tab. A profile switch asks
   first: the stream keeps going until Reconnect, even when only the bitrate differs (measured against the
   running stream, so a bitrate still settling on the slider waits too); the bitrate slider still reconnects
-  on its own. Verified with UI tests (Home switch and Custom, costs only while streaming, no auto-reconnect
-  after a bitrate-only profile or a switch while the slider settles, the slider releasing a held switch,
-  the slider after it). Left: a console session to see a
+  on its own. **During a reconnect** (fixed 2026-11-20, from the v0.2.0 review) a switch is measured against
+  the options that reconnect starts with, not the ones the old stream had: a profile with the old bitrate,
+  picked while the slider's 20 → 30 Mbps reconnect was under way, used to read "applies now" and then
+  reconnect on its own back to 20 Mbps once the stream was back; it now asks first, and a profile matching
+  the bitrate coming applies at once. Verified with UI tests (Home switch and Custom, costs only while
+  streaming, no auto-reconnect after a bitrate-only profile or a switch while the slider settles, the slider
+  releasing a held switch, the slider after it, and both switches during a bitrate reconnect: no second
+  reconnect, the labels and toasts). Left: a console session to see a
   mid-stream switch reconnect into the new profile, and the option labels in macOS's native select popup.
 - ✅ **Rest mode on Stop**: while streaming, Stop asks "Put <console> in rest mode?" (Rest mode / Leave
   it on / Keep playing). Rest mode sends libchiaki's goto-bed (`sleep_console`), waits 1.5 s for it to
@@ -814,7 +819,8 @@ requests and a bug report.
    cadence~~ (done 2026-11-20 in unit tests; a 50 fps game is left to see); the PR #817 reorder-wait test
    (needs the console); ~~tests for the reconnect race and the audio output following the system default~~
    (done 2026-11-20); the chiaki-ng upstream PR (needs the user's OK); echo cancellation for the microphone;
-   audio jitter-buffer tuning.
+   audio jitter-buffer tuning; ~~a profile switch during a bitrate reconnect reconnecting on its own~~ (fixed
+   2026-11-20).
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
    a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
    Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the

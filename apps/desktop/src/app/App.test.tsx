@@ -1938,6 +1938,65 @@ describe("settings profiles", () => {
     expect(sheet.getByRole("status")).toHaveTextContent("Reconnect to use the new stream settings.")
   })
 
+  it("measures a profile switch made during a bitrate reconnect against the bitrate it reconnects with", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core, { testClock: true, profiles: [profile("Sharp", { sharpness: 0.9 })] })
+    const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Stream")
+
+    // The slider's bitrate settles and the stream reconnects with it.
+    nudge("Bitrate", "ArrowRight")
+    await wait(2)
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 10000 }), undefined)
+
+    // Before it's back, a profile with the bitrate the stream had: it differs from the one coming, so it asks first.
+    const select = sheet.getByRole("combobox", { name: "Profile" })
+    expect(within(select).getByRole("option", { name: "Sharp · needs a reconnect" })).toBeInTheDocument()
+    await userEvent.selectOptions(select, "Sharp")
+    expect(await screen.findByText("Switched to Sharp · reconnect to apply")).toBeInTheDocument()
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await wait(3)
+    expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    expect(sheet.getByRole("status")).toHaveTextContent("Reconnect to use the new stream settings.")
+  })
+
+  it("applies at once a profile switch matching the bitrate a reconnect under way starts with", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core, {
+      testClock: true,
+      profiles: [profile("Fast and sharp", { bitrate: 10000, sharpness: 0.9 })],
+    })
+    const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Stream")
+
+    nudge("Bitrate", "ArrowRight")
+    await wait(2)
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
+
+    // The profile's bitrate is the one the stream is reconnecting with: only its picture changes.
+    const select = sheet.getByRole("combobox", { name: "Profile" })
+    expect(within(select).getByRole("option", { name: "Fast and sharp · applies now" })).toBeInTheDocument()
+    await userEvent.selectOptions(select, "Fast and sharp")
+    expect(await screen.findByText("Switched to Fast and sharp")).toBeInTheDocument()
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await waitFor(() => {
+      expect(sheet.queryByRole("status")).not.toBeInTheDocument()
+    })
+    await wait(3)
+    expect(core.service.startStream).toHaveBeenCalledTimes(1)
+  })
+
   it("can cancel naming a profile, and refuses an empty name", async () => {
     await startStreaming()
     const sheet = await openSettings("Stream")

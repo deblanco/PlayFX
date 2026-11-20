@@ -50,8 +50,9 @@ export interface ReconnectState {
   /** Restarting: to apply settings, or after the connection dropped. */
   readonly reconnecting: Reconnecting
   readonly onReconnect: () => void
-  /** The stream options the running stream started with: what switching profile costs is measured against them. */
-  readonly startedWith: StreamOptions
+  /** The stream options the stream runs with (those of a reconnect under way, once it's back): what switching
+   * profile costs is measured against them. */
+  readonly runsWith: StreamOptions
 }
 
 interface SettingsSheetProps {
@@ -105,7 +106,7 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             {tabHints[props.tab]}
           </SheetDescription>
         </SheetHeader>
-        <ProfileBar settings={settings} running={props.reconnect?.startedWith} onChange={onChange} />
+        <ProfileBar settings={settings} running={props.reconnect?.runsWith} onChange={onChange} />
         {/* Above the tabs: a profile switch can need it from any tab. */}
         {props.reconnect?.pending === true && (
           <div className="px-5 pb-4">
