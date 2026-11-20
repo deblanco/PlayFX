@@ -492,7 +492,8 @@ Work items:
   found here with the same name (next to "Pair with a code"), or on a row of their own ("PS5 · on your PSN
   account"); a PS5 with Remote Play off says so and how to turn it on. Pairing shows its step ("Finding … through
   PSN", "Pairing this Mac with …"), the seconds so far and Cancel. On failure the PIN form opens with the reason,
-  or, for a console not on this network, a note says to connect it to pair with a code. The pairing is saved
+  or, for a console not on this network, a note says to connect it to pair with a code. Both follow the console
+  by its PSN device ID, so they stay on it when discovery finds it mid-pairing (its row's host ID changes). The pairing is saved
   through the usual pairing store, with the console's PSN device ID (internet play then matches it by ID, not
   name), under discovery's host ID: the console's when it was found here, else its MAC as uppercase hex, which
   discovery's host ID is, so the console merges with it (and its address is filled in) once it's found at home;

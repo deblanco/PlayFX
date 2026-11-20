@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { Effect } from "effect"
+import { Deferred, Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { toast } from "sonner"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -316,6 +316,34 @@ describe("home: pairing through PSN", () => {
     // Pairing with a code from the start shows no PSN reason.
     await userEvent.click(item.getByRole("button", { name: "Pair with a code" }))
     expect(screen.queryByText("Couldn't pair through PSN")).not.toBeInTheDocument()
+  })
+
+  it("stays on the console when discovery finds it during the pairing", async () => {
+    const answer = Effect.runSync(Deferred.make<boolean>())
+    const core = fakeCore({
+      pairPsn: (_request, onProgress) =>
+        Effect.andThen(
+          Effect.sync(() => { onProgress("registering") }),
+          Effect.andThen(Deferred.await(answer), Effect.fail(coreError("pair_psn", "The PS5 didn't accept pairing through PSN."))),
+        ),
+    })
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [psnPs5]
+    core.state.discovered = []
+    const { runtime } = renderApp(core, { accountId }, { testClock: true })
+    await userEvent.click((await consoleItem()).getByRole("button", { name: "Pair (no code needed)" }))
+    expect(await (await consoleItem()).findByText("Pairing this Mac with Living Room…")).toBeInTheDocument()
+    // Found on this network: the row is now discovery's, under another host ID.
+    core.state.discovered = [ps5]
+    await act(() => runtime.runPromise(TestClock.adjust(5000)))
+    const found = await consoleItem()
+    expect(await found.findByText("PS5 · 192.168.0.40 · Astro Bot")).toBeInTheDocument()
+    expect(found.getByText("Pairing this Mac with Living Room…")).toBeInTheDocument()
+    expect(found.getByRole("button", { name: "Cancel" })).toBeInTheDocument()
+    // Its failure lands there too: the PIN form opens with the reason.
+    Effect.runSync(Deferred.succeed(answer, true))
+    const form = within(await screen.findByRole("form", { name: "Pair Living Room" }))
+    expect(form.getByText("Couldn't pair through PSN")).toBeInTheDocument()
   })
 
   it("says how to pair with a code when it fails on a console not found here", async () => {

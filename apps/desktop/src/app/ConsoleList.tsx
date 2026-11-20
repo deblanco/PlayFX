@@ -50,17 +50,18 @@ export const ConsoleList = ({
   const [waking, setWaking] = useState<string | null>(null)
   const wakeFiber = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
 
-  // Pairing through PSN (no code): the row being paired and its step, cancellable. A failure leaves its
-  // reason on the row: in the PIN form when the console is on this network, else as a note.
-  const [psnPairing, setPsnPairing] = useState<{ readonly hostId: string; readonly stage: PsnPairStage | undefined } | null>(null)
+  // Pairing through PSN (no code): the console being paired (by PSN device ID: its row's host ID changes when
+  // discovery finds it meanwhile) and its step, cancellable. A failure leaves its reason on that console's row:
+  // in the PIN form when it's on this network, else as a note.
+  const [psnPairing, setPsnPairing] = useState<{ readonly duid: string; readonly stage: PsnPairStage | undefined } | null>(null)
   const psnPairFiber = useRef<Fiber.Fiber<unknown, unknown> | null>(null)
-  const [pairProblem, setPairProblem] = useState<{ readonly hostId: string; readonly message: string } | null>(null)
+  const [pairProblem, setPairProblem] = useState<{ readonly duid: string; readonly message: string } | null>(null)
   useEffect(() => () => { if (psnPairFiber.current) runtime.runFork(Fiber.interrupt(psnPairFiber.current)) }, [runtime])
 
   const pairThroughPsn = (row: ConsoleRow, console: PsnConsole) => {
     setPairing(null)
     setPairProblem(null)
-    setPsnPairing({ hostId: row.hostId, stage: undefined })
+    setPsnPairing({ duid: console.duid, stage: undefined })
     const onProgress = (stage: PsnPairStage) => { setPsnPairing((p) => p && { ...p, stage }) }
     psnPairFiber.current = runtime.runFork(
       Effect.match(Effect.tapError(actions.pairThroughPsn(console, row.discovered, onProgress), (e) => Effect.logWarning(e.message)), {
@@ -73,12 +74,15 @@ export const ConsoleList = ({
         onFailure: (error) => {
           psnPairFiber.current = null
           setPsnPairing(null)
-          setPairProblem({ hostId: row.hostId, message: error.message })
-          if (row.discovered !== undefined) setPairing(row.hostId)
+          setPairProblem({ duid: console.duid, message: error.message })
         },
       }),
     )
   }
+
+  /** Why pairing this row's console through PSN failed, if it did. */
+  const problemOn = (row: ConsoleRow): string | undefined =>
+    pairProblem !== null && pairProblem.duid === row.psn?.duid ? pairProblem.message : undefined
 
   const cancelPsnPairing = () => {
     if (psnPairFiber.current) runtime.runFork(Fiber.interrupt(psnPairFiber.current))
@@ -225,22 +229,23 @@ export const ConsoleList = ({
                 Enable Remote Play.
               </p>
             )}
-            {psnPairing?.hostId === row.hostId && (
+            {psnPairing !== null && psnPairing.duid === row.psn?.duid && (
               <PsnPairingStatus name={row.name} stage={psnPairing.stage} onCancel={cancelPsnPairing} />
             )}
-            {pairProblem?.hostId === row.hostId && row.discovered === undefined && (
+            {problemOn(row) !== undefined && row.discovered === undefined && (
               <p role="alert" className="border-t pt-2 text-xs text-destructive">
-                {pairProblem.message} To pair with a code instead, connect the PS5 to this Mac's network: it shows up
+                {problemOn(row)} To pair with a code instead, connect the PS5 to this Mac's network: it shows up
                 here with Pair.
               </p>
             )}
-            {pairing === row.hostId && row.discovered !== undefined && (
+            {(pairing === row.hostId || problemOn(row) !== undefined) && row.discovered !== undefined && (
               <PairForm
                 console={row.discovered}
-                {...(pairProblem?.hostId === row.hostId ? { problem: pairProblem.message } : {})}
+                problem={problemOn(row)}
                 onPaired={(next) => {
                   setPaired(next)
                   setPairing(null)
+                  setPairProblem(null)
                   toast.success(`Paired with ${row.name}`)
                 }}
                 onCancel={() => {
@@ -374,7 +379,7 @@ const PsnPairingStatus = ({ name, stage, onCancel }: { readonly name: string; re
 interface PairFormProps {
   readonly console: DiscoveredConsole
   /** Why pairing through PSN didn't work, when the form opened after it. */
-  readonly problem?: string
+  readonly problem?: string | undefined
   readonly onPaired: (paired: PairedConsoles) => void
   readonly onCancel: () => void
 }
