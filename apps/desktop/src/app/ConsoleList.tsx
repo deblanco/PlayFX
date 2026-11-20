@@ -258,15 +258,18 @@ export const ConsoleList = ({
           </li>
         ))}
       </ul>
-      {/* Paired consoles stay listed when they aren't here: whether discovery found any decides the help. */}
+      {/* Paired consoles stay listed when they aren't here: whether discovery found any decides the help. In
+          Internet mode there's none under consoles listed through PSN: this network doesn't matter there. */}
       {discovered.length === 0 ? (
-        <NoConsoles
-          scanned={scanned}
-          listed={rows.length > 0}
-          address={consoleAddress}
-          onAddressChange={onConsoleAddressChange}
-          onOpenLocalNetwork={() => { run(actions.openLocalNetworkSettings) }}
-        />
+        !(connection === "internet" && rows.some((row) => row.psnDuid !== undefined)) && (
+          <NoConsoles
+            scanned={scanned}
+            listed={rows.length > 0}
+            address={consoleAddress}
+            onAddressChange={onConsoleAddressChange}
+            onOpenLocalNetwork={() => { run(actions.openLocalNetworkSettings) }}
+          />
+        )
       ) : (
         <AddByIp address={consoleAddress} onAddressChange={onConsoleAddressChange} />
       )}

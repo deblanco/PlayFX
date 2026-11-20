@@ -142,6 +142,30 @@ describe("home: discovery", () => {
     expect(screen.queryByRole("button", { name: "Console missing? Add it by IP" })).not.toBeInTheDocument()
   })
 
+  it("leaves the help out in Internet mode under consoles listed through PSN", async () => {
+    const core = fakeCore()
+    core.state.discovered = []
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [psnPs5]
+    renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "internet" } })
+    const item = await consoleItem()
+    expect(await item.findByText("internet")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: "No consoles on this network yet" })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByText("Looking for consoles on this network…")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Open Local Network settings" })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Console IP address")).not.toBeInTheDocument()
+  })
+
+  it("keeps the help in Internet mode when no console is listed through PSN", async () => {
+    const core = fakeCore()
+    core.state.discovered = []
+    renderApp(core, { accountId, paired: [pairedPs5], settings: { ...defaultSettings, connection: "internet" } })
+    expect(await (await consoleItem()).findByText("offline")).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "No consoles on this network yet" })).toBeInTheDocument()
+  })
+
   it("reports discovery failures but still lists paired consoles as offline", async () => {
     const core = fakeCore({ discover: Effect.fail(coreError("discover", "no network")) })
     renderApp(core, { paired: [pairedPs5] })

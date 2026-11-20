@@ -459,6 +459,9 @@ Work items:
   tests). **Needs a Mac to confirm** that the button lands on the Local Network pane on the macOS versions we
   support (the URL is Apple's, not documented), and a console on another subnet to confirm the IP path in
   Automatic.
+  In Internet mode (Connect › Internet) the help is left out under consoles listed through PSN (2026-11-20,
+  owner's decision): it's about this network, which doesn't matter there. With none listed through PSN it
+  still shows. Checked by unit tests (App: left out, and kept with nothing listed through PSN).
 - 🔶 **Say why pairing failed.** A failed pairing showed one sentence whatever went wrong. The fork's
   registration now reports the cause on its failed event (libchiaki's error, the console's HTTP status and
   RP-Application-Reason, and whether the console had answered the search; fork commits "Regist: say why a
