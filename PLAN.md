@@ -215,8 +215,12 @@ Work items:
   - The lane takes its engine as a parameter (VideoToolbox in the app, stand-ins in tests), so its logic
     is tested in CI's VM too.
   - Review fixes: the size climbs back up after a spike; a late in-between image never shows after a
-    newer one; the clock starts over after a second of frames running more than two intervals late;
-    the extra delay only while images are being made; 10-bit HDR frames aren't sent to the lane.
+    newer one; the extra delay only while images are being made; 10-bit HDR frames aren't sent to the lane.
+  - The clock slides through a late stretch instead of starting over (2026-11-20): its phase moves up to 8%
+    of a frame per frame when frames come far from it, so the in-between images and the playhead's place are
+    kept. It starts over only after a gap, and the playhead then goes on from the new frame, never back.
+    A 7-minute trace had 51 start-overs, each a moment of plain stream and a held picture; replayed through
+    the new pacing, only its 3 real gaps start over. Not yet seen live.
   - Not yet checked on the PS5.
 - ✅ **Network** (requested): see [docs/NETWORK.md](docs/NETWORK.md).
   - **Cause found:** AirDrop and Handoff (AWDL) stall the Mac's Wi-Fi about 90 ms every second. Pings to
@@ -230,7 +234,8 @@ Work items:
   - **Threads:** libchiaki's receive and input threads run at user-interactive QoS.
   - **Result** (1080p60, AWDL on): lateness behind the stream clock went from 219–555 ms to 9.5 ms, and
     lost frames from 2–15 to 0.
-  - The pacing clock now re-anchors when lateness stays high (it used to grow without bound).
+  - The pacing clock now follows lateness that stays high (it used to grow without bound): first by starting
+    over, since 2026-11-20 by sliding its phase (see FRAME_INTERPOLATION.md, "Stream clock").
   - From [neo773/chiaki-ng](https://github.com/neo773/chiaki-ng) (reviewed 2026-11-19): the fork retries the
     control request when the console resets the connection (3×, 35 ms apart), and both TCP sockets get
     `TCP_NODELAY`, the real-time marking and `SO_NOSIGPIPE`. Video now decodes asynchronously, off

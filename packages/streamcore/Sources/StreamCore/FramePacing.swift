@@ -9,21 +9,27 @@ import Foundation
 /// A frame's time is `anchor + (index − first) / fps + phase`. The phase follows the *lower envelope* of
 /// `arrival − nominal` over the last second: network jitter only ever adds delay, so the earliest arrivals
 /// show the stream's true timing. The phase moves at most 0.5% of a frame per frame, so a burst of jitter
-/// can't make times jump or run backwards; the stream's real rate (59.94 for "60") is followed through
-/// the phase. A gap of over 200 ms, or a jump of more than half a second of frames, starts over; so does
-/// a second of frames all more than two intervals late (the stream fell behind its clock for good, e.g. it
-/// runs slower than its nominal rate, or a stall shifted its cadence), which the slow phase can't catch.
+/// can't make times jump; the stream's real rate (59.94 for "60") is followed through the phase.
+///
+/// When the envelope is more than half a frame from the phase (frames earlier than the clock expects, or the
+/// earliest of the last second late: a stall shifted the stream's cadence), the phase slides there by up to
+/// `Playhead.stretch` of a frame per frame instead: frames stay evenly spaced to within that, and the
+/// playhead plays through them, so the screen doesn't see the change (starting the clock over there threw the
+/// in-between images away and stepped the picture). Only a gap of over 200 ms, a jump of more than half a
+/// second of frames, or a frame more than `reach` off the clock (a stream too far from its nominal rate to
+/// slide after) starts over. Times always increase, across a start-over too, so nothing shown is ever older
+/// than what was shown before.
 struct StreamClock {
     let fps: Double
+    /// Further off the clock than this (seconds), a frame starts it over: sliding can't follow.
+    static let reach = 0.25
     private var anchor = 0.0
     private var firstIndex: UInt64 = 0
     private var lastIndex: UInt64 = 0
     private var lastArrival = 0.0
-    private var lastTime = 0.0
+    private var lastTime = -Double.infinity
     private var phase = 0.0
     private var anchored = false
-    /// Consecutive frames more than two intervals behind the clock.
-    private var lateRun = 0
     /// (arrival, error) pairs, error increasing: the window's minimum is at the front.
     private var window: [(arrival: Double, error: Double)] = []
 
@@ -34,26 +40,25 @@ struct StreamClock {
     /// The frame's time, and whether the clock started over at it; nil for a frame out of order.
     mutating func time(index: UInt64, arrival: Double) -> (time: Double, restarted: Bool)? {
         if anchored, index <= lastIndex || arrival < lastArrival { return nil }
-        var restarted = !anchored
-        if !anchored || arrival - lastArrival > 0.2 || Double(index - lastIndex) > fps / 2 || Double(lateRun) >= fps {
+        let expected = anchor + Double(index - firstIndex) / fps + phase
+        let restarted = !anchored || arrival - lastArrival > 0.2 || Double(index - lastIndex) > fps / 2
+            || abs(arrival - max(expected, lastTime)) > Self.reach
+        if restarted {
             anchor = arrival
             firstIndex = index
             phase = 0
             window.removeAll()
             anchored = true
-            restarted = true
-            lateRun = 0
         }
         let nominal = anchor + Double(index - firstIndex) / fps
         let error = arrival - nominal
         window.removeAll { $0.arrival <= arrival - 1 }
         while let last = window.last, last.error >= error { window.removeLast() }
         window.append((arrival, error))
-        let maxSlew = interval / 200
-        phase += min(max((window.first?.error ?? error) - phase, -maxSlew), maxSlew)
-        var time = nominal + phase
-        if !restarted { time = max(time, lastTime + 1e-6) }
-        lateRun = arrival - time > 2 * interval ? lateRun + 1 : 0
+        let target = window.first?.error ?? error
+        let maxSlew = abs(target - phase) > interval / 2 ? interval * Playhead.stretch : interval / 200
+        phase += min(max(target - phase, -maxSlew), maxSlew)
+        let time = max(nominal + phase, lastTime + 1e-6)
         lastIndex = index
         lastArrival = arrival
         lastTime = time
@@ -102,12 +107,6 @@ struct FrameTimeline<Image> {
         for skipped in entries[..<last] { count(skipped) }
         entries.removeFirst(last + 1)
         return shown
-    }
-
-    /// Forgets everything (a new stream or a clock restart).
-    mutating func clear() {
-        entries.removeAll()
-        shownTime = -.infinity
     }
 
     private mutating func count(_ skipped: TimedImage<Image>) {
@@ -408,13 +407,17 @@ struct Playhead {
     static let stretch = 0.08
     /// The speed leaves 1 by (the distance to where it should be) / `gain`: 40 ms off gives the full 8%.
     static let gain = 0.5
-    /// Further off than this (seconds) it moves there at once: a start, the end of a pause.
+    /// Further behind where it should be than this (seconds), it moves there at once: a start, the end of a
+    /// pause. Ahead of it, it only ever slows down: it never goes back.
     static let jump = 0.25
 
     private(set) var position: Double?
     private var last = 0.0
 
-    mutating func reset() { position = nil }
+    /// The stream starts over at `time` (a new stream, or a gap): the image there shows at once, and the playhead
+    /// goes on from it, slowing to fall back to its delay, rather than snapping back a whole delay behind it and
+    /// holding the picture that long. Never back: when it's past `time` already, it stays.
+    mutating func start(at time: Double) { position = max(position ?? time, time) }
 
     /// Moves to the refresh at `now` and returns the stream time to show. `limit`: don't pass this (nil: free).
     /// `refresh` is the screen's steady time between refreshes (0: unknown): the draw callback's own timing
@@ -423,9 +426,9 @@ struct Playhead {
     mutating func advance(now: Double, delay: Double, limit: Double? = nil, refresh: Double = 0) -> Double {
         let target = now - delay
         defer { last = now }
-        guard let from = position, now > last, abs(target - from) <= Self.jump else {
-            // Never back, except to start over (`reset`).
-            let to = max(min(target, limit ?? target), position.map { min($0, target) } ?? -.infinity)
+        // A first refresh, one again, one after a long wait or a target far ahead: move there at once.
+        guard let from = position, now > last, now - last <= Self.jump, target - from <= Self.jump else {
+            let to = max(min(target, limit ?? target), position ?? -.infinity) // never back
             position = to
             return to
         }

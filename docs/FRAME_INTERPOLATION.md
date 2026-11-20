@@ -110,12 +110,36 @@ A frame's time is `anchor + (index − first) / fps + phase`.
 
 - **The phase** follows the minimum of `arrival − nominal` over the last second, kept as a monotonic deque.
   It moves at most `interval / 200` per frame, so a burst of jitter can't make times jump. Times always
-  increase.
-- **Starting over:** a gap of more than 200 ms, or a jump of more than half a second of frames, re-anchors
-  the clock. The renderer also re-anchors when a frame's time runs more than half an interval ahead of its
-  arrival (the stream fell behind for good).
-- **After a restart** the first frame is shown at once (`time = arrival − delay`), so nothing waits on a
-  clock that has just started.
+  increase, across a start-over too.
+- **Sliding, not starting over:** when that minimum is more than half an interval from the phase (frames
+  come earlier than the clock expects, or a stall shifted the stream's cadence later for good), the phase
+  slides there by up to 8% of an interval per frame (`Playhead.stretch`). Frames stay evenly spaced to
+  within 8%, and the playhead plays through them, so the change isn't seen.
+- **Starting over:** only a gap of more than 200 ms, a jump of more than half a second of frames, or a frame
+  more than a quarter second off the clock (a stream too far from its nominal rate to slide after,
+  `StreamClock.reach`). Then no images are made across the break, and the game's rate and cadence start
+  over; the timeline keeps what it has, and the playhead starts at the new frame (`Playhead.start(at:)`):
+  it shows at once, and the playhead slows (never back) until it's behind by the delay again.
+
+Until 2026-11-20 the clock also started over after a second of frames more than two intervals late, and the
+renderer at any frame more than half an interval earlier than the clock. Each start-over cleared the
+timeline (the in-between images with it), the game's rate and the playhead, and showed the frame at
+`arrival − delay`: the picture fell back to the plain stream for a moment and then held for a whole delay.
+A 7-minute session (`STREAMCORE_PACING_TRACE`) had 51: 33 "far earlier", most of them in a row on the
+frames of the burst after a ~100 ms stall (each earlier than a clock just started on a late frame), 14 late
+runs, and 4 real gaps. Replayed through both (the trace's arrivals and refreshes through a port of the
+pacing, content measured by frame index):
+
+| | Start-overs | Back-steps | Holds > 100 ms | Holds/s | Jumps > 1.5 refreshes/s | Latency p50 |
+|---|---|---|---|---|---|---|
+| Before | 42 (28 early, 11 late, 3 gaps) | 4 | 44 | 17.0 | 10.8 | 97.8 ms |
+| Sliding | 3 (the gaps) | 0 | 37 | 17.0 | 10.9 | 97.1 ms |
+
+Around the old start-overs (from 0.2 s before to 1 s after): holds 42.8/s → 38.6/s, in-between images
+shown 36.6/s → 39.0/s, jumps 17.3/s → 18.5/s (the burst after a stall is played through quickly rather
+than skipped). Most holds are the stalls themselves, which no pacing can hide. The replay puts back the
+repeats that aren't traced while interpolating at a guessed arrival, so it finds 42 of the 51 start-overs.
+Two earlier sessions: 21 → 0 start-overs (holds around them 30.1/s → 23.2/s) and 4 → 0 (26.4/s → 10.5/s).
 
 ### Timeline (`FrameTimeline`)
 
@@ -406,7 +430,7 @@ control port (`docs/dev-control.md`) reads the same numbers, and the pacing dela
 
 Unit tests (`swift test`) cover:
 
-- the clock (jitter, real rate, restarts),
+- the clock (jitter, real rate, sliding through a late stretch, a stall and its burst, restarts),
 - the timeline,
 - the delay planner,
 - the size selector (including broken sizes),

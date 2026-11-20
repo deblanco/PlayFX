@@ -105,7 +105,8 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
   thread side of the delay; [NETWORK.md](NETWORK.md) uses it.
 - `costMs` and `size`: an in-between image's cost and the size it's made at.
 - `skippedFrames` and `skippedInterpolations`: images that were due but never shown.
-- `clockRestarts`: how often the stream clock started over.
+- `clockRestarts`: how often the stream clock started over (the stream's start, gaps of over 200 ms, jumps
+  of frames; a late stretch only slides it).
 - `interpolation`, `upscale`, `ml`: what each optional step is doing, and why one that's on is idle.
   `interpolation`: `off`, `on`, `unsupported` (this Mac or macOS), `screen` (the screen doesn't refresh
   often enough for the game's rate), `still` (on, but the game holds its picture). `upscale`: `metalfx`, `bilinear` (chosen), `notLarger` (MetalFX only

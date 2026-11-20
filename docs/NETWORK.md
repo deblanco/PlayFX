@@ -264,9 +264,9 @@ All of these work without the UI:
 
 ## Known limits
 
-- **The pacing clock follows lateness slowly.** It moves at most 0.5% of a frame per frame, which is what let
-  the 219–555 ms figures above build up. It now starts over after a second of frames running more than two
-  intervals late.
+- **The pacing clock follows lateness slowly.** It moved at most 0.5% of a frame per frame, which is what let
+  the 219–555 ms figures above build up. When frames are more than half a frame off it now slides by up to 8%
+  of a frame per frame, and starts over only when they're a quarter second off (FRAME_INTERPOLATION.md).
 - **Steady Wi-Fi depends on AppleScript's administrator prompt and `ifconfig`.** Both exist on every
   macOS release so far, but Apple could restrict them.
 - **The fork's fixes are measured on one network.** The reorder-wait change from PR #817 is untested.

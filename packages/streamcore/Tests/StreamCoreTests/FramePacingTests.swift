@@ -1,3 +1,4 @@
+import CoreVideo
 import Testing
 @testable import StreamCore
 
@@ -34,19 +35,91 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
     }
 
     @Test func startsOverWhenFramesKeepArrivingLate() throws {
-        // A "60" stream that really sends 50 frames a second: every frame lands later on the clock. The slow
-        // phase can't follow; a second of frames more than two intervals late starts the clock over, so
+        // A "60" stream that really sends 50 frames a second: every frame lands later on the clock, faster than
+        // even the sliding phase follows. A frame more than a quarter second late starts the clock over, so
         // lateness stays bounded instead of growing for as long as the stream lasts.
         var clock = StreamClock(fps: 60)
-        var worst = 0.0, restarts = 0
+        var worst = 0.0, restarts = 0, last = -Double.infinity
         for i in 0..<1500 { // 30 s
             let arrival = Double(i) / 50
             let t = try tick(&clock, UInt64(i), arrival)
             if t.restarted { restarts += 1 }
             worst = max(worst, arrival - t.time)
+            #expect(t.time > last) // never back, across a restart too
+            last = t.time
         }
         #expect(restarts > 1)
         #expect(worst < 0.4, "\(worst)")
+    }
+
+    /// The pattern behind most restarts in a 7-minute session (`t3.log`, 2026-11-20): frames arrive 50 ms
+    /// behind the clock for a second, then a ~95 ms stall, then the held frames all within a few ms. The clock
+    /// used to start over at the stall (a second of frames all late), and the renderer again at each frame of
+    /// the burst (each far earlier than a clock just anchored on a late one): seven starts over, each throwing
+    /// the in-between images away.
+    static func stallPattern(_ i: Int) -> Double {
+        let nominal = { (i: Int) in 10 + Double(i) / 60 }
+        let jitter = Double((i * 7919) % 4) / 1000
+        if i < 120 { return nominal(i) + jitter }
+        if (180...185).contains(i) { return nominal(185) + 0.052 - Double(185 - i) * 0.0015 } // held, then a burst
+        return nominal(i) + 0.05 + jitter
+    }
+
+    @Test func aLateStretchAStallAndItsBurstKeepTheClock() throws {
+        var clock = StreamClock(fps: 60)
+        let interval = 1.0 / 60
+        var times: [Double] = []
+        for i in 0..<300 {
+            let t = try tick(&clock, UInt64(i), Self.stallPattern(i))
+            #expect(!t.restarted || i == 0, "\(i)")
+            times.append(t.time)
+        }
+        // Frames stay a frame interval apart (to within 8%) through the stall and the burst: the playhead shows
+        // them in order, and the only hold is the stall's own.
+        let gaps = zip(times, times.dropFirst()).map { $1 - $0 }
+        #expect(gaps.allSatisfy { abs($0 - interval) <= interval * Playhead.stretch + 1e-9 }, "\(gaps.min() ?? 0)…\(gaps.max() ?? 0)")
+    }
+
+    @Test func slidesThroughALateStretchInsteadOfStartingOver() throws {
+        // A stall shifts the stream's cadence 100 ms later for good: every frame from then on arrives 100 ms
+        // behind the clock. The phase slides after it, never more than 8% of a frame per frame, so the frames
+        // stay evenly spaced, and the lateness is gone within a couple of seconds.
+        var clock = StreamClock(fps: 60)
+        let interval = 1.0 / 60
+        var times: [Double] = [], lateness = 0.0
+        for i in 0..<600 {
+            let arrival = 10 + Double(i) * interval + (i >= 120 ? 0.1 : 0)
+            let t = try tick(&clock, UInt64(i), arrival)
+            #expect(!t.restarted || i == 0)
+            times.append(t.time)
+            lateness = arrival - t.time
+        }
+        let gaps = zip(times, times.dropFirst()).map { $1 - $0 }
+        #expect(gaps.allSatisfy { $0 >= interval * (1 - 1e-9) && $0 <= interval * (1 + Playhead.stretch) + 1e-9 },
+                "\(gaps.min() ?? 0)…\(gaps.max() ?? 0)")
+        #expect(gaps.contains { $0 > interval * 1.05 }) // it did slide
+        #expect(abs(lateness) < 0.002, "\(lateness)")
+    }
+
+    @Test func slidesBackWhenFramesComeEarlierThanTheClock() throws {
+        // The clock started on a frame that was 100 ms late (the first after a gap); the rest, from the next
+        // that got through, come on time, far earlier than it expects. It slides back by up to 8% of a frame
+        // per frame: never a jump, never back in time.
+        var clock = StreamClock(fps: 60)
+        let interval = 1.0 / 60
+        #expect(try tick(&clock, 0, 10.1).restarted)
+        var times: [Double] = [], lead = 0.0
+        for i in 7..<300 {
+            let arrival = 10 + Double(i) * interval
+            let t = try tick(&clock, UInt64(i), arrival)
+            #expect(!t.restarted)
+            times.append(t.time)
+            lead = t.time - arrival
+        }
+        let gaps = zip(times, times.dropFirst()).map { $1 - $0 }
+        #expect(gaps.allSatisfy { $0 >= interval * (1 - Playhead.stretch) - 1e-9 && $0 <= interval * (1 + 1e-9) },
+                "\(gaps.min() ?? 0)…\(gaps.max() ?? 0)")
+        #expect(abs(lead) < 0.002, "\(lead)")
     }
 
     @Test func restartsAfterAGapAndRefusesOldFrames() throws {
@@ -90,9 +163,6 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         timeline.add(image("ab", 1.5, generated: true))
         #expect(timeline.entries.isEmpty && timeline.skippedGenerated == 1)
         #expect(timeline.next(now: 3, delay: 0) == nil)
-        timeline.clear() // a new clock: older times are fine again
-        timeline.add(image("x", 1))
-        #expect(timeline.entries.count == 1)
     }
 
     @Test func dropsTheOldestBeyondCapacity() {
@@ -100,8 +170,6 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         for i in 0..<4 { timeline.add(image("\(i)", Double(i))) }
         #expect(timeline.entries.map(\.image) == ["2", "3"])
         #expect(timeline.skippedReal == 2)
-        timeline.clear()
-        #expect(timeline.entries.isEmpty)
     }
 }
 
@@ -213,5 +281,49 @@ func tick(_ clock: inout StreamClock, _ index: UInt64, _ arrival: Double) throws
         let timed = counts.report(presentedAt: 3, generated: false, now: 3) // a real time: back to normal
         let zero = counts.report(presentedAt: 0, generated: false, now: 3.1)
         #expect(timed && !zero)
+    }
+}
+
+extension StreamRendererTests {
+    /// The stall pattern (`StreamClockTests.stallPattern`) through the renderer, a 60 fps stream on a 120 Hz
+    /// screen: the clock never starts over, every frame shown is newer than the last, the only hold is the stall
+    /// itself, and from the burst on a new frame shows every frame interval. Before, the clock started over
+    /// seven times here, and after the burst the picture held for a whole delay.
+    @Test func aStallAndItsBurstNeitherStartOverNorHoldLongerThanTheStall() throws {
+        let r = try #require(StreamRenderer(inputWidth: 16, inputHeight: 16))
+        r.params.upscaler = .bilinear
+        r.params.sharpness = 0
+        r.streamFrameRate = 60
+        // Frame i: its hundreds in the left half's luma, the rest in the right half's.
+        func frame(_ i: Int) throws -> CVPixelBuffer {
+            try makeNV12(width: 16, height: 16, cb: 128, cr: 128) { x, _ in x < 8 ? UInt8(30 + 40 * (i / 100)) : UInt8(20 + 2 * (i % 100)) }
+        }
+        func shown(_ p: [UInt8]) -> Int {
+            func luma(_ x: Int) -> Double { Double(pixel(p, width: 16, x: x, y: 8).g) * 219 / 255 + 16 }
+            return Int(((luma(2) - 30) / 40).rounded()) * 100 + Int(((luma(13) - 20) / 2).rounded())
+        }
+        let arrival = StreamClockTests.stallPattern
+        let refresh = 1.0 / 120
+        var next = 0, last = -1, lastNew = 10.0, now = 10.0
+        var holds: [(from: Double, length: Double)] = []
+        while now < 14.9 {
+            while next < 300, arrival(next) <= now {
+                r.display(try frame(next), index: UInt64(next), arrival: arrival(next))
+                next += 1
+            }
+            let i = shown(try render(r, size: (16, 16), now: now))
+            if i != last {
+                #expect(i > last, "frame \(i) after \(last)")
+                holds.append((lastNew, now - lastNew))
+                (last, lastNew) = (i, now)
+            }
+            now += refresh
+        }
+        #expect(r.pacingParts.restarts == 1, "\(r.pacingParts.restarts)") // the stream's start
+        let stall = arrival(180) - arrival(179)
+        #expect(holds.allSatisfy { $0.length <= stall + refresh * 1.5 }, "\(holds.map(\.length).max() ?? 0)")
+        let afterStall = holds.filter { $0.from >= arrival(180) }
+        #expect(!afterStall.isEmpty && afterStall.allSatisfy { $0.length <= 1.0 / 60 + refresh * 1.5 },
+                "\(afterStall.map(\.length).max() ?? 0)")
     }
 }

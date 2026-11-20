@@ -290,11 +290,39 @@ extension StreamRendererTests {
         for k in 1...120 { _ = playhead.advance(now: 10 + Double(k) * refresh, delay: 0.05, limit: 9.96) }
         #expect(playhead.position == 9.96)
         #expect(abs(playhead.advance(now: 11 + refresh, delay: 0.05, limit: 100) - (11 + refresh - 0.05)) < 1e-9)
-        // The same refresh again changes nothing; a new stream starts over.
+        // The same refresh again changes nothing.
         let at = playhead.position
         #expect(playhead.advance(now: 11 + refresh, delay: 0.05, limit: 100) == at)
-        playhead.reset()
-        #expect(playhead.advance(now: 3, delay: 0.05) == 2.95)
+        // A first refresh after a long wait goes there at once too.
+        #expect(abs(playhead.advance(now: 13, delay: 0.05, limit: 100) - 12.95) < 1e-9)
+    }
+
+    @Test func startsOverAtAFrameAndGoesOnFromItNeverBack() {
+        // A new stream: the first image shows at once.
+        var playhead = Playhead()
+        playhead.start(at: 5)
+        #expect(playhead.advance(now: 5.001, delay: 0.1) == 5)
+        // After a gap the clock starts over at a frame that arrived just now, a whole delay ahead of where the
+        // playhead should be. It shows that frame at once and slows down (never back) until it's behind by
+        // the delay again, instead of holding the picture for the delay.
+        playhead = Playhead()
+        _ = playhead.advance(now: 10, delay: 0.1)
+        playhead.start(at: 10.3)
+        playhead.start(at: 10.2) // a start before where it is doesn't pull it back
+        var last = playhead.advance(now: 10.3 + refresh, delay: 0.1)
+        #expect(last >= 10.3)
+        var slowest = 1.0
+        for k in 2...1200 {
+            let at = playhead.advance(now: 10.3 + Double(k) * refresh, delay: 0.1)
+            #expect(at > last)
+            slowest = min(slowest, (at - last) / refresh)
+            last = at
+        }
+        #expect(slowest >= 1 - Playhead.stretch - 1e-9)
+        #expect(abs(last - (10.3 + 1200 * refresh - 0.1)) < 0.001) // back to its delay
+        // Even a delay far longer than it was all at once (more than a jump) slows it rather than pulling it back.
+        let before = last
+        #expect(playhead.advance(now: 10.3 + 1201 * refresh, delay: 0.5) > before)
     }
 
     /// What the screen shows over a stretch of a 30 fps game with quarters made, on a 118.8 Hz screen, while

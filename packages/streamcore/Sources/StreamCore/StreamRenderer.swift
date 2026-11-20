@@ -116,7 +116,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         /// The newest frame's arrival, and what it was when the lane last made an image (nil before any).
         var lastArrival = 0.0
         var lastMade: Double?
-        /// Times the clock started over (a gap, a jump, or frames far ahead of it).
+        /// Times the clock started over (a gap, a jump of frames, or a frame too far off it to slide to).
         var restarts = 0
         /// The last decoded frame (repeat or not), to tell a repeat of it; the game's rate from its new
         /// pictures; even times for them; and frames that repeated the one before.
@@ -347,20 +347,16 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             pacing.withLock { p in
                 let i = index ?? p.nextIndex
                 p.nextIndex = i + 1
-                guard var stamp = p.clock.time(index: i, arrival: arrival) else { return nil }
-                // Far earlier than the clock expects: its rate is wrong for this stream; start it over here.
-                if stamp.time - arrival > p.clock.interval / 2 {
-                    p.clock = StreamClock(fps: p.clock.fps)
-                    stamp = p.clock.time(index: i, arrival: arrival) ?? (arrival, true)
-                }
+                guard let stamp = p.clock.time(index: i, arrival: arrival) else { return nil }
+                // A gap or a jump of frames (a late stretch only slides the clock): no images across it, and the
+                // game's rate and cadence start over. What's in the timeline stays, and so does the playhead's
+                // place: the clock never goes back, so nothing older than what was shown can come next.
                 if stamp.restarted {
                     p.restarts += 1
-                    p.timeline.clear()
                     p.lastReal = nil
                     p.content.reset()
                     p.cadence.reset()
                     p.repeats.reset()
-                    p.playhead.reset()
                     p.populated = nil
                 }
                 let repeated = difference.map { p.repeats.isRepeat(difference: $0) } ?? false
@@ -384,15 +380,16 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                 let making = p.lastMade.map { arrival - $0 < 2 } ?? false
                 let delay = p.planner.update(interval: interval, interpolating: wanted && making, lead: steps == 1 ? 0.5 : 0.75)
                 Self.trace("F \(i) \(arrival) \(stamp.time) \(stamp.restarted ? 1 : 0) \(delay) \(wanted ? 1 : 0) \(repeated ? 1 : 0) \(steps) \(p.planner.jitter) \(p.planner.generationCost)")
-                // After a start or a break the frame shows at once; later ones keep to the clock, on the game's
-                // even grid while interpolating.
-                var time = stamp.restarted ? arrival - delay : stamp.time
+                // Frames keep to the clock, on the game's even grid while interpolating. After a start or a break
+                // the frame shows at once: the playhead goes on from it, falling back to its delay by slowing down.
+                var time = stamp.time
                 if wanted, !stamp.restarted {
                     time = p.cadence.time(for: time, interval: p.content.interval)
                 } else {
                     p.cadence.reset()
                 }
                 p.timeline.add(TimedImage(image: frame, time: time, generated: false, arrival: arrival))
+                if stamp.restarted { p.playhead.start(at: time) }
                 // Without images towards this picture (decided below), everything up to it is there already.
                 var paired = false
                 defer {
