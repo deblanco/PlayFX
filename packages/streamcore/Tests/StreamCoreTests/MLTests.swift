@@ -120,13 +120,21 @@ extension StreamRendererTests {
                      chroma: { _, _ in (128, 128) })
     }
 
+    /// Shows `frame` the way the app does: the screen area known from earlier draws, ML upscaling on its own
+    /// lane (waited for here), then a draw.
+    func show(_ r: StreamRenderer, _ frame: CVPixelBuffer, size: (Int, Int), index: UInt64? = nil) throws -> [UInt8] {
+        r.setUpscaleTarget(drawableSize: CGSize(width: size.0, height: size.1))
+        r.display(frame, index: index)
+        r.waitForUpscaling()
+        return try render(r, size: size)
+    }
+
     @Test func mlUpscalesSmallStreamsWhereSupported() throws {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
         r.showsTestPattern = false
         r.params.mlUpscale = true
         r.params.sharpness = 0
-        r.display(try mlFrame(width: 1280, height: 720))
-        let out = try render(r, size: (2560, 1440))
+        let out = try show(r, try mlFrame(width: 1280, height: 720), size: (2560, 1440))
         #expect(r.mlActive == r.mlSupported)
         guard r.mlSupported else { return } // older macOS / unsupported Mac / a VM: plain pipeline
         #expect(r.inputSize == (1920, 1080)) // 1.5× before the rest of the pipeline
@@ -140,8 +148,7 @@ extension StreamRendererTests {
         r.showsTestPattern = false
         r.params.mlUpscale = true
         r.params.sharpness = 0
-        r.display(try mlFrame(width: 1920, height: 1080))
-        let out = try render(r, size: (3840, 2160))
+        let out = try show(r, try mlFrame(width: 1920, height: 1080), size: (3840, 2160))
         #expect(r.mlActive == r.mlSupported)
         guard r.mlSupported else { return }
         #expect(r.inputSize == (2880, 1620)) // two tiles put back together
@@ -157,11 +164,7 @@ extension StreamRendererTests {
         r.showsTestPattern = false
         r.params.mlUpscale = true
         r.params.sharpness = 0
-        r.display(try mlFrame(width: 960, height: 540))
-        _ = try render(r, size: (1920, 1080)) // the first frame fits the window by the 64×64 placeholder's shape
-        // A jump in the index restarts the stream clock: shown at once, not one frame interval later.
-        r.display(try mlFrame(width: 960, height: 540), index: 1000)
-        let out = try render(r, size: (1920, 1080))
+        let out = try show(r, try mlFrame(width: 960, height: 540), size: (1920, 1080))
         #expect(r.mlActive == r.mlSupported)
         guard r.mlSupported else { return }
         #expect(r.inputSize == (1920, 1080)) // 2×, from a 960×544 padded tile
@@ -181,12 +184,10 @@ extension StreamRendererTests {
         guard r.mlSupported else { return }
         r.showsTestPattern = false
         r.params.mlUpscale = true
-        r.display(try mlFrame(width: 1280, height: 720))
-        _ = try render(r, size: (1280, 720)) // no upscale needed: ML skipped
+        _ = try show(r, try mlFrame(width: 1280, height: 720), size: (1280, 720)) // no upscale needed: ML skipped
         #expect(!r.mlActive)
-// A jump in the index restarts the stream clock: shown at once, not one frame interval later.
-        r.display(try mlFrame(width: 1280, height: 720), index: 1000)
-        _ = try render(r, size: (2560, 1440)) // bigger window: ML again
+        // A jump in the index restarts the stream clock: shown at once, not one frame interval later.
+        _ = try show(r, try mlFrame(width: 1280, height: 720), size: (2560, 1440), index: 1000) // bigger: ML again
         #expect(r.mlActive)
     }
 
@@ -194,14 +195,12 @@ extension StreamRendererTests {
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64))
         r.showsTestPattern = false
         r.params.mlUpscale = true
-        r.display(try mlFrame(width: 2560, height: 1440)) // taller than its 1280 px limit
-        _ = try render(r, size: (2560, 1440))
+        _ = try show(r, try mlFrame(width: 2560, height: 1440), size: (2560, 1440)) // taller than its 1280 px limit
         #expect(!r.mlActive)
         #expect(r.inputSize == (2560, 1440))
         r.params.mlUpscale = false
         // A jump in the index restarts the stream clock: shown at once, not one frame interval later.
-        r.display(try mlFrame(width: 1280, height: 720), index: 1000)
-        _ = try render(r, size: (2560, 1440))
+        _ = try show(r, try mlFrame(width: 1280, height: 720), size: (2560, 1440), index: 1000)
         #expect(!r.mlActive && r.inputSize == (1280, 720))
     }
 
@@ -211,8 +210,7 @@ extension StreamRendererTests {
         r.showsTestPattern = false
         r.params.mlUpscale = true
         r.params.compare = true
-        r.display(try mlFrame(width: 1280, height: 720))
-        let out = try render(r, size: (2560, 1440))
+        let out = try show(r, try mlFrame(width: 1280, height: 720), size: (2560, 1440))
         #expect(r.mlActive)
         // Left half: the raw stream (dark); right half: processed (light) — split at the center line.
         #expect(abs(pixel(out, width: 2560, x: 300, y: 700).g - 86) <= 6)
