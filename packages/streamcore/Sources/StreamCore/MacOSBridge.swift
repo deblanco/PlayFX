@@ -433,8 +433,10 @@ public func sc_session_sleep() {
 /// answer. Blocks for a few seconds per trial: never on the main thread. {"error"} without a session.
 @_cdecl("sc_latency_test")
 public func sc_latency_test(_ trials: Int32) -> UnsafeMutablePointer<CChar> {
-    guard let session else { return failure("No stream to test") }
-    let data = session.latencyTest(trials: Int(min(max(trials, 1), 20)), displayMs: renderer?.displayMilliseconds ?? 0)
+    // `session` and `renderer` belong to main (a stop there could free the session mid-read): taken there.
+    let (current, displayMs) = DispatchQueue.main.sync { (session, renderer?.displayMilliseconds ?? 0) }
+    guard let current else { return failure("No stream to test") }
+    let data = current.latencyTest(trials: Int(min(max(trials, 1), 20)), displayMs: displayMs)
     return strdup(String(decoding: data, as: UTF8.self))
 }
 

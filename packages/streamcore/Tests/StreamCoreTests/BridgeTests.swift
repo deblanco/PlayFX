@@ -200,5 +200,20 @@ extension Serial {
             #expect(await waitUntil { started == nil })
             window.close()
         }
+
+        @Test @MainActor func latencyTestTakesTheSessionFromMain() async throws {
+            // The dev-control port runs the test on its HTTP thread while main may be ending the stream:
+            // the session is taken on main, so a stop main is in the middle of wins, and nothing is tested.
+            var options = StreamSession.Options()
+            options.audio = false
+            let silent = fakeCredentials(address: "192.0.2.1") // TEST-NET: never answers
+            #expect(try call(sc_session_start, #"{"credentials":\#(json(silent)),"options":\#(json(options))}"#)["ok"] as? Bool == true)
+            let answer = OSAllocatedUnfairLock<String?>(initialState: nil)
+            Thread { let text = take(sc_latency_test(1)); answer.withLock { $0 = text } }.start()
+            Thread.sleep(forTimeInterval: 0.2) // main is busy: the HTTP thread has asked for the session by now
+            sc_session_stop()
+            #expect(await waitUntil { answer.withLock { $0 } != nil })
+            #expect(answer.withLock { $0 } == #"{"error":"No stream to test"}"#)
+        }
     }
 }
