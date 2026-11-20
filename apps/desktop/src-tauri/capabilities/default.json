@@ -15,6 +15,7 @@
     "allow-start-stream",
     "allow-stop-stream",
     "allow-sleep-console",
+    "allow-request-keyframe",
     "allow-set-login-pin",
     "allow-set-controller",
     "allow-set-pointer-touch",

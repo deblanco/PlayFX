@@ -23,6 +23,17 @@ fn mock(core: &'static FakeCore) -> App<MockRuntime> {
     app
 }
 
+/// A mock app that enforces the real app's ACL (build.rs's app manifest + capabilities/), so a command
+/// the main window isn't granted is rejected here as it is in the shipped app.
+fn mock_with_acl(core: &'static FakeCore) -> App<MockRuntime> {
+    let mut context = mock_context(noop_assets());
+    let mut real: tauri::Context<MockRuntime> = tauri::generate_context!(test = true);
+    std::mem::swap(context.runtime_authority_mut(), real.runtime_authority_mut());
+    let app = with_commands(mock_builder()).build(context).expect("mock app");
+    app.manage(CoreHandle(core));
+    app
+}
+
 fn ok_reply() -> &'static FakeCore {
     FakeCore { reply: r#"{"ok":true}"#.into(), ..Default::default() }.leak()
 }
@@ -364,7 +375,7 @@ fn ipc_psn_login_reuses_open_window() {
 #[test]
 fn ipc_reaches_every_command_with_the_uis_arguments() {
     let core = FakeCore { reply: r#"{"ok":true}"#.into(), psn_signed_in: true, ..Default::default() }.leak();
-    let app = mock(core);
+    let app = mock_with_acl(core);
     let ok = |cmd: &str, args: Value| -> Value {
         let reply = invoke(&app, cmd, args);
         assert!(reply.is_ok(), "{cmd}: {reply:?}");

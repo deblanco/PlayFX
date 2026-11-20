@@ -13,6 +13,7 @@ fn main() {
         "start_stream",
         "stop_stream",
         "sleep_console",
+        "request_keyframe",
         "set_login_pin",
         "set_controller",
         "set_pointer_touch",
