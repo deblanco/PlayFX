@@ -114,6 +114,8 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
     frame for 5 s (the console sends frames all the time, even for a still scene, and a lost frame recovers
     within a second) reconnects with "The picture stopped. Reconnecting…", counted with the dropped-connection
     reconnects (3 in a row, then home with the reason). Unit-tested; not yet seen on a real stall.
+    Before giving up it now asks the console for a keyframe at 1 s and 3 s without a new frame (2026-11-20;
+    unit-tested).
 
 
 ### P1 — Picture quality & full stream configuration (next up)
@@ -299,7 +301,9 @@ Work items:
   bitrate, HDR, view, upscaler, sharpening, cleanup, ML, frame interpolation, colors); app preferences stay put.
   Built-in **Recommended** (1080p60 · MetalFX · sharpness 0.3, also what a new install starts with); the
   user saves the current settings under a name, switches, deletes. Settings → Profile; stored in
-  `psrp.profiles`. "Custom" when the settings match no profile.
+  `psrp.profiles`. "Custom" when the settings match no profile. **Replacing a profile** (2026-11-20,
+  requested): Save as… lists the saved profiles to pick; a matching name turns Save into **Replace** with a
+  line saying so, and the profile keeps its place in the list.
 - ✅ **Rest mode on Stop**: while streaming, Stop asks "Put <console> in rest mode?" (Rest mode / Leave
   it on / Keep playing). Rest mode sends libchiaki's goto-bed (`sleep_console`), waits 1.5 s for it to
   reach the console, then stops. Before the stream connects, Stop stops at once. Unverified on a console.
@@ -500,6 +504,45 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
 - ℹ️ The `psrp` CLI is a debugging tool, not a shipped artifact.
 
 ---
+
+### From PushFPS and Veyra (2026-11-20, built overnight without the console; everything here waits for a hardware round)
+
+Ideas from PushFPS (frame generation for console capture) and Veyra's Remote Play pull requests, plus two
+requests and a bug report. Plan: `~/.claude/plans/we-must-also-be-fancy-pearl.md`.
+
+- 🔶 **Frame generation from the game's frame rate**: repeats left out, the game's rate measured, its
+  pictures on an even grid, one image per screen refresh at VideoToolbox's ½ or ¼ ½ ¾ points; the rule is
+  now 1.2× the game's rate (a 60 fps game on 75 Hz qualifies). See FRAME_INTERPOLATION.md. Unit-tested,
+  including a renderer test of a 30 fps game in a 60 fps stream. **To do on the console**:
+  `psrp stream --frame-log` with a 30 fps game (are the repeats exact? how small?), then 30-in-60 on the
+  60/75 Hz external screen and on the built-in one.
+- 🔶 **Stats say why a step is idle, and count the generated frames** (requested; also the "MetalFX
+  selected, stats say Bilinear" report, which is MetalFX only enlarging, with a 1080p stream on a 1080p
+  screen): `Bilinear (no upscale needed)`, `ML idle (only for 720p and lower)`, `+30 generated (2 missed)`,
+  `no interpolation: 60 fps on a 60 Hz screen`, `30 fps game · 60 fps stream · 60 shown`; the Picture
+  tab's Upscale card says "not needed". Unit-tested.
+- 🔶 **Light bar colour and player number** from the console (`PadLight`); `psrp pad` has `/light` and
+  `/player`. Unit-tested; **check on the pad**, then in a game that sets the light bar.
+- 🔶 **Real haptics over Bluetooth**: HID report 0x32 (`BluetoothHaptics.swift`), after USB, before rumble.
+  Report and pacer unit-tested. **To check on the pad**: whether macOS takes the write while GameController
+  holds the pad, and whether the pad plays at full level without the "effects" setup report Veyra sends
+  first (not sent here: on macOS it would go around GameController).
+- ✅ **Bitrate**: the console's target shown beside the received rate (`7.5 Mbps (target 19.4)`); a bitrate
+  change alone reconnects on its own after 1.2 s. The protocol's debug bitrate option was tried on the PS5:
+  it's ignored, so there's no live bitrate change.
+- ✅ **Latency test** (dev tool): dev control `POST /latency-test`, `psrp stream` `/latency-test`. It times
+  Right/Left in the control centre (PS itself only answers after ~0.5 s): about 120 ms press → decoded
+  picture over the internet.
+- ✅ **Frame generation from the game's rate** (2026-11-20): GTA VI measured as 30 fps in the 60 fps stream;
+  repeats detected from their mean change; images placed by the playhead (see FRAME_INTERPOLATION.md).
+  Smoother and less lag in play.
+- ✅ **Logs keep a whole session**: chiaki's per-frame and per-packet lines (99% of a detailed log) and its
+  protocol hexdumps (which can carry session material) no longer reach the log.
+- 🔶 **Frames skipped without packet loss** on the 75 Hz screen (1,379 → 1,530 in one session): to trace with
+  `STREAMCORE_PACING_TRACE` on that screen. On the built-in screen the cause of most hops was AirDrop's
+  radio (AWDL) with Steady Wi-Fi off: a ~100 ms stall every half second.
+- Left for evidence: a HUD lock that remembers over several frames (if generated frames flicker on HUDs),
+  and the console's real frame number from chiaki (if pacing looks off after packet loss).
 
 ## 4. Suggested order of work
 

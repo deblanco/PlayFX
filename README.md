@@ -26,10 +26,12 @@ adaptive triggers, touchpad and motion.
 - **Controllers:** DualSense, DualShock 4, Xbox and MFi pads through GameController, with rumble, adaptive
   triggers, touchpad and motion. The Mac keyboard works as a controller, and the trackpad works as the
   touchpad (hold ⌥ Option).
-- **Real DualSense haptics over USB:** PS5 games drive the DualSense's motors with an audio stream. With the
-  pad on a USB cable, PlayFX plays that stream on the pad's motors as it is, so you get the feel the game was
-  made with; over Bluetooth it becomes rumble. One-time setup: in Audio MIDI Setup, set the DualSense's
-  output to 4 channels (Quadraphonic). If it's left at 2, the log says so and rumble is used.
+- **Real DualSense haptics:** PS5 games drive the DualSense's motors with an audio stream. With the pad on a
+  USB cable, PlayFX plays that stream on the pad's motors as it is, so you get the feel the game was made
+  with. One-time setup: in Audio MIDI Setup, set the DualSense's output to 4 channels (Quadraphonic); if
+  it's left at 2, the log says so and rumble is used. Over Bluetooth the stream goes to the pad in HID
+  reports (built, not yet verified on a pad); if that doesn't open, it becomes rumble. The light bar colour
+  and player number follow the game.
 - **Steady Wi-Fi:** pauses AirDrop and Handoff while PlayFX is open. They take the Mac's Wi-Fi off your
   network for about 90 ms every second, and the stream stalls with it (see below).
 - **Status:** an on-screen stats line (frame rate, bitrate, latency, lost frames); pairing keys are
@@ -84,7 +86,8 @@ or interpolation), **Split** (Original on the left, your settings on the right, 
 **Enhanced** (your settings, the default).
 
 **Profiles** keep a set of stream and picture settings under a name. The built-in **Recommended**
-profile (1080p60 · MetalFX · sharpness 0.3) is what a new install starts with.
+profile (1080p60 · MetalFX · sharpness 0.3) is what a new install starts with. **Save as…** also replaces a
+saved profile: pick it, and Save becomes Replace.
 
 ### HDR
 
@@ -104,9 +107,10 @@ frames only, so they sit out in HDR. Verified on a PS5 with Silent Hill 2 on a M
   frame index and the stream's rate, so network jitter neither drops nor bunches frames. Before this, a
   60 fps stream showed 39–49 of its 60 frames a second on a 60 Hz screen.
 - **Two drawables, not three**, so a decoded frame waits at most one refresh.
-- **Frame interpolation** (off by default) makes an image between each pair of frames, so a 30 fps
-  stream fills a 60 Hz screen (or 60 fps a 120 Hz one). It runs only when the screen refreshes at least
-  1.8× as often as the stream. The images come from VideoToolbox frame interpolation on the Neural
+- **Frame interpolation** (off by default) makes images between the game's own frames, one for each
+  screen refresh, so a 30 fps game fills a 60 Hz screen (and a 120 Hz one), even when it comes in a 60 fps
+  stream: the frames the console repeats are left out first. It runs when the screen refreshes at least
+  1.2× as often as the game. The images come from VideoToolbox frame interpolation on the Neural
   Engine, on their own queue, so the GPU stays free for MetalFX and a refresh never waits for one. It
   works at a smaller size when the stream's own is too slow, blends still areas (HUDs, subtitles) back
   from the real frames, and skips scene cuts.
@@ -119,10 +123,12 @@ How it works, the research behind it and every measurement:
 
 ### Measuring it
 
-- **Stats on screen** shows resolution (amber when lower than asked), frame rate (and images shown, with
-  interpolation), bitrate, ping, GPU time, latency (decode + display, amber at 33 ms or more), the active
-  upscaler, frame interpolation and HDR when on, and lost and skipped frames. The pacing delay is
-  available through the [dev control port](docs/dev-control.md).
+- **Stats on screen** shows resolution (amber when lower than asked), frame rate (the game's beside the
+  stream's when it's slower, and images shown, with interpolation), bitrate (with the console's target),
+  ping, GPU time, latency (decode + display, amber at 33 ms or more), the active upscaler, the images frame
+  interpolation made per second, HDR when on, lost and skipped frames, and why a step that's on is idle
+  ("Bilinear (no upscale needed)", "no interpolation: 60 fps on a 60 Hz screen"). The pacing delay and a
+  latency test are available through the [dev control port](docs/dev-control.md).
 - `psrp stream` renders the latest frame with any settings: `/render.png?mode=…&w=…&h=…`, and
   `/grid.png?vary=…&values=…&crop=…` for a same-frame grid, one tile per value. `/frameinfo` dumps a
   frame's colorimetry.
