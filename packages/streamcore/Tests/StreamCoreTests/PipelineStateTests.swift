@@ -5,7 +5,7 @@ import Testing
 /// Why an optional picture step that's turned on isn't running, as the stats line reports it.
 @Suite struct PipelineStateTests {
     @Test func interpolationSaysWhyItIsIdle() {
-        let state = StreamRenderer.interpolationState
+        let state = { StreamRenderer.interpolationState(enabled: $0, supported: $1, streamInterval: $2, displayInterval: $3) }
         #expect(state(false, true, 1.0 / 30, 1.0 / 60) == .off)
         #expect(state(true, false, 1.0 / 30, 1.0 / 60) == .unsupported)
         #expect(state(true, true, 1.0 / 30, 1.0 / 60) == .on)

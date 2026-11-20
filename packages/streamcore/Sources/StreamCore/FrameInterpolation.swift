@@ -19,15 +19,21 @@ public final class FrameInterpolator {
     }
 
     /// In-between images only help if the screen refreshes clearly more often than the game makes pictures
-    /// (`streamInterval`: the game's interval when known); otherwise they'd just replace real frames.
-    static func helps(streamInterval: Double, displayInterval: Double) -> Bool {
-        streamInterval > 0 && displayInterval > 0 && streamInterval >= displayInterval * minimumRatio
+    /// (`streamInterval`: the game's interval when known); otherwise they'd just replace real frames. The
+    /// game's measured rate wobbles with an uneven cadence (a 50 fps game on 60 Hz reads 1.18× or 1.27×), so
+    /// while `current` (they're being made) they stay on down to `keepRatio`.
+    static func helps(streamInterval: Double, displayInterval: Double, current: Bool = false) -> Bool {
+        streamInterval > 0 && displayInterval > 0
+            && streamInterval >= displayInterval * (current ? keepRatio : minimumRatio)
     }
 
     /// How many screen refreshes per frame there must be at least: with fewer, most refreshes would show a
     /// real frame anyway (a 60 fps game on a 60 Hz screen). From 1.2 (60 fps on 75 Hz) each refresh between
     /// two frames gets an image of its own moment, which also evens out the uneven 1-or-2-refresh rhythm.
     static let minimumRatio = 1.2
+    /// Once on, kept down to here: below the wobble of a game near `minimumRatio`, above a 60 fps game on a
+    /// 60 Hz screen that misses a picture in 11 (1.09×).
+    static let keepRatio = 1.1
 
     private var session: AnyObject? // VTFrameProcessor on macOS 26+
     private var size: (width: Int, height: Int, steps: Int)?

@@ -725,7 +725,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
             return (p.sourceInterval, p.clock.interval, p.content.interval, now - p.lastPicture > p.clock.interval * Self.stillGap)
         }
         var state = Self.interpolationState(enabled: params.frameInterpolation, supported: interpolationSupported,
-                                            streamInterval: interval, displayInterval: displayInterval)
+                                            streamInterval: interval, displayInterval: displayInterval,
+                                            current: interpolating.withLock { $0 })
         let wanted = state == .on
         // Nothing to make while the game holds its picture; said apart from "not making any".
         if wanted, still { state = .still }
@@ -751,12 +752,13 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         return item?.image
     }
 
-    /// Whether in-between images can be made and shown, and if not, why.
+    /// Whether in-between images can be made and shown, and if not, why; `current`: whether they are now.
     static func interpolationState(enabled: Bool, supported: Bool, streamInterval: Double,
-                                   displayInterval: Double) -> PipelineState.Interpolation {
+                                   displayInterval: Double, current: Bool = false) -> PipelineState.Interpolation {
         guard enabled else { return .off }
         guard supported else { return .unsupported }
-        return FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval) ? .on : .screen
+        return FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval,
+                                       current: current) ? .on : .screen
     }
 
     /// What the upscale step did: MetalFX, bilinear by choice, or why MetalFX was skipped.

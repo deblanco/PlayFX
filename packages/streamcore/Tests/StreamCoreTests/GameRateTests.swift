@@ -186,6 +186,30 @@ import Testing
         #expect(FrameInterpolator.helps(streamInterval: 1.0 / 60, displayInterval: 1.0 / 75))
         #expect(!FrameInterpolator.helps(streamInterval: 1.0 / 60, displayInterval: 1.0 / 60))
     }
+
+    /// A 50 fps game in a 60 fps stream on a 60 Hz screen arrives 1, 1, 1, 1, 2 stream frames apart, so the
+    /// measured rate goes between 1.18 and 1.27 refreshes per picture as the pattern moves through the window.
+    /// Once on, interpolation stays on rather than flipping with it.
+    @Test func interpolationDoesNotFlipWithAnUnevenCadence() {
+        var rate = ContentRate()
+        var on = false, flips = 0, time = 0.0
+        for i in 0..<200 {
+            time += (i % 5 == 4 ? 2 : 1) / 60.0
+            rate.add(time: time)
+            guard let interval = rate.interval else { continue }
+            let state = StreamRenderer.interpolationState(enabled: true, supported: true, streamInterval: interval,
+                                                          displayInterval: 1.0 / 60, current: on)
+            if (state == .on) != on { flips += 1 }
+            on = state == .on
+        }
+        #expect(on)
+        #expect(flips == 1)
+        // A 60 fps game on that screen, or one missing a picture in 11, turns it off again.
+        #expect(!FrameInterpolator.helps(streamInterval: 1.0 / 60, displayInterval: 1.0 / 60, current: true))
+        #expect(!FrameInterpolator.helps(streamInterval: 12.0 / 11 / 60, displayInterval: 1.0 / 60, current: true))
+        #expect(FrameInterpolator.helps(streamInterval: 13.0 / 11 / 60, displayInterval: 1.0 / 60, current: true))
+        #expect(!FrameInterpolator.helps(streamInterval: 13.0 / 11 / 60, displayInterval: 1.0 / 60))
+    }
 }
 
 extension StreamRendererTests {
