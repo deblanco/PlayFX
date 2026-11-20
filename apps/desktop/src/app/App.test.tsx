@@ -310,7 +310,8 @@ describe("home: pairing through PSN", () => {
     await userEvent.click(item.getByRole("button", { name: "Pair (no code needed)" }))
     const form = within(await screen.findByRole("form", { name: "Pair Living Room" }))
     expect(form.getByText("Couldn't pair through PSN")).toBeInTheDocument()
-    expect(form.getByText("The PS5 didn't accept pairing through PSN. Pair with the code from the PS5 instead.")).toBeInTheDocument()
+    expect(form.getByText("The PS5 didn't accept pairing through PSN.")).toBeInTheDocument()
+    expect(form.getByText("Pair with the code from the PS5 instead.")).toBeInTheDocument()
     await userEvent.click(form.getByRole("button", { name: "Cancel" }))
     expect(screen.queryByRole("form", { name: "Pair Living Room" })).not.toBeInTheDocument()
     // Pairing with a code from the start shows no PSN reason.
@@ -347,12 +348,13 @@ describe("home: pairing through PSN", () => {
   })
 
   it("says how to pair with a code when it fails on a console not found here", async () => {
-    signedIn({ pairPsn: () => Effect.fail(coreError("pair_psn", "PSN couldn't reach your PS5.")) })
+    // A native reason without a full stop doesn't run into the next step: each is its own sentence.
+    signedIn({ pairPsn: () => Effect.fail(coreError("pair_psn", "PSN didn't answer")) })
     const item = await consoleItem()
     await userEvent.click(item.getByRole("button", { name: "Pair (no code needed)" }))
-    expect(await item.findByRole("alert")).toHaveTextContent(
-      "PSN couldn't reach your PS5. To pair with a code instead, connect the PS5 to this Mac's network: it shows up here with Pair.",
-    )
+    const alert = within(await item.findByRole("alert"))
+    expect(alert.getByText("PSN didn't answer")).toBeInTheDocument()
+    expect(alert.getByText("To pair with a code instead, connect the PS5 to this Mac's network: it shows up here with Pair.")).toBeInTheDocument()
   })
 
   it("offers it right after signing in", async () => {

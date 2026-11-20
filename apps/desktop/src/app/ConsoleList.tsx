@@ -233,10 +233,11 @@ export const ConsoleList = ({
               <PsnPairingStatus name={row.name} stage={psnPairing.stage} onCancel={cancelPsnPairing} />
             )}
             {problemOn(row) !== undefined && row.discovered === undefined && (
-              <p role="alert" className="border-t pt-2 text-xs text-destructive">
-                {problemOn(row)} To pair with a code instead, connect the PS5 to this Mac's network: it shows up
-                here with Pair.
-              </p>
+              // The reason comes from the native side, full stop or not: the next step is its own sentence.
+              <div role="alert" className="flex flex-col gap-1 border-t pt-2 text-xs text-destructive">
+                <p>{problemOn(row)}</p>
+                <p>To pair with a code instead, connect the PS5 to this Mac's network: it shows up here with Pair.</p>
+              </div>
             )}
             {(pairing === row.hostId || problemOn(row) !== undefined) && row.discovered !== undefined && (
               <PairForm
@@ -407,7 +408,10 @@ const PairForm = ({ console, problem, onPaired, onCancel }: PairFormProps) => {
       {problem !== undefined && (
         <Alert variant="destructive" className="bg-transparent">
           <AlertTitle>Couldn't pair through PSN</AlertTitle>
-          <AlertDescription>{problem} Pair with the code from the PS5 instead.</AlertDescription>
+          <AlertDescription>
+            <p>{problem}</p>
+            <p>Pair with the code from the PS5 instead.</p>
+          </AlertDescription>
         </Alert>
       )}
       <Label htmlFor={id} className="text-xs text-muted-foreground">
