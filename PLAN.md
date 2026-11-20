@@ -406,7 +406,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     from what's actually built (re-run it after dependency bumps). `LICENSE` is the plain AGPL-3.0 (the OpenSSL
     exception copied from chiaki-ng was worded as the FSF's and isn't needed: OpenSSL 3 is Apache-2.0).
     `NOTICE` names the fork libchiaki is built from. No shadcn/studio code: its blocks are MIT with a Commons
-    Clause, which the AGPL can't carry, so the PIN input and the status badge are plain shadcn/ui.
+    Clause, which the AGPL can't carry, so the PIN input and the status badge are plain shadcn/ui. CLAUDE.md now
+    allows only AGPL-compatible code (shadcn/ui, not shadcn/studio), and the studio registry is gone from
+    `components.json`.
 - ✅ **Sony ToS note.** README: unofficial client, own consoles and account, PSN sign-in only through
   Sony's page, no credentials shipped. NOTICE and the app's About text: not affiliated with Sony.
 - 🔶 **Packaging** *(built and launched; Developer ID certificate in the keychain; notarization profile `playfx` in the keychain: an App Store Connect API key, Developer access)*: bundle ID
