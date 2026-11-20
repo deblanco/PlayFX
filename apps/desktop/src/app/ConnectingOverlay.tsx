@@ -13,7 +13,7 @@ interface ConnectingOverlayProps {
 }
 
 /** Seconds since the component appeared, ticking once a second. */
-const useElapsedSeconds = (): number => {
+export const useElapsedSeconds = (): number => {
   const [seconds, setSeconds] = useState(0)
   useEffect(() => {
     const start = Date.now()

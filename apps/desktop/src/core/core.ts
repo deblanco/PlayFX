@@ -22,8 +22,16 @@ import {
   PeerWifiReply,
   PeerWifiStatus,
   type PeerWifiState,
+  PsnPairProgress,
+  type PsnPairStage,
 } from "./schema"
 import { TauriBridge } from "./tauri"
+
+/** Pairing through PSN: the console's PSN device ID and the signed-in account's ID. */
+export interface PsnPairRequest {
+  readonly duid: string
+  readonly accountId: string
+}
 
 export interface PairRequest {
   readonly console: DiscoveredConsole
@@ -39,6 +47,12 @@ export class Core extends Context.Service<
     /** Asks one console directly at an IP address (for when broadcast discovery can't reach it). */
     readonly discoverAt: (address: string) => Effect.Effect<readonly DiscoveredConsole[], CoreError>
     readonly pair: (request: PairRequest) => Effect.Effect<Credentials, CoreError | ValidationError>
+    /** Pairs with a PS5 through PSN, no code needed (20–30 s); `onProgress` gets each step as it starts.
+     * Interrupting it cancels the pairing natively. The address stays "" until the console is found. */
+    readonly pairPsn: (
+      request: PsnPairRequest,
+      onProgress: (stage: PsnPairStage) => void,
+    ) => Effect.Effect<Credentials, CoreError | ValidationError>
     readonly wakeup: (credentials: Credentials) => Effect.Effect<boolean, CoreError>
     /** Opens Sony's sign-in window; the result arrives through `onPsnAccount`. */
     readonly psnLogin: Effect.Effect<void, CoreError>
@@ -144,6 +158,22 @@ export const CoreLive = Layer.effect(
           return yield* call(Credentials, "register_console", {
             request: { address: console.address, ps5: console.ps5, accountId, pin: digits },
           })
+        }),
+      pairPsn: ({ duid, accountId }, onProgress) =>
+        Effect.gen(function* () {
+          if (!isAccountId(accountId)) return yield* new ValidationError({ message: "Sign in to PlayStation first" })
+          return yield* Effect.scoped(
+            Effect.gen(function* () {
+              yield* Effect.acquireRelease(
+                subscribe(PsnPairProgress, "stream-event")((progress) => { onProgress(progress.stage) }),
+                (unsubscribe) => Effect.sync(unsubscribe),
+              )
+              return yield* call(Credentials, "pair_psn", { request: { duid, accountId } }).pipe(
+                // The native call can't be abandoned: tell it to stop (its reply is no longer awaited).
+                Effect.onInterrupt(() => Effect.ignore(call(unit, "cancel_psn_pair"))),
+              )
+            }),
+          )
         }),
       wakeup: (credentials) => call(Schema.Boolean, "wakeup", { credentials }),
       psnLogin: Effect.asVoid(call(unit, "psn_login")),

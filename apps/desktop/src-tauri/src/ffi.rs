@@ -57,6 +57,8 @@ unsafe extern "C" {
     pub fn sc_psn_consoles() -> *mut c_char;
     pub fn sc_psn_access_token() -> *mut c_char;
     pub fn sc_psn_sign_out();
+    pub fn sc_psn_pair(request: *const c_char) -> *mut c_char;
+    pub fn sc_psn_pair_cancel();
     fn sc_free(p: *mut c_char);
 }
 
@@ -141,6 +143,12 @@ impl NativeCore for MacCore {
     }
     fn psn_sign_out(&self) {
         unsafe { sc_psn_sign_out() }
+    }
+    fn psn_pair(&self, request: &str) -> String {
+        take(unsafe { sc_psn_pair(cstr(request).as_ptr()) })
+    }
+    fn psn_pair_cancel(&self) {
+        unsafe { sc_psn_pair_cancel() }
     }
     fn session_start(&self, request: &str) -> String {
         take(unsafe { sc_session_start(cstr(request).as_ptr()) })

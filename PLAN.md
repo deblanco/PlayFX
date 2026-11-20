@@ -61,7 +61,8 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 ### P0 — the features that most change what the product can do
 
 - 🔶 **Remote Play over the internet (PSN hole-punching).** In progress — PS5 only (libchiaki only lists
-  PS5s), console must be paired on the LAN first. libchiaki does PSN sessions, STUN/UPnP, hole punching and
+  PS5s); the console is paired on the home network with its PIN, or through PSN with no code (step 5: built,
+  needs a hardware check). libchiaki does PSN sessions, STUN/UPnP, hole punching and
   a fresh PSN-side registration per connection inside `chiaki_session_start`; the app supplies tokens, the
   console's PSN device ID, and runs the blocking setup (≤30 s per step) off the main thread.
   - ✅ 1. PSN tokens: sign-in carries a fresh `duid`; access + refresh tokens kept in the Keychain (never
@@ -88,6 +89,8 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
     1280×720 with 0 lost frames; controller input reaches the console; cancelling mid-setup exits in
     0.5 s with a clean "Stopped". Still to do: the desktop UI flow and a run from another network (phone
     hotspot) — the "internet" row only appears when the console isn't found locally.
+  - 🔶 5. Pair without a PIN through PSN: see "Pair without a PIN through PSN" below. Built; needs a hardware
+    check before a console paired this way is known to play on the home network.
   - ⚠️ Correction: the "PSN revoked the sign-in" seen after the first real run was our own bug — a
     bridge test signed in (with a stubbed Sony reply) through `PSNAccount.shared` and overwrote the real
     stored tokens on every test run; the first logs showed Sony's reply ("invalid_grant — 4159 — Invalid
@@ -470,6 +473,29 @@ Work items:
   code, another PSN account, Pair Device closed, Local Network denied) and record the real codes from the
   log ("Reported Application Reason"): it isn't sure `0x80108b09` is the only wrong-code reason, nor which
   error a denied Local Network permission gives.
+- 🔶 **Pair without a PIN through PSN.** PIN-less pairing built; **needs a hardware check: does a PSN
+  registration's key work for streams on the home network** (chiaki-ng relies on it). Every internet session
+  already registers the Mac with the PS5 over PSN with no PIN; with `auto_regist` libchiaki stops right after
+  and hands over the same keys a PIN pairing gives. The shim gets a `register_only` start mode (PSN token, the
+  console's PSN device ID and the account ID; no keys) that sets `auto_regist` and forwards the result through
+  a new `registered` callback (keys, nickname, MAC, PS5), with a "registering" progress stage; StreamCore's
+  `PSNPairing` runs it, treats a quit without the keys as a failure with a next step, and cancels it;
+  `sc_psn_pair` / `sc_psn_pair_cancel`, the Tauri commands `pair_psn` / `cancel_psn_pair` (the PSN token stays
+  native), and `Core.pairPsn` (progress from "psnPairProgress" stream events; interrupting it cancels). In the
+  UI, after the PSN sign-in, the account's unpaired PS5s get "Pair (no code needed)": on the row of the console
+  found here with the same name (next to "Pair with a code"), or on a row of their own ("PS5 · on your PSN
+  account"); a PS5 with Remote Play off says so and how to turn it on. Pairing shows its step ("Finding … through
+  PSN", "Pairing this Mac with …"), the seconds so far and Cancel. On failure the PIN form opens with the reason,
+  or, for a console not on this network, a note says to connect it to pair with a code. The pairing is saved
+  through the usual pairing store, with the console's PSN device ID (internet play then matches it by ID, not
+  name), under discovery's host ID: the console's when it was found here, else its MAC as uppercase hex, which
+  discovery's host ID is, so the console merges with it (and its address is filled in) once it's found at home;
+  until then it plays over the internet. The first-run guide mentions it. Verified by unit tests at every layer
+  (stand-ins for the session; the shim refuses bad input before any network), not on a console. **Needs a
+  console session:** pair PS5-454 this way, then (1) play it on the home network (the main question), (2) play
+  it over the internet, (3) check it merges with the discovered console (host ID = MAC) rather than showing
+  twice, and (4) a failure case (Remote Play off, another PSN account) for the real messages. PS5 only (PSN lists
+  PS5s); networks that block hole punching still need the PIN.
 
 ### Out of scope: other platforms
 
@@ -715,3 +741,6 @@ requests and a bug report.
    Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the
    console: trigger each pairing failure once and record its reason code (see "Say why pairing failed"), and the
    denied Local Network permission. *(P2)*
+10. Pairing through PSN on the console: pair with no code, then check the keys stream on the home network, over
+   the internet, and that the console merges with its discovered row (see "Pair without a PIN through PSN").
+   *(P0)*

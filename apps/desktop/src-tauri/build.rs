@@ -34,6 +34,8 @@ fn main() {
         "psn_signed_in",
         "psn_consoles",
         "psn_sign_out",
+        "pair_psn",
+        "cancel_psn_pair",
         "set_detailed_logs",
         "open_logs_folder",
         "open_source_code",

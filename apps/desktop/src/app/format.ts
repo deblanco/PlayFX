@@ -6,6 +6,7 @@ import {
   type PacingStats,
   type PairedConsoles,
   type PsnConsole,
+  type PsnPairStage,
   type RenderParams,
   type RendererStatus,
   type Settings,
@@ -28,19 +29,46 @@ export interface ConsoleRow {
   readonly paired: PairedConsole | undefined
   /** The console's PSN device ID when it's only reachable over the internet. */
   readonly psnDuid: string | undefined
+  /** Not paired yet, and on the PSN account: it can be paired through PSN (when its Remote Play is on). */
+  readonly psn: PsnConsole | undefined
 }
 
 const statusOf = (console: DiscoveredConsole | undefined): ConsoleStatus =>
   console === undefined || console.state === "unknown" ? "offline" : console.state
 
-/** Merges the consoles found on the network with the ones paired earlier (which may be offline). */
+/** Whether a console on the PSN account is this paired one: by its PSN device ID when it was paired through
+ * PSN, else by name or nickname, as chiaki-ng matches them. */
+const isPairedAs = (onPsn: PsnConsole, console: PairedConsole): boolean =>
+  console.psnDuid === undefined
+    ? onPsn.name === console.name || onPsn.name === console.credentials.nickname
+    : onPsn.duid === console.psnDuid
+
+/** Merges the consoles found on the network with the ones paired earlier (which may be offline), and the
+ * account's unpaired PS5s (`account`, from PSN), which can be paired through PSN: on the row of the console
+ * found here with the same name, or on a row of their own. */
 export const consoleRows = (
   discovered: readonly DiscoveredConsole[],
   paired: PairedConsoles,
   onPsn: Readonly<Record<string, string>> = {},
+  account: readonly PsnConsole[] = [],
 ): readonly ConsoleRow[] => {
+  const unpaired = account.filter((c) => !Object.values(paired).some((p) => isPairedAs(c, p)))
+  const foundHere = (d: DiscoveredConsole | undefined) =>
+    d?.ps5 === true && paired[d.hostId] === undefined ? unpaired.find((c) => c.name === d.name) : undefined
+  const awayRows = unpaired
+    .filter((c) => !discovered.some((d) => foundHere(d) === c))
+    .map((c): ConsoleRow => ({
+      hostId: `psn:${c.duid}`,
+      name: c.name,
+      status: c.remotePlay ? "internet" : "offline",
+      meta: c.remotePlay ? "PS5 · on your PSN account" : "PS5 · Remote Play is off",
+      discovered: undefined,
+      paired: undefined,
+      psnDuid: c.duid,
+      psn: c,
+    }))
   const ids = [...new Set([...discovered.map((d) => d.hostId), ...Object.keys(paired)])]
-  return ids.map((hostId) => {
+  const rows = ids.map((hostId): ConsoleRow => {
     const d = discovered.find((x) => x.hostId === hostId)
     const p = paired[hostId]
     const ps5 = d?.ps5 ?? p?.credentials.ps5 ?? true
@@ -51,8 +79,16 @@ export const consoleRows = (
     const meta = [ps5 ? "PS5" : "PS4", psnDuid === undefined ? address : "over the internet", d?.runningApp, p ? "paired" : undefined]
       .filter((part) => part !== undefined && part !== "")
       .join(" · ")
-    return { hostId, name: d?.name ?? p?.name ?? hostId, status, meta, discovered: d, paired: p, psnDuid }
+    return { hostId, name: d?.name ?? p?.name ?? hostId, status, meta, discovered: d, paired: p, psnDuid, psn: foundHere(d) }
   })
+  return [...rows, ...awayRows]
+}
+
+/** Where a console paired through PSN is kept: under discovery's host ID, its MAC as uppercase hex (so it
+ * merges with the console once it's found on the home network), or its PSN device ID if the MAC is unknown. */
+export const psnHostId = (mac: string, duid: string): string => {
+  const hex = mac.replace(/[^0-9a-fA-F]/g, "").toUpperCase()
+  return hex.length === 12 && !/^0+$/.test(hex) ? hex : `psn:${duid}`
 }
 
 export const streamOptions = (settings: Settings): StreamOptions => ({
@@ -309,15 +345,15 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
 /** Whether two paired-console lists hold the same consoles with the same details. */
 export const samePaired = (a: PairedConsoles, b: PairedConsoles): boolean => JSON.stringify(a) === JSON.stringify(b)
 
-/** The PSN device ID of each paired console PSN knows (with Remote Play on), matched by name as
- * chiaki-ng does: hostId → duid. */
+/** The PSN device ID of each paired console PSN knows (with Remote Play on), matched by the device ID kept
+ * from pairing through PSN, else by name as chiaki-ng does: hostId → duid. */
 export const psnDeviceIds = (
   paired: PairedConsoles,
   onPsn: readonly PsnConsole[],
 ): Readonly<Record<string, string>> =>
   Object.fromEntries(
     Object.values(paired).flatMap((console) => {
-      const match = onPsn.find((c) => c.remotePlay && (c.name === console.name || c.name === console.credentials.nickname))
+      const match = onPsn.find((c) => c.remotePlay && isPairedAs(c, console))
       return match ? [[console.hostId, match.duid]] : []
     }),
   )
@@ -520,6 +556,16 @@ export const connectionHint = (route: Route, seconds: number): string => {
   }
   return seconds < 15 ? "On your network this takes a few seconds." : "This is taking longer than usual. Check that the PS5 is on."
 }
+
+/** The step of pairing through PSN under way, in plain words. */
+export const psnPairStep = (stage: PsnPairStage | undefined, consoleName: string): string =>
+  stage === "registering" ? `Pairing this Mac with ${consoleName}…` : `Finding ${consoleName} through PSN…`
+
+/** What to expect after `seconds` of pairing through PSN, then what to check once it's taking too long. */
+export const psnPairHint = (seconds: number): string =>
+  seconds < 45
+    ? "This takes 20 to 30 seconds. Nothing to do on the PS5."
+    : "This is taking longer than usual. Check that the PS5 is on, or in rest mode with \"Stay connected to the internet\" on."
 
 /** Voice chat from the HUD: off, waiting for macOS (permission, starting), or live. */
 export type MicState = "off" | "pending" | "on"

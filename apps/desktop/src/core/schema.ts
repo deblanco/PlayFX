@@ -35,6 +35,8 @@ export const PairedConsole = Schema.Struct({
   hostId: Schema.String,
   name: Schema.String,
   credentials: Credentials,
+  /** The console's PSN device ID, kept when it was paired through PSN (else matched by name). */
+  psnDuid: Schema.optionalKey(Schema.String),
 })
 export type PairedConsole = typeof PairedConsole.Type
 
@@ -248,6 +250,13 @@ export const PsnConsole = Schema.Struct({
   remotePlay: Schema.Boolean,
 })
 export type PsnConsole = typeof PsnConsole.Type
+
+/** Pairing through PSN: reaching the console (PSN, up to ~30 s per step), then registering with it. */
+export const PsnPairStage = Schema.Literals(["linking", "registering"])
+export type PsnPairStage = typeof PsnPairStage.Type
+
+/** A pairing through PSN's progress, on the "stream-event" channel (StreamEvent leaves it out). */
+export const PsnPairProgress = Schema.Struct({ type: Schema.Literal("psnPairProgress"), stage: PsnPairStage })
 
 export const StreamOptions = Schema.Struct({
   height: Schema.Number,

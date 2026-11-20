@@ -25,7 +25,8 @@ export const setupSteps = (signedIn: boolean, paired: boolean): readonly Step[] 
   },
   {
     title: "Pair your PS5",
-    body: "On the PS5, open Settings › System › Remote Play › Pair Device (Link Device on some versions). Then choose your PS5 below and type the 8-digit code it shows.",
+    body:
+      "Choose Pair (no code needed) next to your PS5 below. If it isn't offered, open Settings › System › Remote Play › Pair Device (Link Device on some versions) on the PS5, then choose Pair below and type the 8-digit code it shows.",
     state: paired ? "done" : signedIn ? "current" : "waiting",
   },
   {

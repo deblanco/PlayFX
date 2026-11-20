@@ -79,6 +79,22 @@ extension Serial {
             #expect(try call(sc_psn_account_id, "abc")["error"] as? String == "no user_id in token info")
         }
 
+        @Test func psnPairing() throws {
+            // Never the real store: tokens here are the test's own.
+            let real = PSNAccount.shared
+            let store = MemoryTokenStore()
+            PSNAccount.shared = PSNAccount(store: store)
+            defer { PSNAccount.shared = real }
+            #expect(try call(sc_psn_pair, "not json")["error"] != nil)
+            let request = #"{"duid":"not hex","accountId":"AQEBAQEBAQE="}"#
+            #expect(try call(sc_psn_pair, request)["error"] as? String == PSNError.notSignedIn.errorDescription)
+            store.tokens = PSNTokens(accessToken: "tok", refreshToken: "ref", expiresAt: Date().addingTimeInterval(3600))
+            // Refused by the shim before anything reaches PSN.
+            #expect(try call(sc_psn_pair, request)["error"] as? String == "Pairing through PSN needs a PS5 and its PSN device ID")
+            sc_psn_pair_cancel() // nothing under way: no-op
+            #expect(psnPairProgressPayload(.registering) as? [String: String] == ["type": "psnPairProgress", "stage": "registering"])
+        }
+
         @Test func register() throws {
             #expect(try call(sc_register, "not json")["error"] != nil)
             #expect(try call(sc_register, #"{"address":"127.0.0.1"}"#)["error"] != nil)

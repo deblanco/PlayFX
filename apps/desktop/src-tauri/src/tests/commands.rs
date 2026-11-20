@@ -190,6 +190,17 @@ fn psn_tokens_status_and_sign_out() {
 }
 
 #[test]
+fn pair_psn_forwards_the_request_and_cancel_reaches_the_core() {
+    let core = ok_reply();
+    let app = mock(core);
+    let request = json!({"duid": "aa", "accountId": "AAAAAAAAAAA="});
+    assert_eq!(run(pair_psn(app.handle().clone(), request.clone())), Ok(json!({"ok": true})));
+    assert_eq!(run(cancel_psn_pair(app.handle().clone())), Ok(()));
+    assert_eq!(core.calls(), [format!("psn_pair {request}"), "psn_pair_cancel".into()]);
+    assert_eq!(run(pair_psn(mock(err_reply()).handle().clone(), request)), Err("nope".into()));
+}
+
+#[test]
 fn psn_consoles_replies_or_maps_errors() {
     assert_eq!(run(psn_consoles(mock(ok_reply()).handle().clone())), Ok(json!({"ok": true})));
     assert_eq!(run(psn_consoles(mock(err_reply()).handle().clone())), Err("nope".into()));
@@ -363,7 +374,7 @@ fn ipc_rejects_missing_arguments() {
     for cmd in [
         "register_console", "wakeup", "start_stream", "set_login_pin", "set_render_params", "set_controller",
         "set_pointer_touch", "keyboard_set_text", "keyboard_done", "set_microphone", "secret_get", "secret_set",
-        "secret_remove", "set_audio_output", "set_detailed_logs",
+        "secret_remove", "set_audio_output", "set_detailed_logs", "pair_psn",
     ] {
         let err = invoke(&app, cmd, json!({})).expect_err(cmd);
         assert!(err.as_str().is_some_and(|e| e.contains("missing required key")), "{cmd}: {err}");
@@ -415,6 +426,8 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     assert_eq!(ok("psn_signed_in", json!({})), json!(true));
     ok("psn_consoles", json!({}));
     ok("psn_sign_out", json!({}));
+    ok("pair_psn", json!({"request": {"duid": "aa", "accountId": "AAAAAAAAAAA="}}));
+    ok("cancel_psn_pair", json!({}));
     ok("diagnostics", json!({}));
     assert_eq!(ok("app_info", json!({}))["commit"], json!(COMMIT));
     ok("open_source_code", json!({}));

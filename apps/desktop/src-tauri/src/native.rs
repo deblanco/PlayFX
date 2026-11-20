@@ -67,6 +67,11 @@ pub trait NativeCore: Send + Sync {
     fn secret_remove(&self, key: &str);
     /// Blocking: a fresh PSN access token as {"token"} (or {"error"}). Stays native.
     fn psn_access_token(&self) -> String;
+    /// Blocking (20–30 s): pairs with a PS5 through PSN, no code needed. {"duid","accountId"} → the console's
+    /// credentials (or {"error"}); progress arrives as "psnPairProgress" stream events.
+    fn psn_pair(&self, request: &str) -> String;
+    /// Stops the pairing through PSN under way; its `psn_pair` then replies {"error"}.
+    fn psn_pair_cancel(&self);
     // main thread
     fn session_start(&self, request: &str) -> String;
     fn session_stop(&self);

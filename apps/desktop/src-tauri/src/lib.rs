@@ -20,7 +20,7 @@ const PSN_WINDOW: &str = "psn-login";
 
 static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
-/// Session events from StreamCore (any thread) → "stream-event" in the webview.
+/// Session events from StreamCore (any thread), a pairing through PSN's progress too → "stream-event" in the webview.
 extern "C" fn on_stream_event(json: *const std::ffi::c_char) {
     let text = unsafe { std::ffi::CStr::from_ptr(json) }.to_string_lossy().into_owned();
     if let (Some(app), Some(value)) = (APP.get(), native::parse_event(&text)) {
@@ -331,6 +331,22 @@ async fn psn_consoles<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
     reply(&blocking(move || core.psn_consoles()).await?)
 }
 
+/// Pairs with a PS5 through PSN, no code needed (20–30 s): {"duid","accountId"} → the console's credentials.
+/// The PSN token stays native. Progress arrives as "psnPairProgress" stream events; `cancel_psn_pair` stops it.
+#[tauri::command]
+async fn pair_psn<R: Runtime>(app: AppHandle<R>, request: Value) -> Result<Value, String> {
+    log::info!("Pairing through PSN");
+    let core = core(&app);
+    reply(&blocking(move || core.psn_pair(&request.to_string())).await?)
+}
+
+#[tauri::command]
+async fn cancel_psn_pair<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    log::info!("Cancelling the pairing through PSN");
+    let core = core(&app);
+    blocking(move || core.psn_pair_cancel()).await
+}
+
 #[tauri::command]
 async fn psn_sign_out<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let core = core(&app);
@@ -476,6 +492,8 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         psn_signed_in,
         psn_consoles,
         psn_sign_out,
+        pair_psn,
+        cancel_psn_pair,
         set_detailed_logs,
         open_logs_folder,
         open_source_code,

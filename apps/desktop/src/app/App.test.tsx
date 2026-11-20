@@ -11,7 +11,7 @@ import { cursorIdleMs, hudIdleMs } from "./StreamView"
 import { renderParams } from "./format"
 import { profileSettings } from "./profiles"
 import { useRuntime } from "./runtime"
-import { accountId, credentials, fakeCore, pairedPs5, picture, ps5, renderApp, status } from "./testing"
+import { accountId, credentials, fakeCore, pairedPs5, picture, ps5, psnPs5, renderApp, status } from "./testing"
 
 const coreError = (command: string, message: string) => new CoreError({ command, message })
 
@@ -260,6 +260,99 @@ describe("home: pairing a PS4", () => {
     const item = await consoleItem()
     await userEvent.click(item.getByRole("button", { name: "Pair" }))
     expect(screen.getByText("On the PS4: Settings › Remote Play Connection Settings › Add Device")).toBeInTheDocument()
+  })
+})
+
+describe("home: pairing through PSN", () => {
+  /** Signed in for internet play, with `psnPs5` on the account; nothing found on this network by default. */
+  const signedIn = (overrides: Parameters<typeof fakeCore>[0] = {}, discovered: (typeof ps5)[] = []) => {
+    const core = fakeCore(overrides)
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [psnPs5]
+    core.state.discovered = discovered
+    renderApp(core, { accountId })
+    return core
+  }
+
+  it("pairs a PS5 on the account with no code, and can then play it over the internet", async () => {
+    const core = signedIn()
+    const item = await consoleItem()
+    expect(item.getByText("PS5 · on your PSN account")).toBeInTheDocument()
+    expect(item.queryByRole("button", { name: "Pair with a code" })).not.toBeInTheDocument() // not on this network
+    await userEvent.click(item.getByRole("button", { name: "Pair (no code needed)" }))
+    expect(core.service.pairPsn).toHaveBeenCalledWith({ duid: "aa", accountId }, expect.any(Function))
+    expect(await screen.findByText("Paired with Living Room")).toBeInTheDocument()
+    const paired = await consoleItem()
+    expect(await paired.findByText("PS5 · over the internet · paired")).toBeInTheDocument()
+    expect(paired.getByRole("button", { name: "Play" })).toBeEnabled()
+  })
+
+  it("shows the step under way, and Cancel stops it", async () => {
+    const core = signedIn({
+      pairPsn: (_request, onProgress) =>
+        Effect.andThen(Effect.sync(() => { onProgress("registering") }), Effect.never),
+    })
+    const item = await consoleItem()
+    await userEvent.click(item.getByRole("button", { name: "Pair (no code needed)" }))
+    expect(await item.findByText("Pairing this Mac with Living Room…")).toBeInTheDocument()
+    expect(item.getByText(/This takes 20 to 30 seconds/)).toBeInTheDocument()
+    expect(item.getByRole("button", { name: "Pair (no code needed)" })).toBeDisabled() // one at a time
+    await userEvent.click(item.getByRole("button", { name: "Cancel" }))
+    expect(await item.findByRole("button", { name: "Pair (no code needed)" })).toBeEnabled()
+    expect(item.queryByRole("status")).not.toBeInTheDocument()
+    expect(core.service.pair).not.toHaveBeenCalled()
+  })
+
+  it("opens the PIN form with the reason when it fails on a console found here", async () => {
+    signedIn({ pairPsn: () => Effect.fail(coreError("pair_psn", "The PS5 didn't accept pairing through PSN.")) }, [ps5])
+    const item = await consoleItem()
+    expect(item.getByRole("button", { name: "Pair with a code" })).toBeEnabled()
+    await userEvent.click(item.getByRole("button", { name: "Pair (no code needed)" }))
+    const form = within(await screen.findByRole("form", { name: "Pair Living Room" }))
+    expect(form.getByText("Couldn't pair through PSN")).toBeInTheDocument()
+    expect(form.getByText("The PS5 didn't accept pairing through PSN. Pair with the code from the PS5 instead.")).toBeInTheDocument()
+    await userEvent.click(form.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("form", { name: "Pair Living Room" })).not.toBeInTheDocument()
+    // Pairing with a code from the start shows no PSN reason.
+    await userEvent.click(item.getByRole("button", { name: "Pair with a code" }))
+    expect(screen.queryByText("Couldn't pair through PSN")).not.toBeInTheDocument()
+  })
+
+  it("says how to pair with a code when it fails on a console not found here", async () => {
+    signedIn({ pairPsn: () => Effect.fail(coreError("pair_psn", "PSN couldn't reach your PS5.")) })
+    const item = await consoleItem()
+    await userEvent.click(item.getByRole("button", { name: "Pair (no code needed)" }))
+    expect(await item.findByRole("alert")).toHaveTextContent(
+      "PSN couldn't reach your PS5. To pair with a code instead, connect the PS5 to this Mac's network: it shows up here with Pair.",
+    )
+  })
+
+  it("offers it right after signing in", async () => {
+    const core = fakeCore()
+    core.state.psnConsoles = [psnPs5]
+    core.state.discovered = []
+    renderApp(core)
+    await waitFor(() => {
+      expect(core.psnListeners()).toBe(1)
+    })
+    expect(screen.queryByRole("button", { name: "Pair (no code needed)" })).not.toBeInTheDocument()
+    core.state.psnSignedIn = true // the native side kept the tokens
+    act(() => {
+      core.emitPsn({ accountId })
+    })
+    expect(await screen.findByRole("button", { name: "Pair (no code needed)" })).toBeEnabled()
+  })
+
+  it("says when Remote Play is off, with no way to pair through PSN", async () => {
+    const core = fakeCore()
+    core.state.psnSignedIn = true
+    core.state.psnConsoles = [{ ...psnPs5, remotePlay: false }]
+    core.state.discovered = []
+    renderApp(core, { accountId })
+    const item = await consoleItem()
+    expect(item.getByText("PS5 · Remote Play is off")).toBeInTheDocument()
+    expect(item.getByText(/To pair it, turn it on, on the PS5: Settings › System › Remote Play › Enable Remote Play/)).toBeInTheDocument()
+    expect(item.queryByRole("button", { name: "Pair (no code needed)" })).not.toBeInTheDocument()
   })
 })
 

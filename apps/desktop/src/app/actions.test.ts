@@ -6,7 +6,7 @@ import { KeyValueStore, Preferences, PreferencesLive } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
 import { makeLogger } from "@/core/logging"
 import * as actions from "./actions"
-import { accountId, credentials, fakeCore, pairedPs5, picture, prefsLayer, ps5, status, type StoredPrefs } from "./testing"
+import { accountId, credentials, fakeCore, pairedPs5, picture, prefsLayer, ps5, psnCredentials, psnPs5, status, type StoredPrefs } from "./testing"
 
 const setup = (core = fakeCore(), prefs: StoredPrefs = {}) => ({ core, layer: Layer.mergeAll(core.layer, prefsLayer(prefs)) })
 
@@ -155,6 +155,40 @@ describe("consoles", () => {
     return Effect.gen(function* () {
       const paired = yield* actions.pair(ps5, "12345678")
       expect(paired["HOST1"]?.name).toBe("Living Room")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("pairs through PSN and keeps the console under its MAC until it's found at home", () => {
+    const { core, layer } = setup(fakeCore(), { accountId })
+    return Effect.gen(function* () {
+      const stages: string[] = []
+      const paired = yield* actions.pairThroughPsn(psnPs5, undefined, (stage) => stages.push(stage))
+      expect(core.service.pairPsn).toHaveBeenCalledWith({ duid: "aa", accountId }, expect.any(Function))
+      expect(stages).toEqual(["linking", "registering"])
+      // Discovery's host ID is the MAC in hex: the console merges with this pairing once it's found.
+      expect(paired["F8461CA1B2C3"]).toEqual({ hostId: "F8461CA1B2C3", name: "Living Room", credentials: psnCredentials, psnDuid: "aa" })
+      // Found on the home network later: the scan fills in its address.
+      core.state.discovered = [{ ...ps5, hostId: "F8461CA1B2C3" }]
+      const { paired: after } = yield* actions.scan
+      expect(after["F8461CA1B2C3"]?.credentials.address).toBe("192.168.0.40")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("pairs through PSN a console found at home under its host ID and address", () => {
+    const core = fakeCore({ pairPsn: () => Effect.succeed({ ...psnCredentials, nickname: "" }) })
+    const { layer } = setup(core, { accountId })
+    return Effect.gen(function* () {
+      const paired = yield* actions.pairThroughPsn(psnPs5, ps5, () => undefined)
+      expect(paired["HOST1"]).toEqual({ ...pairedPs5, credentials: { ...psnCredentials, nickname: "", address: "192.168.0.40" }, psnDuid: "aa" })
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("saves nothing when pairing through PSN fails", () => {
+    const failure = new CoreError({ command: "pair_psn", message: "The PS5 didn't accept pairing through PSN." })
+    const { layer } = setup(fakeCore({ pairPsn: () => Effect.fail(failure) }), { accountId })
+    return Effect.gen(function* () {
+      expect(yield* Effect.flip(actions.pairThroughPsn(psnPs5, undefined, () => undefined))).toBe(failure)
+      expect(yield* actions.loadPaired).toEqual({})
     }).pipe(Effect.provide(layer))
   })
 
@@ -608,6 +642,18 @@ describe("psnReachable", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("reports nothing from PSN when not signed in for internet play", () => {
+    const { core, layer } = setup()
+    core.state.psnConsoles = [psnPs5]
+    return Effect.gen(function* () {
+      const reports: actions.PsnView[] = []
+      const fiber = yield* Effect.forkChild(actions.pollPsn({}, (r) => reports.push(r)))
+      yield* Effect.yieldNow
+      expect(reports).toEqual([{ reachable: {}, consoles: [] }])
+      yield* Fiber.interrupt(fiber)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("is empty when PSN can't be reached", () => {
     const core = fakeCore({ psnConsoles: Effect.fail(new CoreError({ command: "psn_consoles", message: "offline" })) })
     core.state.psnSignedIn = true
@@ -632,10 +678,10 @@ describe("internet play", () => {
     core.state.psnSignedIn = true
     core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
     return Effect.gen(function* () {
-      const reports: Readonly<Record<string, string>>[] = []
-      const fiber = yield* Effect.forkChild(actions.pollPsnReachable({ HOST1: pairedPs5 }, (r) => reports.push(r)))
+      const reports: actions.PsnView[] = []
+      const fiber = yield* Effect.forkChild(actions.pollPsn({ HOST1: pairedPs5 }, (r) => reports.push(r)))
       yield* Effect.yieldNow
-      expect(reports).toEqual([{ HOST1: "aa" }])
+      expect(reports).toEqual([{ reachable: { HOST1: "aa" }, consoles: [{ name: "Living Room", duid: "aa", remotePlay: true }] }])
       yield* TestClock.adjust(actions.psnPollInterval)
       expect(reports).toHaveLength(2)
       yield* Fiber.interrupt(fiber)
@@ -652,12 +698,12 @@ describe("internet play", () => {
     core.state.psnSignedIn = true
     const { layer } = setup(core)
     return Effect.gen(function* () {
-      const reports: Readonly<Record<string, string>>[] = []
-      const fiber = yield* Effect.forkChild(actions.pollPsnReachable({ HOST1: pairedPs5 }, (r) => reports.push(r)))
+      const reports: actions.PsnView[] = []
+      const fiber = yield* Effect.forkChild(actions.pollPsn({ HOST1: pairedPs5 }, (r) => reports.push(r)))
       yield* Effect.yieldNow
       fail = true
       yield* TestClock.adjust(actions.psnPollInterval)
-      expect(reports).toEqual([{ HOST1: "aa" }]) // the blip reported nothing: still reachable
+      expect(reports.map((r) => r.reachable)).toEqual([{ HOST1: "aa" }]) // the blip reported nothing: still reachable
       fail = false
       yield* TestClock.adjust(actions.psnPollInterval)
       expect(reports).toHaveLength(2)

@@ -314,6 +314,36 @@ public func sc_psn_access_token() -> UnsafeMutablePointer<CChar> {
 @_cdecl("sc_psn_sign_out")
 public func sc_psn_sign_out() { PSNAccount.shared.signOut() }
 
+/// The pairing through PSN under way, for sc_psn_pair_cancel.
+private let psnPairing = OSAllocatedUnfairLock<PSNPairing?>(initialState: nil)
+
+/// Blocking (20–30 s). Pairs with a PS5 through PSN, no code needed: `request` {"duid","accountId"} →
+/// ConsoleCredentials JSON (address "" until the console is found on the home network) or {"error"}. The PSN
+/// token is fetched here and never reaches the host. Progress arrives on the event callback as
+/// {"type":"psnPairProgress","stage":"linking"|"registering"}; sc_psn_pair_cancel stops it.
+@_cdecl("sc_psn_pair")
+public func sc_psn_pair(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
+    struct Request: Decodable { let duid: String; let accountId: String }
+    do {
+        let r = try decode(Request.self, request)
+        let token = try blocking(timedOut: "PSN didn't answer", { try await PSNAccount.shared.validAccessToken() }).get()
+        let pairing = PSNPairing(token: token, duid: r.duid, accountId: r.accountId)
+        psnPairing.withLock { $0 = pairing }
+        defer { psnPairing.withLock { if $0 === pairing { $0 = nil } } }
+        return json(encodable: try pairing.run { stage in emit(psnPairProgressPayload(stage)) })
+    } catch { return failure(error.localizedDescription) }
+}
+
+/// Stops the pairing through PSN under way, if any; its sc_psn_pair then replies {"error"}.
+@_cdecl("sc_psn_pair_cancel")
+public func sc_psn_pair_cancel() {
+    psnPairing.withLock { $0 }?.cancel()
+}
+
+func psnPairProgressPayload(_ stage: PSNPairing.Stage) -> [String: Any] {
+    ["type": "psnPairProgress", "stage": stage.rawValue]
+}
+
 // MARK: Session (main)
 
 /// The session whose events reach the host; 0 while there is none. A replaced or stopped session keeps

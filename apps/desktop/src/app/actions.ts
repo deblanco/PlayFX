@@ -19,6 +19,8 @@ import {
   type PeerWifiReply,
   type PeerWifiState,
   type PsnAccountEvent,
+  type PsnConsole,
+  type PsnPairStage,
   type Settings,
   type StreamEvent,
 } from "@/core/schema"
@@ -33,6 +35,7 @@ import {
   type StatRow,
   megabitsPerSecond,
   psnDeviceIds,
+  psnHostId,
   renderParams,
   streamOptions,
   type Capabilities,
@@ -91,17 +94,27 @@ export const signOut: Effect.Effect<void, StorageError | CoreError, Preferences 
   yield* prefs.setAccountId(Option.none())
 })
 
+/** What PSN knows: the paired consoles it can reach (hostId → PSN device ID) and every PS5 on the account. */
+export interface PsnView {
+  readonly reachable: Readonly<Record<string, string>>
+  readonly consoles: readonly PsnConsole[]
+}
+
 /** The PSN device IDs of the paired consoles PSN can reach (hostId → duid); empty when not signed in
  * for internet play, or when PSN can't be reached. */
 export const psnReachable = (paired: PairedConsoles): Effect.Effect<Readonly<Record<string, string>>, never, Core> =>
-  askPsn(paired).pipe(Effect.orElseSucceed(() => ({})))
+  askPsn(paired).pipe(
+    Effect.map((view) => view.reachable),
+    Effect.orElseSucceed(() => ({})),
+  )
 
-/** What PSN says now; fails when PSN can't be asked. */
-const askPsn = (paired: PairedConsoles): Effect.Effect<Readonly<Record<string, string>>, CoreError, Core> =>
+/** What PSN says now (nothing when not signed in for internet play); fails when PSN can't be asked. */
+const askPsn = (paired: PairedConsoles): Effect.Effect<PsnView, CoreError, Core> =>
   Effect.gen(function* () {
     const core = yield* Core
-    if (!(yield* core.psnSignedIn)) return {}
-    return psnDeviceIds(paired, yield* core.psnConsoles)
+    if (!(yield* core.psnSignedIn)) return { reachable: {}, consoles: [] }
+    const consoles = yield* core.psnConsoles
+    return { reachable: psnDeviceIds(paired, consoles), consoles }
   })
 
 /** The console's PSN device ID if it can be reached over the internet right now (asks PSN). */
@@ -271,6 +284,29 @@ export const pair = (
     yield* Effect.logInfo(`Paired with ${credentials.nickname || console.name}`)
     return yield* prefs.paired
   })
+
+/** Pairs with a PS5 on the PSN account through PSN, with no code (20–30 s), reporting each step; returns the
+ * updated paired list. `discovered`: the same console found on the home network, whose address and host ID
+ * it's kept under; otherwise its address is learned once it's found there (it can play over the internet
+ * meanwhile). Interrupting it cancels the pairing. */
+export const pairThroughPsn = (
+  console: PsnConsole,
+  discovered: DiscoveredConsole | undefined,
+  onProgress: (stage: PsnPairStage) => void,
+): Effect.Effect<PairedConsoles, CoreError | ValidationError | StorageError, Core | Preferences> =>
+  Effect.gen(function* () {
+    const core = yield* Core
+    const prefs = yield* Preferences
+    const accountId = Option.getOrElse(yield* prefs.accountId, () => "")
+    yield* Effect.logInfo(`Pairing with ${console.name} through PSN`)
+    const registered = yield* core.pairPsn({ duid: console.duid, accountId }, onProgress)
+    const credentials = discovered === undefined ? registered : { ...registered, address: discovered.address }
+    const name = registered.nickname || console.name
+    const hostId = discovered?.hostId ?? psnHostId(registered.mac, console.duid)
+    yield* prefs.savePaired({ hostId, name, credentials, psnDuid: console.duid })
+    yield* Effect.logInfo(`Paired with ${name} through PSN`)
+    return yield* prefs.paired
+  }).pipe(Effect.onInterrupt(() => Effect.logInfo(`Pairing with ${console.name} through PSN cancelled`)))
 
 export const wake = (console: PairedConsole): Effect.Effect<void, CoreError | WakeFailed, Core> =>
   Effect.gen(function* () {
@@ -477,15 +513,13 @@ export const play = (console: PairedConsole, settings: Settings, psnDuid?: strin
 
 export const psnPollInterval = "1 minute"
 
-/** Which paired consoles PSN can reach, now and every minute, until interrupted. */
-export const pollPsnReachable = (
-  paired: PairedConsoles,
-  report: (reachable: Readonly<Record<string, string>>) => void,
-): Effect.Effect<number, never, Core> =>
+/** What PSN knows (which paired consoles it can reach, the account's PS5s), now and every minute, until
+ * interrupted. */
+export const pollPsn = (paired: PairedConsoles, report: (view: PsnView) => void): Effect.Effect<number, never, Core> =>
   // A round where PSN can't be asked reports nothing: the last answer stands (one network blip used to
   // mark every console unreachable over the internet until the next round, a minute later).
   askPsn(paired).pipe(
-    Effect.flatMap((reachable) => Effect.sync(() => { report(reachable) })),
+    Effect.flatMap((view) => Effect.sync(() => { report(view) })),
     Effect.ignore,
     Effect.repeat(Schedule.spaced(psnPollInterval)),
   )

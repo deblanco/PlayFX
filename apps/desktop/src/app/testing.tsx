@@ -50,6 +50,12 @@ export const credentials: Credentials = {
 
 export const pairedPs5: PairedConsole = { hostId: "HOST1", name: "Living Room", credentials }
 
+/** A PS5 on the PSN account (Remote Play on). */
+export const psnPs5: PsnConsole = { name: "Living Room", duid: "aa", remotePlay: true }
+
+/** What pairing through PSN gives: the keys and the console's MAC, no address until it's found at home. */
+export const psnCredentials: Credentials = { ...credentials, address: "", mac: "f8:46:1c:a1:b2:c3" }
+
 /** Default picture settings with some overridden, as the renderer receives them. */
 export const picture = (overrides: Partial<RenderParams> = {}): RenderParams => ({
   ...renderParams(defaultSettings),
@@ -93,6 +99,13 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
       return state.discovered
     }),
     pair: vi.fn<CoreService["pair"]>(() => Effect.succeed(credentials)),
+    pairPsn: vi.fn<CoreService["pairPsn"]>((_request, onProgress) =>
+      Effect.sync(() => {
+        onProgress("linking")
+        onProgress("registering")
+        return psnCredentials
+      }),
+    ),
     wakeup: vi.fn<CoreService["wakeup"]>(() => Effect.succeed(true)),
     psnLogin: Effect.sync(() => {
       counts.psnLogin++

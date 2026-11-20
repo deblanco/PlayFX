@@ -319,6 +319,16 @@ void psrp_regist_error_message(int chiaki_error, uint32_t application_reason, bo
     }
 }
 
+/// The keys and console details a registration gives, PIN or PSN.
+static void registration_from_host(const ChiakiRegisteredHost *host, PsrpRegistration *out) {
+    memset(out, 0, sizeof(*out));
+    memcpy(out->regist_key, host->rp_regist_key, PSRP_REGIST_KEY_SIZE);
+    memcpy(out->rp_key, host->rp_key, PSRP_RP_KEY_SIZE);
+    copy_str(out->nickname, sizeof(out->nickname), host->server_nickname);
+    memcpy(out->mac, host->server_mac, sizeof(out->mac));
+    out->target = (int)host->target;
+}
+
 bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACCOUNT_ID_SIZE], uint32_t pin,
                    PsrpRegistration *out, char *error, size_t error_size) {
     ensure_init();
@@ -353,12 +363,7 @@ bool psrp_register(const char *host, bool ps5, const uint8_t account_id[PSRP_ACC
         psrp_regist_error_message(ctx.error, ctx.application_reason, ps5, error, error_size);
         return false;
     }
-    memset(out, 0, sizeof(*out));
-    memcpy(out->regist_key, ctx.host.rp_regist_key, PSRP_REGIST_KEY_SIZE);
-    memcpy(out->rp_key, ctx.host.rp_key, PSRP_RP_KEY_SIZE);
-    copy_str(out->nickname, sizeof(out->nickname), ctx.host.server_nickname);
-    memcpy(out->mac, ctx.host.server_mac, sizeof(out->mac));
-    out->target = (int)ctx.host.target;
+    registration_from_host(&ctx.host, out);
     return true;
 }
 
@@ -425,6 +430,14 @@ static void session_event_cb(ChiakiEvent *event, void *user) {
         if (s->cb.trigger_effects)
             s->cb.trigger_effects(s->cb.user, event->trigger_effects.type_left, event->trigger_effects.left,
                                   event->trigger_effects.type_right, event->trigger_effects.right);
+        return;
+    }
+    if (event->type == CHIAKI_EVENT_REGIST) { // pairing through PSN (auto_regist)
+        if (s->cb.registered) {
+            PsrpRegistration registration;
+            registration_from_host(&event->host, &registration);
+            s->cb.registered(s->cb.user, &registration);
+        }
         return;
     }
     if (!s->cb.event) return;
@@ -607,6 +620,8 @@ static void *remote_worker(void *arg) {
     pthread_mutex_unlock(&s->lock);
     if (hp) chiaki_holepunch_session_fini(hp);
     if (err != CHIAKI_ERR_SUCCESS) emit_quit(s, err);
+    else if (s->info.auto_regist && s->cb.event)
+        s->cb.event(s->cb.user, PSRP_EVENT_REMOTE_PROGRESS, PSRP_REMOTE_REGISTERING, 0, NULL);
     return NULL;
 }
 
@@ -641,15 +656,22 @@ PsrpSession *psrp_session_start(const PsrpSessionConfig *config, const PsrpCallb
     info->enable_keyboard = false; // the PS5 shuts the stream down when a client enables it (seen live)
     info->enable_dualsense = config->ps5;
     info->audio_video_disabled = 0;
-    info->auto_regist = false;
+    info->auto_regist = config->register_only; // pairing through PSN: register, then stop
     info->holepunch_session = NULL;
     info->rudp_sock = NULL;
     info->packet_loss_max = 0.05;
     info->enable_idr_on_fec_failure = true;
 
+    if (config->register_only && !s->remote) {
+        copy_str(error, error_size, "Pairing through PSN needs a PSN sign-in");
+        pthread_mutex_destroy(&s->lock);
+        free(s);
+        return NULL;
+    }
     if (s->remote) {
         if (!config->ps5 || !psrp_parse_duid(config->psn_duid, s->console_duid)) {
-            copy_str(error, error_size, "Internet play needs a PS5 and its PSN device ID");
+            copy_str(error, error_size, config->register_only ? "Pairing through PSN needs a PS5 and its PSN device ID"
+                                                              : "Internet play needs a PS5 and its PSN device ID");
             pthread_mutex_destroy(&s->lock);
             free(s);
             return NULL;

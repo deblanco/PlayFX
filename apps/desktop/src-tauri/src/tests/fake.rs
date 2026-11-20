@@ -103,6 +103,13 @@ impl NativeCore for FakeCore {
     fn psn_sign_out(&self) {
         self.log("psn_sign_out".into());
     }
+    fn psn_pair(&self, request: &str) -> String {
+        self.log(format!("psn_pair {request}"));
+        self.reply.clone()
+    }
+    fn psn_pair_cancel(&self) {
+        self.log("psn_pair_cancel".into());
+    }
     fn session_start(&self, request: &str) -> String {
         self.log(format!("session_start {request}"));
         self.reply.clone()

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "@effect/vitest"
-import { Effect, Exit, Layer, Option } from "effect"
+import { Effect, Exit, Fiber, Layer, Option } from "effect"
 import { Core, CoreLive } from "./core"
 import { CoreError } from "./errors"
 import type { Credentials, DiscoveredConsole, PsnAccountEvent, RenderParams, StreamEvent, StreamOptions } from "./schema"
@@ -164,6 +164,61 @@ describe("CoreLive", () => {
         const core = yield* Core
         const error = yield* Effect.flip(core.pair({ console: console5, accountId: "AAAAAAAAAAA=", pin: "12345678" }))
         expect(error._tag).toBe("CoreError")
+      }).pipe(Effect.provide(fake.layer))
+    })
+  })
+
+  describe("pairPsn", () => {
+    const request = { duid: "aa", accountId: "AAAAAAAAAAA=" }
+
+    it.effect("pairs through PSN, reporting each step from the stream events", () => {
+      const stages: string[] = []
+      const fake = fakeBridge({
+        pair_psn: Effect.suspend(() => {
+          fake.emit("stream-event", { type: "psnPairProgress", stage: "linking" })
+          fake.emit("stream-event", { type: "connected" }) // a stream's event: not pairing progress
+          fake.emit("stream-event", { type: "psnPairProgress", stage: "registering" })
+          return Effect.succeed({ ...credentials, address: "" })
+        }),
+      })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        expect(yield* core.pairPsn(request, (stage) => stages.push(stage))).toEqual({ ...credentials, address: "" })
+        expect(stages).toEqual(["linking", "registering"])
+        expect(fake.calls).toEqual([{ command: "pair_psn", args: { request } }])
+        expect(fake.unlisten).toHaveBeenCalledOnce() // stops listening once done
+      }).pipe(Effect.provide(fake.layer))
+    })
+
+    it.effect("needs the PSN account, without asking PSN", () => {
+      const fake = fakeBridge()
+      return Effect.gen(function* () {
+        const core = yield* Core
+        const error = yield* Effect.flip(core.pairPsn({ duid: "aa", accountId: "" }, () => undefined))
+        expect(error.message).toBe("Sign in to PlayStation first")
+        expect(fake.calls).toEqual([])
+      }).pipe(Effect.provide(fake.layer))
+    })
+
+    it.effect("passes the native reason through", () => {
+      const failure = new CoreError({ command: "pair_psn", message: "The PS5 didn't accept pairing through PSN." })
+      const fake = fakeBridge({ pair_psn: Effect.fail(failure) })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        expect(yield* Effect.flip(core.pairPsn(request, () => undefined))).toBe(failure)
+      }).pipe(Effect.provide(fake.layer))
+    })
+
+    it.effect("cancels the native pairing when interrupted", () => {
+      const fake = fakeBridge({ pair_psn: Effect.never, cancel_psn_pair: Effect.succeed(null) })
+      return Effect.gen(function* () {
+        const core = yield* Core
+        const fiber = yield* Effect.forkChild(core.pairPsn(request, () => undefined))
+        yield* Effect.yieldNow
+        yield* Fiber.interrupt(fiber)
+        expect(Exit.hasInterrupts(yield* Fiber.await(fiber))).toBe(true)
+        expect(fake.calls.map((c) => c.command)).toEqual(["pair_psn", "cancel_psn_pair"])
+        expect(fake.unlisten).toHaveBeenCalledOnce()
       }).pipe(Effect.provide(fake.layer))
     })
   })

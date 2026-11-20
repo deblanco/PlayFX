@@ -14,6 +14,9 @@ import {
   mlApplies,
   pipelineStages,
   psnDeviceIds,
+  psnHostId,
+  psnPairHint,
+  psnPairStep,
   renderParams,
   hudStats,
   quitMessage,
@@ -40,7 +43,7 @@ import {
   upscalerLabel,
   type Stage,
 } from "./format"
-import { pairedPs5, ps5, status } from "./testing"
+import { pairedPs5, ps5, psnPs5, status } from "./testing"
 
 describe("consoleRows", () => {
   it("merges discovered and paired consoles", () => {
@@ -179,7 +182,61 @@ describe("consoleRows over the internet", () => {
   })
 })
 
+describe("consoleRows with the PSN account's PS5s", () => {
+  const unpaired = { ...ps5, hostId: "HOST9" }
+
+  it("offers pairing through PSN on the unpaired console found here with the same name", () => {
+    const rows = consoleRows([unpaired], {}, {}, [psnPs5])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ hostId: "HOST9", status: "ready", psn: psnPs5, discovered: unpaired })
+  })
+
+  it("lists a PS5 that isn't found here on its own row, saying when Remote Play is off", () => {
+    const off = { name: "Bedroom", duid: "bb", remotePlay: false }
+    const rows = consoleRows([], {}, {}, [psnPs5, off])
+    expect(rows.map((r) => [r.hostId, r.name, r.status, r.meta, r.psnDuid])).toEqual([
+      ["psn:aa", "Living Room", "internet", "PS5 · on your PSN account", "aa"],
+      ["psn:bb", "Bedroom", "offline", "PS5 · Remote Play is off", "bb"],
+    ])
+    expect(rows[1]?.psn).toBe(off)
+  })
+
+  it("leaves out PS5s already paired, by PSN device ID or by name", () => {
+    const viaPsn = { ...pairedPs5, hostId: "F8461CA1B2C3", name: "Renamed", psnDuid: "aa" }
+    expect(consoleRows([], { F8461CA1B2C3: viaPsn }, {}, [psnPs5]).map((r) => r.hostId)).toEqual(["F8461CA1B2C3"])
+    const rows = consoleRows([ps5], { HOST1: pairedPs5 }, {}, [psnPs5])
+    expect(rows.map((r) => [r.hostId, r.psn])).toEqual([["HOST1", undefined]])
+    // A PS4 found here isn't the account's PS5 of the same name.
+    const ps4 = { ...unpaired, ps5: false }
+    expect(consoleRows([ps4], {}, {}, [psnPs5]).map((r) => [r.hostId, r.psn])).toEqual([["HOST9", undefined], ["psn:aa", psnPs5]])
+  })
+})
+
+describe("psnHostId", () => {
+  it("is discovery's host ID, the MAC as uppercase hex, or the PSN device ID when the MAC is unknown", () => {
+    expect(psnHostId("f8:46:1c:a1:b2:c3", "aa")).toBe("F8461CA1B2C3")
+    expect(psnHostId("00:00:00:00:00:00", "aa")).toBe("psn:aa")
+    expect(psnHostId("", "aa")).toBe("psn:aa")
+  })
+})
+
+describe("pairing through PSN copy", () => {
+  it("names the step under way and what to expect", () => {
+    expect(psnPairStep(undefined, "PS5-454")).toBe("Finding PS5-454 through PSN…")
+    expect(psnPairStep("linking", "PS5-454")).toBe("Finding PS5-454 through PSN…")
+    expect(psnPairStep("registering", "PS5-454")).toBe("Pairing this Mac with PS5-454…")
+    expect(psnPairHint(10)).toBe("This takes 20 to 30 seconds. Nothing to do on the PS5.")
+    expect(psnPairHint(60)).toMatch(/^This is taking longer than usual\. Check that the PS5 is on/)
+  })
+})
+
 describe("psnDeviceIds", () => {
+  it("matches a console paired through PSN by its device ID, whatever its name", () => {
+    const viaPsn = { ...pairedPs5, name: "Renamed", psnDuid: "bb" }
+    const onPsn = [psnPs5, { name: "Bedroom", duid: "bb", remotePlay: true }]
+    expect(psnDeviceIds({ HOST1: viaPsn }, onPsn)).toEqual({ HOST1: "bb" })
+  })
+
   it("matches paired consoles to PSN's by name, if Remote Play is on", () => {
     const bedroom = { ...pairedPs5, hostId: "HOST2", name: "Bedroom", credentials: { ...pairedPs5.credentials, nickname: "PS5-777" } }
     const onPsn = [

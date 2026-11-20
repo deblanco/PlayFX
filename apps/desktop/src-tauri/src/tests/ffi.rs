@@ -47,6 +47,8 @@ fn mac_core_without_session_or_renderer() {
     assert!(!core.psn_redirect_url().is_empty());
     assert!(reply(&core.psn_account_id("https://example.invalid/no-code")).is_err());
     assert!(reply(&core.register("{}")).is_err());
+    assert!(reply(&core.psn_pair("{}")).is_err()); // refused before PSN is asked
+    core.psn_pair_cancel(); // nothing under way
     assert!(!core.wakeup("{}"));
     assert!(reply(&core.session_start("{}")).is_err());
     core.set_login_pin("1234");

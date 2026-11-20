@@ -35,6 +35,8 @@
     "allow-psn-signed-in",
     "allow-psn-consoles",
     "allow-psn-sign-out",
+    "allow-pair-psn",
+    "allow-cancel-psn-pair",
     "allow-set-detailed-logs",
     "allow-open-logs-folder",
     "allow-open-source-code",

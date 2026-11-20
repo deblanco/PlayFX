@@ -111,6 +111,7 @@ typedef enum {
     PSRP_REMOTE_LINKING = 1,       // PSN session + reaching the console (up to ~30 s per step)
     PSRP_REMOTE_DATA = 2,          // linked; opening the data connection
     PSRP_REMOTE_CONNECTED = 3,     // data connection open
+    PSRP_REMOTE_REGISTERING = 4,   // pairing through PSN (`register_only`): linked; registering with the console
 } PsrpRemoteStage;
 
 /// Why a session ended, as far as what to do next is concerned.
@@ -149,6 +150,9 @@ typedef struct {
     /// PSRP_HAPTICS_SAMPLE_RATE. Return true if it was played on a pad: then no PSRP_EVENT_HAPTIC_RUMBLE is made
     /// from it. Optional.
     bool (*haptics)(void *user, const int16_t *pcm, size_t frames);
+    /// Pairing through PSN (`register_only`): the console registered this Mac, with the same keys a PIN
+    /// pairing gives. PSRP_EVENT_QUIT (PSRP_QUIT_STOPPED) follows. Optional.
+    void (*registered)(void *user, const PsrpRegistration *registration);
 } PsrpCallbacks;
 
 typedef struct {
@@ -167,6 +171,11 @@ typedef struct {
     /// PSRP_EVENT_REMOTE_PROGRESS, failures as PSRP_EVENT_QUIT.
     const char *psn_token;
     const char *psn_duid;
+    /// Pairing through PSN, no PIN (PS5): with `psn_token`, `psn_duid` and `account_id` set (no keys needed,
+    /// they don't exist yet), the session only registers this Mac with the console over PSN, as every internet
+    /// session does first, then stops. The keys arrive through `callbacks.registered`; a quit without them
+    /// is a failure.
+    bool register_only;
 } PsrpSessionConfig;
 
 typedef struct PsrpSession PsrpSession;
