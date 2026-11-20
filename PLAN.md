@@ -62,7 +62,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 395 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 402 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's

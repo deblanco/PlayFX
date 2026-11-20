@@ -234,7 +234,8 @@ GTA VI draws about 30 new pictures a second. Use one of these:
 - **Sharpest picture.** The same, with the stream at **30 fps** and frame interpolation **off**. Every
   frame on screen went through ML, and motion steps at 30.
 
-Leave **HDR** off for either one. HDR turns ML upscaling and frame interpolation off.
+Leave **HDR** off for either one. HDR turns ML upscaling off, and frame interpolation makes only one image
+between two frames there (60 at most from a 30 fps game).
 
 ### HDR
 
