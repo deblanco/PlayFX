@@ -23,6 +23,7 @@ import { ConsoleKeyboard } from "./ConsoleKeyboard"
 import { TouchpadPointer } from "./TouchpadPointer"
 import type { Capabilities, MicState, Route, StatRow } from "./format"
 import { controllerStateFrom, isControllerKey, keyboardLayout } from "./keyboard"
+import type { ChangeSettings } from "./ProfileSelect"
 import { useFork, useRun, useRuntime } from "./runtime"
 import { SettingsSheet, type ReconnectState, type SettingsTab } from "./SettingsSheet"
 import { SteadyWifiWarning } from "./SteadyWifi"
@@ -131,7 +132,7 @@ interface StreamViewProps {
   readonly onMicToggle?: () => void
   readonly settings: Settings
   readonly capabilities: Capabilities
-  readonly onSettingsChange: (next: Settings) => void
+  readonly onSettingsChange: ChangeSettings
   /** Whether stream settings changed since connecting, and how to reconnect with them. */
   readonly reconnect: ReconnectState
   /** While connecting over the internet, the setup step under way. */

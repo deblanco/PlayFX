@@ -6,9 +6,10 @@ import { toast } from "sonner"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CoreError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
-import { defaultSettings } from "@/core/schema"
+import { defaultSettings, type Profile, type Settings } from "@/core/schema"
 import { cursorIdleMs, hudIdleMs } from "./StreamView"
 import { renderParams } from "./format"
+import { profileSettings } from "./profiles"
 import { useRuntime } from "./runtime"
 import { accountId, credentials, fakeCore, pairedPs5, picture, ps5, renderApp, status } from "./testing"
 
@@ -23,8 +24,11 @@ const consoleItem = async (name = "Living Room") => {
 
 /** Renders the app with a paired, ready console and starts streaming it. */
 /** Plays the paired console; `connected` also reports the stream as up (otherwise it stays connecting). */
-const startStreaming = async (core = fakeCore(), { connected = true, testClock = false, paired = pairedPs5 } = {}) => {
-  const app = renderApp(core, { accountId, paired: [paired] }, { testClock })
+const startStreaming = async (
+  core = fakeCore(),
+  { connected = true, testClock = false, paired = pairedPs5, profiles = [] as readonly Profile[] } = {},
+) => {
+  const app = renderApp(core, { accountId, paired: [paired], profiles }, { testClock })
   const item = await consoleItem()
   await userEvent.click(item.getByRole("button", { name: "Play" }))
   await screen.findByRole("button", { name: "Stop" })
@@ -1586,6 +1590,100 @@ describe("settings profiles", () => {
     const saved = await savedProfiles(runtime)
     expect(saved.map((p) => p.name)).toEqual(["Sharp", "Couch"])
     expect(saved[0]?.settings.sharpness).toBeGreaterThan(saved[1]?.settings.sharpness ?? 1)
+  })
+
+  const profile = (name: string, overrides: Partial<Settings>): Profile => ({
+    name,
+    settings: profileSettings({ ...defaultSettings, ...overrides }),
+  })
+
+  it("switches profiles from Home, sharing the saved ones with Settings", async () => {
+    const { runtime } = renderApp(fakeCore(), { profiles: [profile("Couch", { height: 720, sharpness: 0 })] })
+    const home = screen.getByRole("combobox", { name: "Profile" })
+    await waitFor(() => {
+      expect(home).toHaveValue("Recommended")
+    })
+    // Not streaming: the options are just the names.
+    expect(within(home).getAllByRole("option").map((o) => o.textContent)).toEqual(["Recommended", "Couch"])
+
+    await userEvent.selectOptions(home, "Couch")
+    expect(await screen.findByText("Switched to Couch")).toBeInTheDocument()
+    expect(screen.getByText("720p · 60 fps · HEVC · auto bitrate")).toBeInTheDocument()
+    await waitFor(async () => {
+      expect((await savedSettings(runtime)).height).toBe(720)
+    })
+
+    // A profile saved in Settings shows on Home too.
+    const sheet = await openSettings("Picture")
+    nudge("Sharpness", "ArrowRight", 2)
+    await waitFor(() => {
+      expect(home).toHaveValue("")
+    })
+    await userEvent.click(sheet.getByRole("button", { name: "Save as…" }))
+    await userEvent.type(sheet.getByRole("textbox", { name: "Profile name" }), "Sharp{Enter}")
+    await waitFor(() => {
+      expect(home).toHaveValue("Sharp")
+    })
+  })
+
+  it("shows Custom on Home when the settings match no profile", async () => {
+    renderApp(fakeCore(), { settings: { ...defaultSettings, sharpness: 0.9 } })
+    const home = screen.getByRole("combobox", { name: "Profile" })
+    await waitFor(() => {
+      expect(home).toHaveValue("")
+    })
+    expect(within(home).getByRole("option", { name: "Custom" })).toBeDisabled()
+  })
+
+  it("says what a switch costs while streaming, and waits for Reconnect even for a bitrate", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core, {
+      testClock: true,
+      profiles: [profile("Sharp", { sharpness: 0.9 }), profile("Fast", { bitrate: 15000 })],
+    })
+    const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Picture")
+    const select = sheet.getByRole("combobox", { name: "Profile" })
+    await waitFor(() => {
+      expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Recommended",
+        "Sharp · applies now",
+        "Fast · needs a reconnect",
+      ])
+    })
+
+    // Picture only: applied at once, nothing to reconnect.
+    await userEvent.selectOptions(select, "Sharp")
+    expect(await screen.findByText("Switched to Sharp")).toBeInTheDocument()
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ sharpness: 0.9 }))
+    expect(sheet.queryByRole("status")).not.toBeInTheDocument()
+
+    // Only the bitrate differs, but a profile asks first: the stream keeps going until Reconnect.
+    await userEvent.selectOptions(select, "Fast")
+    expect(await screen.findByText("Switched to Fast · reconnect to apply")).toBeInTheDocument()
+    expect(sheet.getByRole("status")).toHaveTextContent("Reconnect to use the new stream settings.")
+    await wait(3)
+    expect(core.service.startStream).not.toHaveBeenCalled()
+    await userEvent.click(sheet.getByRole("button", { name: "Reconnect" }))
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 15000 }), undefined)
+    })
+    act(() => {
+      core.emitStream({ type: "connected" })
+    })
+    await waitFor(() => {
+      expect(sheet.queryByRole("status")).not.toBeInTheDocument()
+    })
+
+    // The bitrate slider still applies on its own after that.
+    vi.mocked(core.service.startStream).mockClear()
+    await userEvent.click(sheet.getByRole("tab", { name: "Stream" }))
+    nudge("Bitrate", "ArrowRight")
+    await wait(2)
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenCalledTimes(1)
+    })
   })
 
   it("can cancel naming a profile, and refuses an empty name", async () => {

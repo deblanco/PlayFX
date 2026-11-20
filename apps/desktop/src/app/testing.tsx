@@ -12,6 +12,7 @@ import type {
   PsnAccountEvent,
   DevCommand,
   PeerWifiState,
+  Profile,
   PsnConsole,
   RendererStatus,
   RenderParams,
@@ -202,14 +203,17 @@ export interface StoredPrefs {
   readonly settings?: Settings
   /** Steady Wi-Fi left on last time. */
   readonly steadyWifi?: boolean
+  /** Saved settings profiles. */
+  readonly profiles?: readonly Profile[]
 }
 
 /** localStorage contents for `memoryStore`. */
-export const storedPrefs = ({ accountId: id, paired, settings, steadyWifi }: StoredPrefs = {}): Record<string, string> => ({
+export const storedPrefs = ({ accountId: id, paired, settings, steadyWifi, profiles }: StoredPrefs = {}): Record<string, string> => ({
   ...(id === undefined ? {} : { "psrp.accountId": id }),
   ...(paired === undefined ? {} : { "psrp.consoles": JSON.stringify(Object.fromEntries(paired.map((p) => [p.hostId, p]))) }),
   ...(settings === undefined ? {} : { "psrp.settings": JSON.stringify(settings) }),
   ...(steadyWifi === undefined ? {} : { "psrp.steadyWifi": JSON.stringify(steadyWifi) }),
+  ...(profiles === undefined ? {} : { "psrp.profiles": JSON.stringify(profiles) }),
 })
 
 export const prefsLayer = (prefs: StoredPrefs = {}) => PreferencesLive.pipe(Layer.provide(memoryStore(storedPrefs(prefs))))

@@ -1,12 +1,14 @@
 import { Option } from "effect"
 import { describe, expect, it } from "vitest"
 import { defaultSettings } from "@/core/schema"
+import { streamOptions } from "./format"
 import {
   allProfiles,
   applyProfile,
   isBuiltIn,
   isSaved,
   matchingProfile,
+  needsReconnect,
   profileSettings,
   profileSummary,
   recommended,
@@ -49,6 +51,19 @@ describe("profiles", () => {
     const profiles = allProfiles(tv)
     expect(Option.getOrUndefined(matchingProfile({ ...defaultSettings, height: 720, showStats: true }, profiles))?.name).toBe("TV")
     expect(Option.isNone(matchingProfile({ ...defaultSettings, sharpness: 0.9 }, profiles))).toBe(true)
+  })
+
+  it("needs a reconnect only for a different stream, not a different picture", () => {
+    const running = streamOptions(defaultSettings)
+    const profile = (overrides: Partial<typeof defaultSettings>) => ({
+      name: "x",
+      settings: profileSettings({ ...defaultSettings, ...overrides }),
+    })
+    expect(needsReconnect(defaultSettings, profile({ sharpness: 0.9, view: "split" }), running)).toBe(false)
+    expect(needsReconnect(defaultSettings, profile({ bitrate: 15000 }), running)).toBe(true)
+    expect(needsReconnect(defaultSettings, profile({ height: 720 }), running)).toBe(true)
+    // Measured against the running stream, not the settings: going back to it costs nothing.
+    expect(needsReconnect({ ...defaultSettings, fps: 30 }, recommended, running)).toBe(false)
   })
 
   it("summarizes what a profile does", () => {

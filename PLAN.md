@@ -334,7 +334,18 @@ Work items:
   user saves the current settings under a name, switches, deletes. Settings → Profile; stored in
   `psrp.profiles`. "Custom" when the settings match no profile. **Replacing a profile** (2026-11-20,
   requested): Save as… lists the saved profiles to pick; a matching name turns Save into **Replace** with a
-  line saying so, and the profile keeps its place in the list.
+  line saying so, and the profile keeps its place in the list. **Switching from Home and while playing**
+  (2026-11-20, requested): Home's footer reads "Profile [Recommended ▾] 1080p · 60 fps · … [Settings]", the
+  same select as the Settings Profile bar (one shared component; the saved profiles are one list for the
+  app, so a profile saved in Settings shows on Home at once). In game the Settings Profile bar is the
+  switcher (no new HUD button): each other profile's option says what switching costs, "· applies now"
+  (picture only) or "· needs a reconnect" (resolution, frame rate, codec, bitrate or HDR differ from what
+  the stream started with). A switch toasts "Switched to <name>" (" · reconnect to apply" when it needs
+  one), and the Reconnect notice now sits above the tabs so it shows from any tab. A profile switch asks
+  first: the stream keeps going until Reconnect, even when only the bitrate differs; the bitrate slider
+  still reconnects on its own. Verified with UI tests (Home switch and Custom, costs only while streaming,
+  no auto-reconnect after a bitrate-only profile, the slider after it). Left: a console session to see a
+  mid-stream switch reconnect into the new profile, and the option labels in macOS's native select popup.
 - ✅ **Rest mode on Stop**: while streaming, Stop asks "Put <console> in rest mode?" (Rest mode / Leave
   it on / Keep playing). Rest mode sends libchiaki's goto-bed (`sleep_console`), waits 1.5 s for it to
   reach the console, then stops. Before the stream connects, Stop stops at once. Unverified on a console.

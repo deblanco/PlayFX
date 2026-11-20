@@ -25,6 +25,7 @@ import {
   stallMessage,
 } from "./format"
 import { Home } from "./Home"
+import { ProfilesProvider } from "./ProfileSelect"
 import { useRun, useRuntime } from "./runtime"
 import { StreamView } from "./StreamView"
 import { PeerWifiProvider, usePeerWifiContext } from "./SteadyWifi"
@@ -54,11 +55,16 @@ interface Session {
   readonly remoteStage: "linking" | "data" | undefined
   /** Automatic reconnects since the stream was last stable (capped, so a bad link doesn't loop forever). */
   readonly autoReconnects: number
+  /** The stream settings were last changed by a profile switch: they wait for Reconnect ("ask first"), even
+   * when only the bitrate differs. Cleared by a stream-setting change made any other way, and by reconnecting. */
+  readonly askFirst: boolean
 }
 
 export const App = () => (
   <PeerWifiProvider>
-    <Screens />
+    <ProfilesProvider>
+      <Screens />
+    </ProfilesProvider>
   </PeerWifiProvider>
 )
 
@@ -83,7 +89,10 @@ const Screens = () => {
     })
   }, [run])
 
-  const changeSettings = (next: Settings) => {
+  const changeSettings = (next: Settings, from?: "profile") => {
+    if (!sameStreamOptions(streamOptions(settings), streamOptions(next))) {
+      setSession((s) => s && { ...s, askFirst: from === "profile" })
+    }
     setSettings(next)
     run(actions.changeSettings(next))
   }
@@ -129,6 +138,7 @@ const Screens = () => {
       connected: false,
       reconnecting: false,
       autoReconnects: 0,
+      askFirst: false,
       psnDuid,
       psnFallback: psnDuid === undefined ? psnFallback : undefined,
       remoteStage: psnDuid === undefined ? undefined : "linking",
@@ -161,6 +171,7 @@ const Screens = () => {
       ...session,
       mic: "off", // the new session starts without it
       reconnecting: why,
+      askFirst: false, // it starts with the settings as they are now
       autoReconnects: session.autoReconnects + (why === "dropped" || why === "stalled" ? 1 : 0),
     })
     // A reconnect already under way is interrupted first and only then the new attempt starts (which
@@ -263,8 +274,9 @@ const Screens = () => {
   }, [watchingPicture, runtime])
 
   // Only the bitrate changed: the console takes it once, at the start, so it's applied by reconnecting on the
-  // app's own once the slider has stayed put for a moment. Other stream settings wait for Reconnect.
-  const bitrateOnly = session?.connected === true && session.reconnecting === false
+  // app's own once the slider has stayed put for a moment. Other stream settings, and a profile switch, wait
+  // for Reconnect.
+  const bitrateOnly = session?.connected === true && session.reconnecting === false && !session.askFirst
     && onlyBitrateChanged(session.startedWith, streamOptions(settings))
   const onBitrateSettled = useEffectEvent(() => {
     if (bitrateOnly) reconnect("apply")
@@ -325,6 +337,7 @@ const Screens = () => {
             pending: !sameStreamOptions(session.startedWith, streamOptions(settings)),
             reconnecting: session.reconnecting,
             onReconnect: () => { reconnect("apply") },
+            startedWith: session.startedWith,
           }}
           remoteStage={session.remoteStage}
           connected={session.connected}

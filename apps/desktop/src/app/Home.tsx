@@ -1,8 +1,9 @@
 import { Option } from "effect"
 import { SlidersHorizontal } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import type { PairedConsole, Settings } from "@/core/schema"
 import * as actions from "./actions"
@@ -11,6 +12,7 @@ import { ConsoleList } from "./ConsoleList"
 import { GetStarted } from "./GetStarted"
 import { useRun } from "./runtime"
 import { streamSummary, type Capabilities } from "./format"
+import { ProfileSelect, type ChangeSettings } from "./ProfileSelect"
 import { Segmented, SettingsSheet, type SettingsTab } from "./SettingsSheet"
 import { SteadyWifiRow } from "./SteadyWifi"
 
@@ -23,7 +25,7 @@ const connectionDescription: Readonly<Record<Settings["connection"], string>> = 
 interface HomeProps {
   readonly settings: Settings
   readonly capabilities: Capabilities
-  readonly onSettingsChange: (next: Settings) => void
+  readonly onSettingsChange: ChangeSettings
   /** `psnFallback`: playing locally, the console's PSN device ID, if PSN can reach it too. */
   readonly onPlay: (console: PairedConsole, psnDuid?: string, psnFallback?: string) => void
 }
@@ -42,6 +44,7 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
     if (!paired) setGuide(true)
   }, [])
   const [tab, setTab] = useState<SettingsTab>("stream")
+  const profileId = useId()
 
   useEffect(() => {
     run(actions.loadAccount, { onSuccess: setAccountId })
@@ -87,8 +90,10 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
           </div>
           <SteadyWifiRow />
           <Separator />
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground tabular-nums">{streamSummary(settings)}</p>
+          <div className="flex items-center gap-3">
+            <Label htmlFor={profileId} className="text-xs text-muted-foreground">Profile</Label>
+            <ProfileSelect id={profileId} settings={settings} running={undefined} onChange={onSettingsChange} className="w-36 shrink-0" />
+            <p className="min-w-0 flex-1 text-xs text-muted-foreground tabular-nums">{streamSummary(settings)}</p>
             <Button variant="secondary" size="sm" onClick={() => { setSettingsOpen(true) }}>
               <SlidersHorizontal /> Settings
             </Button>

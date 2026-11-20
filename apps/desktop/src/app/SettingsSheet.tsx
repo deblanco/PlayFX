@@ -11,11 +11,12 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SteadyWifiSection } from "./SteadyWifi"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { bitrates, defaultSettings, type AudioDevice, type Profile, type Settings } from "@/core/schema"
+import { bitrates, defaultSettings, type AudioDevice, type Settings, type StreamOptions } from "@/core/schema"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import * as actions from "./actions"
-import { allProfiles, applyProfile, isBuiltIn, isSaved, matchingProfile, profileSummary } from "./profiles"
+import { allProfiles, isBuiltIn, isSaved, matchingProfile, profileSummary } from "./profiles"
+import { ProfileSelect, useSavedProfiles, type ChangeSettings } from "./ProfileSelect"
 import {
   bitrateLabel,
   pipelineStages,
@@ -49,6 +50,8 @@ export interface ReconnectState {
   /** Restarting: to apply settings, or after the connection dropped. */
   readonly reconnecting: Reconnecting
   readonly onReconnect: () => void
+  /** The stream options the running stream started with: what switching profile costs is measured against them. */
+  readonly startedWith: StreamOptions
 }
 
 interface SettingsSheetProps {
@@ -60,7 +63,7 @@ interface SettingsSheetProps {
   readonly capabilities: Capabilities
   /** Why the chosen upscaler isn't enlarging the picture right now (while streaming). */
   readonly upscaleIdle?: string
-  readonly onChange: (next: Settings) => void
+  readonly onChange: ChangeSettings
   /** Present while streaming. */
   readonly reconnect?: ReconnectState
 }
@@ -102,7 +105,9 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             {tabHints[props.tab]}
           </SheetDescription>
         </SheetHeader>
-        <ProfileBar settings={settings} onChange={onChange} />
+        <ProfileBar settings={settings} running={props.reconnect?.startedWith} onChange={onChange} />
+        {/* Above the tabs: a profile switch can need it from any tab. */}
+        {props.reconnect?.pending === true && <ReconnectNotice {...props.reconnect} />}
         <Tabs
           value={props.tab}
           onValueChange={(tab) => { props.onTabChange(tab === "stream" || tab === "diagnostics" ? tab : "picture") }}
@@ -120,7 +125,6 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
             </Button>
           </TabsContent>
           <TabsContent value="stream" className="flex flex-col gap-5 px-5 pt-5 pb-6">
-            {props.reconnect?.pending === true && <ReconnectNotice {...props.reconnect} />}
             <StreamPanel settings={settings} set={set} />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, streamKeys)) }}>
               <RotateCcw /> Reset stream
@@ -140,17 +144,18 @@ type Set = <K extends SettingKey>(key: K, value: Settings[K]) => void
 // ---------- Profiles ----------
 
 /** Settings profiles: pick one to apply its stream and picture settings, or save the current ones. */
-const ProfileBar = ({ settings, onChange }: { readonly settings: Settings; readonly onChange: (next: Settings) => void }) => {
+const ProfileBar = ({ settings, running, onChange }: {
+  readonly settings: Settings
+  readonly running: StreamOptions | undefined
+  readonly onChange: ChangeSettings
+}) => {
   const run = useRun()
   const id = useId()
-  const [saved, setSaved] = useState<readonly Profile[]>([])
+  const { saved, setSaved } = useSavedProfiles()
   /** The name being typed for a new profile; null when not saving. */
   const [naming, setNaming] = useState<string | null>(null)
   const nameInput = useRef<HTMLInputElement>(null)
-  useEffect(() => { run(actions.loadProfiles, { onSuccess: setSaved }) }, [run])
-  const profiles = allProfiles(saved)
-  const current = matchingProfile(settings, profiles)
-  const selected = Option.getOrUndefined(current)
+  const selected = Option.getOrUndefined(matchingProfile(settings, allProfiles(saved)))
   /** Saving under a saved profile's name replaces that profile. */
   const replacing = naming !== null && isSaved(saved, naming)
   const save = (name: string) => {
@@ -167,18 +172,7 @@ const ProfileBar = ({ settings, onChange }: { readonly settings: Settings; reado
     <div className="flex flex-col gap-1.5 px-5 pb-4">
       <label htmlFor={id} className="text-xs text-muted-foreground">Profile</label>
       <div className="flex gap-2">
-        <NativeSelect
-          id={id}
-          value={selected?.name ?? ""}
-          onChange={(event) => {
-            const profile = profiles.find((p) => p.name === event.target.value)
-            if (profile) onChange(applyProfile(settings, profile))
-          }}
-          className="w-full"
-        >
-          {selected === undefined && <NativeSelectOption value="" disabled>Custom</NativeSelectOption>}
-          {profiles.map((p) => <NativeSelectOption key={p.name} value={p.name}>{p.name}</NativeSelectOption>)}
-        </NativeSelect>
+        <ProfileSelect id={id} settings={settings} running={running} onChange={onChange} className="w-full" />
         {selected !== undefined && !isBuiltIn(selected) && (
           <Button
             variant="ghost"

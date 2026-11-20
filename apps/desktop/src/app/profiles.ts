@@ -1,5 +1,14 @@
 import { Option } from "effect"
-import { defaultSettings, sameProfileSettings, type Profile, type ProfileSettings, type Settings } from "@/core/schema"
+import {
+  defaultSettings,
+  sameProfileSettings,
+  sameStreamOptions,
+  type Profile,
+  type ProfileSettings,
+  type Settings,
+  type StreamOptions,
+} from "@/core/schema"
+import { streamOptions } from "./format"
 
 /** The profile settings within `settings`. */
 export const profileSettings = (s: Settings): ProfileSettings => ({
@@ -31,6 +40,11 @@ export const isBuiltIn = (profile: Profile): boolean => profile.name === recomme
 
 /** `settings` with a profile's stream and picture settings; everything else unchanged. */
 export const applyProfile = (settings: Settings, profile: Profile): Settings => ({ ...settings, ...profile.settings })
+
+/** Whether switching to `profile` during a stream started with `running` needs a reconnect: its stream
+ * settings (resolution, frame rate, codec, bitrate, HDR) differ from the stream's; picture settings apply at once. */
+export const needsReconnect = (settings: Settings, profile: Profile, running: StreamOptions): boolean =>
+  !sameStreamOptions(streamOptions(applyProfile(settings, profile)), running)
 
 /** The profile `settings` currently matches, if any. */
 export const matchingProfile = (settings: Settings, profiles: readonly Profile[]): Option.Option<Profile> => {
