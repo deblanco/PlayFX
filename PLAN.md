@@ -3,7 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after **in-app updates through GitHub Releases**: a banner on Home offers a newer release
+Last updated 2026-11-21, after **a build fix for newer toolchains**: `Color.range`'s ternary of array
+literals needs the Float context spelled out for Swift 6.2's type checker (Xcode 26's CLT builds the package
+again; the old form still compiles on older toolchains). Before that, **in-app updates through GitHub Releases**: a banner on Home offers a newer release
 (checked 5 s after launch and every 6 hours, or by hand in Diagnostics), and Update downloads, verifies, installs
 and restarts, never during a stream; `release.sh` makes the signed update and `latest.json`. Built and tested
 (Rust against a local server with a throwaway key, the release script with one), not yet end to end: that needs a
