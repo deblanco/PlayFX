@@ -498,7 +498,7 @@ of the stream) are let go when the stream turns SDR and when a new stream starts
 makes no Metal shared event per call, unlike VideoToolbox's Metal call (`SharedEventTests`).
 
 **10-bit SDR:** with HDR on in Settings, an SDR game still decodes to 10-bit frames (`x420`, not PQ). Neither
-engine takes them (VideoToolbox: 8-bit only; the HDR engine: PQ only), so interpolation reports `unsupported` for
+engine takes them (VideoToolbox: 8-bit only; the HDR engine: PQ only), so interpolation reports `sdrInHdr` for
 such a stream and changes nothing about it (repeats show as they come, no game grid), rather than `on` with no
 images. Routing them through the HDR engine (gamma-encoded R'G'B' is perceptual like PQ) is possible but not
 built or measured.
@@ -539,8 +539,9 @@ quarantines the interpolator and the next pair gets a fresh one; the lane routes
 go of HDR engines at a switch to SDR or a new stream, doesn't take a dark full-range image for an empty one, and
 blends still areas on 10-bit planes against an engine image unlike either frame (4 codes apart: the frames'
 average; 40 apart: the engine's); the renderer asks the HDR engine for halves only at 120 Hz (SDR: quarters),
-reports `on` / `unsupported` per stream kind, `unsupported` for 10-bit SDR frames (whose repeats still show),
-`failed` once HDR's only size is dropped, and shows an HDR in-between image before the new frame. On a Mac with
+reports `on` / `hdrUnsupported` (HDR) or `unsupported` (SDR) per stream kind, `sdrInHdr` for 10-bit SDR frames
+(whose repeats still show), `failed` once HDR's only size is dropped, and shows an HDR in-between image before
+the new frame. On a Mac with
 MetalFX (skipped in CI's VMs): the midpoint beats a cross-fade around the square by more than 1 dB, the sun's
 core stays above 1000 nits, no NaN or infinity, 1080p under 12.5 ms, and 200 pairs make no shared event.
 

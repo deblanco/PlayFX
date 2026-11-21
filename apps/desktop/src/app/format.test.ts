@@ -424,9 +424,10 @@ describe("interpolationReason", () => {
     expect(reason({ interpolation: "on", generatedFps: 30 }, true))
       .toBe("In HDR it makes one image between two frames (60 at most from a 30 fps game).")
     expect(reason({ interpolation: "screen" }, true)).toBe("No images in between: 60 fps on a 60 Hz screen.")
-    expect(reason({ interpolation: "screen", displayHz: 74.97, streamFps: 59.94 })).toBe("No images in between: 60 fps on a 75 Hz screen.")
-    // The switch's own description covers the rest: SDR on or failed, off, unavailable, a still picture.
-    expect(reason({ interpolation: "screen", displayHz: 0 })).toBeUndefined()
+    expect(reason({ interpolation: "screen", displayHz: 74.97, streamFps: 59.94 }, true)).toBe("No images in between: 60 fps on a 75 Hz screen.")
+    // The switch's own description covers the rest: SDR on, failed or on a slow screen, off, unavailable, a still picture.
+    expect(reason({ interpolation: "screen", displayHz: 0 }, true)).toBeUndefined()
+    expect(reason({ interpolation: "screen", displayHz: 74.97, streamFps: 59.94 })).toBeUndefined()
     expect(reason({ interpolation: "on" })).toBeUndefined()
     expect(reason({ interpolation: "failed" })).toBeUndefined()
     for (const interpolation of ["off", "unsupported", "still"] as const) expect(reason({ interpolation }, true)).toBeUndefined()

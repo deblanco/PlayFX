@@ -83,7 +83,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift SWCOUNT tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 389 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -305,7 +305,7 @@ Work items:
     doesn't complete is tested; the engine's output buffers follow the frame size; HDR engines are let go when the
     stream turns SDR or a new one starts; the empty-image check skips HDR images (full-range black is 0); once the
     stream's only size (HDR) or every size (SDR) is dropped, the state says `failed`, not `on` with nothing made;
-    10-bit SDR frames (HDR on, SDR game), which neither engine takes, report `unsupported` and keep their repeats;
+    10-bit SDR frames (HDR on, SDR game), which neither engine takes, report `unsupported` (now `sdrInHdr`, below) and keep their repeats;
     the stats row says "Off: kept failing", and the setting says 60 on ProMotion in HDR. Tests added for each,
     and the still-area blend test now uses an engine image unlike either frame, with the 10-bit thresholds.
     **Saying why** (2026-11-21, unit tests only): each HDR case now has its own reason instead of a vague
@@ -318,11 +318,15 @@ Work items:
     Frame interpolation switch's description says the live reason ("This game is SDR, but HDR is on, … Turn HDR off
     in Stream for this game.", "HDR needs MetalFX's frame interpolator …", "MetalFX failed several times, …", "In
     HDR it makes one image between two frames …", and "No images in between: 60 fps on a 60 Hz screen." for a screen
-    too slow, SDR or HDR), the usual one otherwise (`interpolationReason`, passed to the sheet like `upscaleIdle`).
+    too slow in HDR), the usual one otherwise and for every SDR stream (`interpolationReason`, passed to the sheet
+    like `upscaleIdle`).
     Older hosts' replies still decode (the field defaults to `off`; the old literals stay). Verified by unit tests:
     Swift (the state's truth table, the wire names, a renderer fed 10-bit SDR frames reading `sdrInHdr` and one
     without the HDR engine reading `hdrUnsupported`), TS (each stats row, the reason per case and only while
     streaming, decoding with and without the new values, the switch's description following the renderer).
+    Review fixes (2026-11-21, unit tests): a slow screen replaces the switch's description only in HDR (an SDR
+    stream keeps the usual text, as before; test added), and FRAME_INTERPOLATION's 10-bit SDR and tests notes name
+    `sdrInHdr` / `hdrUnsupported`.
     **Left: an HDR game with frame interpolation on, on the console** (see section 4). See
     [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md), "HDR".
 - ✅ **Network** (requested): see [docs/NETWORK.md](docs/NETWORK.md).

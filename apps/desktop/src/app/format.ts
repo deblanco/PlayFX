@@ -530,7 +530,7 @@ export const upscaleIdle = (pacing: PacingStats | null): string | undefined => {
 
 /** What Frame interpolation is doing on the stream on screen, for its switch in Settings, where the switch's usual
  * description doesn't say it: why an HDR stream (or an SDR game with HDR on) gets no images, how many it gets, or a
- * screen too slow for the game. Undefined otherwise, and with no stream. */
+ * screen too slow for an HDR game. Undefined otherwise (SDR keeps the usual description), and with no stream. */
 export const interpolationReason = (status: RendererStatus): string | undefined => {
   const pacing = status.pacing
   if (!status.stream.active || pacing === null) return undefined
@@ -541,7 +541,7 @@ export const interpolationReason = (status: RendererStatus): string | undefined 
     case "failed": return status.hdrActive ? "MetalFX failed several times, so it's off until PlayFX restarts." : undefined
     case "on": return status.hdrActive ? "In HDR it makes one image between two frames (60 at most from a 30 fps game)." : undefined
     case "screen":
-      return pacing.displayHz > 0 && pacing.streamFps > 0
+      return status.hdrActive && pacing.displayHz > 0 && pacing.streamFps > 0
         ? `No images in between: ${String(Math.round(pacing.streamFps))} fps on a ${String(Math.round(pacing.displayHz))} Hz screen.`
         : undefined
     default: return undefined

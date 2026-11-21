@@ -216,8 +216,8 @@ default (both built-in profiles have it); turn it off in Settings › Picture.
   HDR: "This game is SDR, but HDR is on, so its frames arrive in a format frame interpolation can't take",
   "HDR needs MetalFX's frame interpolator (macOS 26 and a supported Mac)", or "MetalFX failed several times,
   so it's off until PlayFX restarts". When it works in HDR it says "In HDR it makes one image between two
-  frames (60 at most from a 30 fps game)", and a screen too slow for the game gets "No images in between:
-  60 fps on a 60 Hz screen".
+  frames (60 at most from a 30 fps game)", and a screen too slow for an HDR game gets "No images in between:
+  60 fps on a 60 Hz screen". SDR streams keep the switch's usual description.
 - **The cost is latency:** at 30 fps, frames show about 40 ms later. It suits slower games; for fast
   games, 60 fps without interpolation feels more responsive.
 

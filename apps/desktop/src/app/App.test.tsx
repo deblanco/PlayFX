@@ -1928,7 +1928,10 @@ describe("settings profiles", () => {
     await waitFor(() => {
       expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(false)
     })
+    // The switch lives in the Misc tab.
+    await userEvent.click(sheet.getByRole("tab", { name: "Misc" }))
     expect(sheet.getByRole("switch", { name: /Touchpad touches/ })).not.toBeChecked()
+    await userEvent.click(sheet.getByRole("tab", { name: "Stream" }))
     expect(sheet.getByText("1080p30 · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation · touchpad click only")).toBeInTheDocument()
     await waitFor(async () => {
       expect(await savedSettings(runtime)).toEqual({ ...defaultSettings, fps: 30, touchpadTouches: false })
