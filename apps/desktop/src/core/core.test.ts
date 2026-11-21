@@ -342,6 +342,7 @@ describe("CoreLive", () => {
         set_login_pin: Effect.succeed(null),
         request_keyframe: Effect.succeed(null),
         set_render_params: Effect.succeed(null),
+        set_touchpad_touches: Effect.succeed(null),
       })
       return Effect.gen(function* () {
         const core = yield* Core
@@ -351,6 +352,7 @@ describe("CoreLive", () => {
         yield* core.requestKeyframe
         yield* core.setLoginPin("1234")
         yield* core.setRenderParams(picture)
+        yield* core.setTouchpadTouches(false)
         expect(fake.calls).toEqual([
           { command: "psn_login", args: undefined },
           { command: "stop_stream", args: undefined },
@@ -358,6 +360,7 @@ describe("CoreLive", () => {
           { command: "request_keyframe", args: undefined },
           { command: "set_login_pin", args: { pin: "1234" } },
           { command: "set_render_params", args: { params: picture } },
+          { command: "set_touchpad_touches", args: { on: false } },
         ])
       }).pipe(Effect.provide(fake.layer))
     })

@@ -228,6 +228,7 @@ describe("settings", () => {
     return Effect.gen(function* () {
       expect(yield* actions.startup).toEqual({ settings: saved, capabilities: { metalfx: false, ml: false, interpolation: false } })
       expect(core.service.setRenderParams).toHaveBeenCalledWith(picture({ upscaler: "bilinear", sharpness: 0.3, compare: false }))
+      expect(core.service.setTouchpadTouches).toHaveBeenCalledWith(true)
     }).pipe(Effect.provide(layer))
   })
 
@@ -241,6 +242,8 @@ describe("settings", () => {
       expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture())
       yield* actions.changeSettings({ ...fps30, sharpness: 1 })
       expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ sharpness: 1 }))
+      yield* actions.changeSettings({ ...fps30, touchpadTouches: false })
+      expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(false)
     }).pipe(Effect.provide(layer))
   })
 })

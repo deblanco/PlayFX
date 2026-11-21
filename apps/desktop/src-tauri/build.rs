@@ -18,6 +18,7 @@ fn main() {
         "set_login_pin",
         "set_controller",
         "set_pointer_touch",
+        "set_touchpad_touches",
         "keyboard_set_text",
         "keyboard_done",
         "set_microphone",

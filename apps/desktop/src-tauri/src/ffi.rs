@@ -31,6 +31,7 @@ unsafe extern "C" {
         buttons: u32, l2: u8, r2: u8, left_x: i16, left_y: i16, right_x: i16, right_y: i16,
     );
     pub fn sc_session_set_pointer_touch(down: bool, x: f32, y: f32, pressed: bool);
+    pub fn sc_set_touchpad_touches(on: bool);
     pub fn sc_session_keyboard_set_text(text: *const c_char);
     pub fn sc_session_keyboard_done(accept: bool);
     pub fn sc_session_set_mic(on: bool);
@@ -189,6 +190,9 @@ impl NativeCore for MacCore {
     }
     fn set_pointer_touch(&self, t: PointerTouch) {
         unsafe { sc_session_set_pointer_touch(t.down, t.x, t.y, t.pressed) }
+    }
+    fn set_touchpad_touches(&self, on: bool) {
+        unsafe { sc_set_touchpad_touches(on) }
     }
     fn set_render_params(&self, params: &str) -> bool {
         unsafe { sc_set_render_params(cstr(params).as_ptr()) }

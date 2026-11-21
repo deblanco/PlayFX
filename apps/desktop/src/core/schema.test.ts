@@ -7,6 +7,7 @@ import {
   isAccountId,
   isPin,
   PairedConsoles,
+  Profile,
   PsnAccountEvent,
   RendererStatus,
   Settings,
@@ -98,6 +99,17 @@ describe("Settings", () => {
     const { mlUpscale: _ml, ...older } = defaultSettings
     expect(Schema.decodeUnknownSync(Settings)(older).mlUpscale).toBe(true)
     expect(Schema.decodeUnknownSync(Settings)({ ...older, mlUpscale: false }).mlUpscale).toBe(false)
+  })
+
+  it("sends touchpad touches unless saved settings or profiles turned them off", () => {
+    const { touchpadTouches: _touches, ...older } = defaultSettings
+    expect(Schema.decodeUnknownSync(Settings)(older).touchpadTouches).toBe(true)
+    expect(Schema.decodeUnknownSync(Settings)({ ...older, touchpadTouches: false }).touchpadTouches).toBe(false)
+    expect(decodes(Settings, { ...defaultSettings, touchpadTouches: "off" })).toBe(false)
+    const olderProfile = { height: 1080, fps: 60, hevc: true, upscaler: "metalfx" } // saved before it existed
+    expect(Schema.decodeUnknownSync(Profile)({ name: "Couch", settings: olderProfile }).settings.touchpadTouches).toBe(true)
+    const gta = { name: "GTA VI", settings: { ...olderProfile, touchpadTouches: false } }
+    expect(Schema.decodeUnknownSync(Profile)(gta).settings.touchpadTouches).toBe(false)
   })
 
   it("accepts every supported resolution, frame rate and upscaler", () => {

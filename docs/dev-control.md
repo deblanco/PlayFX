@@ -59,6 +59,7 @@ The ones that matter for picture work:
 | `mlUpscale` | `true`/`false`: Apple ML super-resolution before upscaling (1080p in two tiles) | At once |
 | `frameInterpolation` | `true`/`false`: frame generation, images between the game's pictures, one per screen refresh | At once |
 | `showStats` | `true`/`false`: keep the stats line on screen | At once |
+| `touchpadTouches` | `true`/`false`: send a pad's touchpad fingers; `false` sends only its click | At once |
 | `height` | `540`, `720`, `1080` | On reconnect |
 | `fps` | `30`, `60` | On reconnect |
 | `hevc`, `hdr` | `true`/`false` | On reconnect |

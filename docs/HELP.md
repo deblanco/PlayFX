@@ -237,6 +237,11 @@ GTA VI draws about 30 new pictures a second. Use one of these:
 Leave **HDR** off for either one. HDR turns ML upscaling off, and frame interpolation makes only one image
 between two frames there (60 at most from a 30 fps game).
 
+**The map opens by itself?** GTA VI opens the map when a thumb rests on the DualSense's touchpad, even
+without a click. Turn **Touchpad touches** off in Settings › Stream › Controller (it changes right away,
+no reconnect). The touchpad click still opens the map when you mean it. Save it in a GTA VI profile so it
+comes back with that game's settings.
+
 ### HDR
 
 Turn on **HDR** in Settings › Stream (it needs the HEVC codec), and turn on HDR in the PS5's screen
@@ -255,7 +260,7 @@ frame interpolation works in HDR too, with one image between two frames.
 - **Profiles** keep a set of stream and picture settings under a name. **Recommended** (1080p60 ·
   MetalFX · sharpness 0.3) is built in; **Save as…** saves your own. Pick a profile on the home screen or
   in Settings. While playing, each profile says whether it **applies now** (picture settings only) or
-  **needs a reconnect** (stream settings).
+  **needs a reconnect** (stream settings). A profile also keeps **Touchpad touches**, which applies at once.
 
 ### DualSense: rumble, adaptive triggers, haptics and the light bar
 
@@ -271,6 +276,10 @@ A DualSense works over USB or Bluetooth, with rumble, adaptive triggers, the tou
   does the player number.
 - When PlayFX quits, it stops any rumble, trigger effect and haptics first, so the controller doesn't
   keep playing them.
+- **Touchpad touches** (Settings › Stream › Controller, on by default) sends where your finger is on the
+  touchpad. Some games act on a resting thumb (in GTA VI it opens the map): turn it off and only the
+  touchpad click is sent. It changes right away, and works the same for a DualShock 4. The Mac's trackpad
+  as the touchpad (⌥ + pointer) still sends its touches.
 - **The PS button:** macOS keeps the controller's PS button for itself. Use the **PS** button at the
   bottom of the stream, or the **P** key. A short press opens the control center; holding it goes home.
 

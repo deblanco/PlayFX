@@ -96,6 +96,7 @@ the sign's text and the jacket's texture come back.*
 | Bitrate | Auto, 10–50 Mbps | Auto is the console's default (about 15 Mbps at 1080p). It pays off in motion: switching tiles at 1080p measured 5.8 Mbps at Auto against 9.5 Mbps with a 40 Mbps cap. |
 | Auto-downgrade | on / off | Lets the console lower the resolution on a weak network. The stats line shows a lower resolution than you asked for in amber. |
 | HDR | on / off | HEVC HDR10 (see below). |
+| Touchpad touches | on / off | Under Controller; changes right away. Off sends only the touchpad click, not where a finger rests: in GTA VI a resting thumb opens the map. The Mac's trackpad as the touchpad isn't affected. |
 
 ### The picture pipeline (Settings → Picture)
 
@@ -128,7 +129,7 @@ costs: [docs/ML_UPSCALING.md](docs/ML_UPSCALING.md).
 or interpolation), **Split** (Original on the left, your settings on the right, with a divider), and
 **Enhanced** (your settings, the default).
 
-**Profiles** keep a set of stream and picture settings under a name. The built-in **Recommended**
+**Profiles** keep a set of stream and picture settings, and Touchpad touches, under a name. The built-in **Recommended**
 profile (1080p60 · MetalFX · sharpness 0.3 · ML upscaling) is what a new install starts with. **Save as…** also replaces a
 saved profile: pick it, and Save becomes Replace.
 

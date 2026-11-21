@@ -1809,6 +1809,46 @@ describe("settings profiles", () => {
     settings: profileSettings({ ...defaultSettings, ...overrides }),
   })
 
+  it("turns Touchpad touches off and on mid-stream without asking to reconnect, from the switch or a profile", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core, { profiles: [profile("GTA VI", { touchpadTouches: false })] })
+    await waitFor(() => {
+      expect(core.service.setTouchpadTouches).toHaveBeenCalledWith(true) // saved settings applied at startup
+    })
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Stream")
+    const touches = sheet.getByRole("switch", { name: /Touchpad touches/ })
+    expect(touches).toBeChecked()
+    expect(sheet.getByText(/in GTA VI it opens the map/)).toBeInTheDocument()
+
+    await userEvent.click(touches)
+    expect(touches).not.toBeChecked()
+    await waitFor(() => {
+      expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(false)
+    })
+    await waitFor(async () => {
+      expect((await savedSettings(runtime)).touchpadTouches).toBe(false)
+    })
+    expect(sheet.queryByRole("status")).not.toBeInTheDocument()
+    expect(sheet.getByRole("combobox", { name: "Profile" })).toHaveValue("GTA VI") // the profile's mix
+    await userEvent.click(touches)
+    await waitFor(() => {
+      expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(true)
+    })
+
+    // A profile that turns them off applies at once too.
+    const select = sheet.getByRole("combobox", { name: "Profile" })
+    expect(within(select).getByRole("option", { name: "GTA VI · applies now" })).toBeInTheDocument()
+    await userEvent.selectOptions(select, "GTA VI")
+    expect(await screen.findByText("Switched to GTA VI")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(false)
+    })
+    expect(sheet.getByRole("switch", { name: /Touchpad touches/ })).not.toBeChecked()
+    expect(sheet.queryByRole("status")).not.toBeInTheDocument()
+    expect(core.service.startStream).not.toHaveBeenCalled()
+  })
+
   it("switches profiles from Home, sharing the saved ones with Settings", async () => {
     const { runtime } = renderApp(fakeCore(), { profiles: [profile("Couch", { height: 720, sharpness: 0 })] })
     const home = screen.getByRole("combobox", { name: "Profile" })

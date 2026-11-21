@@ -3,7 +3,10 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-20, after frame generation on HDR streams: MetalFX's frame interpolator makes the in-between
+Last updated 2026-11-21, after the **Touchpad touches** switch: off, a pad's touchpad sends only its click, not
+where a finger rests (in GTA VI a resting thumb opened the map; chiaki-ng PR #896 asks for the same), applied
+live and kept in profiles; unit tests only, not yet on the console. Before that, frame generation on HDR
+streams: MetalFX's frame interpolator makes the in-between
 images where VideoToolbox's can't (10-bit frames), built and tested offscreen on synthetic HDR frames, not yet on
 the console, then its review fixes (exception quarantine, honest `failed` / `unsupported` states, engines let go,
 a rerunnable quality table). Before that, a repeated picture is no longer run through ML super-resolution (a 30 fps
@@ -62,7 +65,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-20): TS 365 tests (98% lines), Swift 402 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 368 tests (98% lines), Swift 406 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -377,7 +380,19 @@ Work items:
   to the pad), ⌥-click presses the touchpad; the video is outlined as a glowing pad with the finger dot
   (ripple on press). StreamCore merges this finger and press into whatever the pad or keyboard sends
   (`sc_session_set_pointer_touch`), one update per animation frame. **Verified on the PS5**: in
-  Silent Hill 2 an ⌥-click on the video opened the map, as the pad's touchpad button does.)*
+  Silent Hill 2 an ⌥-click on the video opened the map, as the pad's touchpad button does.) **Touchpad
+  touches** switch (built 2026-11-21, **unit tests only, not yet on the console**): some games act on a touch
+  alone (in GTA VI a thumb resting on the DualSense's touchpad opens the map, reported by the user and in
+  chiaki-ng PR #896). Settings › Stream › Controller, on by default; off, `ControllerInput` leaves the pad's
+  fingers (DualSense and DS4) out of the state it sends, and the touchpad click (`PSRP_BTN_TOUCHPAD`) still
+  goes. It applies at once (`set_touchpad_touches` → `sc_set_touchpad_touches`, kept for later sessions), never
+  asks for a reconnect, and belongs to profiles (summary "touchpad click only"; settings and profiles saved
+  before it read as on). The Mac's pointer as the touchpad, the keyboard and the on-screen controls aren't
+  affected. Verified by unit tests: Swift (fingers dropped off and kept on, the click kept, a finger down when
+  it's turned off lifted on the console at once, the pointer's touch still merged, the bridge applying it to the
+  playing session and the next one), TS (decoding without the field, profile matching and summary, no reconnect
+  from the switch or a profile mid-stream, the switch calling the bridge at startup and on change), Rust (the
+  command, its IPC arguments and ACL). Left: the hand-on check in GTA VI (section 4, item 4).*
 - 🔶 **Pad buttons on the Mac** (`psrp pad`, DualSense over Bluetooth, 2026-11-19): every face/shoulder/
   D-pad/stick button, Create, Options, the touchpad click and both analog triggers (0–255) map correctly;
   touchpad ids are stable per finger and two fingers track. All elements opt out of macOS system
@@ -961,7 +976,9 @@ requests and a bug report.
    and `pacing.ml` should never read `failed` (`ml` may read `stalled` for a few seconds while a first model
    builds). *(P0)*
 4. ~~Rumble + adaptive triggers in a game~~ (done 2026-11-20: GTA VI, pad on USB, the user: works);
-   touchpad built; **the motion axes in a game are left**. *(P1)*
+   touchpad built; **the motion axes in a game are left**. **Touchpad touches off, in GTA VI** (built
+   2026-11-21, unit tests only): with it off a resting thumb on the touchpad doesn't open the map and a click
+   does; turning it off with a thumb down leaves no touch stuck; back on, swipes work again. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
    [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0, v0.2.1, v0.2.2 and v0.2.3 followed). `release.sh` now survives a notarytool

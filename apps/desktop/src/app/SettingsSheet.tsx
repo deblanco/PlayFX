@@ -497,6 +497,7 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
       />
       <SwitchRow label="Sound" checked={settings.audio} onCheckedChange={(on) => { set("audio", on) }} />
       <SoundOutput settings={settings} set={set} />
+      <ControllerOptions settings={settings} set={set} />
     </>
   )
 }
@@ -541,6 +542,27 @@ const SoundOutput = ({ settings, set }: { readonly settings: Settings; readonly 
         </p>
       </div>
     </fieldset>
+  )
+}
+
+// ---------- Controller ----------
+
+/** How the pad's input reaches the console: like the sound output, applied at once. */
+const ControllerOptions = ({ settings, set }: { readonly settings: Settings; readonly set: Set }) => {
+  const id = useId()
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-3 border-t border-white/10 pt-4">
+      <div>
+        <h3 id={id} className="text-sm font-medium">Controller</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">Changes right away.</p>
+      </div>
+      <SwitchRow
+        label="Touchpad touches"
+        description="Sends where your finger is on the pad’s touchpad. Turn off for games that react to a resting thumb (in GTA VI it opens the map); the touchpad click still works."
+        checked={settings.touchpadTouches}
+        onCheckedChange={(on) => { set("touchpadTouches", on) }}
+      />
+    </section>
   )
 }
 

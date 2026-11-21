@@ -240,6 +240,14 @@ fn set_pointer_touch<R: Runtime>(app: AppHandle<R>, touch: Value) -> Result<(), 
     Ok(())
 }
 
+/// "Touchpad touches" on or off, applied at once (no reconnect).
+#[tauri::command(async)]
+fn set_touchpad_touches<R: Runtime>(app: AppHandle<R>, on: bool) -> Result<(), String> {
+    log::info!("Touchpad touches {}", if on { "on" } else { "off: only the click is sent" });
+    let core = core(&app);
+    on_main(&app, move || core.set_touchpad_touches(on))
+}
+
 #[tauri::command(async)]
 fn set_render_params<R: Runtime>(app: AppHandle<R>, params: Value) -> Result<(), String> {
     let core = core(&app);
@@ -485,6 +493,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         set_login_pin,
         set_controller,
         set_pointer_touch,
+        set_touchpad_touches,
         keyboard_set_text,
         keyboard_done,
         set_microphone,

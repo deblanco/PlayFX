@@ -53,6 +53,16 @@ describe("profiles", () => {
     expect(Option.isNone(matchingProfile({ ...defaultSettings, sharpness: 0.9 }, profiles))).toBe(true)
   })
 
+  it("holds Touchpad touches: a profile can send only the touchpad click", () => {
+    const gta = withProfile([], "GTA VI", { ...defaultSettings, touchpadTouches: false })
+    expect(gta[0]?.settings.touchpadTouches).toBe(false)
+    const profiles = allProfiles(gta)
+    expect(Option.getOrUndefined(matchingProfile({ ...defaultSettings, touchpadTouches: false }, profiles))?.name).toBe("GTA VI")
+    expect(Option.getOrUndefined(matchingProfile(defaultSettings, profiles))?.name).toBe("Recommended")
+    expect(applyProfile(defaultSettings, gta[0] ?? recommended).touchpadTouches).toBe(false)
+    expect(applyProfile({ ...defaultSettings, touchpadTouches: false }, recommended).touchpadTouches).toBe(true)
+  })
+
   it("needs a reconnect only for a different stream, not a different picture", () => {
     const running = streamOptions(defaultSettings)
     const profile = (overrides: Partial<typeof defaultSettings>) => ({
@@ -60,6 +70,7 @@ describe("profiles", () => {
       settings: profileSettings({ ...defaultSettings, ...overrides }),
     })
     expect(needsReconnect(defaultSettings, profile({ sharpness: 0.9, view: "split" }), running)).toBe(false)
+    expect(needsReconnect(defaultSettings, profile({ touchpadTouches: false }), running)).toBe(false) // applies at once
     expect(needsReconnect(defaultSettings, profile({ bitrate: 15000 }), running)).toBe(true)
     expect(needsReconnect(defaultSettings, profile({ height: 720 }), running)).toBe(true)
     // Measured against the running stream, not the settings: going back to it costs nothing.
@@ -73,5 +84,6 @@ describe("profiles", () => {
     expect(summary({ upscaler: "bilinear", sharpness: 0, mlUpscale: true, frameInterpolation: true, deblock: 0.5, hdr: true })).toBe(
       "1080p60 · bilinear · ML upscaling · Frame interpolation · cleanup · HDR",
     )
+    expect(summary({ touchpadTouches: false })).toBe("1080p60 · MetalFX · sharpness 0.3 · ML upscaling · touchpad click only")
   })
 })

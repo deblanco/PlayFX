@@ -92,6 +92,8 @@ export class Core extends Context.Service<
     readonly setMicrophone: (on: boolean) => Effect.Effect<void, CoreError>
     /** The Mac's pointer as a touchpad finger (merged natively with the pad's state). */
     readonly setPointerTouch: (touch: PointerTouch) => Effect.Effect<void, CoreError>
+    /** "Touchpad touches": whether a pad's touchpad fingers reach the console (its click always does); at once. */
+    readonly setTouchpadTouches: (on: boolean) => Effect.Effect<void, CoreError>
     readonly setRenderParams: (params: RenderParams) => Effect.Effect<void, CoreError>
     readonly setDetailedLogs: (on: boolean) => Effect.Effect<void, CoreError>
     readonly openLogsFolder: Effect.Effect<void, CoreError>
@@ -194,6 +196,7 @@ export const CoreLive = Layer.effect(
       setLoginPin: (pin) => Effect.asVoid(call(unit, "set_login_pin", { pin })),
       setController: (state) => Effect.asVoid(call(unit, "set_controller", { state })),
       setPointerTouch: (touch) => Effect.asVoid(call(unit, "set_pointer_touch", { touch })),
+      setTouchpadTouches: (on) => Effect.asVoid(call(unit, "set_touchpad_touches", { on })),
       keyboardSetText: (text) => Effect.asVoid(call(unit, "keyboard_set_text", { text })),
       keyboardDone: (accept) => Effect.asVoid(call(unit, "keyboard_done", { accept })),
       setMicrophone: (on) => Effect.asVoid(call(unit, "set_microphone", { on })),

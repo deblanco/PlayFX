@@ -120,11 +120,7 @@ public final class ControllerInput {
         // gestures and never reports them.
         for element in controller.physicalInputProfile.allElements { element.preferredSystemGestureState = .disabled }
         controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
-            guard let self else { return }
-            var state = Self.state(from: pad)
-            state.touches = touchIDs.touches(Self.fingers(on: pad))
-            padState = state
-            emit()
+            self?.padChanged(Self.state(from: pad), fingers: Self.fingers(on: pad))
         }
         if let motion = controller.motion {
             // The DualSense and DualShock only report motion once asked to.
@@ -137,6 +133,20 @@ public final class ControllerInput {
         }
     }
 
+    /// A reading from a pad: its buttons, triggers and sticks, and the fingers on its touchpad (internal for tests).
+    func padChanged(_ state: ControllerState, fingers: [SIMD2<Float>?]) {
+        padState = state
+        padState.touches = touchIDs.touches(fingers)
+        emit()
+    }
+
+    /// Whether the fingers on a pad's touchpad reach the console (the "Touchpad touches" setting). Off, only its
+    /// click does: some games act on a resting thumb (GTA VI opens the map). Turning it off mid-touch lifts the
+    /// finger on the console at once.
+    public var sendsTouches = true {
+        didSet { emit() }
+    }
+
     /// The Mac keyboard as a controller, from the web UI (which knows when keys belong to a text field, a
     /// dialog or the settings instead): merged with the pad. Reading the keyboard here too (GameController
     /// sees every key, even while typing in the console's text field) sent H as PS while typing "hello".
@@ -146,7 +156,7 @@ public final class ControllerInput {
     }
 
     private func emit() {
-        var s = Self.merge(pad: padState, keys: keyState)
+        var s = Self.merge(pad: padState, keys: keyState, touches: sendsTouches)
         s.motion = motionState
         guard s != last else { return }
         last = s
@@ -154,9 +164,10 @@ public final class ControllerInput {
     }
 
     /// Gamepad and keyboard combined: buttons OR'd, triggers maxed, a keyboard stick (WASD, IJKL) in use
-    /// overrides the pad's.
-    static func merge(pad: ControllerState, keys: ControllerState) -> ControllerState {
+    /// overrides the pad's. Without `touches`, the pad's fingers are left out (its touchpad click stays).
+    static func merge(pad: ControllerState, keys: ControllerState, touches: Bool = true) -> ControllerState {
         var s = pad
+        if !touches { s.touches = [] }
         s.buttons |= keys.buttons
         s.l2 = max(s.l2, keys.l2)
         s.r2 = max(s.r2, keys.r2)

@@ -178,6 +178,60 @@ import Testing
         var pad = ControllerState()
         pad.touches = [ControllerState.Touch(id: 1, x: 0.2, y: 0.2)]
         #expect(ControllerInput.merge(pad: pad, keys: ControllerState()).touches == pad.touches)
+        #expect(ControllerInput.merge(pad: pad, keys: ControllerState(), touches: true).touches == pad.touches)
+    }
+
+    @Test func withoutTouchesOnlyTheClickIsMerged() {
+        var pad = ControllerState()
+        pad.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue)
+        pad.leftX = 10
+        pad.touches = [ControllerState.Touch(id: 1, x: 0.2, y: 0.2), ControllerState.Touch(id: 2, x: 0.8, y: 0.8)]
+        var keys = ControllerState()
+        keys.buttons = UInt32(PSRP_BTN_CROSS.rawValue)
+        let m = ControllerInput.merge(pad: pad, keys: keys, touches: false)
+        #expect(m.touches.isEmpty)
+        #expect(m.buttons == UInt32(PSRP_BTN_TOUCHPAD.rawValue) | UInt32(PSRP_BTN_CROSS.rawValue)) // the click stays
+        #expect(m.leftX == 10)
+    }
+
+    @Test func aPadsTouchesAreSentOnlyWhileTheSettingIsOn() {
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        var clicked = ControllerState()
+        clicked.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue)
+        // On (the default): the finger reaches the console.
+        input.padChanged(clicked, fingers: [[0.25, 0.5], nil])
+        #expect(sent.last?.touches == [ControllerState.Touch(id: 0, x: 0.25, y: 0.5)])
+        // Turned off with the finger still down: the console sees it lift, the click stays.
+        input.sendsTouches = false
+        #expect(sent.last?.touches == [] && sent.last?.buttons == clicked.buttons)
+        // While off, the finger moving or a new one sends nothing new; the click is still sent.
+        let count = sent.count
+        input.padChanged(clicked, fingers: [[0.5, 0.5], [0.75, 0.75]])
+        #expect(sent.count == count)
+        input.padChanged(ControllerState(), fingers: [[0.5, 0.5], nil])
+        #expect(sent.last == ControllerState()) // click released, still no touch
+        input.padChanged(clicked, fingers: [nil, nil])
+        #expect(sent.last?.buttons == clicked.buttons && sent.last?.touches == [])
+        // Back on: the next finger is sent again.
+        input.sendsTouches = true
+        input.padChanged(ControllerState(), fingers: [[0.1, 0.1], nil])
+        #expect(sent.last?.touches.count == 1)
+    }
+
+    @Test func thePointerAsATouchpadIgnoresTheSetting() {
+        // The pad's fingers are left out before the session adds the pointer's: a deliberate touch on the Mac's
+        // trackpad still reaches the console.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        input.sendsTouches = false
+        input.padChanged(ControllerState(), fingers: [[0.25, 0.5], nil])
+        let pointer = StreamSession.PointerTouch(touch: ControllerState.Touch(id: 100, x: 0.5, y: 0.5), pressed: true)
+        let out = StreamSession.merged(sent.last ?? ControllerState(), pointer)
+        #expect(out.touches == [ControllerState.Touch(id: 100, x: 0.5, y: 0.5)])
+        #expect(out.buttons == UInt32(PSRP_BTN_TOUCHPAD.rawValue))
     }
 }
 

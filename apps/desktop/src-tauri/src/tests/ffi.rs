@@ -71,6 +71,7 @@ fn mac_core_without_session_or_renderer() {
     core.keyboard_set_text("a\0b");
     core.keyboard_done(false);
     core.set_microphone(false);
+    core.set_touchpad_touches(true); // no stream: kept for the next one (on, as it already is)
     core.set_detailed_logs(false);
     assert!(reply(&core.audio_devices()).is_ok());
     // AirDrop and Handoff: reading is harmless, and letting them back when PlayFX never paused them changes

@@ -219,6 +219,22 @@ extension Serial {
             window.close()
         }
 
+        @Test @MainActor func touchpadTouchesApplyToThePlayingStreamAndLaterOnes() throws {
+            defer { sc_set_touchpad_touches(true) }
+            sc_set_touchpad_touches(false) // no stream: kept for the next one
+            #expect(!touchpadTouches && input == nil)
+            var options = StreamSession.Options()
+            options.audio = false
+            let silent = fakeCredentials(address: "192.0.2.1") // TEST-NET: never answers
+            let request = #"{"credentials":\#(json(silent)),"options":\#(json(options))}"#
+            #expect(try call(sc_session_start, request)["ok"] as? Bool == true)
+            #expect(input?.sendsTouches == false)
+            sc_set_touchpad_touches(true) // live, no reconnect
+            #expect(input?.sendsTouches == true)
+            sc_session_stop()
+            #expect(input == nil && touchpadTouches)
+        }
+
         @Test @MainActor func readsMainOnlyStateWithABoundedWait() async {
             #expect(readOnMain { 7 } == 7) // on main: at once
             // From another thread while main is free: main's answer.

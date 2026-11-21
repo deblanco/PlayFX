@@ -28,6 +28,7 @@ export const profileSettings = (s: Settings): ProfileSettings => ({
   colorRange: s.colorRange,
   chroma: s.chroma,
   accurateColor: s.accurateColor,
+  touchpadTouches: s.touchpadTouches,
 })
 
 /** The built-in profile, which new installs start with: 1080p60, MetalFX, sharpness 0.3, ML upscaling. */
@@ -38,7 +39,7 @@ export const allProfiles = (saved: readonly Profile[]): readonly Profile[] => [r
 
 export const isBuiltIn = (profile: Profile): boolean => profile.name === recommended.name
 
-/** `settings` with a profile's stream and picture settings; everything else unchanged. */
+/** `settings` with a profile's stream, picture and touchpad settings; everything else unchanged. */
 export const applyProfile = (settings: Settings, profile: Profile): Settings => ({ ...settings, ...profile.settings })
 
 /** Whether switching to `profile` during a stream started with `running` needs a reconnect: its stream
@@ -76,5 +77,6 @@ export const profileSummary = (profile: Profile): string => {
     if (s.deblock > 0 || s.deband > 0) parts.push("cleanup")
   }
   if (s.hdr) parts.push("HDR")
+  if (!s.touchpadTouches) parts.push("touchpad click only")
   return parts.join(" · ")
 }

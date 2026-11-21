@@ -23,7 +23,9 @@ private func keepAwake(_ on: Bool) {
         awakeActivity = nil
     }
 }
-private var input: ControllerInput?
+private(set) var input: ControllerInput? // internal for tests
+/// Whether a pad's touchpad fingers reach the console ("Touchpad touches"); kept for later sessions.
+private(set) var touchpadTouches = true // internal for tests
 private var rumble: Rumble?
 private var triggers: AdaptiveTriggers?
 private var light: PadLight?
@@ -391,6 +393,7 @@ public func sc_session_start(_ request: UnsafePointer<CChar>) -> UnsafeMutablePo
             }
         }
         let i = ControllerInput()
+        i.sendsTouches = touchpadTouches
         i.onChange = { [weak s] state in s?.setController(state) }
         session = s
         input = i
@@ -588,6 +591,15 @@ public func sc_session_set_controller(_ buttons: UInt32, _ l2: UInt8, _ r2: UInt
     state.rightY = rightY
     // The Mac keyboard as a controller (the web UI's mapping): merged with the pad, not instead of it.
     if let input { input.setKeys(state) } else { session?.setController(state) }
+}
+
+/// "Touchpad touches": whether the fingers on a pad's touchpad reach the console, for the playing stream and
+/// later ones. Off, only its click does (some games act on a resting thumb); the Mac's pointer as a touchpad
+/// is not affected. (main)
+@_cdecl("sc_set_touchpad_touches")
+public func sc_set_touchpad_touches(_ on: Bool) {
+    touchpadTouches = on
+    input?.sendsTouches = on
 }
 
 /// The Mac's pointer as a touchpad finger: `down` = a finger at (x, y), 0–1 from the top-left of the

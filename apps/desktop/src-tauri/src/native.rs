@@ -95,6 +95,9 @@ pub trait NativeCore: Send + Sync {
     fn set_microphone(&self, on: bool);
     /// The Mac's pointer as a touchpad finger, merged with the pad's state.
     fn set_pointer_touch(&self, touch: PointerTouch);
+    /// "Touchpad touches": whether a pad's touchpad fingers reach the console (its click always does), for the
+    /// playing stream and later ones.
+    fn set_touchpad_touches(&self, on: bool);
     /// Picture settings as JSON (see StreamCore's RenderParams); false if StreamCore rejects them.
     fn set_render_params(&self, params: &str) -> bool;
     fn metalfx_supported(&self) -> bool;

@@ -114,6 +114,7 @@ fn session_commands_reach_the_core() {
     assert_eq!(keyboard_set_text(app.handle().clone(), "hello".into()), Ok(()));
     assert_eq!(keyboard_done(app.handle().clone(), true), Ok(()));
     assert_eq!(set_microphone(app.handle().clone(), true), Ok(()));
+    assert_eq!(set_touchpad_touches(app.handle().clone(), false), Ok(()));
     assert_eq!(set_render_params(app.handle().clone(), json!({"upscaler": "metalfx"})), Ok(()));
     assert_eq!(
         set_render_params(app.handle().clone(), json!({"upscaler": "fsr"})),
@@ -122,6 +123,7 @@ fn session_commands_reach_the_core() {
     assert_eq!(
         core.calls(),
         ["session_stop", "set_login_pin 1234", "set_controller 1", "set_pointer_touch true 0.5 0.25 false", "keyboard_set_text hello", "keyboard_done true", "set_microphone true",
+         "set_touchpad_touches false",
          r#"set_render_params {"upscaler":"metalfx"}"#, r#"set_render_params {"upscaler":"fsr"}"#]
     );
 }
@@ -374,7 +376,7 @@ fn ipc_rejects_missing_arguments() {
     for cmd in [
         "register_console", "wakeup", "start_stream", "set_login_pin", "set_render_params", "set_controller",
         "set_pointer_touch", "keyboard_set_text", "keyboard_done", "set_microphone", "secret_get", "secret_set",
-        "secret_remove", "set_audio_output", "set_detailed_logs", "pair_psn",
+        "secret_remove", "set_audio_output", "set_detailed_logs", "pair_psn", "set_touchpad_touches",
     ] {
         let err = invoke(&app, cmd, json!({})).expect_err(cmd);
         assert!(err.as_str().is_some_and(|e| e.contains("missing required key")), "{cmd}: {err}");
@@ -415,6 +417,7 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     ok("keyboard_set_text", json!({"text": "hi"}));
     ok("keyboard_done", json!({"accept": true}));
     ok("set_microphone", json!({"on": false}));
+    ok("set_touchpad_touches", json!({"on": true}));
     ok("set_detailed_logs", json!({"on": false}));
     ok("secret_set", json!({"key": "consoles", "value": "{}"}));
     ok("secret_get", json!({"key": "consoles"}));

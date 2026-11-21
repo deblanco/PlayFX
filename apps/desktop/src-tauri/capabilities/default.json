@@ -19,6 +19,7 @@
     "allow-set-login-pin",
     "allow-set-controller",
     "allow-set-pointer-touch",
+    "allow-set-touchpad-touches",
     "allow-keyboard-set-text",
     "allow-keyboard-done",
     "allow-set-microphone",

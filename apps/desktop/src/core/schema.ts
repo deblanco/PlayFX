@@ -124,11 +124,15 @@ export const Settings = Schema.Struct({
   volume: since(Strength, 1),
   /** Output device's UID; "" = the system default. */
   audioDevice: since(Schema.String, ""),
+  /** Sends where fingers are on a pad's touchpad; off, only its click (games that act on a resting thumb).
+   * Applied at once; the Mac's pointer as a touchpad isn't affected. */
+  touchpadTouches: since(Schema.Boolean, true),
 })
 export type Settings = typeof Settings.Type
 
-/** What a settings profile holds: how the stream is asked for and how the picture is processed. App
- * preferences (stats, sound, connection route, logs) stay as they are when a profile is applied. */
+/** What a settings profile holds: how the stream is asked for, how the picture is processed, and whether the
+ * touchpad's touches are sent (a game's quirk). App preferences (stats, sound, connection route, logs) stay as
+ * they are when a profile is applied. */
 export const ProfileSettings = Schema.Struct({
   height: Settings.fields.height,
   fps: Settings.fields.fps,
@@ -146,6 +150,7 @@ export const ProfileSettings = Schema.Struct({
   colorRange: Settings.fields.colorRange,
   chroma: Settings.fields.chroma,
   accurateColor: Settings.fields.accurateColor,
+  touchpadTouches: Settings.fields.touchpadTouches,
 })
 export type ProfileSettings = typeof ProfileSettings.Type
 export const sameProfileSettings = Schema.toEquivalence(ProfileSettings)
@@ -183,6 +188,7 @@ export const defaultSettings: Settings = {
   hdr: false,
   volume: 1,
   audioDevice: "",
+  touchpadTouches: true,
 }
 
 /** Controller state sent to the console (keyboard-as-controller, on-screen pad, …).

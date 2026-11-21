@@ -472,13 +472,14 @@ export const openLocalNetworkSettings: Effect.Effect<void, CoreError, Core> = Ef
  * defaults, where the next change would save them over the user's settings. */
 export const loadSettings: Effect.Effect<Settings, StorageError, Preferences> = Effect.flatMap(Preferences, (prefs) => prefs.settings)
 
-/** Applies saved settings to the native side (picture, logs, sound); replies with what this Mac can do. */
+/** Applies saved settings to the native side (picture, logs, sound, touchpad); replies with what this Mac can do. */
 export const applyStartup = (settings: Settings): Effect.Effect<Capabilities, CoreError, Core> => Effect.gen(function* () {
   const core = yield* Core
   const status = yield* core.rendererStatus
   yield* core.setRenderParams(renderParams(settings))
   yield* applyDetailedLogs(settings.detailedLogs)
   yield* Effect.ignore(applyAudio(settings))
+  yield* core.setTouchpadTouches(settings.touchpadTouches)
   return { metalfx: status.metalfxSupported, ml: status.mlSupported, interpolation: status.interpolationSupported }
 })
 
@@ -487,8 +488,8 @@ export const startup: Effect.Effect<Startup, CoreError | StorageError, Core | Pr
   return { settings, capabilities: yield* applyStartup(settings) }
 })
 
-/** Persists new settings and applies their picture part to the renderer (cheap, and always the latest
- * state, so quick successive changes can't leave the renderer on a stale value). */
+/** Persists new settings and applies their picture part to the renderer and the touchpad setting to the pads
+ * (cheap, and always the latest state, so quick successive changes can't leave either on a stale value). */
 export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreError | StorageError, Core | Preferences> =>
   Effect.gen(function* () {
     const core = yield* Core
@@ -498,6 +499,7 @@ export const changeSettings = (next: Settings): Effect.Effect<Settings, CoreErro
     yield* Effect.ignore(applyAudio(next))
     yield* Effect.logDebug(`Settings: ${JSON.stringify(next)}`)
     yield* core.setRenderParams(renderParams(next))
+    yield* core.setTouchpadTouches(next.touchpadTouches)
     return next
   })
 
