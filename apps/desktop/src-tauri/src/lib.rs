@@ -8,6 +8,7 @@ mod ffi;
 mod native;
 #[cfg(test)]
 mod tests;
+pub mod updates;
 
 use native::{
     controller_state, is_psn_redirect, psn_account, native_level, renderer_status_json, reply, tail_lines, with_psn_token, CoreHandle, RendererState,
@@ -518,7 +519,11 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         open_local_network_settings,
         diagnostics,
         app_info,
-        renderer_status
+        renderer_status,
+        updates::update_check,
+        updates::update_install,
+        updates::update_restart,
+        updates::open_release_page
     ])
 }
 

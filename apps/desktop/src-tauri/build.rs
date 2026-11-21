@@ -45,6 +45,10 @@ fn main() {
         "diagnostics",
         "app_info",
         "renderer_status",
+        "update_check",
+        "update_install",
+        "update_restart",
+        "open_release_page",
     ])))
     .expect("tauri build");
 }

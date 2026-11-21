@@ -5,6 +5,7 @@ import { Core } from "@/core/core"
 import { memoryStore, PreferencesLive } from "@/core/preferences"
 import { TestClock } from "effect/testing"
 import { makeAppRuntime, type AppRuntime } from "@/core/runtime"
+import { Updater, UpdaterError, type UpdateCheck } from "@/core/updater"
 import type {
   Credentials,
   DiscoveredConsole,
@@ -214,6 +215,41 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
 
 export type FakeCore = ReturnType<typeof fakeCore>
 
+type UpdaterService = Updater["Service"]
+
+/** An Updater whose check answers from mutable state, recording calls. By default PlayFX is up to date;
+ * `install` reports 42% and succeeds. */
+export const fakeUpdater = (overrides: Partial<UpdaterService> = {}) => {
+  const state = {
+    check: { status: "upToDate", currentVersion: "0.1.0" } as UpdateCheck,
+    checkError: undefined as string | undefined,
+  }
+  const calls = { checks: [] as boolean[], installs: 0, restarts: 0, opened: [] as string[] }
+  const service: UpdaterService = {
+    check: (automatic) =>
+      Effect.suspend(() => {
+        calls.checks.push(automatic)
+        return state.checkError === undefined ? Effect.succeed(state.check) : Effect.fail(new UpdaterError({ message: state.checkError }))
+      }),
+    install: (onProgress) =>
+      Effect.sync(() => {
+        calls.installs++
+        onProgress(42)
+      }),
+    restart: Effect.sync(() => {
+      calls.restarts++
+    }),
+    openReleasePage: (version) =>
+      Effect.sync(() => {
+        calls.opened.push(version)
+      }),
+    ...overrides,
+  }
+  return { service, state, calls, layer: Layer.succeed(Updater, service) }
+}
+
+export type FakeUpdater = ReturnType<typeof fakeUpdater>
+
 export interface StoredPrefs {
   readonly accountId?: string
   readonly paired?: readonly PairedConsole[]
@@ -222,28 +258,36 @@ export interface StoredPrefs {
   readonly steadyWifi?: boolean
   /** Saved settings profiles. */
   readonly profiles?: readonly Profile[]
+  /** The release put off with "Later". */
+  readonly dismissedUpdate?: string
 }
 
 /** localStorage contents for `memoryStore`. */
-export const storedPrefs = ({ accountId: id, paired, settings, steadyWifi, profiles }: StoredPrefs = {}): Record<string, string> => ({
+export const storedPrefs = ({ accountId: id, paired, settings, steadyWifi, profiles, dismissedUpdate }: StoredPrefs = {}): Record<string, string> => ({
   ...(id === undefined ? {} : { "psrp.accountId": id }),
   ...(paired === undefined ? {} : { "psrp.consoles": JSON.stringify(Object.fromEntries(paired.map((p) => [p.hostId, p]))) }),
   ...(settings === undefined ? {} : { "psrp.settings": JSON.stringify(settings) }),
   ...(steadyWifi === undefined ? {} : { "psrp.steadyWifi": JSON.stringify(steadyWifi) }),
   ...(profiles === undefined ? {} : { "psrp.profiles": JSON.stringify(profiles) }),
+  ...(dismissedUpdate === undefined ? {} : { "psrp.dismissedUpdate": JSON.stringify(dismissedUpdate) }),
 })
 
 export const prefsLayer = (prefs: StoredPrefs = {}) => PreferencesLive.pipe(Layer.provide(memoryStore(storedPrefs(prefs))))
 
-/** `testClock`: the app's time only moves with `TestClock.adjust` (for timeouts measured in seconds). */
-export const testRuntime = (core: FakeCore, prefs: StoredPrefs = {}, { testClock = false } = {}): AppRuntime =>
+export interface TestOptions {
+  /** The app's time only moves with `TestClock.adjust` (for timeouts measured in seconds). */
+  readonly testClock?: boolean
+  readonly updater?: FakeUpdater
+}
+
+export const testRuntime = (core: FakeCore, prefs: StoredPrefs = {}, { testClock = false, updater = fakeUpdater() }: TestOptions = {}): AppRuntime =>
   makeAppRuntime(
     testClock
-      ? Layer.mergeAll(core.layer, prefsLayer(prefs), TestClock.layer())
-      : Layer.mergeAll(core.layer, prefsLayer(prefs)),
+      ? Layer.mergeAll(core.layer, prefsLayer(prefs), updater.layer, TestClock.layer())
+      : Layer.mergeAll(core.layer, prefsLayer(prefs), updater.layer),
   )
 
-export const renderApp = (core: FakeCore, prefs: StoredPrefs = {}, options: { readonly testClock?: boolean } = {}) => {
+export const renderApp = (core: FakeCore, prefs: StoredPrefs = {}, options: TestOptions = {}) => {
   const runtime = testRuntime(core, prefs, options)
   return {
     runtime,

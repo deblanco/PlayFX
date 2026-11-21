@@ -3,7 +3,11 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after saying why an HDR stream gets no frame interpolation: `sdrInHdr` (an SDR game with
+Last updated 2026-11-21, after **in-app updates through GitHub Releases**: a banner on Home offers a newer release
+(checked 5 s after launch and every 6 hours, or by hand in Diagnostics), and Update downloads, verifies, installs
+and restarts, never during a stream; `release.sh` makes the signed update and `latest.json`. Built and tested
+(Rust against a local server with a throwaway key, the release script with one), not yet end to end: that needs a
+release after the first one with the updater. Before that, saying why an HDR stream gets no frame interpolation: `sdrInHdr` (an SDR game with
 HDR on), `hdrUnsupported` (no MetalFX frame interpolator here) and "MetalFX kept failing (HDR)", in the stats line
 and on the Frame interpolation switch while streaming; unit tests only. Before that, a **Misc** tab in Settings (Picture · Stream · Misc · Diagnostics, each with an
 icon and a line saying what it's for; the controller's Touchpad touches moved there from Stream). Before that, the measured reorder wait: libchiaki's Takion waits for a missing video packet as
@@ -83,7 +87,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 389 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift SWCOUNT tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -743,6 +747,41 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     Clause, which the AGPL can't carry, so the PIN input and the status badge are plain shadcn/ui. CLAUDE.md now
     allows only AGPL-compatible code (shadcn/ui, not shadcn/studio), and the studio registry is gone from
     `components.json`.
+- 🔶 **In-app updates through GitHub Releases** (built 2026-11-21; **not yet verified end to end**, which needs a
+  release after the first one that has the updater). Tauri's updater plugin (`tauri-plugin-updater` 2.14, Rust
+  only: the webview gets none of its commands) reads
+  `https://github.com/deblanco/PlayFX/releases/latest/download/latest.json` and accepts only an update signed with
+  the updater key (its public half in `tauri.conf.json`, `requireSignedVersion` on, so a manifest can't pass an
+  older signed build off as a newer version). The app's commands (`update_check`, `update_install`,
+  `update_restart`, `open_release_page`; `src-tauri/src/updates.rs`) have the plugin behind a small `Updates`
+  trait. The UI (`src/app/Updates.tsx`, the `Updater` service in `src/core/updater.ts`) checks 5 s after launch
+  and every 6 hours (release builds only; by hand in every build: Settings › Diagnostics › **Check for
+  updates**, with "PlayFX is up to date (0.2.4)", the version found or the error). A newer release shows a
+  banner on Home (never over the stream): **Update** shows "Downloading… 42%", installs, then "Restarting…"
+  (`AppHandle::request_restart`, so the exit steps, quiet pads included, run first); **Later** remembers that
+  version (`psrp.dismissedUpdate`, Schema-decoded) and a newer one shows again; **What's new** opens the release
+  page; a failure says why and offers **Download from GitHub**. Nothing installs or restarts while StreamCore
+  holds a session (checked before the download and again before installing, and the Update button is off with
+  "Finish playing to update"). Log lines for the check, the download, the install and failures.
+  `PLAYFX_UPDATE_ENDPOINT` (any build; https, or http on this Mac only) points the check at a local server; the
+  signature check still applies. `release.sh` packs the notarized, stapled app as
+  `PlayFX_<version>_aarch64.app.tar.gz` (the app at its root, no AppleDouble files or extended attributes), signs
+  it with `tauri signer sign --app-version` from the keychain items `playfx-updater-key` /
+  `playfx-updater-key-password` (setup step 3; never printed, handed to the signer alone), refuses a signature by
+  any other key than `tauri.conf.json`'s, writes `latest.json` next to the DMG and prints the `gh release create`
+  for the three assets. Verified by: Rust unit tests with a fake updater (check → up to date / available / error,
+  the automatic check off in debug builds, the endpoint override, install refused during a stream or when one
+  starts mid-download, progress sent once per percent, restart, release pages for versions only) and the real
+  plugin against a 127.0.0.1 server serving a `latest.json` and an update signed with a throwaway key (found,
+  downloaded and verified; a tampered update and one relabelled as another version rejected; up to date; the
+  shipped configuration accepted); TS tests (the service's decoding and errors, the schedule on `TestClock`, every
+  banner state, Later and a newer version, Diagnostics' lines); `scripts/test-release.sh` makes the update with a
+  throwaway key (layout, no extended attributes, signature bound to the version, `latest.json`'s fields, another
+  key or an unbound signature refused); a release-profile build accepts the plugin configuration.
+  `THIRD_PARTY_LICENSES` regenerated (262 Rust crates now: the plugin, reqwest, rustls, ring…). Left: release
+  0.2.4 with the updater, then publish 0.2.5 and update a 0.2.4 copy in place from the banner (in
+  `/Applications`, and once in `~/Applications`), see it restart into 0.2.5, and check Later and the error path
+  with the network off. Versions up to 0.2.3 have no updater: their users install 0.2.4 by hand once.
 - ✅ **Sony ToS note.** README: unofficial client, own consoles and account, PSN sign-in only through
   Sony's page, no credentials shipped. NOTICE and the app's About text: not affiliated with Sony.
 - ✅ **First public release** (2026-11-20): the repo is public and
@@ -1089,6 +1128,10 @@ requests and a bug report.
    [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0, v0.2.1, v0.2.2 and v0.2.3 followed). `release.sh` now survives a notarytool
    status timeout and staples the `.app` too (built and tested with a fake notarytool); left: its first real run,
    at the next release. *(P4)*
+6b. **Release 0.2.4 with the updater, then verify the in-app update with 0.2.5** (built 2026-11-21, see "In-app
+   updates through GitHub Releases"): publish 0.2.4's DMG, `.app.tar.gz` and `latest.json`; then 0.2.5, and on a
+   0.2.4 copy see the banner, Update to "Restarting…" and 0.2.5 running (in `/Applications` and in
+   `~/Applications`), Later until 0.2.5's successor, and Download from GitHub with the network off. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps
    in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080, now skipping repeated pictures (the shown rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done

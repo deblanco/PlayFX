@@ -68,6 +68,34 @@ For real DualSense haptics, connect the pad with a USB cable and, once, set its 
 Setup step by step, answers to common problems, the keyboard controls and where PlayFX keeps your data:
 [Help](docs/HELP.md) (also under **Help** in the app).
 
+## Updating
+
+From 0.2.4 on, PlayFX updates itself from [GitHub Releases](https://github.com/deblanco/PlayFX/releases). It
+checks for a new version 5 seconds after it opens and every 6 hours while it's open; **Settings › Diagnostics ›
+Check for updates** checks at any time. A new version shows on the home screen, never over a stream:
+
+- **Update** downloads it (with its progress), checks its signature, puts it in place of the app wherever the app
+  is (`/Applications`, `~/Applications`…) and restarts PlayFX. It waits while a stream is running or starting
+  ("Finish playing to update"). If it can't (no network, a folder it can't write to), it says why and offers
+  **Download from GitHub**.
+- **Later** hides it until a newer version comes out (checking by hand shows it again).
+- **What's new** opens the release's page.
+
+**0.2.3 and earlier have no updater: install 0.2.4 or later from the DMG once**; it updates itself from then on.
+
+How it works: `scripts/release.sh` packs the notarized, stapled app into `PlayFX_<version>_aarch64.app.tar.gz`,
+signs it with the updater key (minisign; the private key stays in the owner's keychain) and writes
+`latest.json`; both are assets of the GitHub release, next to the DMG. The app reads
+`releases/latest/download/latest.json` with [Tauri's updater](https://v2.tauri.app/plugin/updater/), which
+refuses an update whose signature doesn't match the public key in `tauri.conf.json` or that was signed for
+another version. The check sends nothing about you: GitHub sees a download request, like any other.
+
+**Testing an update against a local server:** set `PLAYFX_UPDATE_ENDPOINT` to the URL of a `latest.json` when
+starting PlayFX (any build; https, or http only on this Mac), e.g.
+`PLAYFX_UPDATE_ENDPOINT=http://127.0.0.1:8000/latest.json /Applications/PlayFX.app/Contents/MacOS/PlayFX`. The
+update still has to be signed with the release key. Development builds don't check on their own; **Check for
+updates** does.
+
 ## Video
 
 The console sends at most 1080p, so most of the picture's quality is decided before the Mac gets it.

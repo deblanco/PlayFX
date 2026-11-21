@@ -6,6 +6,7 @@ import { Core, CoreLive } from "./core"
 import { memoryStore, Preferences, PreferencesLive } from "./preferences"
 import { makeAppRuntime } from "./runtime"
 import { TauriBridge } from "./tauri"
+import { Updater, UpdaterLive } from "./updater"
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }))
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }))
@@ -23,10 +24,17 @@ describe("makeAppRuntime", () => {
     const program = Effect.gen(function* () {
       const core = yield* Core
       const prefs = yield* Preferences
-      return { consoles: yield* core.discover, accountId: yield* prefs.accountId }
+      const updater = yield* Updater
+      return { consoles: yield* core.discover, accountId: yield* prefs.accountId, update: yield* updater.check(false) }
     })
+    replies["update_check"] = { status: "upToDate", currentVersion: "0.2.4" }
     const result = await runtime.runPromise(program)
-    expect(result).toEqual({ consoles: [], accountId: Option.some("AAAAAAAAAAA=") })
+    expect(result).toEqual({
+      consoles: [],
+      accountId: Option.some("AAAAAAAAAAA="),
+      update: { status: "upToDate", currentVersion: "0.2.4" },
+    })
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("update_check", { automatic: false })
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("discover", undefined)
     // Moved to the native store and gone from the webview.
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("secret_set", { key: "psrp.accountId", value: "AAAAAAAAAAA=" })
@@ -42,6 +50,7 @@ describe("makeAppRuntime", () => {
     const layer = Layer.mergeAll(
       CoreLive.pipe(Layer.provide(bridge)),
       PreferencesLive.pipe(Layer.provide(memoryStore())),
+      UpdaterLive.pipe(Layer.provide(bridge)),
     )
     const runtime = makeAppRuntime(layer)
     const woke = await runtime.runPromise(

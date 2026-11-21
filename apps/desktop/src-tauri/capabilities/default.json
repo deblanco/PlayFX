@@ -45,6 +45,10 @@
     "allow-open-local-network-settings",
     "allow-diagnostics",
     "allow-app-info",
-    "allow-renderer-status"
+    "allow-renderer-status",
+    "allow-update-check",
+    "allow-update-install",
+    "allow-update-restart",
+    "allow-open-release-page"
   ]
 }

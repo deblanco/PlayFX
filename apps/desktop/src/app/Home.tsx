@@ -15,6 +15,7 @@ import { streamSummary, type Capabilities } from "./format"
 import { ProfileSelect, type ChangeSettings } from "./ProfileSelect"
 import { Segmented, SettingsSheet, type SettingsTab } from "./SettingsSheet"
 import { SteadyWifiRow } from "./SteadyWifi"
+import { UpdateBanner } from "./Updates"
 
 const connectionDescription: Readonly<Record<Settings["connection"], string>> = {
   auto: "Tries your home network first, and goes through PSN if the console can't be reached there.",
@@ -57,6 +58,7 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
           PlayFX
         </h1>
       </header>
+      <UpdateBanner />
       <Card className="w-full max-w-xl bg-card/70 shadow-2xl backdrop-blur-xl">
         <CardContent className="flex flex-col gap-4">
           {guide && (

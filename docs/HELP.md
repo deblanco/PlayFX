@@ -350,12 +350,13 @@ normally again.
   Steady Wi-Fi is on.
 - **In its log:** what happened, for bug reports (see below). Logs never contain your PlayStation
   sign-in, pairing keys or account ID.
-- **Nothing is sent anywhere but your console and Sony.** PlayFX talks to the console, and to
+- **Nothing is sent anywhere but your console, Sony and GitHub.** PlayFX talks to the console, and to
   PlayStation Network to sign in, list your consoles and connect over the internet. You sign in on
-  Sony's own page.
+  Sony's own page. It asks GitHub whether there's a new version of PlayFX (see
+  [Updating PlayFX](#updating-playfx)); nothing about you goes with it.
 
 **The only password prompt to expect is Steady Wi-Fi's**, because pausing AirDrop and Handoff needs
-administrator rights. It only opens when you turn Steady Wi-Fi on. macOS also asks once for permission to use the local network (to find your
+administrator rights. It only opens when you turn Steady Wi-Fi on (and an update asks too, only if PlayFX sits in a folder your account can't change). macOS also asks once for permission to use the local network (to find your
 console) and, if you turn it on, the microphone. Those are permission questions, not passwords.
 
 ## Logs and bug reports
@@ -363,7 +364,7 @@ console) and, if you turn it on, the microphone. Those are permission questions,
 Open **Settings › Diagnostics**:
 
 - The first line is the version, for example "PlayFX 0.2.0 (abc1234) on macOS 26.1". Include it in a bug
-  report.
+  report. **Check for updates**, next to it, asks GitHub for a newer version.
 - **Detailed logs** records much more. Turn it on, make the problem happen, then turn it off.
 - **Copy diagnostics** copies a report (versions, what your Mac supports, your settings and the last
   200 lines of the log) to paste into a bug report.
@@ -372,6 +373,26 @@ Open **Settings › Diagnostics**:
 
 Report a bug or ask a question at
 [github.com/deblanco/PlayFX/issues](https://github.com/deblanco/PlayFX/issues).
+
+## Updating PlayFX
+
+From version 0.2.4 on, PlayFX looks for a new version when it opens and every 6 hours while it's open. When
+there is one, the home screen says "PlayFX 0.2.5 is available." (with the new version's number):
+
+- **Update** downloads it, checks that it really comes from PlayFX's releases (its signature), installs it where
+  PlayFX is and restarts PlayFX. It never happens during a stream: while one is running
+  or starting, Update waits ("Finish playing to update").
+- **Later** hides the message until a newer version comes out.
+- **What's new** opens the release's page on GitHub.
+
+To look for a new version yourself: **Settings › Diagnostics › Check for updates**. It says "PlayFX is up to date"
+or which version is out, and brings the home screen's message back if you chose Later.
+
+If an update fails, PlayFX says why and offers **Download from GitHub**: download the DMG and drag PlayFX to
+Applications again, replacing the old one. Your consoles, sign-in and settings are kept.
+
+**Updating from 0.2.3 or earlier:** those versions can't update themselves. Download the latest DMG from
+[Releases](https://github.com/deblanco/PlayFX/releases/latest) once; from then on PlayFX updates itself.
 
 ## Uninstall or start over
 

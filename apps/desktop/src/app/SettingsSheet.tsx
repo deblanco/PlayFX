@@ -24,6 +24,7 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SteadyWifiSection } from "./SteadyWifi"
+import { UpdateCheckRow } from "./Updates"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { bitrates, defaultSettings, type AudioDevice, type Settings, type StreamOptions } from "@/core/schema"
 import { toast } from "sonner"
@@ -626,9 +627,11 @@ const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; read
   useFork(useMemo(() => actions.pollReorderWait(setReorder), []))
   return (
     <>
-      {build !== null && (
-        <p className="text-sm font-medium text-foreground select-text" aria-label="Version">{build}</p>
-      )}
+      <UpdateCheckRow>
+        {build !== null && (
+          <p className="text-sm font-medium text-foreground select-text" aria-label="Version">{build}</p>
+        )}
+      </UpdateCheckRow>
       {reorder !== undefined && (
         <p className="text-xs text-muted-foreground select-text" aria-label="Reorder wait">{reorder}</p>
       )}

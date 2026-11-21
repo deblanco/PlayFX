@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests release.sh's notarization wait and its DMG app swap without Apple's notary service or a signing
-# identity: a fake `xcrun` on PATH plays notarytool, and the DMG is a small one made here.
+# Tests release.sh's notarization wait, its DMG app swap and the in-app update it makes, without Apple's notary
+# service, a signing identity or the real updater key: a fake `xcrun` on PATH plays notarytool, the DMG is a small
+# one made here, and the update is signed with a throwaway key generated here (`tauri signer generate`).
 #
 # Usage: scripts/test-release.sh
 set -uo pipefail
@@ -101,6 +102,67 @@ check "  under the same volume name" test "$(diskutil info "$TMP/mnt" | awk -F':
 hdiutil detach -quiet "$TMP/mnt"
 check "  still a compressed read-only image" \
   bash -c "hdiutil imageinfo '$TMP/PlayFX_0.0.0_aarch64.dmg' 2>/dev/null | grep -q 'Format: UDZO'"
+
+echo "In-app update"
+# Throwaway keys, made here and gone with $TMP: the release's own key never leaves the keychain.
+mkdir "$TMP/keys" "$TMP/update"
+for key in key other; do
+  bun run --cwd apps/desktop tauri signer generate --ci -p throwaway -w "$TMP/keys/$key" >/dev/null 2>&1
+done
+xattr -w com.apple.quarantine "0081;00000000;test;" "$TMP/new/PlayFX.app/Contents/marker"
+# Hands make_update the key the way release.sh does (assignments before the call, nothing exported).
+run_make_update() { # public key file, then extra env assignments; output in $TMP/update.log, status in $rc
+  local pub="$1"
+  shift
+  (
+    set -euo pipefail
+    (($# == 0)) || export "$@"
+    TAURI_SIGNING_PRIVATE_KEY="$(cat "$TMP/keys/key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=throwaway \
+      make_update "$TMP/new/PlayFX.app" 0.0.1 "$TMP/update" "$(cat "$pub")"
+  ) >"$TMP/update.log" 2>&1
+  rc=$?
+}
+manifest() { python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$TMP/update/latest.json" "$1"; }
+TARBALL="$TMP/update/PlayFX_0.0.1_aarch64.app.tar.gz"
+
+run_make_update "$TMP/keys/key.pub"
+check "makes the update" test "$rc" -eq 0
+check "  a tarball with the app at its root" \
+  bash -c "! tar -tzf '$TARBALL' | grep -qv '^PlayFX\.app/' && tar -tzf '$TARBALL' | grep -qx 'PlayFX.app/Contents/marker'"
+check "  no AppleDouble files in it" bash -c "! tar -tzf '$TARBALL' | grep -q '\._'"
+mkdir "$TMP/unpacked"
+tar -xzf "$TARBALL" -C "$TMP/unpacked"
+check "  holding the stapled app as it is" diff -r "$TMP/new/PlayFX.app" "$TMP/unpacked/PlayFX.app"
+check "  without its extended attributes (a quarantine flag)" \
+  bash -c "! xattr '$TMP/unpacked/PlayFX.app/Contents/marker' | grep -q quarantine"
+check "  signed, bound to the version" bash -c "base64 -d <'$TARBALL.sig' | grep -q 'trusted comment: .*version:0.0.1'"
+check "latest.json names the version" test "$(manifest 'm["version"]')" = 0.0.1
+check "  and where the release page is" test "$(manifest 'm["notes"]')" = "See https://github.com/deblanco/PlayFX/releases/tag/v0.0.1"
+check "  carries the signature" test "$(manifest 'm["platforms"]["darwin-aarch64"]["signature"]')" = "$(cat "$TARBALL.sig" 2>/dev/null || echo missing)"
+check "  and the download URL" test "$(manifest 'm["platforms"]["darwin-aarch64"]["url"]')" \
+  = "https://github.com/deblanco/PlayFX/releases/download/v0.0.1/PlayFX_0.0.1_aarch64.app.tar.gz"
+check "  with an RFC 3339 UTC date" bash -c "[[ '$(manifest 'm["pub_date"]')' =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]"
+check "  and nothing secret" bash -c "test -s '$TMP/update/latest.json' && ! grep -qF \"\$(cat '$TMP/keys/key')\" '$TMP/update/latest.json' && ! grep -q throwaway '$TMP/update/latest.json' '$TMP/update.log'"
+
+run_make_update "$TMP/keys/other.pub"
+check "another key than tauri.conf.json's: fails" test "$rc" -ne 0
+check "  saying installed copies would refuse it" grep -q "another key" "$TMP/update.log"
+check "  without a latest.json to publish" test ! -e "$TMP/update/latest.json"
+
+run_make_update "$TMP/keys/key.pub" SIGNER=false
+check "the signer failing: fails" test "$rc" -ne 0
+check "  pointing at the keychain setup" grep -q "is the updater key in the keychain" "$TMP/update.log"
+
+cat >"$TMP/bin/unbound-signer" <<'EOF2'
+#!/usr/bin/env bash
+# Signs like `tauri signer sign` without --app-version (no version in the trusted comment).
+file="${@: -1}"
+bun run --cwd apps/desktop tauri signer sign "$file" >/dev/null
+EOF2
+chmod +x "$TMP/bin/unbound-signer"
+run_make_update "$TMP/keys/key.pub" SIGNER="$TMP/bin/unbound-signer"
+check "a signature not bound to the version: fails" test "$rc" -ne 0
+check "  saying so" grep -q "isn't bound to version 0.0.1" "$TMP/update.log"
 
 if ((failures > 0)); then
   echo "$failures check(s) failed" >&2

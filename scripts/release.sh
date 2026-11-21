@@ -9,6 +9,16 @@
 #      (App Store Connect → Users and Access → Integrations → Team Keys; the .p8 downloads once):
 #        xcrun notarytool store-credentials playfx --key AuthKey_<KEYID>.p8 --key-id <KEYID> --issuer <ISSUER>
 #      then delete the .p8; the profile keeps the key in the keychain.
+#   3. The in-app updater's signing key (minisign, as Tauri's base64 key text) and its password, kept in the
+#      login keychain as two generic passwords (account "playfx"). Made once with
+#        bun run --cwd apps/desktop tauri signer generate -w ~/playfx-updater.key     (asks for the password)
+#        security add-generic-password -a playfx -s playfx-updater-key -w             (paste the .key file's text)
+#        security add-generic-password -a playfx -s playfx-updater-key-password -w    (type the password)
+#      Its public half (the .pub file's text) is plugins.updater.pubkey in apps/desktop/src-tauri/tauri.conf.json:
+#      installed copies only accept updates signed with this key.
+#      BACK BOTH UP (the key and its password, e.g. in a password manager), then delete the .key file. They can't
+#      be recovered: lost, no installed copy can ever update itself again, and every user has to download the
+#      next release by hand. Never put them in the repo, CI or GitHub secrets.
 #
 # Nothing ships below the coverage floor: every package's tests and coverage gates (≥ 80% lines and
 # functions everywhere, branches too in TypeScript) run first, and any failure stops the release.
@@ -17,6 +27,10 @@
 # works offline, without Gatekeeper's online check), then the DMG. Each submission is waited on by its id, and
 # a wait that errors or times out is retried, never resubmitted. scripts/test-release.sh tests that wait and
 # the DMG's app swap with a fake notarytool (no Apple service, no signing).
+#
+# The in-app update is made from the stapled app: PlayFX_<version>_aarch64.app.tar.gz, signed with the updater key
+# (step 3), and latest.json, the manifest installed copies read from the latest GitHub release. Both go next to the
+# DMG, and the script ends with the `gh release create` that publishes the three.
 #
 # Usage: scripts/release.sh            (SIGNING_IDENTITY / NOTARY_PROFILE override the defaults;
 #                                       NOTARY_WAIT_ATTEMPTS / NOTARY_WAIT_TIMEOUT tune the waits)
@@ -87,6 +101,53 @@ replace_app_in_dmg() {
   ((ok == 0)) || { echo "release: couldn't put $(basename "$app") into $(basename "$dmg")" >&2; return 1; }
 }
 
+RELEASES_URL="https://github.com/deblanco/PlayFX/releases"
+
+# Makes the in-app update from a stapled app, in <out dir>: PlayFX_<version>_aarch64.app.tar.gz (the app at its root,
+# as Tauri's updater unpacks it; no AppleDouble files or extended attributes, only the bundle as signed and
+# stapled), its .sig (minisign, bound to the version) and latest.json. The key comes from
+# TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD; the signature must be by the key whose public half
+# is <public key> (the one in tauri.conf.json), or installed copies would refuse the update. SIGNER replaces the
+# signing command (tests).
+make_update() {
+  local app="$1" version="$2" out pubkey="$4" name tarball
+  out="$(cd "$3" && pwd)" || return 1 # absolute: the signer runs from apps/desktop
+  name="PlayFX_${version}_aarch64.app.tar.gz"
+  tarball="$out/$name"
+  rm -f "$tarball" "$tarball.sig" "$out/latest.json"
+  COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -czf "$tarball" -C "$(dirname "$app")" "$(basename "$app")" \
+    || { echo "release: couldn't pack $(basename "$app") into $name" >&2; return 1; }
+  ${SIGNER:-bun run --cwd apps/desktop tauri signer sign} --app-version "$version" "$tarball" >/dev/null \
+    || { echo "release: couldn't sign $name (is the updater key in the keychain? see step 3 above)" >&2; return 1; }
+  python3 - "$version" "$tarball.sig" "$pubkey" "$out/latest.json" "$RELEASES_URL" "$name" <<'PY' || return 1
+import base64, datetime, json, sys
+
+version, sig_path, pubkey, out, releases, name = sys.argv[1:7]
+try:
+    sig_text = open(sig_path).read().strip()
+    sig_lines = base64.b64decode(sig_text).decode().splitlines()
+    signed_by = base64.b64decode(sig_lines[1])[2:10]
+    expected = base64.b64decode(base64.b64decode(pubkey).decode().splitlines()[1])[2:10]
+except Exception as error:
+    sys.exit(f"release: {sig_path} isn't a minisign signature from tauri signer sign ({error})")
+if signed_by != expected:
+    sys.exit("release: the update was signed with another key than tauri.conf.json's updater pubkey: installed copies would refuse it")
+trusted = [line.removeprefix("trusted comment:").strip() for line in sig_lines if line.startswith("trusted comment:")]
+if not any(f"version:{version}" in field.split("\t") for field in trusted):
+    sys.exit(f"release: the signature isn't bound to version {version}")
+manifest = {
+    "version": version,
+    "notes": f"See {releases}/tag/v{version}",
+    "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "platforms": {"darwin-aarch64": {"signature": sig_text, "url": f"{releases}/download/v{version}/{name}"}},
+}
+with open(out, "w") as file:
+    json.dump(manifest, file, indent=2)
+    file.write("\n")
+PY
+  echo "Update: $tarball"
+}
+
 # Sourced by scripts/test-release.sh for the functions above: stop here.
 [[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
@@ -101,6 +162,18 @@ IDENTITY="${SIGNING_IDENTITY:-$( (security find-identity -v -p codesigning \
   | grep -o "\"Developer ID Application: [^\"]*($TEAM_ID)\"" | tr -d '"' | head -1) || true)}"
 [[ -n "$IDENTITY" ]] || { echo "release: no Developer ID Application certificate found (see setup above)" >&2; exit 1; }
 echo "Signing as: $IDENTITY"
+
+# The updater's signing key (step 3), read now so a missing one stops the release before the long part. Kept in
+# unexported variables and handed to the signing command alone; never printed.
+UPDATER_KEY="$(security find-generic-password -a playfx -s playfx-updater-key -w 2>/dev/null)" || UPDATER_KEY=""
+UPDATER_KEY_PASSWORD="$(security find-generic-password -a playfx -s playfx-updater-key-password -w 2>/dev/null)" \
+  || UPDATER_KEY_PASSWORD=""
+[[ -n "$UPDATER_KEY" && -n "$UPDATER_KEY_PASSWORD" ]] || {
+  echo "release: the updater signing key isn't in the login keychain: add the generic passwords playfx-updater-key" >&2
+  echo "and playfx-updater-key-password (account playfx) as step 3 of the setup at the top of scripts/release.sh says" >&2
+  exit 1
+}
+UPDATER_PUBKEY="$(python3 -c 'import json; print(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"])')"
 
 echo "Tests and coverage (a release needs >= 80% in every package)…"
 packages/streamcore/scripts/coverage.sh --no-parallel   # Swift: lines, functions
@@ -127,6 +200,11 @@ ditto -c -k --keepParent "$APP" "$WORK/PlayFX.zip"
 notarize "$WORK/PlayFX.zip"
 xcrun stapler staple "$APP"
 spctl --assess --type execute -v "$APP"
+# The in-app update: the notarized, stapled app, signed with the updater key.
+OUT="$(dirname "$DMG")"
+TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
+  make_update "$APP" "$VERSION" "$OUT" "$UPDATER_PUBKEY"
+unset UPDATER_KEY UPDATER_KEY_PASSWORD
 replace_app_in_dmg "$DMG" "$APP"
 
 codesign --force --sign "$IDENTITY" --timestamp "$DMG"
@@ -134,4 +212,8 @@ notarize "$DMG"
 xcrun stapler staple "$DMG"
 spctl --assess --type open --context context:primary-signature -v "$DMG"
 
+UPDATE="$OUT/PlayFX_${VERSION}_aarch64.app.tar.gz"
 echo "Release ready: $DMG"
+echo "In-app update: $UPDATE and $OUT/latest.json"
+echo "Publish all three (latest.json must be on the latest release, so not a pre-release):"
+echo "  gh release create v$VERSION \"$DMG\" \"$UPDATE\" \"$OUT/latest.json\" --notes-file <notes.md>"

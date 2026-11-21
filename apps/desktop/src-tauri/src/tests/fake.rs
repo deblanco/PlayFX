@@ -22,6 +22,8 @@ pub struct FakeCore {
     pub display_ms: f64,
     pub shown_fps: f64,
     pub stats: String,
+    /// Replies to session_stats before `stats`, one each (a stream that starts or ends meanwhile).
+    pub stats_first: Mutex<std::collections::VecDeque<String>>,
     pub calls: Mutex<Vec<String>>,
     pub secrets: Mutex<std::collections::HashMap<String, String>>,
 }
@@ -187,6 +189,60 @@ impl NativeCore for FakeCore {
         self.mode
     }
     fn session_stats(&self) -> String {
-        self.stats.clone()
+        self.stats_first.lock().unwrap().pop_front().unwrap_or_else(|| self.stats.clone())
+    }
+}
+
+/// A scripted updater that records every call.
+#[derive(Default)]
+pub struct FakeUpdates {
+    /// What check finds (None: up to date).
+    pub found: Option<crate::updates::Available>,
+    pub check_error: Option<String>,
+    pub download_error: Option<String>,
+    pub install_error: Option<String>,
+    pub calls: Mutex<Vec<String>>,
+}
+
+impl FakeUpdates {
+    pub fn available(version: &str) -> Self {
+        Self {
+            found: Some(crate::updates::Available { version: version.into(), current_version: "0.1.0".into() }),
+            ..Default::default()
+        }
+    }
+
+    pub fn leak(self) -> &'static FakeUpdates {
+        Box::leak(Box::new(self))
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn log(&self, call: String) {
+        self.calls.lock().unwrap().push(call);
+    }
+}
+
+impl crate::updates::Updates for FakeUpdates {
+    fn check(&self, endpoint: Option<tauri::Url>) -> Result<Option<crate::updates::Available>, String> {
+        self.log(format!("check {}", endpoint.map_or("default".into(), |url| url.to_string())));
+        self.check_error.clone().map_or_else(|| Ok(self.found.clone()), Err)
+    }
+    /// 1000 bytes in 10 chunks, the size known, the last one reported twice.
+    fn download(&self, progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<Vec<u8>, String> {
+        self.log("download".into());
+        for done in (100..=1000).step_by(100).chain([1000]) {
+            progress(done, Some(1000));
+        }
+        self.download_error.clone().map_or_else(|| Ok(b"update".to_vec()), Err)
+    }
+    fn install(&self, bytes: &[u8]) -> Result<(), String> {
+        self.log(format!("install {}", String::from_utf8_lossy(bytes)));
+        self.install_error.clone().map_or_else(|| Ok(()), Err)
+    }
+    fn restart(&self) {
+        self.log("restart".into());
     }
 }

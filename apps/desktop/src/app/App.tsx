@@ -29,6 +29,7 @@ import { ProfilesProvider } from "./ProfileSelect"
 import { useRun, useRuntime } from "./runtime"
 import { StreamView } from "./StreamView"
 import { PeerWifiProvider, usePeerWifiContext } from "./SteadyWifi"
+import { UpdatesProvider } from "./Updates"
 
 /** A stream being started (`started: false`) or running, with what its events have told us so far. */
 interface Session {
@@ -322,7 +323,7 @@ const Screens = () => {
   }, [])
 
   return (
-    <>
+    <UpdatesProvider streaming={session !== null}>
       {session?.started === true ? (
         <StreamView
           title={session.title}
@@ -357,6 +358,6 @@ const Screens = () => {
         <Home settings={settings} capabilities={capabilities} onSettingsChange={changeSettings} onPlay={play} />
       )}
       <Toaster position="bottom-center" />
-    </>
+    </UpdatesProvider>
   )
 }

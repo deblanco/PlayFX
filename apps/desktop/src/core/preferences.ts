@@ -53,6 +53,7 @@ const keys = {
   settings: "psrp.settings",
   profiles: "psrp.profiles",
   steadyWifi: "psrp.steadyWifi",
+  dismissedUpdate: "psrp.dismissedUpdate",
 } as const
 
 /** What the user keeps on this machine: PSN account ID, pairing keys, stream settings. */
@@ -74,6 +75,9 @@ export class Preferences extends Context.Service<
     /** Whether the user last turned Steady Wi-Fi on (and not off since), to offer it again at the next stream. */
     readonly steadyWifi: Effect.Effect<boolean, StorageError>
     readonly saveSteadyWifi: (on: boolean) => Effect.Effect<void, StorageError>
+    /** The release whose update banner the user put off with "Later" (a newer one shows it again). */
+    readonly dismissedUpdate: Effect.Effect<Option.Option<string>, StorageError>
+    readonly saveDismissedUpdate: (version: string) => Effect.Effect<void, StorageError>
   }
 >()("Preferences") {}
 
@@ -118,6 +122,9 @@ const parseJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknow
 /** The remembered Steady Wi-Fi choice; anything but `true` reads as off. */
 const steadyWifiFrom = (json: unknown): boolean =>
   Option.getOrElse(Schema.decodeUnknownOption(Schema.Boolean)(json), () => false)
+
+/** The version put off with "Later"; anything but a string reads as none. */
+const dismissedUpdateFrom = Schema.decodeUnknownOption(Schema.String)
 
 /** Stored settings, field by field: a value that doesn't decode (from another version, or hand-edited) falls
  * back to its default and the rest are kept. Decoding them as one let a single bad value reset everything,
@@ -219,6 +226,8 @@ const makePreferences = (store: KeyValueStore["Service"], secret: KeyValueStore[
       saveProfiles: (profiles) => write(keys.profiles, profiles),
       steadyWifi: read(keys.steadyWifi, steadyWifiFrom),
       saveSteadyWifi: (on) => write(keys.steadyWifi, on),
+      dismissedUpdate: read(keys.dismissedUpdate, (json) => dismissedUpdateFrom(json)),
+      saveDismissedUpdate: (version) => write(keys.dismissedUpdate, version),
     } satisfies Preferences["Service"]
 }
 

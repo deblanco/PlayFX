@@ -379,6 +379,24 @@ describe("the remembered Steady Wi-Fi choice", () => {
   )
 })
 
+describe("the update put off with Later", () => {
+  it.effect("is remembered by version", () =>
+    Effect.gen(function* () {
+      const prefs = yield* Preferences
+      expect(yield* prefs.dismissedUpdate).toEqual(Option.none())
+      yield* prefs.saveDismissedUpdate("0.2.5")
+      expect(yield* rawGet("psrp.dismissedUpdate")).toEqual(Option.some('"0.2.5"'))
+      expect(yield* prefs.dismissedUpdate).toEqual(Option.some("0.2.5"))
+    }).pipe(Effect.provide(withMemory())),
+  )
+
+  it.effect("reads anything stored that isn't a version as none", () =>
+    Effect.gen(function* () {
+      expect(yield* (yield* Preferences).dismissedUpdate).toEqual(Option.none())
+    }).pipe(Effect.provide(withMemory({ "psrp.dismissedUpdate": "{not json" }))),
+  )
+})
+
 describe("damaged stored data", () => {
   it.effect("keeps every setting that still decodes when one doesn't", () =>
     Effect.gen(function* () {

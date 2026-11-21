@@ -13,11 +13,11 @@ use crate::*;
 const REDIRECT: &str = "https://remoteplay.dl.playstation.net/remoteplay/redirect";
 
 /// Runs an async command to completion (they block on the native core).
-fn run<F: std::future::Future>(f: F) -> F::Output {
+pub(super) fn run<F: std::future::Future>(f: F) -> F::Output {
     tauri::async_runtime::block_on(f)
 }
 
-fn mock(core: &'static FakeCore) -> App<MockRuntime> {
+pub(super) fn mock(core: &'static FakeCore) -> App<MockRuntime> {
     let app = with_commands(mock_builder()).build(mock_context(noop_assets())).expect("mock app");
     app.manage(CoreHandle(core));
     app
@@ -25,7 +25,7 @@ fn mock(core: &'static FakeCore) -> App<MockRuntime> {
 
 /// A mock app that enforces the real app's ACL (build.rs's app manifest + capabilities/), so a command
 /// the main window isn't granted is rejected here as it is in the shipped app.
-fn mock_with_acl(core: &'static FakeCore) -> App<MockRuntime> {
+pub(super) fn mock_with_acl(core: &'static FakeCore) -> App<MockRuntime> {
     let mut context = mock_context(noop_assets());
     let mut real: tauri::Context<MockRuntime> = tauri::generate_context!(test = true);
     std::mem::swap(context.runtime_authority_mut(), real.runtime_authority_mut());
@@ -43,7 +43,7 @@ fn err_reply() -> &'static FakeCore {
 }
 
 /// Invokes `cmd` through the IPC layer, as the React UI does.
-fn invoke(app: &App<MockRuntime>, cmd: &str, args: Value) -> Result<Value, Value> {
+pub(super) fn invoke(app: &App<MockRuntime>, cmd: &str, args: Value) -> Result<Value, Value> {
     let webview = match app.get_webview_window("main") {
         Some(w) => w,
         None => WebviewWindowBuilder::new(app, "main", WebviewUrl::default()).build().expect("webview"),
@@ -377,6 +377,7 @@ fn ipc_rejects_missing_arguments() {
         "register_console", "wakeup", "start_stream", "set_login_pin", "set_render_params", "set_controller",
         "set_pointer_touch", "keyboard_set_text", "keyboard_done", "set_microphone", "secret_get", "secret_set",
         "secret_remove", "set_audio_output", "set_detailed_logs", "pair_psn", "set_touchpad_touches",
+        "update_check", "open_release_page",
     ] {
         let err = invoke(&app, cmd, json!({})).expect_err(cmd);
         assert!(err.as_str().is_some_and(|e| e.contains("missing required key")), "{cmd}: {err}");
@@ -401,7 +402,7 @@ fn ipc_psn_login_reuses_open_window() {
 /// generated wrappers decode them, so a renamed argument fails here, not at run time.
 #[test]
 fn ipc_reaches_every_command_with_the_uis_arguments() {
-    let core = FakeCore { reply: r#"{"ok":true}"#.into(), psn_signed_in: true, ..Default::default() }.leak();
+    let core = FakeCore { reply: r#"{"ok":true}"#.into(), psn_signed_in: true, stats: r#"{"active":false}"#.into(), ..Default::default() }.leak();
     let app = mock_with_acl(core);
     let ok = |cmd: &str, args: Value| -> Value {
         let reply = invoke(&app, cmd, args);
@@ -445,6 +446,14 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     );
     ok("toggle_fullscreen", json!({}));
     assert_eq!(ok("fullscreen_state", json!({})), json!(false));
+    // The updates, with a fake updater and no stream running.
+    let updates = super::fake::FakeUpdates::available("0.9.0").leak();
+    app.manage(crate::updates::UpdatesHandle { updates, endpoint: Ok(None) });
+    assert_eq!(ok("update_check", json!({"automatic": false}))["status"], json!("available"));
+    ok("update_install", json!({}));
+    ok("update_restart", json!({}));
+    ok("open_release_page", json!({"version": "0.9.0"}));
+    assert!(super::OPENED.lock().expect("opened").contains(&"https://github.com/deblanco/PlayFX/releases/tag/v0.9.0".to_string()));
 }
 
 /// StreamCore's log entries land in the app's log under `streamcore::<area>`.
