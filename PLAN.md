@@ -3,7 +3,14 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after **the adaptive input lane**: pad readings reach the console off the main
+Last updated 2026-11-21, after **review fixes for the input lane**: states are handed to the console under the
+lock they're merged in (handed on after it, the loop's older state could land after the main thread's newer one
+and leave a released button held; `StreamSession` now sends the pad's and the pointer's states under its lock too);
+a pad's unchanged reading isn't taken again (with two pads connected, the loop's reads took turns between them on
+every pass) and an idle pad's first reading doesn't take over from the one in use; the loop's reads of a pad that
+has disconnected are dropped (one listed just before it went away brought its held buttons back); and the loop
+starts once `onChange` is set (it started in `init`, racing the bridge setting it; a state merged with no one to
+hand it to is no longer taken as sent). Before that, **the adaptive input lane**: pad readings reach the console off the main
 thread. GameController's callbacks arrive on the main queue, behind rendering and UI; an input loop of its own
 (user-interactive, `streamcore.input`) now reads every connected pad between them, paced by `InputPacer` (pure,
 unit-tested): 500 Hz while readings change, learning half the interval distinct readings arrive with (a DualSense
@@ -106,7 +113,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 421 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 425 tests (90% lines; 89% as CI's VM sees
   it), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -600,7 +607,11 @@ Work items:
   so a press or a stick move doesn't queue behind a frame's render or a UI update. Motion readings whose sensors
   read exactly as the last are dropped (a timestamp alone would re-integrate the same stillness). Unit tests only
   (pacer policy, the loop's read through `pollPads`, the motion dedupe): not yet on the pad — the off-main reads
-  of GameController's elements want a look with one, then the dev latency test before and after.
+  of GameController's elements want a look with one, then the dev latency test before and after. Review fixes
+  (unit-tested): states reach `onChange` one at a time and in the order merged (the test fails against the old
+  hand-off); each pad's unchanged reading and motion are dropped, so two connected pads don't take turns on every
+  pass, and an idle pad's first reading doesn't take over; reads of a disconnected pad are dropped; the loop
+  starts when `onChange` is set; `StreamSession` sends the pad's and pointer's states under its lock.
 - ✅ **Settings tabs** (2026-11-21, asked for: Picture vs Stream read alike): Picture · Stream · **Misc** ·
   Diagnostics, each with an icon (lucide Image, Radio, SlidersHorizontal, Activity) and a plain line at the
   top saying what it controls ("How this Mac cleans up, sharpens and smooths the picture.", "What the console
@@ -1198,7 +1209,8 @@ requests and a bug report.
    Detailed logs show each "queue full" and "reorder timeout" skip. *(P1)*
 7d. **On the console: the adaptive input lane** (new 2026-11-21, unit tests only). With a pad in hand, that
    presses, sticks, touchpad and motion aim feel no worse than before (the loop's off-main reads of
-   GameController's elements are the unverified part); the stream stays clean in the stats (motion no longer
+   GameController's elements are the unverified part), also with a second pad connected and idle, and pulling a
+   pad's battery or Bluetooth mid-press; the stream stays clean in the stats (motion no longer
    floods while a pad lies still); and the dev latency test (`POST /latency-test`) before and after, with the
    main thread busy and idle, shows what the lane bought — or doesn't, in which case the input leg wasn't the
    bottleneck and raw HID input (bypassing GameController entirely, the way the USB haptics output does) isn't

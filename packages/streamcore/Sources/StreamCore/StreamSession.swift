@@ -322,12 +322,16 @@ public final class StreamSession {
 
     private let input = OSAllocatedUnfairLock(initialState: (controller: ControllerState(), pointer: PointerTouch.none))
 
+    /// The pad's state (from any thread: the main queue or the controller's input loop). Sent while the lock
+    /// is held, as `setPointerTouch` is, so the console gets the two in the order they were merged: sent
+    /// after the lock, a pad reading merged with the pointer's old finger could land after the pointer's
+    /// newer state and leave that old finger down.
     public func setController(_ s: ControllerState) {
-        send(input.withLock { $0.controller = s; return Self.merged(s, $0.pointer) })
+        input.withLockUnchecked { $0.controller = s; send(Self.merged(s, $0.pointer)) }
     }
 
     public func setPointerTouch(_ pointer: PointerTouch) {
-        send(input.withLock { $0.pointer = pointer; return Self.merged($0.controller, pointer) })
+        input.withLockUnchecked { $0.pointer = pointer; send(Self.merged($0.controller, pointer)) }
     }
 
     /// The controller state with the pointer's finger first (a pad's fingers after it, two at most) and
