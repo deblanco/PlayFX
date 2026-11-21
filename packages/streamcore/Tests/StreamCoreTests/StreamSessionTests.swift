@@ -45,7 +45,8 @@ import Testing
         #expect(!full.autoDowngrade && full.height == 1080 && full.bitrate == 0)
         let stats = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StreamSession.Stats())) as? [String: Int]
         #expect(stats == ["framesDecoded": 0, "decodeErrors": 0, "framesLost": 0, "width": 0, "height": 0, "bytesReceived": 0,
-                          "rttMs": 0, "decodeMs": 0, "targetBitrateKbps": 0])
+                          "rttMs": 0, "decodeMs": 0, "targetBitrateKbps": 0, "reorderWaitMs": 0, "reorderHolesFilled": 0,
+                          "reorderLatePackets": 0, "reorderHolesLost": 0, "reorderQueueFull": 0])
     }
 }
 

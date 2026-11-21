@@ -104,6 +104,15 @@ public final class StreamSession {
         public var targetBitrateKbps = 0
         /// VideoToolbox decode time per frame, smoothed.
         public var decodeMs = 0.0
+        /// How long a missing video packet is waited for before it's skipped, measured from the link (0 until
+        /// the stream connects), and what libchiaki learned it from: holes that filled while waiting, packets
+        /// that came after their hole was skipped, skipped holes nothing came for, and holes skipped because
+        /// the reorder queue was full. Totals for the stream.
+        public var reorderWaitMs = 0.0
+        public var reorderHolesFilled = 0
+        public var reorderLatePackets = 0
+        public var reorderHolesLost = 0
+        public var reorderQueueFull = 0
     }
 
     /// Called from libchiaki's threads.
@@ -171,6 +180,13 @@ public final class StreamSession {
         withHandle { handle in
             s.rttMs = Double(psrp_session_rtt_us(handle)) / 1000
             s.targetBitrateKbps = Int(psrp_session_target_bitrate(handle) / 1000)
+            var reorder = PsrpReorderStats()
+            psrp_session_reorder_stats(handle, &reorder)
+            s.reorderWaitMs = Double(reorder.wait_us) / 1000
+            s.reorderHolesFilled = Int(reorder.holes_filled)
+            s.reorderLatePackets = Int(reorder.late_packets)
+            s.reorderHolesLost = Int(reorder.holes_lost)
+            s.reorderQueueFull = Int(reorder.queue_full_skips)
         }
         s.decodeMs = decoder.decodeMilliseconds
         return s

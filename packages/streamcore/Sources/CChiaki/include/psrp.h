@@ -222,6 +222,18 @@ void psrp_session_set_login_pin(PsrpSession *session, const char *pin);
 uint64_t psrp_session_rtt_us(PsrpSession *session);
 /// The bitrate the console's encoder aims for now (bit/s, from its connection quality reports; 0 before one).
 uint32_t psrp_session_target_bitrate(PsrpSession *session);
+/// How long a missing video packet is waited for before it's skipped (measured from the link by libchiaki's
+/// Takion), and what it learned from: holes that filled while waiting, packets that came after their hole was
+/// skipped, skipped holes nothing came for, and holes skipped because the reorder queue was full.
+typedef struct {
+    uint32_t wait_us; // 0 before the stream connects
+    uint32_t holes_filled;
+    uint32_t late_packets;
+    uint32_t holes_lost;
+    uint32_t queue_full_skips;
+} PsrpReorderStats;
+/// Safe from any thread; all zero without a session.
+void psrp_session_reorder_stats(PsrpSession *session, PsrpReorderStats *out);
 /// One frame of the DualSense haptics stream (`frames` interleaved stereo samples) as rumble strengths.
 void psrp_haptics_to_rumble(const int16_t *samples, size_t frames, uint8_t *left, uint8_t *right);
 

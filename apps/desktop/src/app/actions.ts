@@ -30,6 +30,7 @@ import {
   dropRates,
   framesPerSecond,
   hudStats,
+  reorderLine,
   statRows,
   upscaleIdle,
   type StatRow,
@@ -430,12 +431,22 @@ export const diagnosticsReport = (d: Diagnostics, status: RendererStatus, settin
   [
     buildLine(d),
     `Renderer: MetalFX ${status.metalfxSupported ? "yes" : "no"}, ML super-resolution ${status.mlSupported ? "yes" : "no"}`,
+    ...[reorderLine(status.stream)].filter((line) => line !== undefined),
     `Settings: ${JSON.stringify(settings)}`,
     `Log folder: ${d.logFolder}`,
     "",
     "Recent log:",
     d.recentLog,
   ].join("\n")
+
+/** The reorder wait while a stream runs, read every second for Settings › Diagnostics (undefined without one). A
+ * failed reading is skipped: the next one comes soon. */
+export const pollReorderWait = (report: (line: string | undefined) => void): Effect.Effect<number, never, Core> =>
+  Effect.flatMap(Core, (core) => core.rendererStatus).pipe(
+    Effect.flatMap((status) => Effect.sync(() => { report(reorderLine(status.stream)) })),
+    Effect.ignore,
+    Effect.repeat(Schedule.spaced(statsInterval)),
+  )
 
 /** Puts a diagnostics report on the clipboard, for bug reports. */
 export const copyDiagnostics = (settings: Settings): Effect.Effect<void, CoreError | ClipboardFailed, Core> =>

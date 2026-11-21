@@ -787,6 +787,10 @@ describe("settings", () => {
     // The version and the commit it was built from, first thing in the panel.
     expect(await sheet.findByLabelText("Version")).toHaveTextContent("PlayFX 0.1.0 (abc1234) on macOS 27.2")
     expect(sheet.getByText(/never contain your PlayStation sign-in/)).toBeInTheDocument()
+    expect(sheet.queryByLabelText("Reorder wait")).not.toBeInTheDocument() // no stream connected
+    core.state.status = status({ reorderWaitMs: 4.2, reorderHolesFilled: 12, reorderLatePackets: 3, reorderHolesLost: 5 })
+    expect(await sheet.findByLabelText("Reorder wait", {}, { timeout: 3000 }))
+      .toHaveTextContent("Reorder wait 4 ms · 12 holes filled while waiting · 3 late packets · 5 holes lost · 0 queue full")
     await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ }))
     await waitFor(() => {
       expect(core.service.setDetailedLogs).toHaveBeenLastCalledWith(true)

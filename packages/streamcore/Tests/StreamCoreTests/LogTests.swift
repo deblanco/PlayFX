@@ -61,6 +61,7 @@ import Testing
     @Test(arguments: [
         "StreamConnection received connection quality: target_bitrate=19417000, upstream_bitrate=0, upstream_loss=0.0000, disable_upstream_audio=0, rtt=103.5, loss=0",
         "StreamConnection measured bitrate: 7.4646 MBit/s",
+        "Takion AV reorder wait now 7.5 ms (holes filled while waiting: 12, late packets: 3, holes lost: 5, queue full: 0)",
         "Frame Processor received 2+1 / 3+1 units, attempting FEC",
         "FEC successful",
         "Ctrl received Heartbeat, sending reply",

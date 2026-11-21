@@ -63,6 +63,14 @@ private func shimPipe2(_ fds: UnsafeMutablePointer<Int32>, _ flags: Int32) -> In
         }
     }
 
+    @Test func reorderStatsWithoutASessionAreZero() {
+        var stats = PsrpReorderStats(wait_us: 16000, holes_filled: 1, late_packets: 2, holes_lost: 3, queue_full_skips: 4)
+        psrp_session_reorder_stats(nil, &stats)
+        #expect(stats.wait_us == 0 && stats.holes_filled == 0 && stats.late_packets == 0 && stats.holes_lost == 0
+            && stats.queue_full_skips == 0)
+        psrp_session_reorder_stats(nil, nil) // nowhere to write: no crash
+    }
+
     @Test func parsesPSNDeviceIDs() {
         var out = [UInt8](repeating: 0, count: 32)
         #expect(psrp_parse_duid(String(repeating: "0a", count: 31) + "ff", &out))

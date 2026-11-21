@@ -1,6 +1,6 @@
 import { Option } from "effect"
 import { ChevronRight, CircleQuestionMark, ClipboardCopy, Code, FolderOpen, RotateCcw, Save, Trash2 } from "lucide-react"
-import { useEffect, useId, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
@@ -27,7 +27,7 @@ import {
   type Stage,
   type StageId,
 } from "./format"
-import { useRun } from "./runtime"
+import { useFork, useRun } from "./runtime"
 
 const viewHints: Readonly<Record<Settings["view"], string>> = {
   original: "The stream as it arrives, without the steps below.",
@@ -571,11 +571,16 @@ const ControllerOptions = ({ settings, set }: { readonly settings: Settings; rea
 const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; readonly set: Set }) => {
   const run = useRun()
   const [build, setBuild] = useState<string | null>(null)
+  const [reorder, setReorder] = useState<string | undefined>(undefined)
   useEffect(() => { run(actions.appInfo, { onSuccess: (info) => { setBuild(actions.buildLine(info)) } }) }, [run])
+  useFork(useMemo(() => actions.pollReorderWait(setReorder), []))
   return (
     <>
       {build !== null && (
         <p className="text-sm font-medium text-foreground select-text" aria-label="Version">{build}</p>
+      )}
+      {reorder !== undefined && (
+        <p className="text-xs text-muted-foreground select-text" aria-label="Reorder wait">{reorder}</p>
       )}
       <SwitchRow
         label="Detailed logs"

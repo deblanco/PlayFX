@@ -184,6 +184,7 @@ extension Serial {
             let stats = try object(sc_session_stats())
             #expect(stats["active"] as? Bool == true && stats["framesDecoded"] as? Int == 0)
             #expect(stats["rttMs"] as? Double == 0) // not measured until connected
+            #expect(stats["reorderWaitMs"] as? Double == 0 && stats["reorderHolesLost"] as? Int == 0) // nor the reorder wait
             "1234".withCString(sc_session_set_login_pin)
 
             // Loopback has no console: the session quits with an error event.

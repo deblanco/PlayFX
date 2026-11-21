@@ -12,6 +12,7 @@ import {
   type Settings,
   type StreamEvent,
   type StreamOptions,
+  type StreamStats,
 } from "@/core/schema"
 
 // Pure helpers: everything here is a function of its arguments, so the UI can stay dumb.
@@ -284,6 +285,20 @@ const bitrateRow = (mbps: number, targetKbps: number): StatRow => {
   const received = `${mbps.toFixed(1)} Mbps`
   const value = targetKbps > 0 ? `${received} (target ${(targetKbps / 1000).toFixed(1)})` : received
   return statRow("Bitrate", value, value)
+}
+
+/** The reorder wait and what it was learned from, for Settings › Diagnostics and the report (undefined until a
+ * stream says): "Reorder wait 4 ms · 12 holes filled while waiting · 3 late packets · 5 holes lost · 0 queue full". */
+export const reorderLine = (stream: StreamStats): string | undefined => {
+  const wait = stream.reorderWaitMs ?? 0
+  if (!stream.active || wait <= 0) return undefined
+  return [
+    `Reorder wait ${String(Math.round(wait))} ms`,
+    `${String(stream.reorderHolesFilled ?? 0)} holes filled while waiting`,
+    `${String(stream.reorderLatePackets ?? 0)} late packets`,
+    `${String(stream.reorderHolesLost ?? 0)} holes lost`,
+    `${String(stream.reorderQueueFull ?? 0)} queue full`,
+  ].join(" · ")
 }
 
 /** What the stream is doing, for the stats panel (empty until video arrives). `rates`: the missed pairs and

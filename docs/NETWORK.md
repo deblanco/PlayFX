@@ -199,10 +199,13 @@ The submodule follows `playfx` (`.gitmodules`). The fixes, each meant to be offe
 | **Each lost frame counted once** (`videoreceiver.c`, test in `test/videoreceiver.c`) | While waiting for a keyframe, every FEC failure counted all frames since the last complete one again, so a few hundred failures reported 169,000 lost frames, and the app's frame numbering (its pacing clock) jumped with them. Now the frames since the last one handed over are counted once, when the next one is. |
 | **No deadlock when a PSN registration outlasts the session's wait for it** (`session.c`, test in `test/regist.c`) | The session thread joined the registration thread while holding its state mutex, and the registration's last callback takes that mutex. A stop during the registration (Cancel on PSN pairing, or leaving an internet session while it connects), a console slower than the 10 s wait, or a stop right after the keys arrived left `chiaki_session_join` blocked for good. The mutex is released around the join now, and when the registration fails after a stop, the stop stays the quit reason. |
 | **A stop ends a PSN registration at once, and a console that never answered it has its own quit reason** (`regist.c`, `remote/rudp.c`, `http.c`, `session.c`, tests in `test/regist.c`) | The registration's RUDP steps waited on the rudp instance's stop pipe, which nothing stops, for up to 3 tries of 1 s each, so Cancel on PSN pairing (or leaving an internet session while it registers) took up to 3 s, and up to 12 s with a console answering slowly. `chiaki_rudp_send_recv` and `chiaki_send_recv_http_header_psn` take an optional stop pipe now and the registration passes its own: a stop ends it in milliseconds. A failed PSN registration quit as `PSN_REGIST_FAILED` even when the console never answered it, so PlayFX said the PS5 hadn't accepted pairing; the session now quits with `PSN_REGIST_UNANSWERED` then, from the registration's `console_answered`. |
+| **A 256-slot video reorder queue, and a full queue skips holes instead of dropping packets** (`takion.c`, test in `test/takion.c`) | The queue had 64 slots, and in the owner's logs a frame is ~70 packets at 1080p30 20 Mbps HDR (at 1080p60, 37 frames of 4444 were more than 64). A hole near a frame's start so overflowed the queue before the wait ran out, and the queue made room by freeing its oldest slots: packets that had arrived, never delivered. It has 256 slots now (as in neo773's rewrite), and before a packet that wouldn't fit, Takion delivers what is buffered in order and skips the holes in front of it, as the timeout does ("Takion AV queue full: skipping N missing packet(s)" at DEBUG). Duplicates and packets older than the queue are still dropped. |
+| **The reorder wait measured from the link** (`reorderwait.c`/`.h`, `takion.c`, tests in `test/reorderwait.c` and `test/takion.c`) | A missing video packet was waited for a fixed 16 ms. Skipping too early loses a frame (FEC has 1–5 units to spare, then the stream waits for a keyframe); waiting too long only delays the frames behind the hole, which the app's pacing absorbs. The logs show both kinds of link: on the LAN holes are rare (5 in 50 minutes); in a 3-minute collapse there were ~25 timeouts a second, each missing 10–30+ packets (real loss in bursts, FEC failed), and holes that filled in time weren't seen at all. Now a hole that fills while waiting is a lateness sample; a packet that comes after its hole was skipped (it was dropped silently) raises the wait to 1.25× its lateness at once and is a sample too (the last 32 skipped holes are kept, each packet counted once, duplicates of delivered packets not at all); a skipped hole nothing comes for in 100 ms was real loss, so the wait shrinks by 5%. Samples go through TCP's RTO smoother (RFC 6298): the wait follows srtt + 4 rttvar, up at once, down by at most 5% a sample, within 3–20 ms, starting at 16 ms. `chiaki_takion_video_reorder_stats()` gives it and its counts to any thread, the log says when it moves by 2 ms (at most every 5 s), and Settings › Diagnostics shows it. |
 
-PR #817 also raised the reorder queue's wait from 16 to 33 ms. That trades latency for fewer lost frames,
-so it isn't taken without a measurement. Its other parts (FFmpeg flags, Vulkan, Qt threads) don't apply to
-PlayFX.
+PR #817 also raised the reorder queue's wait from 16 to 33 ms. That trades latency for fewer lost frames on
+every link, so it isn't taken: the wait is measured from the link instead (the table above), and its 20 ms ceiling
+covers a late packet seen in the logs without adding 33 ms behind every real loss. Its other parts (FFmpeg flags,
+Vulkan, Qt threads) don't apply to PlayFX.
 
 ### What we took from neo773/chiaki-ng
 
@@ -215,12 +218,13 @@ upstream, November 2026). Most of it is chiaki-ng's own Qt app: a Metal renderer
 - **Taken:** the control-request retry, and `SO_NOSIGPIPE` plus the marking on the session request socket
   (the table above).
 - **Taken as an idea, in our own code:** decoding off libchiaki's receive thread. See "Asynchronous decoding"
-  below.
+  below. And from its Takion rewrite, the 256-slot video reorder queue (the table above).
 - **Left out:**
-  - its Takion rewrite (2.5 ms reorder timeout, skipping missing packets when FEC can rebuild the frame, a
-    256-slot queue, a packet pool, about 400 lines): tuned for wired links. On Wi-Fi it turns late packets
-    into lost ones, and it doesn't touch our real problem, the AWDL stall. Its next commit "restores" a few
-    things it broke.
+  - the rest of its Takion rewrite (a 2.5 ms reorder timeout, skipping missing packets when FEC can rebuild
+    the frame, a packet pool, about 400 lines): tuned for wired links. On Wi-Fi a 2.5 ms wait turns late
+    packets into lost ones, and it doesn't touch our real problem, the AWDL stall. Its next commit "restores" a
+    few things it broke. Our wait is measured instead, and goes as low as 3 ms only where the link shows that
+    holes fill sooner or not at all.
   - sending input from the caller's thread instead of waking the sender thread: microseconds, at the cost of
     changing chiaki's locking.
   - a shorter Senkusha ping test: it only applies below 2 ms of round trip (wired); we measure 12–40 ms on
@@ -296,7 +300,8 @@ All of these work without the UI:
 
 - **The dev control port** (`PLAYFX_DEV_CONTROL=7780 bun run desktop`, see [dev-control.md](dev-control.md)).
   `GET /status` returns:
-  - `stream`: `framesDecoded`, `framesLost`, `rttMs`;
+  - `stream`: `framesDecoded`, `framesLost`, `rttMs`, `reorderWaitMs` and its counts (`reorderHolesFilled`,
+    `reorderLatePackets`, `reorderHolesLost`, `reorderQueueFull`);
   - `pacing`: `latenessMs` (the p90 lateness behind the stream clock), `delayMs`, `skippedFrames`,
     `clockRestarts`, `wifiStalls` (the periodic stall seen in the frames).
 
@@ -312,5 +317,9 @@ All of these work without the UI:
   of a frame per frame, and starts over only when they're a quarter second off (FRAME_INTERPOLATION.md).
 - **Steady Wi-Fi depends on AppleScript's administrator prompt and `ifconfig`.** Both exist on every
   macOS release so far, but Apple could restrict them.
-- **The fork's fixes are measured on one network.** The reorder-wait change from PR #817 is untested.
+- **The fork's fixes are measured on one network.** The measured reorder wait and the 256-slot queue are
+  unit-tested only (a fake console on localhost); a session on the console is next (PLAN.md, section 4).
+- **The reorder wait learns from what comes late, not from what never comes.** A hole that's real loss shrinks
+  it only 5%, and its floor is 3 ms; a packet later than 20 ms is lost whatever the wait. It covers video only:
+  audio isn't reordered.
 - **Not yet tried on a console:** the control-request retry and asynchronous decoding (unit-tested only).

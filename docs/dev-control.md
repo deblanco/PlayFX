@@ -95,7 +95,8 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
               "interpolation": "screen", "upscale": "notLarger", "ml": "off",
               "displayHz": 75, "streamFps": 60, "gameFps": 0, "repeatedFrames": 0, "wifiStalls": false },
   "stream": { "active": true, "width": 1920, "height": 1080, "framesDecoded": 5400, "framesLost": 0, "rttMs": 4.2,
-              "targetBitrateKbps": 19417 }
+              "targetBitrateKbps": 19417, "reorderWaitMs": 6.8, "reorderHolesFilled": 41, "reorderLatePackets": 2,
+              "reorderHolesLost": 5, "reorderQueueFull": 0 }
 }
 ```
 
@@ -135,6 +136,11 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
   [NETWORK.md](NETWORK.md), "Seeing the stall in the stream".
 
 `stream.targetBitrateKbps` is what the console's encoder aims for, from its connection quality reports.
+
+`stream.reorderWaitMs` is how long libchiaki waits for a missing video packet before skipping it, measured from
+the link (3–20 ms, 16 until it learns; 0 before the stream connects). The counts are totals for the stream: holes
+that filled while waiting, packets that came after their hole was skipped, skipped holes nothing came for, and holes
+skipped because the reorder queue was full. See [NETWORK.md](NETWORK.md).
 
 `shownFps` counts the new images put on screen each second. With Frame interpolation it's higher than the
 stream's frame rate, which is how you can tell frame generation is working.

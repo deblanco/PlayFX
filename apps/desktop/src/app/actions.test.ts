@@ -833,6 +833,28 @@ describe("diagnostics", () => {
     expect(report).toContain("Renderer: MetalFX yes, ML super-resolution yes")
     expect(report).toContain('"upscaler":"metalfx"')
     expect(report.endsWith("Recent log:\n[INFO] hello")).toBe(true)
+    expect(report).not.toContain("Reorder wait") // no stream connected
+    const streaming = actions.diagnosticsReport(
+      { appVersion: "0.1.0", commit: "abc1234", os: "macOS 27.2", logFolder: "/logs", recentLog: "" },
+      status({ reorderWaitMs: 7.5, reorderHolesLost: 2 }),
+      defaultSettings,
+    )
+    expect(streaming).toContain("\nReorder wait 8 ms · 0 holes filled while waiting · 0 late packets · 2 holes lost · 0 queue full\n")
+  })
+
+  it.effect("reads the reorder wait every second while a stream runs", () => {
+    const core = fakeCore()
+    return Effect.gen(function* () {
+      const lines: (string | undefined)[] = []
+      const fiber = yield* Effect.forkChild(actions.pollReorderWait((line) => { lines.push(line) }))
+      yield* TestClock.adjust("0 millis")
+      core.state.status = status({ reorderWaitMs: 12 })
+      yield* TestClock.adjust(actions.statsInterval)
+      core.state.status = status()
+      yield* TestClock.adjust(actions.statsInterval)
+      yield* Fiber.interrupt(fiber)
+      expect(lines).toEqual([undefined, "Reorder wait 12 ms · 0 holes filled while waiting · 0 late packets · 0 holes lost · 0 queue full", undefined])
+    }).pipe(Effect.provide(core.layer))
   })
 
   it.effect("copies the report to the clipboard, or says it couldn't", () => {

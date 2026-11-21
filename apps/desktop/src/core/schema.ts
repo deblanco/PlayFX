@@ -334,6 +334,15 @@ export const StreamStats = Schema.Struct({
   decodeMs: Schema.optionalKey(Schema.Number),
   /** The bitrate the console's encoder aims for now (kbps; 0 until it reports one). */
   targetBitrateKbps: Schema.optionalKey(Schema.Number),
+  /** How long a missing video packet is waited for before it's skipped, measured from the link (ms; 0 until
+   * the stream connects). Older builds don't send it, nor the counts below. */
+  reorderWaitMs: Schema.optionalKey(Schema.Number),
+  /** What the wait was learned from, totals for the stream: holes that filled while waiting, packets that came
+   * after their hole was skipped, skipped holes nothing came for, holes skipped because the queue was full. */
+  reorderHolesFilled: Schema.optionalKey(Schema.Number),
+  reorderLatePackets: Schema.optionalKey(Schema.Number),
+  reorderHolesLost: Schema.optionalKey(Schema.Number),
+  reorderQueueFull: Schema.optionalKey(Schema.Number),
 })
 export type StreamStats = typeof StreamStats.Type
 

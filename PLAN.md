@@ -3,7 +3,11 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after the built-in profiles (requested): **Recommended**, which is also the new
+Last updated 2026-11-21, after the measured reorder wait: libchiaki's Takion waits for a missing video packet as
+long as the link shows packets come late (3–20 ms, learned from holes that fill and packets that come after a skip;
+it was a fixed 16 ms), its video reorder queue has 256 slots instead of 64, and a full queue skips the missing
+packets instead of dropping ones that arrived; Settings › Diagnostics shows the wait. Unit-tested, not yet on the
+console. Before that, the built-in profiles (requested): **Recommended**, which is also the new
 defaults, now streams 1080p60 HEVC at 20 Mbps with frame interpolation on (ML upscaling, MetalFX, sharpness
 0.3 as before), and a second built-in **GTA VI** profile is the same at 30 fps with touchpad touches off; a
 profile saved as "GTA VI" before shows as "GTA VI (saved)". Unit tests only. Before that, **Steady Wi-Fi
@@ -74,9 +78,9 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 383 tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift SWCOUNT tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
-  own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
+  own unit tests 145/145. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
 
@@ -339,10 +343,28 @@ Work items:
   - From [neo773/chiaki-ng](https://github.com/neo773/chiaki-ng) (reviewed 2026-11-19): the fork retries the
     control request when the console resets the connection (3×, 35 ms apart), and both TCP sockets get
     `TCP_NODELAY`, the real-time marking and `SO_NOSIGPIPE`. Video now decodes asynchronously, off
-    libchiaki's receive thread. Its Takion rewrite was left out (tuned for wired links). Not yet tried on the
-    console. See docs/NETWORK.md.
+    libchiaki's receive thread. Its Takion rewrite was left out (tuned for wired links), except its 256-slot
+    queue (below). Not yet tried on the console. See docs/NETWORK.md.
+  - 🔶 **The reorder wait, measured** (2026-11-21, two fork commits). The logs showed why a fixed wait can't fit:
+    at 1080p30 20 Mbps HDR a frame is ~70 packets, more than the queue's 64 slots (at 1080p60, 37 frames of 4444
+    were), and a full queue dropped packets that had arrived; on the LAN holes are rare (5 in 50 min), while in a
+    3-minute collapse ~25 timeouts a second each missed 10–30+ packets (real loss, FEC failed). Now:
+    - the video reorder queue has 256 slots, and when a packet wouldn't fit, Takion delivers what is buffered and
+      skips the holes in front of it, as the timeout does: an arrived packet is never dropped for room;
+    - the wait comes from the link (`reorderwait.c`): a hole that fills while waiting is a lateness sample; a
+      packet that comes after its hole was skipped raises the wait to 1.25× its lateness at once (and is a sample);
+      a skipped hole nothing comes for in 100 ms (real loss) shrinks it by 5%. Samples go through a TCP RTO
+      smoother (srtt + 4 rttvar), up at once and down by at most 5% a sample, within 3–20 ms, from 16 ms;
+    - Settings › Diagnostics shows "Reorder wait 4 ms · N holes filled while waiting · N late packets · N holes
+      lost · N queue full" while a stream runs, the copied report has the same line, and the log says when the
+      wait moves by 2 ms (at most every 5 s). The status JSON's `stream` carries `reorderWaitMs` and the counts.
+    - Verified by unit tests: chiaki's (estimator traces: late by 7 ms settles at 7–10 ms, pure loss drifts to
+      3 ms, a burst then calm, one outlier bumps then decays, the clamps, duplicates, the wrap; and a fake console
+      on localhost: a full queue delivers every packet that came in order, a hole filled in time lowers the wait,
+      a packet 10 ms after its skip raises it to 20 ms, duplicates aren't late), and Swift, TS for the stats and
+      the Diagnostics line. **Left: a session on the console** (section 4).
   - **Open:**
-    - the 33 ms reorder wait from PR #817 is untested;
+    - the reorder wait on the console (section 4); PR #817's 33 ms isn't taken: the wait is measured instead;
     - the stream with Steady Wi-Fi on hasn't been measured (only pings were);
     - the warning from the stall itself hasn't been seen on a live stream (its thresholds come from the
       measured ~90 ms every 0.5–1 s);
@@ -1038,10 +1060,16 @@ requests and a bug report.
    whether a 1080p HDR stream looks better with it than without (it was only level with a cross-fade over the
    synthetic frame, better on the moving object) and a 720p one not worse (it scored under a cross-fade there);
    and an SDR game with HDR on reads `unsupported`. *(P1)*
+7c. **On the console: the measured reorder wait** (new 2026-11-21, unit-tested only). A normal session at
+   1080p60 and one at 1080p30 HDR on the LAN: Settings › Diagnostics shows the wait settling (from 16 ms, likely
+   down to 3–8 ms on the LAN) and the log's "Takion AV reorder wait now" lines; compare holes, lost frames and
+   "waiting for IDR" with the earlier logs (5 holes in 50 min; no "queue full" skips dropping a frame); then over
+   the internet, where the wait should stay higher. Detailed logs show each "queue full" and "reorder timeout"
+   skip. *(P1)*
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
    itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
    quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a
-   50 fps game is left to see); the PR #817 reorder-wait test (needs the console); ~~tests for the reconnect
+   50 fps game is left to see); ~~the PR #817 reorder-wait test~~ (replaced by the measured wait, 7c); ~~tests for the reconnect
    race and the audio output following the system default~~ (done 2026-11-20); the chiaki-ng upstream PR
    (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer tuning; ~~a profile switch
    during a bitrate reconnect reconnecting on its own~~ (fixed 2026-11-20); the Play toast suggesting Steady

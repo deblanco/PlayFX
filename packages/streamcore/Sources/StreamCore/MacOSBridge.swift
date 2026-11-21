@@ -622,6 +622,8 @@ public func sc_session_stats() -> UnsafeMutablePointer<CChar> {
     return json(["active": true, "framesDecoded": s.framesDecoded, "decodeErrors": s.decodeErrors,
                  "framesLost": s.framesLost, "width": s.width, "height": s.height,
                  "bytesReceived": s.bytesReceived, "rttMs": s.rttMs, "decodeMs": s.decodeMs,
-                 "targetBitrateKbps": s.targetBitrateKbps])
+                 "targetBitrateKbps": s.targetBitrateKbps, "reorderWaitMs": s.reorderWaitMs,
+                 "reorderHolesFilled": s.reorderHolesFilled, "reorderLatePackets": s.reorderLatePackets,
+                 "reorderHolesLost": s.reorderHolesLost, "reorderQueueFull": s.reorderQueueFull])
 }
 #endif

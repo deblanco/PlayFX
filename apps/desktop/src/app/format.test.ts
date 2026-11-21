@@ -20,6 +20,7 @@ import {
   renderParams,
   hudStats,
   quitMessage,
+  reorderLine,
   samePaired,
   microphoneProblem,
   onlyBitrateChanged,
@@ -577,6 +578,16 @@ describe("statRows", () => {
       .toMatchObject({ inline: "ML idle (waiting on the model)", warn: false })
     expect(find(at1080({ ml: "on" }), "ML upscaling")).toBeUndefined()
     expect(find(at1080({ ml: "off" }), "ML upscaling")).toBeUndefined()
+  })
+
+  it("says how long a missing packet is waited for, once a stream says", () => {
+    expect(reorderLine({ active: true, reorderWaitMs: 4.4, reorderHolesFilled: 12, reorderLatePackets: 3, reorderHolesLost: 5, reorderQueueFull: 0 }))
+      .toBe("Reorder wait 4 ms · 12 holes filled while waiting · 3 late packets · 5 holes lost · 0 queue full")
+    expect(reorderLine({ active: true, reorderWaitMs: 16 })).toBe("Reorder wait 16 ms · 0 holes filled while waiting · 0 late packets · 0 holes lost · 0 queue full")
+    // Not connected yet, an older host, or no stream.
+    expect(reorderLine({ active: true, reorderWaitMs: 0 })).toBeUndefined()
+    expect(reorderLine({ active: true })).toBeUndefined()
+    expect(reorderLine({ active: false, reorderWaitMs: 16 })).toBeUndefined()
   })
 
   it("is empty until video arrives", () => {

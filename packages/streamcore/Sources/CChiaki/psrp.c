@@ -747,6 +747,19 @@ uint32_t psrp_session_target_bitrate(PsrpSession *s) {
     return s ? s->session.stream_connection.target_bitrate : 0;
 }
 
+void psrp_session_reorder_stats(PsrpSession *s, PsrpReorderStats *out) {
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    if (!s) return;
+    ChiakiReorderWaitStats stats;
+    chiaki_takion_video_reorder_stats(&s->session.stream_connection.takion, &stats);
+    out->wait_us = stats.wait_us;
+    out->holes_filled = stats.holes_filled;
+    out->late_packets = stats.late_packets;
+    out->holes_lost = stats.holes_lost;
+    out->queue_full_skips = stats.overflow_skips;
+}
+
 void psrp_session_set_login_pin(PsrpSession *s, const char *pin) {
     if (!started(s) || !pin) return;
     chiaki_session_set_login_pin(&s->session, (const uint8_t *)pin, strlen(pin));

@@ -181,9 +181,16 @@ describe("RendererStatus", () => {
         interpolation: "on", upscale: "notLarger", ml: "streamTooLarge", displayHz: 120, streamFps: 60, gameFps: 30, repeatedFrames: 12,
         wifiStalls: true,
       },
-      stream: { active: true, framesDecoded: 1200, decodeErrors: 0, framesLost: 3, width: 1920, height: 1080, bytesReceived: 4096 },
+      stream: {
+        active: true, framesDecoded: 1200, decodeErrors: 0, framesLost: 3, width: 1920, height: 1080, bytesReceived: 4096,
+        reorderWaitMs: 7.5, reorderHolesFilled: 12, reorderLatePackets: 3, reorderHolesLost: 5, reorderQueueFull: 1,
+      },
     }
     expect(Schema.decodeUnknownSync(RendererStatus)(streaming)).toEqual(streaming)
+    // A host from before the measured reorder wait: still a stream.
+    const { reorderWaitMs: _wait, ...older } = streaming.stream
+    expect(Schema.decodeUnknownSync(RendererStatus)({ ...streaming, stream: older }).stream.reorderWaitMs).toBeUndefined()
+    expect(decodes(RendererStatus, { ...streaming, stream: { ...older, reorderWaitMs: "7" } })).toBe(false)
   })
 
   it("decodes pacing from a host that doesn't say what each step is doing yet", () => {
