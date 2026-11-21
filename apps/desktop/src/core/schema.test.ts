@@ -202,6 +202,11 @@ describe("RendererStatus", () => {
       wifiStalls: false,
     })
     expect(decodes(RendererStatus, { ...status, pacing: { ...older, interpolation: "maybe" } })).toBe(false)
+    // Why an HDR stream, or an SDR game with HDR on, gets no in-between images: newer hosts say so.
+    for (const interpolation of ["sdrInHdr", "hdrUnsupported", "failed", "unsupported"]) {
+      expect(Schema.decodeUnknownSync(RendererStatus)({ ...status, pacing: { ...older, interpolation } }).pacing?.interpolation)
+        .toBe(interpolation)
+    }
     expect(decodes(RendererStatus, { ...status, pacing: { ...older, wifiStalls: "yes" } })).toBe(false)
   })
 

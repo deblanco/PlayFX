@@ -30,6 +30,7 @@ import {
   dropRates,
   framesPerSecond,
   hudStats,
+  interpolationReason,
   reorderLine,
   statRows,
   upscaleIdle,
@@ -750,6 +751,8 @@ export interface LiveStats {
   readonly rows: readonly StatRow[]
   /** Why the chosen upscaler isn't enlarging the picture right now (see `upscaleIdle`). */
   readonly upscaleIdle?: string
+  /** What Frame interpolation is doing, for its switch (see `interpolationReason`). */
+  readonly interpolationReason?: string
   /** The stream's frames show the Wi-Fi's periodic stall (`PacingStats.wifiStalls`). */
   readonly wifiStalls: boolean
 }
@@ -771,6 +774,7 @@ export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: 
       const fps = framesPerSecond(previous, sample)
       const mbps = megabitsPerSecond(previous, sample)
       const idle = upscaleIdle(status.pacing)
+      const interpolation = interpolationReason(status)
       const pacing = status.pacing
       // No stream (or a reconnect between two): start over.
       const window = yield* Ref.updateAndGet(drops, (samples) =>
@@ -781,6 +785,7 @@ export const pollStats = (report: (stats: LiveStats) => void, requestedHeight?: 
         line: hudStats(status, fps, mbps),
         rows: statRows(status, fps, mbps, requestedHeight, dropRates(window)),
         ...(idle === undefined ? {} : { upscaleIdle: idle }),
+        ...(interpolation === undefined ? {} : { interpolationReason: interpolation }),
         wifiStalls: status.stream.active && pacing?.wifiStalls === true,
       })
     })

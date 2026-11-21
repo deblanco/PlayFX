@@ -3,7 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after a **Misc** tab in Settings (Picture · Stream · Misc · Diagnostics, each with an
+Last updated 2026-11-21, after saying why an HDR stream gets no frame interpolation: `sdrInHdr` (an SDR game with
+HDR on), `hdrUnsupported` (no MetalFX frame interpolator here) and "MetalFX kept failing (HDR)", in the stats line
+and on the Frame interpolation switch while streaming; unit tests only. Before that, a **Misc** tab in Settings (Picture · Stream · Misc · Diagnostics, each with an
 icon and a line saying what it's for; the controller's Touchpad touches moved there from Stream). Before that, the measured reorder wait: libchiaki's Takion waits for a missing video packet as
 long as the link shows packets come late (3–20 ms, learned from holes that fill and packets that come after a skip;
 it was a fixed 16 ms), its video reorder queue has 256 slots instead of 64, and a full queue skips the missing
@@ -306,6 +308,21 @@ Work items:
     10-bit SDR frames (HDR on, SDR game), which neither engine takes, report `unsupported` and keep their repeats;
     the stats row says "Off: kept failing", and the setting says 60 on ProMotion in HDR. Tests added for each,
     and the still-area blend test now uses an engine image unlike either frame, with the 10-bit thresholds.
+    **Saying why** (2026-11-21, unit tests only): each HDR case now has its own reason instead of a vague
+    "interpolation unavailable". New states `sdrInHdr` (10-bit SDR frames: the HDR setting on, an SDR game; was
+    `unsupported`) and `hdrUnsupported` (an HDR stream where MetalFX's interpolator can't run; was `unsupported`,
+    which now means SDR only), decided by `StreamRenderer.interpolationState(enabled:hdr:supported:taken:tenBitSDR:
+    failed:…)`, a pure function (the renderer notes whether the newest frame is 10-bit SDR). `failed` keeps its
+    meaning; with `hdrActive` the app says which engine. Stats line: "no interpolation: SDR game with HDR on", "no
+    interpolation in HDR on this Mac", "interpolation off: MetalFX kept failing (HDR)" (amber). While streaming, the
+    Frame interpolation switch's description says the live reason ("This game is SDR, but HDR is on, … Turn HDR off
+    in Stream for this game.", "HDR needs MetalFX's frame interpolator …", "MetalFX failed several times, …", "In
+    HDR it makes one image between two frames …", and "No images in between: 60 fps on a 60 Hz screen." for a screen
+    too slow, SDR or HDR), the usual one otherwise (`interpolationReason`, passed to the sheet like `upscaleIdle`).
+    Older hosts' replies still decode (the field defaults to `off`; the old literals stay). Verified by unit tests:
+    Swift (the state's truth table, the wire names, a renderer fed 10-bit SDR frames reading `sdrInHdr` and one
+    without the HDR engine reading `hdrUnsupported`), TS (each stats row, the reason per case and only while
+    streaming, decoding with and without the new values, the switch's description following the renderer).
     **Left: an HDR game with frame interpolation on, on the console** (see section 4). See
     [docs/FRAME_INTERPOLATION.md](docs/FRAME_INTERPOLATION.md), "HDR".
 - ✅ **Network** (requested): see [docs/NETWORK.md](docs/NETWORK.md).
@@ -1079,7 +1096,8 @@ requests and a bug report.
    in-between images, no colour shift between real and generated images, and `costMs` near 5 ms at 1080p. Also
    whether a 1080p HDR stream looks better with it than without (it was only level with a cross-fade over the
    synthetic frame, better on the moving object) and a 720p one not worse (it scored under a cross-fade there);
-   and an SDR game with HDR on reads `unsupported`. *(P1)*
+   and an SDR game with HDR on reads `sdrInHdr`, the stats line "no interpolation: SDR game with HDR on" and the
+   Frame interpolation switch "This game is SDR, but HDR is on, …" (2026-11-21, unit tests only). *(P1)*
 7c. **On the console: the measured reorder wait** (new 2026-11-21, unit-tested only). A normal session at
    1080p60 and one at 1080p30 HDR on the LAN: Settings › Diagnostics shows the wait settling (from 16 ms, likely
    down to 3–8 ms on the LAN) and the log's "Takion AV reorder wait now" lines; compare holes, lost frames and

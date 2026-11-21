@@ -177,11 +177,16 @@ was 1.8× the *stream's* rate, so a 30 fps game in a 60 fps stream never got ima
 Interpolation is not available in virtual machines (`kern.hv_vmm_present`), where VideoToolbox claims
 support and then crashes or writes nothing. For HDR streams "supported" means MetalFX's frame interpolator
 runs here (macOS 26, `MTLFXFrameInterpolatorDescriptor.supportsDevice`, not a virtual machine); the state
-follows the stream as it is, so an HDR stream on a Mac without it reads `unsupported`.
+follows the stream as it is, so an HDR stream on a Mac without it reads `hdrUnsupported` (an SDR one without
+VideoToolbox's, `unsupported`). With the HDR setting on, an SDR game's frames are 10-bit SDR, which neither
+engine takes: `sdrInHdr`.
 
-`sc_pacing_stats` says what it's doing (`interpolation`: `off`, `on`, `unsupported`, `screen`), with the
-screen's measured rate (`displayHz`) and the rate it works from (`streamFps`, the game's once measured), so
-the stats line can say "no interpolation: 60 fps on a 60 Hz screen" instead of nothing.
+`sc_pacing_stats` says what it's doing (`interpolation`: `off`, `on`, `unsupported`, `hdrUnsupported`,
+`sdrInHdr`, `screen`, `still`, `failed`; `StreamRenderer.interpolationState`, a pure function with its truth
+table in `PipelineStateTests`), with the screen's measured rate (`displayHz`) and the rate it works from
+(`streamFps`, the game's once measured), so the stats line can say "no interpolation: 60 fps on a 60 Hz
+screen" or "no interpolation: SDR game with HDR on" instead of nothing. While streaming, the Frame
+interpolation switch in Settings says the same for the HDR cases (`interpolationReason` in the app).
 
 ### The game's frame rate (repeats)
 
@@ -393,7 +398,8 @@ time, dev only.
 - Three failures within a minute, or ten in a run, turn the feature off until the app restarts, instead of
   starting processor after processor. The picture goes on without it (real frames, MetalFX or bilinear),
   and the stats line says "interpolation off: it kept failing" (`interpolation: "failed"`, which also covers
-  MetalFX's HDR engine and a stream with no size left that works) or "ML off (video processor failed)"
+  MetalFX's HDR engine, said as "interpolation off: MetalFX kept failing (HDR)" while `hdrActive`, and a stream
+  with no size left that works) or "ML off (video processor failed)"
   (`ml: "failed"`).
 - Turning the feature off retires every processor still running for it, on the spot: the renderer stops
   calling the lanes once the feature is off, so waiting for the next call would keep their sessions (both

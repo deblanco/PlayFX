@@ -19,6 +19,41 @@ import Testing
         #expect(failed(true) == .failed && failed(false) == .off)
     }
 
+    /// Each reason an HDR stream, or an SDR game with HDR on, gets no in-between images, said apart.
+    @Test func interpolationSaysWhyForHDR() {
+        let state = {
+            StreamRenderer.interpolationState(enabled: $0, hdr: $1, supported: $2, taken: $3, tenBitSDR: $4, failed: $5,
+                                              streamInterval: 1.0 / 30, displayInterval: $6)
+        }
+        let at60 = 1.0 / 60
+        // enabled, hdr, supported, taken, tenBitSDR, failed, refresh
+        #expect(state(false, true, false, false, false, true, at60) == .off) // off says nothing more
+        #expect(state(false, false, true, false, true, false, at60) == .off)
+        // The HDR setting on, an SDR game: 10-bit SDR frames neither engine takes.
+        #expect(state(true, false, true, false, true, false, at60) == .sdrInHdr)
+        #expect(state(true, false, true, false, true, true, at60) == .sdrInHdr) // why it's idle comes before a failure
+        #expect(state(true, false, false, false, true, false, at60) == .unsupported) // no SDR engine: HDR off wouldn't help
+        // An HDR stream on a Mac without MetalFX's interpolator; SDR's is still "unsupported".
+        #expect(state(true, true, false, false, false, false, at60) == .hdrUnsupported)
+        #expect(state(true, true, false, true, false, true, at60) == .hdrUnsupported)
+        #expect(state(true, false, false, false, false, false, at60) == .unsupported)
+        // Not taken for another reason (a frame or two while the stream switches): as before.
+        #expect(state(true, true, true, false, false, false, at60) == .unsupported)
+        #expect(state(true, false, true, false, false, false, at60) == .unsupported)
+        // Taken: kept failing, the screen too slow, or on, the same in HDR as in SDR.
+        for hdr in [false, true] {
+            #expect(state(true, hdr, true, true, false, true, at60) == .failed)
+            #expect(state(true, hdr, true, true, false, false, 1.0 / 30) == .screen)
+            #expect(state(true, hdr, true, true, false, false, at60) == .on)
+        }
+    }
+
+    /// The names the app decodes (`PacingStats.interpolation`).
+    @Test func interpolationWireNames() {
+        let all: [PipelineState.Interpolation] = [.off, .on, .unsupported, .screen, .still, .failed, .sdrInHdr, .hdrUnsupported]
+        #expect(all.map(\.rawValue) == ["off", "on", "unsupported", "screen", "still", "failed", "sdrInHdr", "hdrUnsupported"])
+    }
+
     @Test func upscaleSaysWhyMetalFXIsIdle() {
         let state = StreamRenderer.upscaleState
         let stream = (width: 1920, height: 1080)

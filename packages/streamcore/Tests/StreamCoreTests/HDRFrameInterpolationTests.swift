@@ -785,7 +785,7 @@ extension StreamRendererTests {
             _ = try renderHDR(r, size: (64, 64), now: Double(k) * frame)
             _ = try renderHDR(r, size: (64, 64), now: Double(k) * frame + refresh)
         }
-        #expect(r.pipeline.interpolation == (hdr ? .on : .unsupported))
+        #expect(r.pipeline.interpolation == (hdr ? .on : .hdrUnsupported)) // said apart from SDR's "unsupported"
         #expect(r.pipeline.ml == .off) // ML upscaling still sits out in HDR (and is off here)
     }
 
@@ -844,9 +844,9 @@ extension StreamRendererTests {
     }
 
     /// With the HDR setting on, an SDR game's frames are 10-bit but not PQ: neither engine takes them, so
-    /// interpolation says `unsupported` (not `on` with nothing made), and repeats show as they come instead of being
+    /// interpolation says `sdrInHdr` (not `on` with nothing made), and repeats show as they come instead of being
     /// left out for images that never come.
-    @Test func tenBitSDRFramesAreUnsupportedAndKeepTheirRepeats() throws {
+    @Test func tenBitSDRFramesSayWhyAndKeepTheirRepeats() throws {
         let sdr = StandInMaker(), hdr = StandInMaker()
         let r = try #require(StreamRenderer(inputWidth: 64, inputHeight: 64, upscaler: nil, interpolation: (true, true),
                                             engines: ({ sdr }, { hdr })))
@@ -864,7 +864,7 @@ extension StreamRendererTests {
             _ = try render(r, size: (64, 64), now: Double(k) * frame)
             shown.append(pixel(try render(r, size: (64, 64), now: Double(k) * frame + refresh), width: 64, x: 32, y: 32).b)
         }
-        #expect(r.pipeline.interpolation == .unsupported && r.repeatedFrames > 0)
+        #expect(r.pipeline.interpolation == .sdrInHdr && r.repeatedFrames > 0) // why: SDR frames with HDR on
         #expect(sdr.asked.isEmpty && hdr.asked.isEmpty)
         #expect(zip(shown, shown.dropFirst()).allSatisfy { $1 > $0 }, "\(shown)") // every frame shown, bluer each time
     }

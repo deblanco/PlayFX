@@ -96,6 +96,8 @@ interface SettingsSheetProps {
   readonly capabilities: Capabilities
   /** Why the chosen upscaler isn't enlarging the picture right now (while streaming). */
   readonly upscaleIdle?: string
+  /** What Frame interpolation is doing on the stream, where its usual description doesn't say it (while streaming). */
+  readonly interpolationReason?: string
   readonly onChange: ChangeSettings
   /** Present while streaming. */
   readonly reconnect?: ReconnectState
@@ -164,7 +166,13 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
           </TabsList>
           <TabsContent value="picture" className="flex flex-col gap-5 px-5 pt-5 pb-6">
             <TabAbout tab="picture" />
-            <PicturePanel settings={settings} capabilities={props.capabilities} upscaleIdle={props.upscaleIdle} set={set} />
+            <PicturePanel
+              settings={settings}
+              capabilities={props.capabilities}
+              upscaleIdle={props.upscaleIdle}
+              interpolationReason={props.interpolationReason}
+              set={set}
+            />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, pictureKeys)) }}>
               <RotateCcw /> Reset picture
             </Button>
@@ -295,10 +303,11 @@ const ProfileBar = ({ settings, running, onChange }: {
 
 // ---------- Picture ----------
 
-const PicturePanel = ({ settings, capabilities, upscaleIdle, set }: {
+const PicturePanel = ({ settings, capabilities, upscaleIdle, interpolationReason, set }: {
   readonly settings: Settings
   readonly capabilities: Capabilities
   readonly upscaleIdle: string | undefined
+  readonly interpolationReason: string | undefined
   readonly set: Set
 }) => {
   const stages = pipelineStages(settings, capabilities, upscaleIdle)
@@ -327,9 +336,8 @@ const PicturePanel = ({ settings, capabilities, upscaleIdle, set }: {
       <SwitchRow
         label="Frame interpolation"
         description={
-          capabilities.interpolation
-            ? "Makes images between the game’s own frames, one for each screen refresh: a 30 fps game looks like 60 on a 60 Hz screen and 120 on ProMotion (60 in HDR), even inside a 60 fps stream. Frames show about 40 ms later at 30 fps, so it suits slower games."
-            : "Needs macOS 26 on a supported Mac."
+          !capabilities.interpolation ? "Needs macOS 26 on a supported Mac."
+            : interpolationReason ?? "Makes images between the game’s own frames, one for each screen refresh: a 30 fps game looks like 60 on a 60 Hz screen and 120 on ProMotion (60 in HDR), even inside a 60 fps stream. Frames show about 40 ms later at 30 fps, so it suits slower games."
         }
         checked={settings.frameInterpolation}
         disabled={!capabilities.interpolation}

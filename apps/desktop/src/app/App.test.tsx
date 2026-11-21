@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CoreError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
-import { defaultSettings, type Profile, type Settings } from "@/core/schema"
+import { defaultSettings, type PacingStats, type Profile, type RendererStatus, type Settings } from "@/core/schema"
 import { cursorIdleMs, hudIdleMs } from "./StreamView"
 import { renderParams } from "./format"
 import { profileSettings } from "./profiles"
@@ -1135,6 +1135,35 @@ describe("streaming", () => {
     expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ frameInterpolation: false }))
     await userEvent.click(sheet.getByRole("switch", { name: /Frame interpolation/ }))
     expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ frameInterpolation: true }))
+  })
+
+  it("says on the Frame interpolation switch why an HDR stream, or an SDR game with HDR on, gets no images", async () => {
+    const core = fakeCore()
+    const pacing: PacingStats = {
+      generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0,
+      interpolation: "sdrInHdr", upscale: "metalfx", ml: "off", displayHz: 60, streamFps: 30, gameFps: 0, repeatedFrames: 0,
+      wifiStalls: false,
+    }
+    core.state.status = { ...status({ width: 1920, height: 1080 }), interpolationSupported: true, pacing }
+    const { runtime } = await startStreaming(core, { testClock: true })
+    const tick = () => act(() => runtime.runPromise(TestClock.adjust(1000)))
+    const sheet = await openSettings("Picture")
+    const toggle = () => sheet.getByRole("switch", { name: /Frame interpolation/ })
+    await waitFor(() => {
+      expect(toggle()).toHaveAccessibleName(/This game is SDR, but HDR is on.*Turn HDR off in Stream for this game\./)
+    })
+    const says = async (next: Partial<RendererStatus>, text: RegExp) => {
+      core.state.status = { ...core.state.status, ...next }
+      await tick()
+      await waitFor(() => {
+        expect(toggle()).toHaveAccessibleName(text)
+      })
+    }
+    await says({ hdrActive: true, pacing: { ...pacing, interpolation: "hdrUnsupported" } }, /HDR needs MetalFX's frame interpolator/)
+    await says({ pacing: { ...pacing, interpolation: "failed" } }, /MetalFX failed several times, so it's off until PlayFX restarts\./)
+    await says({ pacing: { ...pacing, interpolation: "on", generatedFps: 30 } }, /In HDR it makes one image between two frames/)
+    // An SDR stream with it on: the switch's usual description.
+    await says({ hdrActive: false }, /Makes images between the game’s own frames/)
   })
 
   it("uses the pointer as the touchpad while ⌥ Option is held", async () => {

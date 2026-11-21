@@ -349,6 +349,7 @@ export const StreamView = ({
         settings={settings}
         capabilities={capabilities}
         {...(stats.upscaleIdle === undefined ? {} : { upscaleIdle: stats.upscaleIdle })}
+        {...(stats.interpolationReason === undefined ? {} : { interpolationReason: stats.interpolationReason })}
         onChange={onSettingsChange}
         reconnect={reconnect}
       />

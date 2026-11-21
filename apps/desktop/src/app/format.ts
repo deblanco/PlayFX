@@ -260,11 +260,16 @@ const interpolationRow = (status: RendererStatus, missedRate: number): StatRow |
   switch (pacing.interpolation) {
     case "off": return undefined
     case "unsupported": return statRow("Frame interpolation", "Unavailable", "interpolation unavailable")
+    // The HDR setting on, an SDR game: its 10-bit frames are a format neither engine takes.
+    case "sdrInHdr": return statRow("Frame interpolation", "Idle: SDR game with HDR on", "no interpolation: SDR game with HDR on")
+    case "hdrUnsupported": return statRow("Frame interpolation", "Unavailable in HDR", "no interpolation in HDR on this Mac")
     // The game holds its picture (a pause): nothing to make, and nothing wrong.
     case "still": return statRow("Frame interpolation", "Idle: still picture", "no interpolation: still picture")
     // Its engine (VideoToolbox's in SDR, MetalFX's in HDR) kept failing, off until the app restarts, or no size works
     // for this stream: the picture goes on without it.
-    case "failed": return statRow("Frame interpolation", "Off: kept failing", "interpolation off: it kept failing", true)
+    case "failed": return status.hdrActive
+      ? statRow("Frame interpolation", "Off: MetalFX kept failing", "interpolation off: MetalFX kept failing (HDR)", true)
+      : statRow("Frame interpolation", "Off: kept failing", "interpolation off: it kept failing", true)
     case "screen": {
       if (pacing.displayHz <= 0 || pacing.streamFps <= 0) return undefined
       const why = `${String(Math.round(pacing.streamFps))} fps on a ${String(Math.round(pacing.displayHz))} Hz screen`
@@ -521,6 +526,26 @@ export const upscaleIdle = (pacing: PacingStats | null): string | undefined => {
   if (pacing.ml === "hdr") return "not for HDR"
   if (pacing.ml === "stalled") return "waiting on the model"
   return pacing.upscale === "failed" || pacing.ml === "failed" ? "failed" : undefined
+}
+
+/** What Frame interpolation is doing on the stream on screen, for its switch in Settings, where the switch's usual
+ * description doesn't say it: why an HDR stream (or an SDR game with HDR on) gets no images, how many it gets, or a
+ * screen too slow for the game. Undefined otherwise, and with no stream. */
+export const interpolationReason = (status: RendererStatus): string | undefined => {
+  const pacing = status.pacing
+  if (!status.stream.active || pacing === null) return undefined
+  switch (pacing.interpolation) {
+    case "sdrInHdr":
+      return "This game is SDR, but HDR is on, so its frames arrive in a format frame interpolation can't take. Turn HDR off in Stream for this game."
+    case "hdrUnsupported": return "HDR needs MetalFX's frame interpolator (macOS 26 and a supported Mac)."
+    case "failed": return status.hdrActive ? "MetalFX failed several times, so it's off until PlayFX restarts." : undefined
+    case "on": return status.hdrActive ? "In HDR it makes one image between two frames (60 at most from a 30 fps game)." : undefined
+    case "screen":
+      return pacing.displayHz > 0 && pacing.streamFps > 0
+        ? `No images in between: ${String(Math.round(pacing.streamFps))} fps on a ${String(Math.round(pacing.displayHz))} Hz screen.`
+        : undefined
+    default: return undefined
+  }
 }
 
 /** The picture steps; `idle` is `upscaleIdle` for the stream on screen. */

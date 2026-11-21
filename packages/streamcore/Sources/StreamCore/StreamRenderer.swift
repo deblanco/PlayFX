@@ -131,6 +131,8 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         /// Whether an engine here takes the stream's frames (the newest one's kind; nil before any): not 10-bit SDR
         /// frames (the HDR setting on, an SDR game), which neither does.
         var taken: Bool?
+        /// The newest frame is 10-bit SDR (the HDR setting on, an SDR game): why no engine takes it.
+        var tenBitSDR = false
         var lastReal: (frame: CVPixelBuffer, time: Double)?
         var nextIndex: UInt64 = 0
         /// The newest frame's arrival, and what it was when the lane last made an image (nil before any).
@@ -517,6 +519,7 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
                    prepare: [(width: Int, height: Int)])? =
             pacing.withLock { p in
                 p.taken = takes
+                p.tenBitSDR = !hdr && !Self.interpolates(frame)
                 guard let stamp = p.clock.time(index: i, arrival: arrival) else { return nil }
                 // A gap or a jump of frames (a late stretch only slides the clock): no images across it, and the
                 // game's rate and cadence start over. What's in the timeline stays, and so does the playhead's
@@ -917,15 +920,16 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
         let refreshInterval = displayInterval
         // For the stream as it is now: VideoToolbox's engine on SDR, MetalFX's on HDR.
         let hdr = hdrActive
-        let (interval, streamInterval, gameInterval, still, taken, exhausted) = pacing.withLock { p in
+        let (interval, streamInterval, gameInterval, still, taken, tenBitSDR, exhausted) = pacing.withLock { p in
             p.refreshInterval = InBetween.fastest(p.refreshInterval, refreshInterval)
             // No size works for this kind of stream (HDR has only its own): off for it, as when the engine keeps failing.
             let exhausted = p.rungs.map { $0.exhausted && $0.scales != hdr } ?? false
             return (p.sourceInterval, p.clock.interval, p.content.interval, now - p.lastPicture > p.clock.interval * Self.stillGap,
-                    p.taken ?? true, exhausted)
+                    p.taken ?? true, p.tenBitSDR, exhausted)
         }
-        var state = Self.interpolationState(enabled: params.frameInterpolation,
-                                            supported: (hdr ? hdrInterpolationSupported : sdrInterpolationSupported) && taken,
+        var state = Self.interpolationState(enabled: params.frameInterpolation, hdr: hdr,
+                                            supported: hdr ? hdrInterpolationSupported : sdrInterpolationSupported,
+                                            taken: taken, tenBitSDR: tenBitSDR,
                                             failed: (hdr ? lane?.hdrHasFailed : lane?.hasFailed) ?? false || exhausted,
                                             streamInterval: interval, displayInterval: displayInterval,
                                             current: interpolating.withLock { $0 })
@@ -955,12 +959,17 @@ public final class StreamRenderer: NSObject, MTKViewDelegate {
     }
 
     /// Whether in-between images can be made and shown, and if not, why; `current`: whether they are now;
-    /// `failed`: whether it's off for the rest of the run (its engine kept failing) or for this stream (no size works
-    /// for it; the lane keeps sizes that didn't work dropped for the run).
-    static func interpolationState(enabled: Bool, supported: Bool, failed: Bool = false, streamInterval: Double,
+    /// `hdr`: the stream is HDR (MetalFX's engine) rather than SDR (VideoToolbox's); `supported`: that engine runs on
+    /// this Mac; `taken`: an engine takes the newest frame, which `tenBitSDR` says it isn't because it's 10-bit SDR
+    /// (the HDR setting on, an SDR game); `failed`: whether it's off for the rest of the run (its engine kept failing)
+    /// or for this stream (no size works for it; the lane keeps sizes that didn't work dropped for the run).
+    static func interpolationState(enabled: Bool, hdr: Bool = false, supported: Bool, taken: Bool = true,
+                                   tenBitSDR: Bool = false, failed: Bool = false, streamInterval: Double,
                                    displayInterval: Double, current: Bool = false) -> PipelineState.Interpolation {
         guard enabled else { return .off }
-        guard supported else { return .unsupported }
+        guard supported else { return hdr ? .hdrUnsupported : .unsupported }
+        // Not taken otherwise only for a frame or two while the stream switches between SDR and HDR.
+        guard taken else { return tenBitSDR ? .sdrInHdr : .unsupported }
         guard !failed else { return .failed }
         return FrameInterpolator.helps(streamInterval: streamInterval, displayInterval: displayInterval,
                                        current: current) ? .on : .screen
@@ -1114,11 +1123,12 @@ struct PresentationCounts {
 /// What the optional picture steps are doing, so the app can say why one that's turned on is idle.
 public struct PipelineState: Sendable, Equatable {
     public enum Interpolation: String, Sendable {
-        /// Turned off; making in-between images; this Mac or OS can't (for the stream as it is: SDR or HDR), or no
-        /// engine takes its frames (10-bit SDR: the HDR setting on, an SDR game); the screen doesn't refresh often
-        /// enough per frame of the game to show them; on, but the game holds its picture (nothing to make); off
-        /// because its engine kept failing (until the app restarts) or no size works for this stream.
-        case off, on, unsupported, screen, still, failed
+        /// Turned off; making in-between images; this Mac or OS can't for an SDR stream (VideoToolbox's engine); the
+        /// screen doesn't refresh often enough per frame of the game to show them; on, but the game holds its picture
+        /// (nothing to make); off because its engine kept failing (until the app restarts) or no size works for this
+        /// stream; no engine takes its frames because they're 10-bit SDR (the HDR setting on, an SDR game); this Mac
+        /// or OS can't for an HDR stream (MetalFX's engine).
+        case off, on, unsupported, screen, still, failed, sdrInHdr, hdrUnsupported
     }
     public enum Upscale: String, Sendable {
         /// MetalFX ran; bilinear was chosen; MetalFX was skipped because the picture on screen isn't larger

@@ -19,6 +19,7 @@ import {
   psnPairStep,
   renderParams,
   hudStats,
+  interpolationReason,
   quitMessage,
   reorderLine,
   samePaired,
@@ -406,6 +407,35 @@ describe("pipelineStages", () => {
   })
 })
 
+describe("interpolationReason", () => {
+  const idlePacing: PacingStats = {
+    generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0,
+    interpolation: "off", upscale: "metalfx", ml: "off", displayHz: 60, streamFps: 60, gameFps: 0, repeatedFrames: 0, wifiStalls: false,
+  }
+  const reason = (pacing: Partial<PacingStats>, hdrActive = false, active = true) =>
+    interpolationReason({ ...status({ active }), hdrActive, pacing: { ...idlePacing, ...pacing } })
+
+  it("says why for each case its switch's description doesn't cover, only while streaming", () => {
+    expect(reason({ interpolation: "sdrInHdr" })).toBe(
+      "This game is SDR, but HDR is on, so its frames arrive in a format frame interpolation can't take. Turn HDR off in Stream for this game.",
+    )
+    expect(reason({ interpolation: "hdrUnsupported" }, true)).toBe("HDR needs MetalFX's frame interpolator (macOS 26 and a supported Mac).")
+    expect(reason({ interpolation: "failed" }, true)).toBe("MetalFX failed several times, so it's off until PlayFX restarts.")
+    expect(reason({ interpolation: "on", generatedFps: 30 }, true))
+      .toBe("In HDR it makes one image between two frames (60 at most from a 30 fps game).")
+    expect(reason({ interpolation: "screen" }, true)).toBe("No images in between: 60 fps on a 60 Hz screen.")
+    expect(reason({ interpolation: "screen", displayHz: 74.97, streamFps: 59.94 })).toBe("No images in between: 60 fps on a 75 Hz screen.")
+    // The switch's own description covers the rest: SDR on or failed, off, unavailable, a still picture.
+    expect(reason({ interpolation: "screen", displayHz: 0 })).toBeUndefined()
+    expect(reason({ interpolation: "on" })).toBeUndefined()
+    expect(reason({ interpolation: "failed" })).toBeUndefined()
+    for (const interpolation of ["off", "unsupported", "still"] as const) expect(reason({ interpolation }, true)).toBeUndefined()
+    // No stream, or no word from the renderer yet.
+    expect(reason({ interpolation: "sdrInHdr" }, false, false)).toBeUndefined()
+    expect(interpolationReason({ ...status(), pacing: null })).toBeUndefined()
+  })
+})
+
 describe("upscaleIdle", () => {
   const pacing: PacingStats = {
     generatedFps: 0, skippedFrames: 0, missedInterpolations: 0, delayMs: 0,
@@ -543,6 +573,24 @@ describe("statRows", () => {
     // Its engine kept failing (off until the app restarts) or no size works: flagged.
     expect(find(at1080({ interpolation: "failed" }), "Frame interpolation"))
       .toEqual({ label: "Frame interpolation", value: "Off: kept failing", inline: "interpolation off: it kept failing", warn: true })
+  })
+
+  it("says why an HDR stream, or an SDR game with HDR on, gets no in-between images", () => {
+    const hdr = (pacing: Partial<PacingStats>) =>
+      find(statRows({ ...status({ width: 1920, height: 1080 }), hdrActive: true, pacing: { ...idlePacing, ...pacing } }, 60, 5),
+        "Frame interpolation")
+    // The HDR setting on, an SDR game: its 10-bit frames reach no engine (the stream isn't HDR on screen).
+    expect(find(at1080({ interpolation: "sdrInHdr" }), "Frame interpolation"))
+      .toEqual({ label: "Frame interpolation", value: "Idle: SDR game with HDR on", inline: "no interpolation: SDR game with HDR on", warn: false })
+    expect(hdr({ interpolation: "hdrUnsupported" }))
+      .toEqual({ label: "Frame interpolation", value: "Unavailable in HDR", inline: "no interpolation in HDR on this Mac", warn: false })
+    // MetalFX's engine kept failing: said which, and flagged.
+    expect(hdr({ interpolation: "failed" }))
+      .toEqual({ label: "Frame interpolation", value: "Off: MetalFX kept failing", inline: "interpolation off: MetalFX kept failing (HDR)", warn: true })
+    // The rest read as in SDR.
+    expect(hdr({ interpolation: "screen", displayHz: 60, streamFps: 60 })?.inline).toBe("no interpolation: 60 fps on a 60 Hz screen")
+    expect(hdr({ interpolation: "on", generatedFps: 30 })?.inline).toBe("+30 generated")
+    expect(hdr({ interpolation: "unsupported" })?.inline).toBe("interpolation unavailable")
   })
 
   it("names a game slower than the stream, and what the screen shows", () => {

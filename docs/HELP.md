@@ -193,7 +193,8 @@ Turn it on with **Stats on screen** in Settings › Picture. Numbers in amber po
 | `ML idle (…)` | ML upscaling is on but not used, and why: the window isn't larger than the stream, the stream is too large, it's HDR, or this Mac can't run it. |
 | `+30 generated` | Frame interpolation: images made between the game's frames each second. |
 | `(2/s missed)` | Pairs of frames per second that got no image in between, so the picture held for a moment. Amber from 3 a second. |
-| `no interpolation: …` | Frame interpolation is on but idle, and why: for example `60 fps on a 60 Hz screen` (nothing to fill), or `still picture`. |
+| `no interpolation: …` | Frame interpolation is on but idle, and why: for example `60 fps on a 60 Hz screen` (nothing to fill), `still picture`, or `SDR game with HDR on` (turn HDR off in Settings › Stream for that game). `no interpolation in HDR on this Mac`: HDR needs MetalFX's frame interpolator (macOS 26 and a supported Mac). |
+| `interpolation off: …` | Frame interpolation is on but switched itself off until PlayFX restarts: `it kept failing`, or `MetalFX kept failing (HDR)` on an HDR stream. Amber. |
 | `HDR` | The stream is in HDR. |
 | `0 lost frames` | Frames that never arrived from the network, over the whole stream. Amber above 0. |
 | `2/s skipped` | Frames per second that arrived but were never shown, because the next one was already due (the picture jumps ahead). Amber from 1 a second. |
@@ -210,7 +211,13 @@ default (both built-in profiles have it); turn it off in Settings › Picture.
 - It needs macOS 26. In HDR it makes one image between two of the game's frames (MetalFX instead of the
   Neural Engine), so a 30 fps game shows at 60 even on a 120 Hz screen.
 - With HDR turned on in Settings, an SDR game still comes as 10-bit frames, which it can't take: the stats
-  say Unavailable. Turn HDR off for SDR games to use it.
+  say `no interpolation: SDR game with HDR on`. Turn HDR off for SDR games to use it.
+- While you play, the Frame interpolation switch in Settings › Picture says why it isn't making images in
+  HDR: "This game is SDR, but HDR is on, so its frames arrive in a format frame interpolation can't take",
+  "HDR needs MetalFX's frame interpolator (macOS 26 and a supported Mac)", or "MetalFX failed several times,
+  so it's off until PlayFX restarts". When it works in HDR it says "In HDR it makes one image between two
+  frames (60 at most from a 30 fps game)", and a screen too slow for the game gets "No images in between:
+  60 fps on a 60 Hz screen".
 - **The cost is latency:** at 30 fps, frames show about 40 ms later. It suits slower games; for fast
   games, 60 fps without interpolation feels more responsive.
 
