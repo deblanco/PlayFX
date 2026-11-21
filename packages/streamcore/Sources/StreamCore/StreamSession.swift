@@ -113,6 +113,15 @@ public final class StreamSession {
         public var reorderLatePackets = 0
         public var reorderHolesLost = 0
         public var reorderQueueFull = 0
+
+        /// Takes the reorder wait's fields from libchiaki's (the wait in µs, as ms).
+        mutating func setReorder(_ reorder: PsrpReorderStats) {
+            reorderWaitMs = Double(reorder.wait_us) / 1000
+            reorderHolesFilled = Int(reorder.holes_filled)
+            reorderLatePackets = Int(reorder.late_packets)
+            reorderHolesLost = Int(reorder.holes_lost)
+            reorderQueueFull = Int(reorder.queue_full_skips)
+        }
     }
 
     /// Called from libchiaki's threads.
@@ -182,11 +191,7 @@ public final class StreamSession {
             s.targetBitrateKbps = Int(psrp_session_target_bitrate(handle) / 1000)
             var reorder = PsrpReorderStats()
             psrp_session_reorder_stats(handle, &reorder)
-            s.reorderWaitMs = Double(reorder.wait_us) / 1000
-            s.reorderHolesFilled = Int(reorder.holes_filled)
-            s.reorderLatePackets = Int(reorder.late_packets)
-            s.reorderHolesLost = Int(reorder.holes_lost)
-            s.reorderQueueFull = Int(reorder.queue_full_skips)
+            s.setReorder(reorder)
         }
         s.decodeMs = decoder.decodeMilliseconds
         return s

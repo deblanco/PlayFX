@@ -48,6 +48,13 @@ import Testing
                           "rttMs": 0, "decodeMs": 0, "targetBitrateKbps": 0, "reorderWaitMs": 0, "reorderHolesFilled": 0,
                           "reorderLatePackets": 0, "reorderHolesLost": 0, "reorderQueueFull": 0])
     }
+
+    @Test func statsTakeEachReorderField() {
+        var stats = StreamSession.Stats()
+        stats.setReorder(PsrpReorderStats(wait_us: 7500, holes_filled: 1, late_packets: 2, holes_lost: 3, queue_full_skips: 4))
+        #expect(stats.reorderWaitMs == 7.5 && stats.reorderHolesFilled == 1 && stats.reorderLatePackets == 2
+            && stats.reorderHolesLost == 3 && stats.reorderQueueFull == 4)
+    }
 }
 
 extension Serial {

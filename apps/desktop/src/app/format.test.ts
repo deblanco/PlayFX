@@ -582,8 +582,10 @@ describe("statRows", () => {
 
   it("says how long a missing packet is waited for, once a stream says", () => {
     expect(reorderLine({ active: true, reorderWaitMs: 4.4, reorderHolesFilled: 12, reorderLatePackets: 3, reorderHolesLost: 5, reorderQueueFull: 0 }))
-      .toBe("Reorder wait 4 ms · 12 holes filled while waiting · 3 late packets · 5 holes lost · 0 queue full")
-    expect(reorderLine({ active: true, reorderWaitMs: 16 })).toBe("Reorder wait 16 ms · 0 holes filled while waiting · 0 late packets · 0 holes lost · 0 queue full")
+      .toBe("Reorder wait 4 ms · 12 holes filled while waiting · 3 late packets · 5 holes lost · 0 holes skipped for a full queue")
+    expect(reorderLine({ active: true, reorderWaitMs: 16 })).toBe("Reorder wait 16 ms · 0 holes filled while waiting · 0 late packets · 0 holes lost · 0 holes skipped for a full queue")
+    expect(reorderLine({ active: true, reorderWaitMs: 7, reorderHolesFilled: 1, reorderLatePackets: 1, reorderHolesLost: 1, reorderQueueFull: 1 }))
+      .toBe("Reorder wait 7 ms · 1 hole filled while waiting · 1 late packet · 1 hole lost · 1 hole skipped for a full queue")
     // Not connected yet, an older host, or no stream.
     expect(reorderLine({ active: true, reorderWaitMs: 0 })).toBeUndefined()
     expect(reorderLine({ active: true })).toBeUndefined()

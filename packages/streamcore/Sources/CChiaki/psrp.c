@@ -14,6 +14,7 @@
 #include <net/if.h>
 #include <pthread.h>
 #include <pthread/qos.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -747,17 +748,25 @@ uint32_t psrp_session_target_bitrate(PsrpSession *s) {
     return s ? s->session.stream_connection.target_bitrate : 0;
 }
 
+// PsrpReorderStats is libchiaki's ChiakiReorderWaitStats under Swift's names: each field in the same place, so it is
+// copied whole and none can land in another's (checked here, as no test can reach a session's stats).
+#define PSRP_REORDER_FIELD(psrp, chiaki) \
+    _Static_assert(offsetof(PsrpReorderStats, psrp) == offsetof(ChiakiReorderWaitStats, chiaki) \
+        && sizeof(((PsrpReorderStats *)0)->psrp) == sizeof(((ChiakiReorderWaitStats *)0)->chiaki), #psrp)
+PSRP_REORDER_FIELD(wait_us, wait_us);
+PSRP_REORDER_FIELD(holes_filled, holes_filled);
+PSRP_REORDER_FIELD(late_packets, late_packets);
+PSRP_REORDER_FIELD(holes_lost, holes_lost);
+PSRP_REORDER_FIELD(queue_full_skips, overflow_skips);
+_Static_assert(sizeof(PsrpReorderStats) == sizeof(ChiakiReorderWaitStats), "PsrpReorderStats");
+
 void psrp_session_reorder_stats(PsrpSession *s, PsrpReorderStats *out) {
     if (!out) return;
     memset(out, 0, sizeof(*out));
     if (!s) return;
     ChiakiReorderWaitStats stats;
     chiaki_takion_video_reorder_stats(&s->session.stream_connection.takion, &stats);
-    out->wait_us = stats.wait_us;
-    out->holes_filled = stats.holes_filled;
-    out->late_packets = stats.late_packets;
-    out->holes_lost = stats.holes_lost;
-    out->queue_full_skips = stats.overflow_skips;
+    memcpy(out, &stats, sizeof(*out));
 }
 
 void psrp_session_set_login_pin(PsrpSession *s, const char *pin) {

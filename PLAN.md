@@ -6,8 +6,10 @@ Status legend: ✅ done · 🔶 partial · ❌ not started.
 Last updated 2026-11-21, after the measured reorder wait: libchiaki's Takion waits for a missing video packet as
 long as the link shows packets come late (3–20 ms, learned from holes that fill and packets that come after a skip;
 it was a fixed 16 ms), its video reorder queue has 256 slots instead of 64, and a full queue skips the missing
-packets instead of dropping ones that arrived; Settings › Diagnostics shows the wait. Unit-tested, not yet on the
-console. Before that, the built-in profiles (requested): **Recommended**, which is also the new
+packets instead of dropping ones that arrived; Settings › Diagnostics shows the wait. Then its review fixes: loss
+trims the wait only down to what late packets showed, a packet of a hole skipped 100 ms before is lost not late (and
+a sample is at most 20 ms), and a packet half the sequence space old no longer empties and rebases the queue.
+Unit-tested, not yet on the console. Before that, the built-in profiles (requested): **Recommended**, which is also the new
 defaults, now streams 1080p60 HEVC at 20 Mbps with frame interpolation on (ML upscaling, MetalFX, sharpness
 0.3 as before), and a second built-in **GTA VI** profile is the same at 30 fps with touchpad touches off; a
 profile saved as "GTA VI" before shows as "GTA VI (saved)". Unit tests only. Before that, **Steady Wi-Fi
@@ -78,9 +80,9 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift SWCOUNT tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 385 tests (98% lines), Swift 411 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
-  own unit tests 145/145. Each package's gate fails below 80%; CI runs them all on every push. No test
+  own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
 
@@ -353,16 +355,24 @@ Work items:
       skips the holes in front of it, as the timeout does: an arrived packet is never dropped for room;
     - the wait comes from the link (`reorderwait.c`): a hole that fills while waiting is a lateness sample; a
       packet that comes after its hole was skipped raises the wait to 1.25× its lateness at once (and is a sample);
-      a skipped hole nothing comes for in 100 ms (real loss) shrinks it by 5%. Samples go through a TCP RTO
-      smoother (srtt + 4 rttvar), up at once and down by at most 5% a sample, within 3–20 ms, from 16 ms;
+      a skipped hole nothing comes for in 100 ms (real loss) shrinks it by 5%, but once there are samples not below
+      srtt + 4 rttvar (review fix: per lost hole, a collapse's ~25 a second took it to 3 ms in a second and skipped
+      59 of 60 packets 5 ms late in a simulation). Samples go through a TCP RTO smoother (srtt + 4 rttvar), up at
+      once and down by at most 5% a sample, within 3–20 ms, from 16 ms; a sample is at most 20 ms, and the late
+      check first expires holes skipped 100 ms ago (review fix: after a stall with no video, such a packet counted
+      as late and held the wait at 20 ms). A packet half the sequence space old is dropped as older before the full
+      queue makes room (review fix: it emptied the queue and rebased it on itself, dropping ~32k real packets);
     - Settings › Diagnostics shows "Reorder wait 4 ms · N holes filled while waiting · N late packets · N holes
-      lost · N queue full" while a stream runs, the copied report has the same line, and the log says when the
+      lost · N holes skipped for a full queue" (singular for 1) while a stream runs, the copied report has the same line, and the log says when the
       wait moves by 2 ms (at most every 5 s). The status JSON's `stream` carries `reorderWaitMs` and the counts.
     - Verified by unit tests: chiaki's (estimator traces: late by 7 ms settles at 7–10 ms, pure loss drifts to
       3 ms, a burst then calm, one outlier bumps then decays, the clamps, duplicates, the wrap; and a fake console
       on localhost: a full queue delivers every packet that came in order, a hole filled in time lowers the wait,
-      a packet 10 ms after its skip raises it to 20 ms, duplicates aren't late), and Swift, TS for the stats and
-      the Diagnostics line. **Left: a session on the console** (section 4).
+      a packet 10 ms after its skip raises it to 20 ms, duplicates aren't late; and from the review: loss mixed
+      with reordering keeps the late packets covered, a packet after the 100 ms window isn't late, a 90 ms one is a
+      20 ms sample, a stale packet leaves the queue alone), and Swift, TS for the stats and the Diagnostics line
+      (each reorder field checked with distinct values in `Stats.setReorder`; psrp.c's copy is checked at compile
+      time against libchiaki's struct). **Left: a session on the console** (section 4).
   - **Open:**
     - the reorder wait on the console (section 4); PR #817's 33 ms isn't taken: the wait is measured instead;
     - the stream with Steady Wi-Fi on hasn't been measured (only pings were);
@@ -1064,8 +1074,8 @@ requests and a bug report.
    1080p60 and one at 1080p30 HDR on the LAN: Settings › Diagnostics shows the wait settling (from 16 ms, likely
    down to 3–8 ms on the LAN) and the log's "Takion AV reorder wait now" lines; compare holes, lost frames and
    "waiting for IDR" with the earlier logs (5 holes in 50 min; no "queue full" skips dropping a frame); then over
-   the internet, where the wait should stay higher. Detailed logs show each "queue full" and "reorder timeout"
-   skip. *(P1)*
+   the internet, where the wait should stay higher, and in a loss burst not fall below what late packets showed.
+   Detailed logs show each "queue full" and "reorder timeout" skip. *(P1)*
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
    itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
    quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a

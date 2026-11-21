@@ -839,7 +839,7 @@ describe("diagnostics", () => {
       status({ reorderWaitMs: 7.5, reorderHolesLost: 2 }),
       defaultSettings,
     )
-    expect(streaming).toContain("\nReorder wait 8 ms · 0 holes filled while waiting · 0 late packets · 2 holes lost · 0 queue full\n")
+    expect(streaming).toContain("\nReorder wait 8 ms · 0 holes filled while waiting · 0 late packets · 2 holes lost · 0 holes skipped for a full queue\n")
   })
 
   it.effect("reads the reorder wait every second while a stream runs", () => {
@@ -853,7 +853,7 @@ describe("diagnostics", () => {
       core.state.status = status()
       yield* TestClock.adjust(actions.statsInterval)
       yield* Fiber.interrupt(fiber)
-      expect(lines).toEqual([undefined, "Reorder wait 12 ms · 0 holes filled while waiting · 0 late packets · 0 holes lost · 0 queue full", undefined])
+      expect(lines).toEqual([undefined, "Reorder wait 12 ms · 0 holes filled while waiting · 0 late packets · 0 holes lost · 0 holes skipped for a full queue", undefined])
     }).pipe(Effect.provide(core.layer))
   })
 

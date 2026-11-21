@@ -287,17 +287,21 @@ const bitrateRow = (mbps: number, targetKbps: number): StatRow => {
   return statRow("Bitrate", value, value)
 }
 
+/** "1 hole", "2 holes". */
+const count = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`
+
 /** The reorder wait and what it was learned from, for Settings › Diagnostics and the report (undefined until a
- * stream says): "Reorder wait 4 ms · 12 holes filled while waiting · 3 late packets · 5 holes lost · 0 queue full". */
+ * stream says): "Reorder wait 4 ms · 12 holes filled while waiting · 1 late packet · 5 holes lost · 0 holes skipped
+ * for a full queue". */
 export const reorderLine = (stream: StreamStats): string | undefined => {
   const wait = stream.reorderWaitMs ?? 0
   if (!stream.active || wait <= 0) return undefined
   return [
     `Reorder wait ${String(Math.round(wait))} ms`,
-    `${String(stream.reorderHolesFilled ?? 0)} holes filled while waiting`,
-    `${String(stream.reorderLatePackets ?? 0)} late packets`,
-    `${String(stream.reorderHolesLost ?? 0)} holes lost`,
-    `${String(stream.reorderQueueFull ?? 0)} queue full`,
+    `${count(stream.reorderHolesFilled ?? 0, "hole", "holes")} filled while waiting`,
+    count(stream.reorderLatePackets ?? 0, "late packet", "late packets"),
+    `${count(stream.reorderHolesLost ?? 0, "hole", "holes")} lost`,
+    `${count(stream.reorderQueueFull ?? 0, "hole", "holes")} skipped for a full queue`,
   ].join(" · ")
 }
 
