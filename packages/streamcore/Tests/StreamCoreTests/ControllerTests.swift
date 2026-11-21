@@ -128,6 +128,55 @@ import Testing
         #expect(await waitUntil(timeout: 2) { states.last?.buttons == UInt32(PSRP_BTN_CIRCLE.rawValue) })
     }
 
+    @Test @MainActor func aPadThatDisconnectsLetsGoOfWhatItHeld() async throws {
+        // GameController sends no last reading when a pad goes away (asleep, battery, Bluetooth): what it held
+        // must not stay pressed, touched or tilted on the console.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let controller = GCController.withExtendedGamepad()
+        input.attach(controller)
+        let pad = try #require(controller.extendedGamepad)
+        pad.buttonA.setValue(1)
+        pad.valueChangedHandler?(pad, pad.buttonA)
+        #expect(await waitUntil(timeout: 2) { sent.last?.buttons == UInt32(PSRP_BTN_CROSS.rawValue) })
+        NotificationCenter.default.post(name: .GCControllerDidDisconnect, object: controller)
+        #expect(await waitUntil(timeout: 2) { sent.last == ControllerState() })
+        // Not a controller: ignored.
+        let count = sent.count
+        NotificationCenter.default.post(name: .GCControllerDidDisconnect, object: nil)
+        #expect(sent.count == count)
+    }
+
+    @Test func aDisconnectReleasesTheTouchButtonsAndMotionOfThatPadOnly() {
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let (padA, padB) = (GCController.withExtendedGamepad(), GCController.withExtendedGamepad())
+        var held = ControllerState()
+        held.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue) | UInt32(PSRP_BTN_R1.rawValue)
+        held.leftX = 100
+        let motion = ControllerState.Motion(gyro: [1, 0, 0], accel: [0, -1, 0], timestampMicros: 5)
+        input.padChanged(held, fingers: [[0.25, 0.5], nil], from: ObjectIdentifier(padA))
+        input.motionChanged(motion, from: ObjectIdentifier(padB))
+        #expect(sent.last?.touches == [ControllerState.Touch(id: 0, x: 0.25, y: 0.5)] && sent.last?.motion == motion)
+        // Another pad going away leaves this one's reading alone.
+        input.disconnected(ObjectIdentifier(padB))
+        #expect(sent.last?.buttons == held.buttons && sent.last?.touches.count == 1 && sent.last?.motion == nil)
+        // The pad that held them: everything is released, the finger lifts.
+        input.disconnected(ObjectIdentifier(padA))
+        #expect(sent.last == ControllerState())
+        // Its next touch is a new one.
+        input.padChanged(ControllerState(), fingers: [[0.5, 0.5], nil], from: ObjectIdentifier(padA))
+        #expect(sent.last?.touches.map(\.id) == [1])
+        // The keyboard keeps working after a disconnect.
+        var keys = ControllerState()
+        keys.buttons = UInt32(PSRP_BTN_CROSS.rawValue)
+        input.setKeys(keys)
+        input.disconnected(ObjectIdentifier(padA))
+        #expect(sent.last == keys)
+    }
+
     @Test @MainActor func aTestRunReadsOnlyItsOwnStandInControllers() {
         // In the app every pad is read; in a test run only snapshots (the tests' own), never a real pad.
         let standIn = GCController.withExtendedGamepad()
@@ -218,6 +267,25 @@ import Testing
         input.sendsTouches = true
         input.padChanged(ControllerState(), fingers: [[0.1, 0.1], nil])
         #expect(sent.last?.touches.count == 1)
+    }
+
+    @Test func aFingerRestingWhenTouchesComeBackOnIsANewTouch() throws {
+        // The console saw the finger lift when touches went off; back on, it gets a new id, not the lifted one.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        input.padChanged(ControllerState(), fingers: [[0.25, 0.5], [0.75, 0.5]])
+        let before = try #require(sent.last?.touches.map(\.id))
+        #expect(before == [0, 1])
+        input.sendsTouches = false
+        #expect(sent.last?.touches == [])
+        input.padChanged(ControllerState(), fingers: [[0.3, 0.5], [0.75, 0.5]]) // still resting, moved a little
+        input.sendsTouches = true
+        #expect(sent.last?.touches == [ControllerState.Touch(id: 2, x: 0.3, y: 0.5), ControllerState.Touch(id: 3, x: 0.75, y: 0.5)])
+        // Setting it on again changes nothing.
+        let count = sent.count
+        input.sendsTouches = true
+        #expect(sent.count == count)
     }
 
     @Test func thePointerAsATouchpadIgnoresTheSetting() {

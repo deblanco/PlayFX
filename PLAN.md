@@ -5,7 +5,9 @@ Status legend: ✅ done · 🔶 partial · ❌ not started.
 
 Last updated 2026-11-21, after the **Touchpad touches** switch: off, a pad's touchpad sends only its click, not
 where a finger rests (in GTA VI a resting thumb opened the map; chiaki-ng PR #896 asks for the same), applied
-live and kept in profiles; unit tests only, not yet on the console. Before that, frame generation on HDR
+live and kept in profiles; unit tests only, not yet on the console. Its review fixes: a pad that disconnects
+lets go of what it held (buttons, sticks, a touch, motion), and a finger resting when touches come back on is a
+new touch. Before that, frame generation on HDR
 streams: MetalFX's frame interpolator makes the in-between
 images where VideoToolbox's can't (10-bit frames), built and tested offscreen on synthetic HDR frames, not yet on
 the console, then its review fixes (exception quarantine, honest `failed` / `unsupported` states, engines let go,
@@ -65,7 +67,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 368 tests (98% lines), Swift 406 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 368 tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -390,9 +392,15 @@ Work items:
   before it read as on). The Mac's pointer as the touchpad, the keyboard and the on-screen controls aren't
   affected. Verified by unit tests: Swift (fingers dropped off and kept on, the click kept, a finger down when
   it's turned off lifted on the console at once, the pointer's touch still merged, the bridge applying it to the
-  playing session and the next one), TS (decoding without the field, profile matching and summary, no reconnect
+  playing session and the next one; turned back on with a finger resting, that finger is a new touch with a new
+  id, not the one the console just saw lift), TS (decoding without the field, profile matching and summary, no reconnect
   from the switch or a profile mid-stream, the switch calling the bridge at startup and on change), Rust (the
-  command, its IPC arguments and ACL). Left: the hand-on check in GTA VI (section 4, item 4).*
+  command, its IPC arguments and ACL). The switch is logged (StreamCore, `input`) only when it changes, not on
+  every settings change. Review fix, older than the switch: a pad that disconnects mid-press or mid-touch (asleep,
+  battery, Bluetooth) left its last reading held on the console, since GameController sends no last reading and
+  nothing watched `GCControllerDidDisconnect`; now `ControllerInput` releases the buttons, sticks and touch of the
+  pad that sent them (and the motion of the pad that sent it) and the keyboard keeps working, unit-tested through
+  the notification and with two stand-in pads. Left: the hand-on check in GTA VI (section 4, item 4).*
 - 🔶 **Pad buttons on the Mac** (`psrp pad`, DualSense over Bluetooth, 2026-11-19): every face/shoulder/
   D-pad/stick button, Create, Options, the touchpad click and both analog triggers (0–255) map correctly;
   touchpad ids are stable per finger and two fingers track. All elements opt out of macOS system
@@ -978,7 +986,8 @@ requests and a bug report.
 4. ~~Rumble + adaptive triggers in a game~~ (done 2026-11-20: GTA VI, pad on USB, the user: works);
    touchpad built; **the motion axes in a game are left**. **Touchpad touches off, in GTA VI** (built
    2026-11-21, unit tests only): with it off a resting thumb on the touchpad doesn't open the map and a click
-   does; turning it off with a thumb down leaves no touch stuck; back on, swipes work again. *(P1)*
+   does; turning it off with a thumb down leaves no touch stuck; back on, swipes work again; switching the pad
+   off mid-press leaves nothing held. *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
    [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0, v0.2.1, v0.2.2 and v0.2.3 followed). `release.sh` now survives a notarytool

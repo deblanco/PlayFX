@@ -84,8 +84,13 @@ public final class ControllerInput {
     /// Called on the main queue whenever the merged state changes.
     public var onChange: ((ControllerState) -> Void)?
     private var padState = ControllerState()
+    /// The last reading's fingers, kept to give them fresh ids when touches are turned back on.
+    private var padFingers: [SIMD2<Float>?] = []
     private var touchIDs = TouchIDs()
     private var motionState: ControllerState.Motion?
+    /// The controllers whose readings `padState` and `motionState` hold, to let go of them when it disconnects.
+    private var padSource: ObjectIdentifier?
+    private var motionSource: ObjectIdentifier?
     private var keyState = ControllerState()
     private var last = ControllerState()
     private var observers: [NSObjectProtocol] = []
@@ -98,6 +103,10 @@ public final class ControllerInput {
         observers.append(nc.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] n in
             guard let controller = n.object as? GCController, Self.reads(controller) else { return }
             self?.attach(controller)
+        })
+        observers.append(nc.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] n in
+            guard let controller = n.object as? GCController else { return }
+            self?.disconnected(ObjectIdentifier(controller))
         })
         PadHardware.controllers().forEach(attach)
     }
@@ -119,32 +128,64 @@ public final class ControllerInput {
         // Every button belongs to the console: by default macOS keeps some (PS, Options) for its own
         // gestures and never reports them.
         for element in controller.physicalInputProfile.allElements { element.preferredSystemGestureState = .disabled }
+        let source = ObjectIdentifier(controller)
         controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
-            self?.padChanged(Self.state(from: pad), fingers: Self.fingers(on: pad))
+            self?.padChanged(Self.state(from: pad), fingers: Self.fingers(on: pad), from: source)
         }
         if let motion = controller.motion {
             // The DualSense and DualShock only report motion once asked to.
             if motion.sensorsRequireManualActivation { motion.sensorsActive = true }
             motion.valueChangedHandler = { [weak self] m in
-                self?.motionState = Self.motion(rotation: m.rotationRate, gravity: m.gravity,
-                                                user: m.userAcceleration, at: ProcessInfo.processInfo.systemUptime)
-                self?.emit()
+                self?.motionChanged(Self.motion(rotation: m.rotationRate, gravity: m.gravity,
+                                                user: m.userAcceleration, at: ProcessInfo.processInfo.systemUptime),
+                                    from: source)
             }
         }
     }
 
     /// A reading from a pad: its buttons, triggers and sticks, and the fingers on its touchpad (internal for tests).
-    func padChanged(_ state: ControllerState, fingers: [SIMD2<Float>?]) {
+    func padChanged(_ state: ControllerState, fingers: [SIMD2<Float>?], from source: ObjectIdentifier? = nil) {
         padState = state
+        padFingers = fingers
         padState.touches = touchIDs.touches(fingers)
+        padSource = source
+        emit()
+    }
+
+    /// A motion-sensor reading from a controller (internal for tests).
+    func motionChanged(_ motion: ControllerState.Motion, from source: ObjectIdentifier) {
+        motionState = motion
+        motionSource = source
+        emit()
+    }
+
+    /// A controller went away (internal for tests). GameController sends no last reading, so whatever it held
+    /// (buttons, sticks, a finger on the touchpad, motion) is released on the console here, or it stays stuck.
+    func disconnected(_ controller: ObjectIdentifier) {
+        if controller == padSource {
+            padState = ControllerState()
+            padFingers = []
+            touchIDs.forget()
+            padSource = nil
+        }
+        if controller == motionSource {
+            motionState = nil
+            motionSource = nil
+        }
         emit()
     }
 
     /// Whether the fingers on a pad's touchpad reach the console (the "Touchpad touches" setting). Off, only its
     /// click does: some games act on a resting thumb (GTA VI opens the map). Turning it off mid-touch lifts the
-    /// finger on the console at once.
+    /// finger on the console at once; turning it back on with a finger resting sends that finger as a new touch.
     public var sendsTouches = true {
-        didSet { emit() }
+        didSet {
+            if sendsTouches && !oldValue {
+                touchIDs.forget()
+                padState.touches = touchIDs.touches(padFingers)
+            }
+            emit()
+        }
     }
 
     /// The Mac keyboard as a controller, from the web UI (which knows when keys belong to a text field, a
@@ -252,5 +293,8 @@ struct TouchIDs {
         }
         return out
     }
+
+    /// Lets go of every finger's id, so the fingers of the next reading are new touches (ids keep counting on).
+    mutating func forget() { ids = [nil, nil] }
 }
 

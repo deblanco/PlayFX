@@ -243,7 +243,6 @@ fn set_pointer_touch<R: Runtime>(app: AppHandle<R>, touch: Value) -> Result<(), 
 /// "Touchpad touches" on or off, applied at once (no reconnect).
 #[tauri::command(async)]
 fn set_touchpad_touches<R: Runtime>(app: AppHandle<R>, on: bool) -> Result<(), String> {
-    log::info!("Touchpad touches {}", if on { "on" } else { "off: only the click is sent" });
     let core = core(&app);
     on_main(&app, move || core.set_touchpad_touches(on))
 }

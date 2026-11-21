@@ -598,6 +598,7 @@ public func sc_session_set_controller(_ buttons: UInt32, _ l2: UInt8, _ r2: UInt
 /// is not affected. (main)
 @_cdecl("sc_set_touchpad_touches")
 public func sc_set_touchpad_touches(_ on: Bool) {
+    if on != touchpadTouches { Log.info(.input, "Touchpad touches \(on ? "on" : "off: only the click is sent")") }
     touchpadTouches = on
     input?.sendsTouches = on
 }
