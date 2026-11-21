@@ -151,8 +151,8 @@ const Screens = () => {
       remoteStage: psnDuid === undefined ? undefined : "linking",
     }
     setSession(starting)
-    // Steady Wi-Fi left on last time: macOS asks for the password while the stream connects.
-    wifi.beforeStream()
+    // AirDrop and Handoff on: a toast suggests Steady Wi-Fi (macOS asks for the password only on "Turn on").
+    wifi.suggestBeforeStream()
     run(actions.play(console, settings, psnDuid), {
       // A quit that arrived while starting already cleared (or replaced) the session.
       onSuccess: () => { setSession((s) => (s?.console === console ? { ...s, started: true } : s)); },

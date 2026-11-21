@@ -107,10 +107,16 @@ so, and switching it off brings them back at once.
 **Remembered.** The pause can't outlive PlayFX, so after a relaunch AWDL is on again. PlayFX therefore
 remembers the choice instead (`psrp.steadyWifi` in the webview's storage, decoded as a yes/no; anything
 else reads as no). Turning the switch on saves yes once the pause is done; turning it off by hand saves
-no. With yes saved, pressing Play while AWDL reads `active` asks for the password again, the same prompt
-as the switch. It isn't asked at launch, only when a stream starts. The stream starts at the same time
-and doesn't wait for the answer. If the prompt is dismissed (or fails), PlayFX doesn't ask again until the
-next launch, and the saved choice stays yes.
+no. A dismissed (or failed) prompt leaves the saved choice as it was.
+
+**Suggested at Play, never forced.** PlayFX never opens the password prompt by itself. (Until 2026-11-21,
+with yes saved, Play asked for it while the stream connected.) Pressing Play while AWDL reads `active`, with
+no change pending, shows a 10 s toast instead: "Smoother play on Wi-Fi", with "AirDrop and Handoff interrupt
+your Wi-Fi about once a second. Steady Wi-Fi pauses them while you play." (or, with yes saved, "Steady Wi-Fi
+was on last time. Turn it on again?"), **Turn on** (the switch's path, so macOS asks then) and **Not now**.
+The stream starts at the same time. It's shown at most once per launch, and not after a pause prompt was
+dismissed or failed. It closes if the switch moves some other way meanwhile (the HUD's button), so it never
+offers a stale choice. Nothing is shown for `paused`, `off`, `absent` or before the first reading.
 
 ### The UI
 

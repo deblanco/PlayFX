@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Deferred, Effect } from "effect"
 import { toast } from "sonner"
@@ -7,7 +7,7 @@ import { CoreError } from "@/core/errors"
 import type { PacingStats, PeerWifiReply, PeerWifiState } from "@/core/schema"
 import * as actions from "./actions"
 import { RuntimeProvider } from "./runtime"
-import { LinkLine, linkPath, PeerWifiProvider, showsSteadyWifi, SteadyWifiRow, SteadyWifiSection } from "./SteadyWifi"
+import { LinkLine, linkPath, PeerWifiProvider, showsSteadyWifi, SteadyWifiRow, SteadyWifiSection, suggestion } from "./SteadyWifi"
 import { accountId, fakeCore, pairedPs5, renderApp, status, testRuntime, type FakeCore } from "./testing"
 
 const renderWith = (core: FakeCore, element: React.ReactNode) =>
@@ -21,6 +21,7 @@ const steadySwitch = () => screen.getByRole("switch")
 
 afterEach(() => {
   vi.restoreAllMocks()
+  toast.dismiss()
 })
 
 describe("Steady Wi-Fi", () => {
@@ -178,48 +179,110 @@ describe("Steady Wi-Fi, remembered", () => {
     expect(await runtime.runPromise(actions.loadSteadyWifi)).toBe(false)
   })
 
-  it("asks again when a stream starts after a relaunch, and the stream starts meanwhile", async () => {
-    const core = fakeCore()
-    renderApp(core, { accountId, paired: [pairedPs5], steadyWifi: true })
-    expect(await screen.findByText("Wi-Fi hiccups every second")).toBeInTheDocument()
-    // Not at launch: only when it matters.
-    expect(core.service.setPeerWifiPaused).not.toHaveBeenCalled()
-    await play(core)
-    expect(core.service.startStream).toHaveBeenCalled()
-    await waitFor(() => { expect(core.service.setPeerWifiPaused).toHaveBeenCalledExactlyOnceWith(true) })
-  })
-
-  it("doesn't ask when it wasn't left on, or when AirDrop and Handoff aren't on", async () => {
-    const forgotten = fakeCore()
-    const first = renderApp(forgotten, { accountId, paired: [pairedPs5] })
-    expect(await screen.findByText("Wi-Fi hiccups every second")).toBeInTheDocument()
-    await play(forgotten)
-    expect(forgotten.service.startStream).toHaveBeenCalled()
-    first.unmount()
-
-    const alreadyOff = fakeCore()
-    alreadyOff.state.peerWifi = "off"
-    renderApp(alreadyOff, { accountId, paired: [pairedPs5], steadyWifi: true })
-    await play(alreadyOff)
-    expect(alreadyOff.service.startStream).toHaveBeenCalled()
-    expect(forgotten.service.setPeerWifiPaused).not.toHaveBeenCalled()
-    expect(alreadyOff.service.setPeerWifiPaused).not.toHaveBeenCalled()
-  })
-
-  it("doesn't ask again once the prompt was dismissed, and keeps the choice for next time", async () => {
+  it("keeps the choice when the prompt is dismissed", async () => {
     const cancelled: PeerWifiReply = { state: "active", outcome: "cancelled" }
     const core = fakeCore({ setPeerWifiPaused: vi.fn(() => Effect.succeed(cancelled)) })
     const { runtime } = renderApp(core, { accountId, paired: [pairedPs5], steadyWifi: true })
-    expect(await screen.findByText("Wi-Fi hiccups every second")).toBeInTheDocument()
-    await play(core, { connected: true })
+    await userEvent.click(await screen.findByRole("switch"))
     await waitFor(() => { expect(core.service.setPeerWifiPaused).toHaveBeenCalledOnce() })
-    // The stream goes on.
-    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument()
+    expect(await runtime.runPromise(actions.loadSteadyWifi)).toBe(true)
+  })
+})
+
+describe("Steady Wi-Fi, suggested at Play", () => {
+  const suggested = () => screen.queryByText("Smoother play on Wi-Fi")
+  // (Sonner's buttons are clicked with fireEvent: its swipe handling needs pointer capture, which jsdom lacks.)
+  const toastButton = (name: string) => screen.getByRole("button", { name })
+
+  it("suggests it while AirDrop and Handoff are on, and asks for the password only on Turn on", async () => {
+    const core = fakeCore()
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    expect(await screen.findByText("Wi-Fi hiccups every second")).toBeInTheDocument()
+    // Not at launch.
+    expect(suggested()).toBeNull()
+    await play(core)
+    expect(core.service.startStream).toHaveBeenCalled()
+    expect(await screen.findByText("Smoother play on Wi-Fi")).toBeInTheDocument()
+    expect(screen.getByText(/AirDrop and Handoff interrupt your Wi-Fi about once a second/)).toBeInTheDocument()
+    expect(core.service.setPeerWifiPaused).not.toHaveBeenCalled()
+    fireEvent.click(toastButton("Turn on"))
+    await waitFor(() => { expect(core.service.setPeerWifiPaused).toHaveBeenCalledExactlyOnceWith(true) })
+    await waitFor(() => { expect(suggested()).toBeNull() })
+  })
+
+  it("says so when Steady Wi-Fi was on last time", async () => {
+    const core = fakeCore()
+    renderApp(core, { accountId, paired: [pairedPs5], steadyWifi: true })
+    await play(core)
+    expect(await screen.findByText("Steady Wi-Fi was on last time. Turn it on again?")).toBeInTheDocument()
+    expect(core.service.setPeerWifiPaused).not.toHaveBeenCalled()
+  })
+
+  it("suggests it once in a run of the app: Not now is for the rest of it", async () => {
+    const core = fakeCore()
+    renderApp(core, { accountId, paired: [pairedPs5], steadyWifi: true })
+    await play(core, { connected: true })
+    expect(await screen.findByText("Smoother play on Wi-Fi")).toBeInTheDocument()
+    fireEvent.click(toastButton("Not now"))
+    await waitFor(() => { expect(suggested()).toBeNull() })
     await stopStream()
     await play(core)
     expect(core.service.startStream).toHaveBeenCalledTimes(2)
-    expect(core.service.setPeerWifiPaused).toHaveBeenCalledOnce()
-    expect(await runtime.runPromise(actions.loadSteadyWifi)).toBe(true)
+    expect(suggested()).toBeNull()
+    expect(core.service.setPeerWifiPaused).not.toHaveBeenCalled()
+  })
+
+  it("doesn't suggest it when Steady Wi-Fi is on, or AirDrop and Handoff are off", async () => {
+    for (const state of ["paused", "off", "absent"] as const) {
+      const core = fakeCore()
+      core.state.peerWifi = state
+      const view = renderApp(core, { accountId, paired: [pairedPs5], steadyWifi: true })
+      await play(core)
+      expect(core.service.startStream).toHaveBeenCalled()
+      expect(suggested()).toBeNull()
+      view.unmount()
+    }
+  })
+
+  it("doesn't suggest it before the first reading, while a change is under way, or after a dismissed prompt", async () => {
+    const unread = fakeCore({ peerWifiStatus: Effect.never })
+    const first = renderApp(unread, { accountId, paired: [pairedPs5] })
+    await play(unread)
+    expect(suggested()).toBeNull()
+    first.unmount()
+
+    const answer = Effect.runSync(Deferred.make<PeerWifiReply>())
+    const core = fakeCore({ setPeerWifiPaused: vi.fn(() => Deferred.await(answer)) })
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    await userEvent.click(await screen.findByRole("switch"))
+    expect(await screen.findByText("Waiting for your password")).toBeInTheDocument()
+    await play(core, { connected: true })
+    expect(suggested()).toBeNull()
+    // The prompt is closed: no suggestion for the rest of the run.
+    const cancelled: PeerWifiReply = { state: "active", outcome: "cancelled" }
+    Effect.runSync(Deferred.succeed(answer, cancelled))
+    await stopStream()
+    expect(await screen.findByText("Wi-Fi hiccups every second")).toBeInTheDocument()
+    await play(core)
+    expect(suggested()).toBeNull()
+  })
+
+  it("closes once Steady Wi-Fi is turned on some other way", async () => {
+    const core = fakeCore()
+    renderApp(core, { accountId, paired: [pairedPs5] })
+    await play(core, { connected: true })
+    expect(await screen.findByText("Smoother play on Wi-Fi")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Turn on Steady Wi-Fi" }))
+    await waitFor(() => { expect(suggested()).toBeNull() })
+    expect(core.service.setPeerWifiPaused).toHaveBeenCalledExactlyOnceWith(true)
+  })
+
+  it("words the suggestion", () => {
+    expect(suggestion("active", false, false)?.description).toMatch(/^AirDrop and Handoff interrupt/)
+    expect(suggestion("active", false, true)?.description).toBe("Steady Wi-Fi was on last time. Turn it on again?")
+    expect(suggestion("active", true, false)).toBeUndefined()
+    expect(suggestion("paused", false, true)).toBeUndefined()
+    expect(suggestion(undefined, false, true)).toBeUndefined()
   })
 })
 

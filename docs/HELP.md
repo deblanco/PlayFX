@@ -153,9 +153,12 @@ pauses AirDrop, Handoff, Universal Control and wireless Sidecar while PlayFX is 
 over Wi-Fi, the worst stall went from about 100 ms to 21 ms.
 
 Pausing them needs administrator rights, so macOS asks for your password (or Touch ID) each time you turn
-it on. They come back when you turn it off or quit PlayFX, even if PlayFX crashes. PlayFX remembers that
-you turned it on, and offers it again (with the same prompt) when the next stream starts. If you dismiss
-the prompt, it doesn't ask again until you reopen PlayFX.
+it on. They come back when you turn it off or quit PlayFX, even if PlayFX crashes.
+
+PlayFX never turns it on by itself. When you press Play while AirDrop and Handoff are on, a note suggests
+it ("Steady Wi-Fi was on last time" if you used it before): **Turn on** asks for your password, **Not
+now** closes it. It's suggested once each time you open PlayFX, and not at all after you dismiss the
+password prompt.
 
 While playing, "AirDrop is stalling the Wi-Fi" at the top means it's off and hurting the stream right
 now; **Turn on Steady Wi-Fi** is right there. "The Wi-Fi keeps stalling" means the stream itself shows the
@@ -337,7 +340,7 @@ normally again.
   Sony's own page.
 
 **The only password prompt to expect is Steady Wi-Fi's**, because pausing AirDrop and Handoff needs
-administrator rights. macOS also asks once for permission to use the local network (to find your
+administrator rights. It only opens when you turn Steady Wi-Fi on. macOS also asks once for permission to use the local network (to find your
 console) and, if you turn it on, the microphone. Those are permission questions, not passwords.
 
 ## Logs and bug reports

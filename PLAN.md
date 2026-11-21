@@ -3,7 +3,10 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after the **Touchpad touches** switch: off, a pad's touchpad sends only its click, not
+Last updated 2026-11-21, after **Steady Wi-Fi suggested at Play**: Play no longer opens macOS's password prompt by
+itself when Steady Wi-Fi was left on; while AirDrop and Handoff are on, a toast suggests it ("Turn on" asks for
+the password, "Not now" closes it), once per run of the app; unit tests only. Before that, the **Touchpad
+touches** switch: off, a pad's touchpad sends only its click, not
 where a finger rests (in GTA VI a resting thumb opened the map; chiaki-ng PR #896 asks for the same), applied
 live and kept in profiles; unit tests only, not yet on the console. Its review fixes: a pad that disconnects
 lets go of what it held (buttons, sticks, a touch, motion), and a finger resting when touches come back on is a
@@ -67,7 +70,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 368 tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 373 tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -298,9 +301,18 @@ Work items:
   - **Cause found:** AirDrop and Handoff (AWDL) stall the Mac's Wi-Fi about 90 ms every second. Pings to
     the PS5 peaked at 105 ms; with AWDL off, 21 ms.
   - **Steady Wi-Fi** (Home and Settings → Stream) pauses AWDL while PlayFX is open: one password prompt,
-    and a root helper that ends on quit or crash. The choice is remembered: after a relaunch, Play asks
-    for the password again (once per launch if dismissed). While streaming, the HUD warns when AirDrop is
-    stalling the Wi-Fi, with a button to turn Steady Wi-Fi on.
+    and a root helper that ends on quit or crash. The choice is remembered. While streaming, the HUD warns
+    when AirDrop is stalling the Wi-Fi, with a button to turn Steady Wi-Fi on.
+  - **Suggested at Play, never forced** (2026-11-21, requested): Play used to open the password prompt by
+    itself when Steady Wi-Fi was left on last time. Now, pressing Play while AWDL reads `active` (and no change
+    is pending) shows a 10 s toast with the switch's wave as its icon: "Smoother play on Wi-Fi", why it helps
+    (or "Steady Wi-Fi was on last time. Turn it on again?" when it was left on), **Turn on** (the switch's
+    path: macOS asks then) and **Not now**. Once per run of the app: shown, or a dismissed/failed prompt, means
+    no more suggestions until relaunch. The toast closes if Steady Wi-Fi is turned on some other way (the
+    HUD's button) meanwhile. Verified by unit tests (`SteadyWifi.test.tsx`): no prompt until Turn on, then
+    exactly one; the remembered copy; Not now then a second Play → no toast; `paused`/`off`/`absent`, no
+    reading yet, a pending change, a dismissed prompt → no toast; closed by the HUD's button. Left: seeing it
+    in the app.
   - **The stall seen in the stream** (2026-11-20): `StallPattern` (`FramePacing.swift`) watches decoded frames'
     arrival: nine or more 70–400 ms gaps in 12 s, none with frames lost across it, at a steady 0.3–1.2 s period.
     It's `wifiStalls` in the pacing stats, and logged when it starts (with its period) and ends. With AWDL
@@ -1011,7 +1023,8 @@ requests and a bug report.
    50 fps game is left to see); the PR #817 reorder-wait test (needs the console); ~~tests for the reconnect
    race and the audio output following the system default~~ (done 2026-11-20); the chiaki-ng upstream PR
    (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer tuning; ~~a profile switch
-   during a bitrate reconnect reconnecting on its own~~ (fixed 2026-11-20).
+   during a bitrate reconnect reconnecting on its own~~ (fixed 2026-11-20); the Play toast suggesting Steady
+   Wi-Fi (built 2026-11-21, unit tests only: a look at it in the app, with AirDrop on, is left).
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
    a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
    Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the

@@ -1,5 +1,6 @@
 import { Gamepad2, Laptop, TriangleAlert } from "lucide-react"
 import { createContext, use, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
@@ -18,10 +19,39 @@ export interface PeerWifi {
   /** The password prompt is open (pausing) or the helper is stopping (resuming). */
   readonly pending: boolean
   readonly setPaused: (paused: boolean) => void
-  /** A stream is starting: if Steady Wi-Fi was left on and AirDrop and Handoff are on again (after a
-   * relaunch), asks to pause them. Never twice in a run of the app once the prompt was dismissed. */
-  readonly beforeStream: () => void
+  /** A stream is starting: while AirDrop and Handoff are on, a toast suggests Steady Wi-Fi. It never asks
+   * for the password by itself, and suggests at most once in a run of the app (not at all after a password
+   * prompt was dismissed or failed). */
+  readonly suggestBeforeStream: () => void
 }
+
+/** What the Play toast says: `undefined` when there's nothing to suggest (AirDrop and Handoff aren't on, or
+ * a change is under way). `remembered`: Steady Wi-Fi was left on last time. */
+export const suggestion = (
+  state: PeerWifiState | undefined,
+  pending: boolean,
+  remembered: boolean,
+): { readonly title: string; readonly description: string } | undefined =>
+  state !== "active" || pending
+    ? undefined
+    : {
+        title: "Smoother play on Wi-Fi",
+        description: remembered
+          ? "Steady Wi-Fi was on last time. Turn it on again?"
+          : "AirDrop and Handoff interrupt your Wi-Fi about once a second. Steady Wi-Fi pauses them while you play.",
+      }
+
+/** The toast's icon: the Home row's wave, stalling once a second as AirDrop does. */
+const WaveIcon = () => (
+  <svg width={16} height={16} aria-hidden className="shrink-0 overflow-visible">
+    <path
+      d={linkPath(16)}
+      fill="none"
+      strokeLinecap="round"
+      className="animate-stutter stroke-ice stroke-[1.75] [stroke-dasharray:2_3] motion-reduce:animate-none"
+    />
+  </svg>
+)
 
 /** The state of AirDrop and Handoff, kept current while mounted, and the switch to pause them. */
 const usePeerWifi = (): PeerWifi => {
@@ -30,10 +60,13 @@ const usePeerWifi = (): PeerWifi => {
   // While a change is in flight, what it started from: readings taken meanwhile (the prompt can stay open
   // for minutes) don't move the switch; the change's reply has the last word.
   const [pending, setPending] = useState<{ readonly from: PeerWifiState | undefined } | undefined>(undefined)
-  // Steady Wi-Fi was left on (saved): a stream start offers it again.
+  // Steady Wi-Fi was left on (saved): the Play toast says so.
   const [remembered, setRemembered] = useState(false)
-  // A pause prompt was dismissed (or failed) in this run of the app: stream starts don't ask again.
+  // The Play toast was shown, or a pause prompt was dismissed (or failed), in this run of the app: stream
+  // starts don't suggest Steady Wi-Fi again.
   const declined = useRef(false)
+  // The Play toast on screen, closed once the switch moves some other way (it would offer a stale choice).
+  const shown = useRef<string | number | undefined>(undefined)
   useFork(useMemo(() => actions.pollPeerWifi(setReading), []))
   useEffect(() => { run(actions.loadSteadyWifi, { onSuccess: setRemembered }) }, [run])
   const setPaused = useCallback(
@@ -55,10 +88,30 @@ const usePeerWifi = (): PeerWifi => {
     },
     [run, reading],
   )
-  const beforeStream = useCallback(() => {
-    if (remembered && reading === "active" && pending === undefined && !declined.current) setPaused(true)
-  }, [remembered, reading, pending, setPaused])
-  return { state: pending === undefined ? reading : pending.from, pending: pending !== undefined, setPaused, beforeStream }
+  useEffect(() => {
+    if (shown.current !== undefined && (reading !== "active" || pending !== undefined)) {
+      toast.dismiss(shown.current)
+      shown.current = undefined
+    }
+  }, [reading, pending])
+  const suggestBeforeStream = useCallback(() => {
+    const text = suggestion(reading, pending !== undefined, remembered)
+    if (text === undefined || declined.current) return
+    declined.current = true
+    shown.current = toast(text.title, {
+      description: text.description,
+      icon: <WaveIcon />,
+      duration: 10_000,
+      action: { label: "Turn on", onClick: () => { setPaused(true) } },
+      cancel: { label: "Not now", onClick: () => undefined },
+    })
+  }, [reading, pending, remembered, setPaused])
+  return {
+    state: pending === undefined ? reading : pending.from,
+    pending: pending !== undefined,
+    setPaused,
+    suggestBeforeStream,
+  }
 }
 
 const PeerWifiContext = createContext<PeerWifi | null>(null)
