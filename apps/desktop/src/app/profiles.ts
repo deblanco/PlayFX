@@ -31,13 +31,35 @@ export const profileSettings = (s: Settings): ProfileSettings => ({
   touchpadTouches: s.touchpadTouches,
 })
 
-/** The built-in profile, which new installs start with: 1080p60, MetalFX, sharpness 0.3, ML upscaling. */
+/** The built-in profile new installs start with: 1080p60 HEVC at 20 Mbps, MetalFX, sharpness 0.3, ML upscaling
+ * and Frame interpolation. */
 export const recommended: Profile = { name: "Recommended", settings: profileSettings(defaultSettings) }
 
-/** Built-in profiles first, then the user's. */
-export const allProfiles = (saved: readonly Profile[]): readonly Profile[] => [recommended, ...saved]
+/** Recommended at 30 fps with only the touchpad click sent: GTA VI opens its map on a resting thumb. */
+export const gtaVI: Profile = { name: "GTA VI", settings: { ...recommended.settings, fps: 30, touchpadTouches: false } }
 
-export const isBuiltIn = (profile: Profile): boolean => profile.name === recommended.name
+const builtInProfiles: readonly Profile[] = [recommended, gtaVI]
+
+/** Built-in profiles first, then the user's. */
+export const allProfiles = (saved: readonly Profile[]): readonly Profile[] => [...builtInProfiles, ...saved]
+
+/** Whether `name` (trimmed) is a built-in profile's, which can't be saved over. */
+export const isBuiltInName = (name: string): boolean => builtInProfiles.some((p) => p.name === name.trim())
+
+export const isBuiltIn = (profile: Profile): boolean => isBuiltInName(profile.name)
+
+/** Saved profiles with a built-in profile's name (saved before it was built in) renamed "<name> (saved)", so
+ * both show, and the saved one can still be picked, replaced and deleted by its new name. */
+export const withoutBuiltInNames = (saved: readonly Profile[]): readonly Profile[] => {
+  const taken = new Set(saved.map((p) => p.name))
+  return saved.map((p) => {
+    if (!isBuiltInName(p.name)) return p
+    let name = `${p.name} (saved)`
+    for (let n = 2; taken.has(name); n++) name = `${p.name} (saved ${String(n)})`
+    taken.add(name)
+    return { ...p, name }
+  })
+}
 
 /** `settings` with a profile's stream, picture and touchpad settings; everything else unchanged. */
 export const applyProfile = (settings: Settings, profile: Profile): Settings => ({ ...settings, ...profile.settings })

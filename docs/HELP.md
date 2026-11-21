@@ -22,8 +22,8 @@ PlayFX plays your PlayStation 5 or PlayStation 4 on your Mac. It isn't made by S
 - **A network:**
   - At home, the Mac and the console on the same network. The best setup is the console on a cable and
     the Mac on 5 GHz or 6 GHz Wi-Fi.
-  - Away from home, an internet connection at both ends. With Bitrate on Auto, a 1080p stream uses
-    about 15 Mbps.
+  - Away from home, an internet connection at both ends. A 1080p stream uses up to 20 Mbps at the
+    default bitrate, and about 15 Mbps with Bitrate on Auto.
 
 ## First-time setup
 
@@ -202,8 +202,8 @@ Turn it on with **Stats on screen** in Settings › Picture. Numbers in amber po
 ### What does frame interpolation do?
 
 It makes images between the game's own frames, one for each screen refresh. A 30 fps game looks like
-60 fps on a 60 Hz screen, and like 120 on a ProMotion screen, even inside a 60 fps stream. It's off by
-default; turn it on in Settings › Picture.
+60 fps on a 60 Hz screen, and like 120 on a ProMotion screen, even inside a 60 fps stream. It's on by
+default (both built-in profiles have it); turn it off in Settings › Picture.
 
 - It runs only when the screen refreshes at least 1.2 times as often as the game: a 60 fps game on a
   60 Hz screen gets nothing (the stats say so).
@@ -227,23 +227,24 @@ stream as it arrives on the left and with your settings on the right.
 
 ### GTA VI
 
-GTA VI draws about 30 new pictures a second. Use one of these:
+GTA VI draws about 30 new pictures a second. Pick the built-in **GTA VI** profile (on the home screen or
+in Settings › Profile): **1080p**, **30 fps**, HEVC, **20 Mbps**, **ML upscaling** on, upscaler
+**MetalFX**, sharpness **0.3**, **frame interpolation** on, and **Touchpad touches** off (see below).
+PlayFX upscales each picture once and fills the screen toward its refresh rate (about 120 on a ProMotion
+display). Moving foliage is softer than still scenery, because the images in between start from the
+decoded frame. Switching to it while playing asks for a reconnect (the frame rate changes).
 
-- **Playing.** Settings › Stream: **1080p**, **60 fps**, HEVC, Bitrate **Auto** (raise it if motion looks
-  soft and the network can take it). Settings › Picture: **ML upscaling** on, upscaler **MetalFX**,
-  sharpness **0.3**, **frame interpolation** on. PlayFX upscales each new picture once and fills the
-  screen toward its refresh rate (about 120 on a ProMotion display). Moving foliage is softer than still
-  scenery, because the images in between start from the decoded frame.
-- **Sharpest picture.** The same, with the stream at **30 fps** and frame interpolation **off**. Every
-  frame on screen went through ML, and motion steps at 30.
+- **Sharpest picture.** The same, with frame interpolation **off**: every frame on screen went through
+  ML, and motion steps at 30.
+- **Raise the bitrate** in Settings › Stream if motion looks soft and the network can take it.
 
 Leave **HDR** off for either one. HDR turns ML upscaling off, and frame interpolation makes only one image
 between two frames there (60 at most from a 30 fps game).
 
 **The map opens by itself?** GTA VI opens the map when a thumb rests on the DualSense's touchpad, even
 without a click. Turn **Touchpad touches** off in Settings › Stream › Controller (it changes right away,
-no reconnect). The touchpad click still opens the map when you mean it. Save it in a GTA VI profile so it
-comes back with that game's settings.
+no reconnect). The touchpad click still opens the map when you mean it. The **GTA VI** profile already
+has it off.
 
 ### HDR
 
@@ -258,12 +259,18 @@ frame interpolation works in HDR too, with one image between two frames.
 - **Stream** settings (Settings › Stream: Resolution, Frame rate, Codec, HDR, Bitrate, Lower resolution
   when the network is slow, Sound) apply the next time you connect. While playing, **Reconnect** appears
   when one changed. A Bitrate change alone reconnects by itself after a moment.
-- **Bitrate:** Auto lets the console decide (about 15 Mbps at 1080p). Higher, up to 50 Mbps, keeps more
-  detail in motion.
-- **Profiles** keep a set of stream and picture settings under a name. **Recommended** (1080p60 ·
-  MetalFX · sharpness 0.3) is built in; **Save as…** saves your own. Pick a profile on the home screen or
-  in Settings. While playing, each profile says whether it **applies now** (picture settings only) or
+- **Bitrate:** 20 Mbps by default. Auto lets the console decide (about 15 Mbps at 1080p). Higher, up to
+  50 Mbps, keeps more detail in motion.
+- **Profiles** keep a set of stream and picture settings under a name. Two are built in:
+  - **Recommended**, what PlayFX starts with: 1080p, 60 fps, HEVC, 20 Mbps, ML upscaling, MetalFX,
+    sharpness 0.3 and frame interpolation.
+  - **GTA VI**: the same at 30 fps, with Touchpad touches off (see [GTA VI](#gta-vi)).
+
+  **Save as…** saves your own; built-in profiles can't be replaced or deleted. A profile you saved as
+  "GTA VI" before it was built in shows as **GTA VI (saved)**. Pick a profile on the home screen or in
+  Settings. While playing, each profile says whether it **applies now** (picture settings only) or
   **needs a reconnect** (stream settings). A profile also keeps **Touchpad touches**, which applies at once.
+  **Reset stream** and **Reset picture** go back to Recommended's settings.
 
 ### DualSense: rumble, adaptive triggers, haptics and the light bar
 

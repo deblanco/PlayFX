@@ -42,7 +42,7 @@ import {
   type DropSample,
   type FrameSample,
 } from "./format"
-import { recommended, withProfile } from "./profiles"
+import { isBuiltInName, withoutBuiltInNames, withProfile } from "./profiles"
 
 // Every side effect the UI triggers lives here, as an Effect over the Core and Preferences services.
 
@@ -159,10 +159,11 @@ export const onDevControl = (handler: (command: DevCommand) => void): Effect.Eff
 
 // ---------- Profiles ----------
 
-/** Settings profiles the user saved (the built-in one comes from `allProfiles`). */
+/** Settings profiles the user saved (the built-in ones come from `allProfiles`); one saved under a name that
+ * is now built in shows as "<name> (saved)", and is stored under that name with the next save or delete. */
 export const loadProfiles: Effect.Effect<readonly Profile[], StorageError, Preferences> = Effect.flatMap(
   Preferences,
-  (prefs) => prefs.profiles,
+  (prefs) => Effect.map(prefs.profiles, withoutBuiltInNames),
 )
 
 /** Saves the stream and picture settings in `settings` as a profile named `name`, replacing one of
@@ -176,11 +177,11 @@ export const saveProfile = (
     if (trimmed.length === 0 || trimmed.length > 40) {
       return yield* new ValidationError({ message: "Give the profile a name of up to 40 characters." })
     }
-    if (trimmed === recommended.name) {
-      return yield* new ValidationError({ message: `"${recommended.name}" is built in. Choose another name.` })
+    if (isBuiltInName(trimmed)) {
+      return yield* new ValidationError({ message: `"${trimmed}" is built in. Choose another name.` })
     }
     const prefs = yield* Preferences
-    const next = withProfile(yield* prefs.profiles, trimmed, settings)
+    const next = withProfile(yield* loadProfiles, trimmed, settings)
     yield* prefs.saveProfiles(next)
     return next
   })
@@ -189,7 +190,7 @@ export const saveProfile = (
 export const deleteProfile = (name: string): Effect.Effect<readonly Profile[], StorageError, Preferences> =>
   Effect.gen(function* () {
     const prefs = yield* Preferences
-    const next = (yield* prefs.profiles).filter((p) => p.name !== name)
+    const next = (yield* loadProfiles).filter((p) => p.name !== name)
     yield* prefs.saveProfiles(next)
     return next
   })

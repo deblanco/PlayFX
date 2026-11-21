@@ -5,22 +5,76 @@ import { streamOptions } from "./format"
 import {
   allProfiles,
   applyProfile,
+  gtaVI,
   isBuiltIn,
+  isBuiltInName,
   isSaved,
   matchingProfile,
   needsReconnect,
   profileSettings,
   profileSummary,
   recommended,
+  withoutBuiltInNames,
   withProfile,
 } from "./profiles"
 
 describe("profiles", () => {
-  it("starts from the Recommended profile: 1080p60, MetalFX, sharpness 0.3", () => {
-    expect(recommended.settings).toMatchObject({ height: 1080, fps: 60, upscaler: "metalfx", sharpness: 0.3, view: "enhanced" })
-    expect(profileSummary(recommended)).toBe("1080p60 · MetalFX · sharpness 0.3 · ML upscaling")
+  it("starts from the Recommended profile: 1080p60 HEVC at 20 Mbps, MetalFX, sharpness 0.3, Frame interpolation", () => {
+    expect(recommended.settings).toMatchObject({
+      height: 1080,
+      fps: 60,
+      hevc: true,
+      bitrate: 20000,
+      hdr: false,
+      upscaler: "metalfx",
+      sharpness: 0.3,
+      mlUpscale: true,
+      frameInterpolation: true,
+      view: "enhanced",
+      touchpadTouches: true,
+    })
+    expect(profileSummary(recommended)).toBe("1080p60 · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation")
     expect(isBuiltIn(recommended)).toBe(true)
     expect(Option.getOrUndefined(matchingProfile(defaultSettings, allProfiles([])))?.name).toBe("Recommended")
+  })
+
+  it("has a built-in GTA VI profile: Recommended at 30 fps, sending only the touchpad click", () => {
+    expect(gtaVI.settings).toEqual({ ...recommended.settings, fps: 30, touchpadTouches: false })
+    expect(profileSummary(gtaVI)).toBe(
+      "1080p30 · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation · touchpad click only",
+    )
+    expect(isBuiltIn(gtaVI)).toBe(true)
+    expect(isBuiltInName(" GTA VI ")).toBe(true)
+    expect(isBuiltInName("GTA VI (saved)")).toBe(false)
+    const applied = applyProfile({ ...defaultSettings, showStats: true }, gtaVI)
+    expect(applied).toEqual({ ...defaultSettings, showStats: true, fps: 30, touchpadTouches: false })
+    expect(Option.getOrUndefined(matchingProfile(applied, allProfiles([])))?.name).toBe("GTA VI")
+    // A different frame rate: switching to it mid-stream needs a reconnect.
+    expect(needsReconnect(defaultSettings, gtaVI, streamOptions(defaultSettings))).toBe(true)
+  })
+
+  it("lists the built-in profiles first, Recommended then GTA VI", () => {
+    const couch = withProfile([], "Couch", { ...defaultSettings, height: 720 })
+    expect(allProfiles(couch).map((p) => p.name)).toEqual(["Recommended", "GTA VI", "Couch"])
+    expect(allProfiles(couch).map(isBuiltIn)).toEqual([true, true, false])
+  })
+
+  it("renames a saved profile with a built-in name, keeping its settings and place", () => {
+    const mine = withProfile([], "GTA VI", { ...defaultSettings, sharpness: 0.6 })
+    const desk = withProfile([], "Desk", defaultSettings)
+    const renamed = withoutBuiltInNames([...desk, ...mine])
+    expect(renamed.map((p) => p.name)).toEqual(["Desk", "GTA VI (saved)"])
+    expect(renamed[1]?.settings).toEqual(mine[0]?.settings)
+    // Nothing to rename: the same list.
+    expect(withoutBuiltInNames(desk)).toEqual(desk)
+    // The new name already taken: the next free one, so no two profiles share a name.
+    const both = withoutBuiltInNames([
+      ...withProfile([], "GTA VI (saved)", defaultSettings),
+      ...mine,
+      ...withProfile([], "Recommended", defaultSettings),
+    ])
+    expect(both.map((p) => p.name)).toEqual(["GTA VI (saved)", "GTA VI (saved 2)", "Recommended (saved)"])
+    expect(new Set(allProfiles(both).map((p) => p.name)).size).toBe(5)
   })
 
   it("holds stream and picture settings, not app preferences", () => {
@@ -54,12 +108,12 @@ describe("profiles", () => {
   })
 
   it("holds Touchpad touches: a profile can send only the touchpad click", () => {
-    const gta = withProfile([], "GTA VI", { ...defaultSettings, touchpadTouches: false })
-    expect(gta[0]?.settings.touchpadTouches).toBe(false)
-    const profiles = allProfiles(gta)
-    expect(Option.getOrUndefined(matchingProfile({ ...defaultSettings, touchpadTouches: false }, profiles))?.name).toBe("GTA VI")
+    const thumb = withProfile([], "Thumb rest", { ...defaultSettings, touchpadTouches: false })
+    expect(thumb[0]?.settings.touchpadTouches).toBe(false)
+    const profiles = allProfiles(thumb)
+    expect(Option.getOrUndefined(matchingProfile({ ...defaultSettings, touchpadTouches: false }, profiles))?.name).toBe("Thumb rest")
     expect(Option.getOrUndefined(matchingProfile(defaultSettings, profiles))?.name).toBe("Recommended")
-    expect(applyProfile(defaultSettings, gta[0] ?? recommended).touchpadTouches).toBe(false)
+    expect(applyProfile(defaultSettings, thumb[0] ?? recommended).touchpadTouches).toBe(false)
     expect(applyProfile({ ...defaultSettings, touchpadTouches: false }, recommended).touchpadTouches).toBe(true)
   })
 
@@ -84,6 +138,8 @@ describe("profiles", () => {
     expect(summary({ upscaler: "bilinear", sharpness: 0, mlUpscale: true, frameInterpolation: true, deblock: 0.5, hdr: true })).toBe(
       "1080p60 · bilinear · ML upscaling · Frame interpolation · cleanup · HDR",
     )
-    expect(summary({ touchpadTouches: false })).toBe("1080p60 · MetalFX · sharpness 0.3 · ML upscaling · touchpad click only")
+    expect(summary({ touchpadTouches: false, frameInterpolation: false })).toBe(
+      "1080p60 · MetalFX · sharpness 0.3 · ML upscaling · touchpad click only",
+    )
   })
 })

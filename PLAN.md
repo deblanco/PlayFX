@@ -3,9 +3,13 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after **Steady Wi-Fi suggested at Play**: Play no longer opens macOS's password prompt by
-itself when Steady Wi-Fi was left on; while AirDrop and Handoff are on, a toast suggests it ("Turn on" asks for
-the password, "Not now" closes it), once per run of the app; unit tests only. Before that, the **Touchpad
+Last updated 2026-11-21, after the built-in profiles (requested): **Recommended**, which is also the new
+defaults, now streams 1080p60 HEVC at 20 Mbps with frame interpolation on (ML upscaling, MetalFX, sharpness
+0.3 as before), and a second built-in **GTA VI** profile is the same at 30 fps with touchpad touches off; a
+profile saved as "GTA VI" before shows as "GTA VI (saved)". Unit tests only. Before that, **Steady Wi-Fi
+suggested at Play**: Play no longer opens macOS's password prompt by itself when Steady Wi-Fi was left on;
+while AirDrop and Handoff are on, a toast suggests it ("Turn on" asks for the password, "Not now" closes it),
+once per run of the app; unit tests only. Before that, the **Touchpad
 touches** switch: off, a pad's touchpad sends only its click, not
 where a finger rests (in GTA VI a resting thumb opened the map; chiaki-ng PR #896 asks for the same), applied
 live and kept in profiles; unit tests only, not yet on the console. Its review fixes: a pad that disconnects
@@ -70,7 +74,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 373 tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -422,8 +426,21 @@ Work items:
   **PS button** at the bottom center (held while the pointer is down: short press = control center, long = home). **Mute** isn't exposed by GameController.
 - ✅ **Settings profiles**: a profile holds the stream and picture settings (resolution, frame rate, codec,
   bitrate, HDR, view, upscaler, sharpening, cleanup, ML, frame interpolation, colors); app preferences stay put.
-  Built-in **Recommended** (1080p60 · MetalFX · sharpness 0.3, also what a new install starts with); the
-  user saves the current settings under a name, switches, deletes. Settings → Profile; stored in
+  Built-in **Recommended** (also what a new install starts with, and what Reset stream / Reset picture go
+  back to): since 2026-11-21 (requested) 1080p60 · HEVC · 20 Mbps · MetalFX · sharpness 0.3 · ML upscaling ·
+  Frame interpolation (it was Auto bitrate and interpolation off; stored settings aren't migrated, and settings
+  saved before those fields existed still decode as Auto / off). A second built-in **GTA VI** (2026-11-21,
+  requested): Recommended at 30 fps with Touchpad touches off, "1080p30 · MetalFX · sharpness 0.3 · ML
+  upscaling · Frame interpolation · touchpad click only"; built-ins list first (Recommended, GTA VI), can't be
+  deleted, replaced or saved over (`"GTA VI" is built in. Choose another name.`), and the Replace chips
+  offer only saved ones. A profile the user saved as "GTA VI" (or "Recommended") before is loaded as "GTA VI
+  (saved)" (the next free "(saved 2)"… if taken), so no two options share a name; the stored list keeps the
+  old name until the next save or delete writes it back under the new one, by which it is picked, replaced
+  and deleted. Verified by unit tests (profiles: both built-ins, order, summaries, the rename; actions:
+  built-in names refused, replace and delete by the new name; App: GTA VI mid-stream asks to reconnect,
+  touchpad click only at once, reconnects at 30 fps, and a saved "GTA VI" kept and deleted as "GTA VI
+  (saved)"). Left: GTA VI on the console with that profile. The user saves the current settings under a name,
+  switches, deletes. Settings → Profile; stored in
   `psrp.profiles`. "Custom" when the settings match no profile. **Replacing a profile** (2026-11-20,
   requested): Save as… lists the saved profiles to pick; a matching name turns Save into **Replace** with a
   line saying so, and the profile keeps its place in the list. **Switching from Home and while playing**
@@ -999,7 +1016,9 @@ requests and a bug report.
    touchpad built; **the motion axes in a game are left**. **Touchpad touches off, in GTA VI** (built
    2026-11-21, unit tests only): with it off a resting thumb on the touchpad doesn't open the map and a click
    does; turning it off with a thumb down leaves no touch stuck; back on, swipes work again; switching the pad
-   off mid-press leaves nothing held. *(P1)*
+   off mid-press leaves nothing held. Then the built-in **GTA VI** profile (2026-11-21, unit tests only):
+   picked mid-stream, it reconnects at 1080p30 / 20 Mbps with frame interpolation filling toward the screen's
+   rate, and a profile saved as "GTA VI" before shows as "GTA VI (saved)". *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
    [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0, v0.2.1, v0.2.2 and v0.2.3 followed). `release.sh` now survives a notarytool

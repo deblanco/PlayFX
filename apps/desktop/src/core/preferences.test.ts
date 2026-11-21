@@ -204,7 +204,15 @@ describe("PreferencesLive (memory)", () => {
     it.effect("fills settings added later from defaults, keeping the saved ones", () =>
       Effect.gen(function* () {
         const prefs = yield* Preferences
-        expect(yield* prefs.settings).toEqual({ ...defaultSettings, height: 720, upscaler: "bilinear" })
+        // A setting added later takes the value it had then: auto bitrate and no Frame interpolation, as
+        // these settings streamed with, not today's defaults for new installs.
+        expect(yield* prefs.settings).toEqual({
+          ...defaultSettings,
+          height: 720,
+          upscaler: "bilinear",
+          bitrate: 0,
+          frameInterpolation: false,
+        })
       }).pipe(
         Effect.provide(
           withMemory({ "psrp.settings": JSON.stringify({ height: 720, fps: 60, hevc: true, upscaler: "bilinear" }) }),

@@ -93,7 +93,7 @@ the sign's text and the jacket's texture come back.*
 | Resolution | 540p, 720p, 1080p | 1080p is the highest the Remote Play protocol offers here. |
 | Frame rate | 30, 60 fps | |
 | Codec | H.264, HEVC | HEVC gives a better picture at the same bitrate, and is needed for HDR. |
-| Bitrate | Auto, 10–50 Mbps | Auto is the console's default (about 15 Mbps at 1080p). It pays off in motion: switching tiles at 1080p measured 5.8 Mbps at Auto against 9.5 Mbps with a 40 Mbps cap. |
+| Bitrate | Auto, 10–50 Mbps | 20 Mbps by default. Auto is the console's default (about 15 Mbps at 1080p). It pays off in motion: switching tiles at 1080p measured 5.8 Mbps at Auto against 9.5 Mbps with a 40 Mbps cap. |
 | Auto-downgrade | on / off | Lets the console lower the resolution on a weak network. The stats line shows a lower resolution than you asked for in amber. |
 | HDR | on / off | HEVC HDR10 (see below). |
 | Touchpad touches | on / off | Under Controller; changes right away. Off sends only the touchpad click, not where a finger rests: in GTA VI a resting thumb opens the map. The Mac's trackpad as the touchpad isn't affected. |
@@ -129,9 +129,11 @@ costs: [docs/ML_UPSCALING.md](docs/ML_UPSCALING.md).
 or interpolation), **Split** (Original on the left, your settings on the right, with a divider), and
 **Enhanced** (your settings, the default).
 
-**Profiles** keep a set of stream and picture settings, and Touchpad touches, under a name. The built-in **Recommended**
-profile (1080p60 · MetalFX · sharpness 0.3 · ML upscaling) is what a new install starts with. **Save as…** also replaces a
-saved profile: pick it, and Save becomes Replace.
+**Profiles** keep a set of stream and picture settings, and Touchpad touches, under a name. Two are built in, listed first:
+**Recommended** (1080p60 · HEVC · 20 Mbps · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation) is what a new
+install starts with, and **GTA VI** is the same at 30 fps with Touchpad touches off. **Save as…** also replaces a saved
+profile: pick it, and Save becomes Replace. A profile saved as "GTA VI" before that one was built in shows as "GTA VI
+(saved)".
 
 ### HDR
 
@@ -154,7 +156,7 @@ synthetic HDR frames.
   frame index and the stream's rate, so network jitter neither drops nor bunches frames. Before this, a
   60 fps stream showed 39–49 of its 60 frames a second on a 60 Hz screen.
 - **Two drawables, not three**, so a decoded frame waits at most one refresh.
-- **Frame interpolation** (off by default) makes images between the game's own frames, one for each
+- **Frame interpolation** (on by default) makes images between the game's own frames, one for each
   screen refresh, so a 30 fps game fills a 60 Hz screen (and a 120 Hz one), even when it comes in a 60 fps
   stream: the frames the console repeats are left out first. It runs when the screen refreshes at least
   1.2× as often as the game. The images come from VideoToolbox frame interpolation on the Neural

@@ -368,9 +368,10 @@ describe("settings labels", () => {
     expect(strengthLabel(1)).toBe("100%")
   })
   it("summarizes the stream settings", () => {
-    expect(streamSummary(defaultSettings)).toBe("1080p · 60 fps · HEVC · auto bitrate")
-    expect(streamSummary({ ...defaultSettings, height: 720, fps: 30, hevc: false, bitrate: 20000 })).toBe(
-      "720p · 30 fps · H.264 · 20 Mbps",
+    expect(streamSummary(defaultSettings)).toBe("1080p · 60 fps · HEVC · 20 Mbps")
+    expect(streamSummary({ ...defaultSettings, bitrate: 0 })).toBe("1080p · 60 fps · HEVC · auto bitrate")
+    expect(streamSummary({ ...defaultSettings, height: 720, fps: 30, hevc: false, bitrate: 40000 })).toBe(
+      "720p · 30 fps · H.264 · 40 Mbps",
     )
   })
 })

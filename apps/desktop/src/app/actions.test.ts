@@ -6,6 +6,7 @@ import { KeyValueStore, Preferences, PreferencesLive } from "@/core/preferences"
 import { defaultSettings } from "@/core/schema"
 import { makeLogger } from "@/core/logging"
 import * as actions from "./actions"
+import { profileSettings } from "./profiles"
 import { accountId, credentials, fakeCore, pairedPs5, picture, prefsLayer, ps5, psnCredentials, psnPs5, status, type StoredPrefs } from "./testing"
 
 const setup = (core = fakeCore(), prefs: StoredPrefs = {}) => ({ core, layer: Layer.mergeAll(core.layer, prefsLayer(prefs)) })
@@ -248,6 +249,44 @@ describe("settings", () => {
   })
 })
 
+describe("profiles", () => {
+  const stored = (name: string, sharpness: number) => ({ name, settings: profileSettings({ ...defaultSettings, sharpness }) })
+
+  it.effect("refuses to save under a built-in profile's name", () => {
+    const { layer } = setup()
+    return Effect.gen(function* () {
+      for (const name of ["Recommended", " GTA VI "]) {
+        const error = yield* Effect.flip(actions.saveProfile(name, defaultSettings))
+        expect(error.message).toBe(`"${name.trim()}" is built in. Choose another name.`)
+      }
+      expect(yield* actions.loadProfiles).toEqual([])
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("shows a profile saved as GTA VI before it was built in as GTA VI (saved), to pick, replace or delete", () => {
+    const { layer } = setup(fakeCore(), { profiles: [stored("Desk", 0.1), stored("GTA VI", 0.6)] })
+    return Effect.gen(function* () {
+      const prefs = yield* Preferences
+      expect((yield* actions.loadProfiles).map((p) => [p.name, p.settings.sharpness])).toEqual([["Desk", 0.1], ["GTA VI (saved)", 0.6]])
+      expect((yield* prefs.profiles).map((p) => p.name)).toEqual(["Desk", "GTA VI"]) // kept as stored until a change
+      // Replaced by its new name, where it was; stored under that name from then on.
+      const replaced = yield* actions.saveProfile("GTA VI (saved)", { ...defaultSettings, sharpness: 0.8 })
+      expect(replaced.map((p) => [p.name, p.settings.sharpness])).toEqual([["Desk", 0.1], ["GTA VI (saved)", 0.8]])
+      expect(yield* prefs.profiles).toEqual(replaced)
+      expect(yield* actions.deleteProfile("GTA VI (saved)")).toEqual([stored("Desk", 0.1)])
+      expect(yield* prefs.profiles).toEqual([stored("Desk", 0.1)])
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("deletes a renamed profile by its new name", () => {
+    const { layer } = setup(fakeCore(), { profiles: [stored("GTA VI", 0.6)] })
+    return Effect.gen(function* () {
+      expect(yield* actions.deleteProfile("GTA VI (saved)")).toEqual([])
+      expect(yield* actions.loadProfiles).toEqual([])
+    }).pipe(Effect.provide(layer))
+  })
+})
+
 describe("streaming", () => {
   it.effect("starts and stops a stream", () => {
     const { core, layer } = setup()
@@ -257,7 +296,7 @@ describe("streaming", () => {
         height: 1080,
         fps: 60,
         hevc: true,
-        bitrate: 0,
+        bitrate: 20000,
         audio: true,
         autoDowngrade: true,
         hdr: false,
@@ -759,7 +798,7 @@ describe("logging", () => {
     const { core, layer } = setup()
     const logged = Logger.layer([makeLogger((level, line) => lines.push(`${level} ${line}`))])
     return Effect.gen(function* () {
-      yield* actions.play(pairedPs5, defaultSettings, "aa")
+      yield* actions.play(pairedPs5, { ...defaultSettings, bitrate: 0 }, "aa")
       const fiber = yield* Effect.forkChild(actions.onStreamEvent(() => undefined))
       yield* Effect.yieldNow
       core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })

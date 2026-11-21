@@ -652,14 +652,14 @@ describe("settings", () => {
   it("summarizes the stream settings and edits them in the sheet", async () => {
     const core = fakeCore()
     const { runtime } = renderApp(core, { settings: { ...defaultSettings, height: 720 } })
-    expect(await screen.findByText("720p · 60 fps · HEVC · auto bitrate")).toBeInTheDocument()
+    expect(await screen.findByText("720p · 60 fps · HEVC · 20 Mbps")).toBeInTheDocument()
     const sheet = await openSettings("Stream")
     expect(sheet.getByText("Changes apply the next time you connect.")).toBeInTheDocument()
     await userEvent.click(sheet.getByRole("radio", { name: "540p" }))
     await userEvent.click(sheet.getByRole("radio", { name: "540p" })) // re-clicking keeps it selected
     await userEvent.click(sheet.getByRole("radio", { name: "30 fps" }))
     await userEvent.click(sheet.getByRole("radio", { name: "H.264" }))
-    nudge("Bitrate", "ArrowRight", 5)
+    nudge("Bitrate", "ArrowRight", 2)
     expect(sheet.getByText("40 Mbps")).toBeInTheDocument()
     await userEvent.click(sheet.getByRole("switch", { name: /Lower resolution/ }))
     await userEvent.click(sheet.getByRole("switch", { name: "Sound" }))
@@ -920,7 +920,7 @@ describe("streaming", () => {
       height: 1080,
       fps: 60,
       hevc: true,
-      bitrate: 0,
+      bitrate: 20000,
       audio: true,
       autoDowngrade: true,
       hdr: false,
@@ -1094,11 +1094,14 @@ describe("streaming", () => {
     expect(core.counts.sleepConsole).toBe(0)
   })
 
-  it("turns Frame interpolation on for the renderer", async () => {
+  it("turns Frame interpolation (on by default) off and on for the renderer", async () => {
     const core = fakeCore()
     core.state.status = { ...status(), interpolationSupported: true }
     await startStreaming(core)
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ frameInterpolation: true }))
     const sheet = await openSettings("Picture")
+    await userEvent.click(sheet.getByRole("switch", { name: /Frame interpolation/ }))
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ frameInterpolation: false }))
     await userEvent.click(sheet.getByRole("switch", { name: /Frame interpolation/ }))
     expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ frameInterpolation: true }))
   })
@@ -1144,7 +1147,7 @@ describe("streaming", () => {
     const view = within(sheet.getByRole("radiogroup", { name: "View" }))
     await userEvent.click(view.getByRole("radio", { name: "Original" }))
     expect(core.service.setRenderParams).toHaveBeenLastCalledWith(
-      picture({ upscaler: "bilinear", sharpness: 0, mlUpscale: false, compare: false }),
+      picture({ upscaler: "bilinear", sharpness: 0, mlUpscale: false, frameInterpolation: false, compare: false }),
     )
     expect(screen.queryByLabelText("Split-screen comparison")).not.toBeInTheDocument()
     await userEvent.click(view.getByRole("radio", { name: "Split" }))
@@ -1162,7 +1165,7 @@ describe("streaming", () => {
     const { core } = await startStreaming()
     vi.mocked(core.service.startStream).mockClear()
     await openSettings("Stream")
-    // Two steps up in a row (Auto → 10 → 15 Mbps): one reconnect, with the last value.
+    // Two steps up in a row (20 → 30 → 40 Mbps): one reconnect, with the last value.
     nudge("Bitrate", "ArrowRight", 2)
     expect(core.service.startStream).not.toHaveBeenCalled()
     await waitFor(
@@ -1171,7 +1174,7 @@ describe("streaming", () => {
       },
       { timeout: 3000 },
     )
-    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 15000 }), undefined)
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 40000 }), undefined)
   })
 
   it("reconnects to apply new stream settings, waiting out a busy console", async () => {
@@ -1736,7 +1739,7 @@ describe("settings profiles", () => {
     await waitFor(() => {
       expect(profile()).toHaveValue("Recommended")
     })
-    expect(sheet.getByText("1080p60 · MetalFX · sharpness 0.3 · ML upscaling")).toBeInTheDocument()
+    expect(sheet.getByText("1080p60 · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation")).toBeInTheDocument()
 
     // A change of a picture setting makes it a custom mix.
     nudge("Sharpness", "ArrowRight", 2)
@@ -1811,7 +1814,7 @@ describe("settings profiles", () => {
 
   it("turns Touchpad touches off and on mid-stream without asking to reconnect, from the switch or a profile", async () => {
     const core = fakeCore()
-    const { runtime } = await startStreaming(core, { profiles: [profile("GTA VI", { touchpadTouches: false })] })
+    const { runtime } = await startStreaming(core, { profiles: [profile("Thumb rest", { touchpadTouches: false })] })
     await waitFor(() => {
       expect(core.service.setTouchpadTouches).toHaveBeenCalledWith(true) // saved settings applied at startup
     })
@@ -1830,7 +1833,7 @@ describe("settings profiles", () => {
       expect((await savedSettings(runtime)).touchpadTouches).toBe(false)
     })
     expect(sheet.queryByRole("status")).not.toBeInTheDocument()
-    expect(sheet.getByRole("combobox", { name: "Profile" })).toHaveValue("GTA VI") // the profile's mix
+    expect(sheet.getByRole("combobox", { name: "Profile" })).toHaveValue("Thumb rest") // the profile's mix
     await userEvent.click(touches)
     await waitFor(() => {
       expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(true)
@@ -1838,15 +1841,84 @@ describe("settings profiles", () => {
 
     // A profile that turns them off applies at once too.
     const select = sheet.getByRole("combobox", { name: "Profile" })
-    expect(within(select).getByRole("option", { name: "GTA VI · applies now" })).toBeInTheDocument()
-    await userEvent.selectOptions(select, "GTA VI")
-    expect(await screen.findByText("Switched to GTA VI")).toBeInTheDocument()
+    expect(within(select).getByRole("option", { name: "Thumb rest · applies now" })).toBeInTheDocument()
+    await userEvent.selectOptions(select, "Thumb rest")
+    expect(await screen.findByText("Switched to Thumb rest")).toBeInTheDocument()
     await waitFor(() => {
       expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(false)
     })
     expect(sheet.getByRole("switch", { name: /Touchpad touches/ })).not.toBeChecked()
     expect(sheet.queryByRole("status")).not.toBeInTheDocument()
     expect(core.service.startStream).not.toHaveBeenCalled()
+  })
+
+  it("switches to the built-in GTA VI profile: 30 fps after a reconnect, touchpad click only at once", async () => {
+    const core = fakeCore()
+    const { runtime } = await startStreaming(core)
+    vi.mocked(core.service.startStream).mockClear()
+    const sheet = await openSettings("Stream")
+    const select = sheet.getByRole("combobox", { name: "Profile" })
+    await waitFor(() => {
+      expect(select).toHaveValue("Recommended")
+    })
+    expect(within(select).getByRole("option", { name: "GTA VI · needs a reconnect" })).toBeInTheDocument()
+
+    await userEvent.selectOptions(select, "GTA VI")
+    expect(await screen.findByText("Switched to GTA VI · reconnect to apply")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(false)
+    })
+    expect(sheet.getByRole("switch", { name: /Touchpad touches/ })).not.toBeChecked()
+    expect(sheet.getByText("1080p30 · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation · touchpad click only")).toBeInTheDocument()
+    await waitFor(async () => {
+      expect(await savedSettings(runtime)).toEqual({ ...defaultSettings, fps: 30, touchpadTouches: false })
+    })
+    // Built in: no delete, and its name can't be saved over.
+    expect(sheet.queryByRole("button", { name: "Delete GTA VI" })).not.toBeInTheDocument()
+    expect(sheet.getByRole("status")).toHaveTextContent("Reconnect to use the new stream settings.")
+    expect(core.service.startStream).not.toHaveBeenCalled()
+    await userEvent.click(sheet.getByRole("button", { name: "Reconnect" }))
+    await waitFor(() => {
+      expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ fps: 30, bitrate: 20000 }), undefined)
+    })
+
+    await userEvent.click(sheet.getByRole("button", { name: "Save as…" }))
+    await userEvent.type(sheet.getByRole("textbox", { name: "Profile name" }), "GTA VI{Enter}")
+    expect(await screen.findByText('"GTA VI" is built in. Choose another name.')).toBeInTheDocument()
+  })
+
+  it("keeps a profile saved as GTA VI before it was built in, as GTA VI (saved)", async () => {
+    const { runtime } = await startStreaming(fakeCore(), { profiles: [profile("GTA VI", { touchpadTouches: false, sharpness: 0.6 })] })
+    const sheet = await openSettings("Picture")
+    const select = sheet.getByRole("combobox", { name: "Profile" })
+    await waitFor(() => {
+      expect(within(select).getAllByRole("option").map((o) => (o as HTMLOptionElement).value)).toEqual([
+        "Recommended",
+        "GTA VI",
+        "GTA VI (saved)",
+      ])
+    })
+    await userEvent.selectOptions(select, "GTA VI (saved)")
+    expect(await screen.findByText("Switched to GTA VI (saved)")).toBeInTheDocument()
+    expect(select).toHaveValue("GTA VI (saved)")
+
+    // Only saved profiles to replace, under the name they show with.
+    nudge("Sharpness", "ArrowRight")
+    await userEvent.click(await sheet.findByRole("button", { name: "Save as…" }))
+    const replace = within(sheet.getByRole("group", { name: "Replace a saved profile" }))
+    expect(replace.getAllByRole("button").map((b) => b.textContent)).toEqual(["GTA VI (saved)"])
+    await userEvent.click(replace.getByRole("button", { name: "GTA VI (saved)" }))
+    await userEvent.click(sheet.getByRole("button", { name: "Replace" }))
+    expect(await screen.findByText('Replaced "GTA VI (saved)"')).toBeInTheDocument()
+    await waitFor(async () => {
+      expect((await savedProfiles(runtime)).map((p) => [p.name, p.settings.sharpness])).toEqual([["GTA VI (saved)", 0.65]])
+    })
+
+    await userEvent.click(sheet.getByRole("button", { name: "Delete GTA VI (saved)" }))
+    await waitFor(async () => {
+      expect(await savedProfiles(runtime)).toEqual([])
+    })
+    expect(within(select).queryByRole("option", { name: /saved/ })).not.toBeInTheDocument()
   })
 
   it("switches profiles from Home, sharing the saved ones with Settings", async () => {
@@ -1856,11 +1928,11 @@ describe("settings profiles", () => {
       expect(home).toHaveValue("Recommended")
     })
     // Not streaming: the options are just the names.
-    expect(within(home).getAllByRole("option").map((o) => o.textContent)).toEqual(["Recommended", "Couch"])
+    expect(within(home).getAllByRole("option").map((o) => o.textContent)).toEqual(["Recommended", "GTA VI", "Couch"])
 
     await userEvent.selectOptions(home, "Couch")
     expect(await screen.findByText("Switched to Couch")).toBeInTheDocument()
-    expect(screen.getByText("720p · 60 fps · HEVC · auto bitrate")).toBeInTheDocument()
+    expect(screen.getByText("720p · 60 fps · HEVC · 20 Mbps")).toBeInTheDocument()
     await waitFor(async () => {
       expect((await savedSettings(runtime)).height).toBe(720)
     })
@@ -1900,6 +1972,7 @@ describe("settings profiles", () => {
     await waitFor(() => {
       expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
         "Recommended",
+        "GTA VI · needs a reconnect",
         "Sharp · applies now",
         "Fast · needs a reconnect",
       ])
@@ -1940,7 +2013,7 @@ describe("settings profiles", () => {
 
   it("holds a profile switch for Reconnect until the bitrate slider moves", async () => {
     const core = fakeCore()
-    const { runtime } = await startStreaming(core, { testClock: true, profiles: [profile("Fast", { bitrate: 15000 })] })
+    const { runtime } = await startStreaming(core, { testClock: true, profiles: [profile("Fast", { bitrate: 10000 })] })
     const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
     vi.mocked(core.service.startStream).mockClear()
     const sheet = await openSettings("Stream")
@@ -1955,14 +2028,14 @@ describe("settings profiles", () => {
     await waitFor(() => {
       expect(core.service.startStream).toHaveBeenCalledTimes(1)
     })
-    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 20000 }), undefined)
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 15000 }), undefined)
   })
 
   it("holds a profile switch made while a bitrate is still settling on the slider", async () => {
     const core = fakeCore()
     const { runtime } = await startStreaming(core, {
       testClock: true,
-      profiles: [profile("Fast and sharp", { bitrate: 10000, sharpness: 0.9 })],
+      profiles: [profile("Fast and sharp", { bitrate: 30000, sharpness: 0.9 })],
     })
     const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
     vi.mocked(core.service.startStream).mockClear()
@@ -1991,7 +2064,7 @@ describe("settings profiles", () => {
     await waitFor(() => {
       expect(core.service.startStream).toHaveBeenCalledTimes(1)
     })
-    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 10000 }), undefined)
+    expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.objectContaining({ bitrate: 30000 }), undefined)
 
     // Before it's back, a profile with the bitrate the stream had: it differs from the one coming, so it asks first.
     const select = sheet.getByRole("combobox", { name: "Profile" })
@@ -2010,7 +2083,7 @@ describe("settings profiles", () => {
     const core = fakeCore()
     const { runtime } = await startStreaming(core, {
       testClock: true,
-      profiles: [profile("Fast and sharp", { bitrate: 10000, sharpness: 0.9 })],
+      profiles: [profile("Fast and sharp", { bitrate: 30000, sharpness: 0.9 })],
     })
     const wait = (seconds: number) => act(() => runtime.runPromise(TestClock.adjust(seconds * 1000)))
     vi.mocked(core.service.startStream).mockClear()

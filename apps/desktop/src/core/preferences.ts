@@ -68,7 +68,7 @@ export class Preferences extends Context.Service<
     readonly refreshAddresses: (seen: readonly { hostId: string; address: string }[]) => Effect.Effect<void, StorageError>
     readonly settings: Effect.Effect<Settings, StorageError>
     readonly saveSettings: (settings: Settings) => Effect.Effect<void, StorageError>
-    /** Settings profiles the user saved (the built-in one isn't stored). */
+    /** Settings profiles the user saved (the built-in ones aren't stored). */
     readonly profiles: Effect.Effect<readonly Profile[], StorageError>
     readonly saveProfiles: (profiles: readonly Profile[]) => Effect.Effect<void, StorageError>
     /** Whether the user last turned Steady Wi-Fi on (and not off since), to offer it again at the next stream. */
