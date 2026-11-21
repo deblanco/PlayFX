@@ -1,6 +1,7 @@
 import CChiaki
 import Foundation
 import GameController
+import os
 
 /// PlayStation controller state in libchiaki's terms.
 public struct ControllerState: Equatable, Sendable {
@@ -79,21 +80,38 @@ public struct ControllerState: Equatable, Sendable {
 }
 
 /// Reads physical gamepads (DualSense, DualShock 4, Xbox, MFi) via
-/// GameController, merging them into one ControllerState.
+/// GameController, merging them into one ControllerState. GameController's own callbacks arrive on
+/// the main queue, behind rendering and UI; between them, a loop on its own user-interactive thread
+/// (`InputPacer` paces it, faster while readings change) reads the pads directly, so a reading reaches
+/// the console without waiting for the main thread to get around to it. Not yet on hardware: the loop's
+/// off-main reads of GameController's elements (their values update as the pad's reports arrive; the
+/// callbacks are only notifications) want a look with a pad in hand.
 public final class ControllerInput {
-    /// Called on the main queue whenever the merged state changes.
+    /// Called whenever the merged state changes: on the main thread (the callbacks, the keyboard, the
+    /// settings) or on the loop. What it must do has to be thread-safe — `StreamSession.setController` is.
     public var onChange: ((ControllerState) -> Void)?
-    private var padState = ControllerState()
-    /// The last reading's fingers, kept to give them fresh ids when touches are turned back on.
-    private var padFingers: [SIMD2<Float>?] = []
-    private var touchIDs = TouchIDs()
-    private var motionState: ControllerState.Motion?
-    /// The controllers whose readings `padState` and `motionState` hold, to let go of them when it disconnects.
-    private var padSource: ObjectIdentifier?
-    private var motionSource: ObjectIdentifier?
-    private var keyState = ControllerState()
-    private var last = ControllerState()
+
+    /// Everything the callbacks, the keyboard and the settings write and the loop reads — plus the
+    /// loop's pacer, fed by every distinct reading.
+    private let input = OSAllocatedUnfairLock(initialState: Input())
+    private struct Input {
+        var padState = ControllerState()
+        /// The last reading's fingers, kept to give them fresh ids when touches are turned back on.
+        var padFingers: [SIMD2<Float>?] = []
+        var touchIDs = TouchIDs()
+        var motionState: ControllerState.Motion?
+        /// The controllers whose readings `padState` and `motionState` hold, to let go of them when it disconnects.
+        var padSource: ObjectIdentifier?
+        var motionSource: ObjectIdentifier?
+        var keyState = ControllerState()
+        var sendsTouches = true
+        var last = ControllerState()
+        var pacer = InputPacer()
+    }
     private var observers: [NSObjectProtocol] = []
+    /// The input loop's thread. It holds this object weakly and exits on its own within one period of it
+    /// being let go.
+    private var loop: Thread?
 
     public init() {
         #if os(macOS)
@@ -109,6 +127,18 @@ public final class ControllerInput {
             self?.disconnected(ObjectIdentifier(controller))
         })
         PadHardware.controllers().forEach(attach)
+        let loop = Thread { [weak self] in
+            while self != nil {
+                let period = self?.input.withLock { $0.pacer.period(at: ProcessInfo.processInfo.systemUptime) }
+                    ?? InputPacer.heartbeat
+                Thread.sleep(forTimeInterval: period)
+                self?.pollPads()
+            }
+        }
+        loop.qualityOfService = .userInteractive
+        loop.name = "streamcore.input"
+        loop.start()
+        self.loop = loop
     }
 
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
@@ -145,32 +175,45 @@ public final class ControllerInput {
 
     /// A reading from a pad: its buttons, triggers and sticks, and the fingers on its touchpad (internal for tests).
     func padChanged(_ state: ControllerState, fingers: [SIMD2<Float>?], from source: ObjectIdentifier? = nil) {
-        padState = state
-        padFingers = fingers
-        padState.touches = touchIDs.touches(fingers)
-        padSource = source
+        input.withLock {
+            $0.padState = state
+            $0.padFingers = fingers
+            $0.padState.touches = $0.touchIDs.touches(fingers)
+            $0.padSource = source
+        }
         emit()
     }
 
-    /// A motion-sensor reading from a controller (internal for tests).
+    /// A motion-sensor reading from a controller (internal for tests). One whose sensors read exactly
+    /// as the last from the same pad carries nothing new (its timestamp alone would only make the console
+    /// re-integrate the same stillness), so the last reading stands: the input loop reads motion between
+    /// the pad's own callbacks, and this keeps a pad lying still from becoming a stream of readings that
+    /// differ by timestamp alone.
     func motionChanged(_ motion: ControllerState.Motion, from source: ObjectIdentifier) {
-        motionState = motion
-        motionSource = source
-        emit()
+        let fresh = input.withLock { input -> Bool in
+            if input.motionSource == source, let last = input.motionState,
+               last.gyro == motion.gyro, last.accel == motion.accel { return false }
+            input.motionState = motion
+            input.motionSource = source
+            return true
+        }
+        if fresh { emit() }
     }
 
     /// A controller went away (internal for tests). GameController sends no last reading, so whatever it held
     /// (buttons, sticks, a finger on the touchpad, motion) is released on the console here, or it stays stuck.
     func disconnected(_ controller: ObjectIdentifier) {
-        if controller == padSource {
-            padState = ControllerState()
-            padFingers = []
-            touchIDs.forget()
-            padSource = nil
-        }
-        if controller == motionSource {
-            motionState = nil
-            motionSource = nil
+        input.withLock { input in
+            if controller == input.padSource {
+                input.padState = ControllerState()
+                input.padFingers = []
+                input.touchIDs.forget()
+                input.padSource = nil
+            }
+            if controller == input.motionSource {
+                input.motionState = nil
+                input.motionSource = nil
+            }
         }
         emit()
     }
@@ -178,11 +221,16 @@ public final class ControllerInput {
     /// Whether the fingers on a pad's touchpad reach the console (the "Touchpad touches" setting). Off, only its
     /// click does: some games act on a resting thumb (GTA VI opens the map). Turning it off mid-touch lifts the
     /// finger on the console at once; turning it back on with a finger resting sends that finger as a new touch.
-    public var sendsTouches = true {
-        didSet {
-            if sendsTouches && !oldValue {
-                touchIDs.forget()
-                padState.touches = touchIDs.touches(padFingers)
+    public var sendsTouches: Bool {
+        get { input.withLock { $0.sendsTouches } }
+        set {
+            input.withLock { input in
+                guard newValue != input.sendsTouches else { return }
+                if newValue {
+                    input.touchIDs.forget()
+                    input.padState.touches = input.touchIDs.touches(input.padFingers)
+                }
+                input.sendsTouches = newValue
             }
             emit()
         }
@@ -192,16 +240,37 @@ public final class ControllerInput {
     /// dialog or the settings instead): merged with the pad. Reading the keyboard here too (GameController
     /// sees every key, even while typing in the console's text field) sent H as PS while typing "hello".
     public func setKeys(_ keys: ControllerState) {
-        keyState = keys
+        input.withLock { $0.keyState = keys }
         emit()
     }
 
+    /// Reads the given pads — the loop's thread passes every connected one — and hands their readings to
+    /// the same path the callbacks take. In a test run `PadHardware` is closed, so only the tests' own
+    /// stand-ins go in, never a real pad.
+    func pollPads(_ controllers: [GCController] = PadHardware.controllers()) {
+        for controller in controllers {
+            let source = ObjectIdentifier(controller)
+            if let pad = controller.extendedGamepad {
+                padChanged(Self.state(from: pad), fingers: Self.fingers(on: pad), from: source)
+            }
+            if let motion = controller.motion {
+                motionChanged(Self.motion(rotation: motion.rotationRate, gravity: motion.gravity,
+                                          user: motion.userAcceleration, at: ProcessInfo.processInfo.systemUptime),
+                              from: source)
+            }
+        }
+    }
+
     private func emit() {
-        var s = Self.merge(pad: padState, keys: keyState, touches: sendsTouches)
-        s.motion = motionState
-        guard s != last else { return }
-        last = s
-        onChange?(s)
+        let (state, changed) = input.withLock { input -> (ControllerState, Bool) in
+            var s = Self.merge(pad: input.padState, keys: input.keyState, touches: input.sendsTouches)
+            s.motion = input.motionState
+            let changed = s != input.last
+            if changed { input.last = s }
+            input.pacer.reading(at: ProcessInfo.processInfo.systemUptime, distinct: changed)
+            return (s, changed)
+        }
+        if changed { onChange?(state) }
     }
 
     /// Gamepad and keyboard combined: buttons OR'd, triggers maxed, a keyboard stick (WASD, IJKL) in use

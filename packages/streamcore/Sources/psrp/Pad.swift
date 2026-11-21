@@ -36,11 +36,14 @@ final class PadProbe {
         for (name, label) in [(NSApplication.didBecomeActiveNotification, "frontmost"), (NSApplication.didResignActiveNotification, "in the background")] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in log("[app] \(label)") }
         }
+        // Readings can arrive on the input loop's thread now; the probe's state belongs to main.
         input.onChange = { [weak self] s in
-            guard let self else { return }
-            state = s
-            let line = Self.describe(s)
-            if line != lastLine { lastLine = line; log("[pad] \(line)") }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.state = s
+                let line = Self.describe(s)
+                if line != self.lastLine { self.lastLine = line; log("[pad] \(line)") }
+            }
         }
     }
 

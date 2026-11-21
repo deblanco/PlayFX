@@ -183,6 +183,29 @@ import Testing
         #expect(standIn.isSnapshot && ControllerInput.reads(standIn) && ControllerInput.reads(standIn, allowed: true))
         #expect(PadHardware.controllers().isEmpty) // no real pad is attached at start
     }
+
+    @Test @MainActor func theLoopReadsPadsWithoutWaitingForTheMainQueue() throws {
+        // The input loop's own read, off the main queue: given a stand-in pad it reads the same state the
+        // callbacks would, and what it reads reaches the console through the same path.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let controller = GCController.withExtendedGamepad()
+        let pad = try #require(controller.extendedGamepad)
+        pad.buttonA.setValue(1)
+        input.pollPads([controller])
+        #expect(sent.last?.buttons == UInt32(PSRP_BTN_CROSS.rawValue))
+        // Nothing changed between reads: nothing is sent again.
+        let count = sent.count
+        input.pollPads([controller])
+        #expect(sent.count == count)
+        pad.leftThumbstick.setValueForXAxis(1, yAxis: 0)
+        input.pollPads([controller])
+        #expect(sent.last?.leftX == Int16.max && sent.last?.leftY == 0)
+        // What the loop read is the pad's, so its disconnect still releases it.
+        input.disconnected(ObjectIdentifier(controller))
+        #expect(sent.last == ControllerState())
+    }
 }
 
 @Suite struct TouchpadTests {

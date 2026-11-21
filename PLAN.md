@@ -3,9 +3,20 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after **a build fix for newer toolchains**: `Color.range`'s ternary of array
-literals needs the Float context spelled out for Swift 6.2's type checker (Xcode 26's CLT builds the package
-again; the old form still compiles on older toolchains). Before that, **in-app updates through GitHub Releases**: a banner on Home offers a newer release
+Last updated 2026-11-21, after **the adaptive input lane**: pad readings reach the console off the main
+thread. GameController's callbacks arrive on the main queue, behind rendering and UI; an input loop of its own
+(user-interactive, `streamcore.input`) now reads every connected pad between them, paced by `InputPacer` (pure,
+unit-tested): 500 Hz while readings change, learning half the interval distinct readings arrive with (a DualSense
+on a cable reports faster than the same pad over Bluetooth) and capped by a 125 Hz heartbeat after a second of
+quiet — so a reading is never more than one period behind, whatever rate the pad reports at. A motion reading
+whose sensors read exactly as the last one from the same pad carries nothing new: without that, the loop's reads
+between the pad's own reports (and a pad lying still) would become a stream of readings that differ by timestamp
+alone. Unit tests only (the pacer, the loop reading a stand-in pad through `pollPads`, motion deduped; the loop's
+off-main reads of GameController's elements — their values update as reports arrive, the callbacks are only
+notifications — still want a look with a pad in hand), then the latency test before and after on the console.
+Before that, a build fix for newer toolchains: `Color.range`'s ternary of array literals needs the Float context
+spelled out for Swift 6.2's type checker (Xcode 26's CLT builds the package again; the old form still compiles on
+older toolchains). Before that, **in-app updates through GitHub Releases**: a banner on Home offers a newer release
 (checked 5 s after launch and every 6 hours, or by hand in Diagnostics), and Update downloads, verifies, installs
 and restarts, never during a stream; `release.sh` makes the signed update and `latest.json`. Built and tested
 (Rust against a local server with a throwaway key, the release script with one), not yet end to end: that needs a
@@ -82,7 +93,10 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   labels) in the desktop HUD/settings; `psrp` `/render.png?mode=…&w=…&h=…` renders the latest frame
   offscreen at any size (used for the 720p → 4K comparison screenshots).
 - Audio: Opus decode → low-latency `AVAudioEngine` with a jitter buffer.
-- Input: DualSense/DualShock/Xbox/MFi via the GameController framework.
+- Input: DualSense/DualShock/Xbox/MFi via the GameController framework — its callbacks on the main thread,
+  plus an **input loop** of its own (user-interactive) that reads the pads off it, paced adaptively by
+  `InputPacer` (fast while readings change, a heartbeat when they don't), so a reading doesn't wait behind
+  rendering and UI.
 - **Keyboard-as-controller** (testing without a pad): the web UI captures keys and forwards a
   controller state through `sc_session_set_controller`, which StreamCore merges with the pad's
   (`ControllerInput.setKeys`); mapping is a pure, tested function (`src/app/keyboard.ts`), with an in-HUD
@@ -92,7 +106,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 421 tests (90% lines; 89% as CI's VM sees
   it), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -580,6 +594,13 @@ Work items:
   frames back for nothing). Measured on the PS5: 44 ms (3 drawables, Smooth motion wrongly on) → 33 ms
   (2 drawables; not a strict A/B). Not done: audio jitter-buffer tuning (no audio/video sync complaints
   so far).
+- ✅ **Input lane off the main thread** (2026-11-21): an input loop (user-interactive) reads every connected pad
+  between GameController's main-queue callbacks — `InputPacer` paces it, 500 Hz while readings change (learning
+  half the pad's reporting interval from the gaps between distinct readings) and 125 Hz after a second of quiet —
+  so a press or a stick move doesn't queue behind a frame's render or a UI update. Motion readings whose sensors
+  read exactly as the last are dropped (a timestamp alone would re-integrate the same stillness). Unit tests only
+  (pacer policy, the loop's read through `pollPads`, the motion dedupe): not yet on the pad — the off-main reads
+  of GameController's elements want a look with one, then the dev latency test before and after.
 - ✅ **Settings tabs** (2026-11-21, asked for: Picture vs Stream read alike): Picture · Stream · **Misc** ·
   Diagnostics, each with an icon (lucide Image, Radio, SlidersHorizontal, Activity) and a plain line at the
   top saying what it controls ("How this Mac cleans up, sharpens and smooths the picture.", "What the console
@@ -1175,6 +1196,13 @@ requests and a bug report.
    "waiting for IDR" with the earlier logs (5 holes in 50 min; no "queue full" skips dropping a frame); then over
    the internet, where the wait should stay higher, and in a loss burst not fall below what late packets showed.
    Detailed logs show each "queue full" and "reorder timeout" skip. *(P1)*
+7d. **On the console: the adaptive input lane** (new 2026-11-21, unit tests only). With a pad in hand, that
+   presses, sticks, touchpad and motion aim feel no worse than before (the loop's off-main reads of
+   GameController's elements are the unverified part); the stream stays clean in the stats (motion no longer
+   floods while a pad lies still); and the dev latency test (`POST /latency-test`) before and after, with the
+   main thread busy and idle, shows what the lane bought — or doesn't, in which case the input leg wasn't the
+   bottleneck and raw HID input (bypassing GameController entirely, the way the USB haptics output does) isn't
+   worth its cost. *(P1)*
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
    itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
    quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a
