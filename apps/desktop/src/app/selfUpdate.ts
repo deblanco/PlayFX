@@ -1,7 +1,7 @@
 import { Effect, Option, Schedule } from "effect"
 import type { StorageError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
-import { Updater, type UpdateCheck, type UpdaterError } from "@/core/updater"
+import { finishPlaying, UpdateDeferred, Updater, type UpdateCheck, type UpdaterError } from "@/core/updater"
 
 // Telling the user about a new release and updating in one click (the Home banner, Settings › Diagnostics).
 
@@ -38,17 +38,26 @@ export const checkLine = (check: UpdateCheck): string => {
   }
 }
 
-/** Downloads, verifies and installs the update, then restarts into it; `onRestarting` comes between. */
+/** Downloads, verifies and installs the update. While a stream runs or starts nothing installs: UpdateDeferred. */
 export const installUpdate = (
   onProgress: (percent: number | undefined) => void,
+): Effect.Effect<void, UpdaterError | UpdateDeferred, Updater> => Effect.flatMap(Updater, (updater) => updater.install(onProgress))
+
+/** Restarts into the installed update, `onRestarting` first. While `playing()` says the app is playing, or the
+ * native side finds a stream, it doesn't (UpdateDeferred): the update waits for a restart. */
+export const restartIntoUpdate = (
+  playing: () => boolean,
   onRestarting: () => void,
-): Effect.Effect<void, UpdaterError, Updater> =>
+): Effect.Effect<void, UpdaterError | UpdateDeferred, Updater> =>
   Effect.flatMap(Updater, (updater) =>
-    updater.install(onProgress).pipe(
-      Effect.andThen(Effect.sync(onRestarting)),
-      Effect.andThen(updater.restart),
+    Effect.suspend(() =>
+      playing() ? Effect.fail(new UpdateDeferred({ message: finishPlaying })) : Effect.andThen(Effect.sync(onRestarting), updater.restart),
     ),
   )
+
+/** Whether the app is playing, from Play until it's back home: the native side installs and restarts only when not. */
+export const setPlaying = (playing: boolean): Effect.Effect<void, UpdaterError, Updater> =>
+  Effect.flatMap(Updater, (u) => u.setPlaying(playing))
 
 export const openReleasePage = (version: string): Effect.Effect<void, UpdaterError, Updater> =>
   Effect.flatMap(Updater, (u) => u.openReleasePage(version))

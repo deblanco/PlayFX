@@ -10,6 +10,7 @@ PlayFX plays your PlayStation 5 or PlayStation 4 on your Mac. It isn't made by S
 - [Keyboard as controller](#keyboard-as-controller)
 - [What PlayFX stores, and where](#what-playfx-stores-and-where)
 - [Logs and bug reports](#logs-and-bug-reports)
+- [Updating PlayFX](#updating-playfx)
 - [Uninstall or start over](#uninstall-or-start-over)
 - [More help](#more-help)
 
@@ -346,8 +347,8 @@ normally again.
 - **In the macOS Keychain:** the pairing keys for your consoles and your PSN account ID (under
   "PlayFX"), and your PlayStation sign-in (under "PlayFX — PSN"). Only PlayFX reads them. macOS doesn't
   ask you before PlayFX reads its own Keychain items.
-- **In PlayFX's own storage on the Mac:** your settings, profiles, the console IP you typed and whether
-  Steady Wi-Fi is on.
+- **In PlayFX's own storage on the Mac:** your settings, profiles, the console IP you typed, whether
+  Steady Wi-Fi is on and the update you put off with Later.
 - **In its log:** what happened, for bug reports (see below). Logs never contain your PlayStation
   sign-in, pairing keys or account ID.
 - **Nothing is sent anywhere but your console, Sony and GitHub.** PlayFX talks to the console, and to
@@ -381,7 +382,8 @@ there is one, the home screen says "PlayFX 0.2.5 is available." (with the new ve
 
 - **Update** downloads it, checks that it really comes from PlayFX's releases (its signature), installs it where
   PlayFX is and restarts PlayFX. It never happens during a stream: while one is running
-  or starting, Update waits ("Finish playing to update").
+  or starting, Update waits ("Finish playing to update"). If you start playing while it downloads, it's
+  installed but PlayFX restarts only when you press **Restart** after playing.
 - **Later** hides the message until a newer version comes out.
 - **What's new** opens the release's page on GitHub.
 

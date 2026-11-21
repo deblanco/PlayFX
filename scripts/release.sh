@@ -12,8 +12,14 @@
 #   3. The in-app updater's signing key (minisign, as Tauri's base64 key text) and its password, kept in the
 #      login keychain as two generic passwords (account "playfx"). Made once with
 #        bun run --cwd apps/desktop tauri signer generate -w ~/playfx-updater.key     (asks for the password)
-#        security add-generic-password -a playfx -s playfx-updater-key -w             (paste the .key file's text)
+#        printf 'add-generic-password -a playfx -s playfx-updater-key -w %s\n' "$(cat ~/playfx-updater.key)" | security -i
 #        security add-generic-password -a playfx -s playfx-updater-key-password -w    (type the password)
+#      Not by pasting the key at `security`'s -w prompt: that prompt keeps only the first 128 characters, and the
+#      key is about 350 (so the password must be shorter than 128). printf is the shell's own, so the key isn't on
+#      any command line. Check the key went in whole, without printing it:
+#        security find-generic-password -a playfx -s playfx-updater-key -w | wc -c    (the .key file's size + 1)
+#      Each release first signs a scratch update with them, so a wrong password or a cut-off or other key stops
+#      it at the start.
 #      Its public half (the .pub file's text) is plugins.updater.pubkey in apps/desktop/src-tauri/tauri.conf.json:
 #      installed copies only accept updates signed with this key.
 #      BACK BOTH UP (the key and its password, e.g. in a password manager), then delete the .key file. They can't
@@ -148,6 +154,34 @@ PY
   echo "Update: $tarball"
 }
 
+# Reads the updater's signing key and its password (step 3) from the login keychain into UPDATER_KEY and
+# UPDATER_KEY_PASSWORD, unexported and never printed. Fails, saying how to add them, when either is missing.
+read_updater_key() {
+  UPDATER_KEY="$(security find-generic-password -a playfx -s playfx-updater-key -w 2>/dev/null)" || UPDATER_KEY=""
+  UPDATER_KEY_PASSWORD="$(security find-generic-password -a playfx -s playfx-updater-key-password -w 2>/dev/null)" \
+    || UPDATER_KEY_PASSWORD=""
+  [[ -n "$UPDATER_KEY" && -n "$UPDATER_KEY_PASSWORD" ]] && return 0
+  echo "release: the updater signing key isn't in the login keychain: add the generic passwords playfx-updater-key" >&2
+  echo "and playfx-updater-key-password (account playfx) as step 3 of the setup at the top of scripts/release.sh says" >&2
+  return 1
+}
+
+# Signs a scratch update with the key in TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD, as
+# make_update will: a wrong password, a cut-off key or one whose public half isn't <public key> (tauri.conf.json's)
+# fails here, before the tests, the build and the notarization, not after them.
+check_updater_key() {
+  local pubkey="$1" work ok=0
+  work="$(mktemp -d)"
+  mkdir -p "$work/PlayFX.app/Contents"
+  make_update "$work/PlayFX.app" 0.0.0 "$work" "$pubkey" >/dev/null || ok=1
+  rm -rf "$work"
+  ((ok == 0)) || {
+    echo "release: the updater key in the keychain can't sign an update installed copies accept: check its password," >&2
+    echo "that it went in whole and that its public half is tauri.conf.json's pubkey (step 3 of the setup above)" >&2
+    return 1
+  }
+}
+
 # Sourced by scripts/test-release.sh for the functions above: stop here.
 [[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
@@ -163,17 +197,12 @@ IDENTITY="${SIGNING_IDENTITY:-$( (security find-identity -v -p codesigning \
 [[ -n "$IDENTITY" ]] || { echo "release: no Developer ID Application certificate found (see setup above)" >&2; exit 1; }
 echo "Signing as: $IDENTITY"
 
-# The updater's signing key (step 3), read now so a missing one stops the release before the long part. Kept in
-# unexported variables and handed to the signing command alone; never printed.
-UPDATER_KEY="$(security find-generic-password -a playfx -s playfx-updater-key -w 2>/dev/null)" || UPDATER_KEY=""
-UPDATER_KEY_PASSWORD="$(security find-generic-password -a playfx -s playfx-updater-key-password -w 2>/dev/null)" \
-  || UPDATER_KEY_PASSWORD=""
-[[ -n "$UPDATER_KEY" && -n "$UPDATER_KEY_PASSWORD" ]] || {
-  echo "release: the updater signing key isn't in the login keychain: add the generic passwords playfx-updater-key" >&2
-  echo "and playfx-updater-key-password (account playfx) as step 3 of the setup at the top of scripts/release.sh says" >&2
-  exit 1
-}
+# The updater's signing key (step 3), read and tried now so a missing or unusable one stops the release before the
+# long part. Kept in unexported variables and handed to the signing command alone; never printed.
+read_updater_key || exit 1
 UPDATER_PUBKEY="$(python3 -c 'import json; print(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"])')"
+TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
+  check_updater_key "$UPDATER_PUBKEY" || exit 1
 
 echo "Tests and coverage (a release needs >= 80% in every package)…"
 packages/streamcore/scripts/coverage.sh --no-parallel   # Swift: lines, functions

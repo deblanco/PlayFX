@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event"
 import { Deferred, Effect, Option } from "effect"
 import { TestClock } from "effect/testing"
 import { describe, expect, it, vi } from "vitest"
+import { CoreError } from "@/core/errors"
 import { Preferences } from "@/core/preferences"
-import { UpdaterError } from "@/core/updater"
+import { UpdateDeferred, UpdaterError } from "@/core/updater"
 import { accountId, fakeCore, fakeUpdater, pairedPs5, renderApp, type FakeCore, type FakeUpdater, type StoredPrefs } from "./testing"
 import { useUpdates } from "./Updates"
 
@@ -124,6 +125,94 @@ describe("the update banner", () => {
     expect(await b.findByText("Finish playing to update")).toBeInTheDocument()
     expect(b.getByRole("button", { name: "Update" })).toBeDisabled()
     expect(updater.calls.installs).toBe(0)
+  })
+
+  it("tells the native side while the app is playing, from Play until it's back home", async () => {
+    const updater = finding()
+    const ended = step()
+    const core = fakeCore({
+      startStream: () => Effect.andThen(Deferred.await(ended), Effect.fail(new CoreError({ command: "start_stream", message: "busy" }))),
+    })
+    await launch(updater, { accountId, paired: [pairedPs5] }, core)
+    expect(updater.calls.playing).toEqual([false])
+    const consoles = within(await screen.findByRole("region", { name: "Consoles" }))
+    await userEvent.click(await consoles.findByRole("button", { name: "Play" }))
+    await waitFor(() => { expect(updater.calls.playing).toEqual([false, true]) })
+    go(ended)
+    await waitFor(() => { expect(updater.calls.playing).toEqual([false, true, false]) })
+  })
+
+  it("Play pressed during the download: installs, but restarts only once the stream is over", async () => {
+    const [done, ended] = [step(), step()]
+    const updater = finding("0.2.5", { install: () => Effect.asVoid(Deferred.await(done)) })
+    const core = fakeCore({
+      startStream: () => Effect.andThen(Deferred.await(ended), Effect.fail(new CoreError({ command: "start_stream", message: "busy" }))),
+    })
+    await launch(updater, { accountId, paired: [pairedPs5] }, core)
+    await userEvent.click((await banner()).getByRole("button", { name: "Update" }))
+    const consoles = within(await screen.findByRole("region", { name: "Consoles" }))
+    await userEvent.click(await consoles.findByRole("button", { name: "Play" }))
+    go(done)
+    const b = await banner()
+    expect(await b.findByText("PlayFX 0.2.5 is installed: restart to use it.")).toBeInTheDocument()
+    expect(b.getByText("Finish playing to restart")).toBeInTheDocument()
+    expect(b.getByRole("button", { name: "Restart" })).toBeDisabled()
+    expect(updater.calls.restarts).toBe(0)
+    go(ended)
+    await waitFor(() => { expect(b.getByRole("button", { name: "Restart" })).toBeEnabled() })
+    expect(b.queryByText("Finish playing to restart")).not.toBeInTheDocument()
+    await userEvent.click(b.getByRole("button", { name: "Restart" }))
+    expect(await b.findByText("Restarting…")).toBeInTheDocument()
+    expect(updater.calls.restarts).toBe(1)
+  })
+
+  it("a restart the native side refuses waits for a Restart", async () => {
+    let refuse = true
+    const updater = finding("0.2.5", {
+      restart: Effect.suspend(() => {
+        if (refuse) return Effect.fail(new UpdateDeferred({ message: "Finish playing to update" }))
+        updater.calls.restarts++
+        return Effect.void
+      }),
+    })
+    await launch(updater)
+    await userEvent.click((await banner()).getByRole("button", { name: "Update" }))
+    const b = await banner()
+    expect(await b.findByText("PlayFX 0.2.5 is installed: restart to use it.")).toBeInTheDocument()
+    expect(b.queryByRole("button", { name: "Download from GitHub" })).not.toBeInTheDocument()
+    refuse = false
+    await userEvent.click(b.getByRole("button", { name: "Restart" }))
+    await waitFor(() => { expect(updater.calls.restarts).toBe(1) })
+  })
+
+  it("a restart that fails says why and offers the download from GitHub", async () => {
+    const updater = finding("0.2.5", { restart: Effect.fail(new UpdaterError({ message: "couldn't open the new version" })) })
+    await launch(updater)
+    await userEvent.click((await banner()).getByRole("button", { name: "Update" }))
+    const b = await banner()
+    expect(await b.findByText("Couldn't update to PlayFX 0.2.5.")).toBeInTheDocument()
+    expect(b.getByText("couldn't open the new version")).toBeInTheDocument()
+    expect(b.getByRole("button", { name: "Download from GitHub" })).toBeInTheDocument()
+  })
+
+  it("an install refused because a stream started goes back to Update, no failure shown", async () => {
+    let refuse = true
+    const updater = finding("0.2.5", {
+      install: () => Effect.suspend(() => {
+        if (refuse) return Effect.fail(new UpdateDeferred({ message: "Finish playing to update" }))
+        updater.calls.installs++
+        return Effect.void
+      }),
+    })
+    await launch(updater)
+    await userEvent.click((await banner()).getByRole("button", { name: "Update" }))
+    const b = await banner()
+    expect(await b.findByText("PlayFX 0.2.5 is available.")).toBeInTheDocument()
+    expect(b.queryByText("Couldn't update to PlayFX 0.2.5.")).not.toBeInTheDocument()
+    refuse = false
+    await userEvent.click(b.getByRole("button", { name: "Update" }))
+    expect(await b.findByText("Restarting…")).toBeInTheDocument()
+    expect(updater.calls.installs).toBe(1)
   })
 
   it("isn't over the stream", async () => {

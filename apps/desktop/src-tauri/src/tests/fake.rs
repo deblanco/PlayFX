@@ -201,6 +201,8 @@ pub struct FakeUpdates {
     pub check_error: Option<String>,
     pub download_error: Option<String>,
     pub install_error: Option<String>,
+    /// Runs once, in the middle of the download (Play pressed meanwhile).
+    pub during_download: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub calls: Mutex<Vec<String>>,
 }
 
@@ -235,6 +237,11 @@ impl crate::updates::Updates for FakeUpdates {
         self.log("download".into());
         for done in (100..=1000).step_by(100).chain([1000]) {
             progress(done, Some(1000));
+            if done == 500
+                && let Some(meanwhile) = self.during_download.lock().unwrap().take()
+            {
+                meanwhile();
+            }
         }
         self.download_error.clone().map_or_else(|| Ok(b"update".to_vec()), Err)
     }

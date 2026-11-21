@@ -224,7 +224,7 @@ export const fakeUpdater = (overrides: Partial<UpdaterService> = {}) => {
     check: { status: "upToDate", currentVersion: "0.1.0" } as UpdateCheck,
     checkError: undefined as string | undefined,
   }
-  const calls = { checks: [] as boolean[], installs: 0, restarts: 0, opened: [] as string[] }
+  const calls = { checks: [] as boolean[], installs: 0, restarts: 0, opened: [] as string[], playing: [] as boolean[] }
   const service: UpdaterService = {
     check: (automatic) =>
       Effect.suspend(() => {
@@ -242,6 +242,10 @@ export const fakeUpdater = (overrides: Partial<UpdaterService> = {}) => {
     openReleasePage: (version) =>
       Effect.sync(() => {
         calls.opened.push(version)
+      }),
+    setPlaying: (playing) =>
+      Effect.sync(() => {
+        calls.playing.push(playing)
       }),
     ...overrides,
   }

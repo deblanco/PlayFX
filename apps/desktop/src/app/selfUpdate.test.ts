@@ -3,8 +3,8 @@ import { Effect, Fiber, Layer, Option } from "effect"
 import { TestClock } from "effect/testing"
 import { StorageError } from "@/core/errors"
 import { KeyValueStore, memoryStore, PreferencesLive } from "@/core/preferences"
-import { UpdaterError, type UpdateCheck } from "@/core/updater"
-import { checkLine, checkPeriodically, dismissUpdate, installUpdate, loadDismissedUpdate } from "./selfUpdate"
+import { UpdateDeferred, UpdaterError, type UpdateCheck } from "@/core/updater"
+import { checkLine, checkPeriodically, dismissUpdate, installUpdate, loadDismissedUpdate, restartIntoUpdate, setPlaying } from "./selfUpdate"
 import { fakeUpdater } from "./testing"
 
 const upToDate: UpdateCheck = { status: "upToDate", currentVersion: "0.2.4" }
@@ -46,24 +46,53 @@ describe("checkLine", () => {
 })
 
 describe("installUpdate", () => {
-  it.effect("installs, says it's restarting, then restarts", () =>
+  it.effect("installs, reporting the progress, and doesn't restart on its own", () =>
     Effect.gen(function* () {
       const steps: string[] = []
-      const updater = fakeUpdater({
-        install: (onProgress) => Effect.sync(() => { steps.push("install"); onProgress(100) }),
-        restart: Effect.sync(() => { steps.push("restart") }),
-      })
-      yield* installUpdate((percent) => steps.push(`${String(percent)}%`), () => steps.push("restarting")).pipe(Effect.provide(updater.layer))
-      expect(steps).toEqual(["install", "100%", "restarting", "restart"])
+      const updater = fakeUpdater({ install: (onProgress) => Effect.sync(() => { steps.push("install"); onProgress(100) }) })
+      yield* installUpdate((percent) => steps.push(`${String(percent)}%`)).pipe(Effect.provide(updater.layer))
+      expect(steps).toEqual(["install", "100%"])
+      expect(updater.calls.restarts).toBe(0)
     }),
   )
 
-  it.effect("never restarts after a failed install", () =>
+  it.effect("says why it failed", () =>
     Effect.gen(function* () {
       const updater = fakeUpdater({ install: () => Effect.fail(new UpdaterError({ message: "Permission denied (os error 13)" })) })
-      const error = yield* Effect.flip(installUpdate(() => undefined, () => undefined).pipe(Effect.provide(updater.layer)))
+      const error = yield* Effect.flip(installUpdate(() => undefined).pipe(Effect.provide(updater.layer)))
       expect(error.message).toBe("Permission denied (os error 13)")
+    }),
+  )
+})
+
+describe("restartIntoUpdate", () => {
+  it.effect("says it's restarting, then restarts", () =>
+    Effect.gen(function* () {
+      const steps: string[] = []
+      const updater = fakeUpdater({ restart: Effect.sync(() => { steps.push("restart") }) })
+      yield* restartIntoUpdate(() => false, () => steps.push("restarting")).pipe(Effect.provide(updater.layer))
+      expect(steps).toEqual(["restarting", "restart"])
+    }),
+  )
+
+  it.effect("waits while the app is playing, without asking the native side", () =>
+    Effect.gen(function* () {
+      const updater = fakeUpdater()
+      let restarting = false
+      const error = yield* Effect.flip(restartIntoUpdate(() => true, () => { restarting = true }).pipe(Effect.provide(updater.layer)))
+      expect(error).toEqual(new UpdateDeferred({ message: "Finish playing to update" }))
+      expect(restarting).toBe(false)
       expect(updater.calls.restarts).toBe(0)
+    }),
+  )
+})
+
+describe("setPlaying", () => {
+  it.effect("tells the updater", () =>
+    Effect.gen(function* () {
+      const updater = fakeUpdater()
+      yield* setPlaying(true).pipe(Effect.provide(updater.layer))
+      expect(updater.calls.playing).toEqual([true])
     }),
   )
 })

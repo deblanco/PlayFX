@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { CoreError } from "./errors"
 import { TauriBridge } from "./tauri"
-import { Updater, UpdaterError, UpdaterLive } from "./updater"
+import { UpdateDeferred, Updater, UpdaterError, UpdaterLive } from "./updater"
 
 type Reply = Effect.Effect<unknown, CoreError>
 
@@ -88,11 +88,34 @@ describe("UpdaterLive", () => {
   })
 
   it.effect("stops listening when installing fails, and says why", () => {
-    const fake = fakeBridge({ update_install: Effect.fail(new CoreError({ command: "update_install", message: "Finish playing to update" })) })
+    const fake = fakeBridge({ update_install: Effect.fail(new CoreError({ command: "update_install", message: "Permission denied (os error 13)" })) })
     return Effect.gen(function* () {
       const error = yield* Effect.flip((yield* Updater).install(() => undefined))
-      expect(error).toEqual(new UpdaterError({ message: "Finish playing to update" }))
+      expect(error).toEqual(new UpdaterError({ message: "Permission denied (os error 13)" }))
       expect(fake.unlisten).toHaveBeenCalledOnce()
+    }).pipe(Effect.provide(fake.layer))
+  })
+
+  it.effect("tells a refusal during a stream (the update waits) from a failure", () => {
+    const refused = (command: string) => Effect.fail(new CoreError({ command, message: "Finish playing to update" }))
+    const fake = fakeBridge({ update_install: refused("update_install"), update_restart: refused("update_restart") })
+    return Effect.gen(function* () {
+      const updater = yield* Updater
+      expect(yield* Effect.flip(updater.install(() => undefined))).toEqual(new UpdateDeferred({ message: "Finish playing to update" }))
+      expect(yield* Effect.flip(updater.restart)).toEqual(new UpdateDeferred({ message: "Finish playing to update" }))
+    }).pipe(Effect.provide(fake.layer))
+  })
+
+  it.effect("tells the native side whether the app is playing", () => {
+    const fake = fakeBridge({ update_set_playing: Effect.succeed(null) })
+    return Effect.gen(function* () {
+      const updater = yield* Updater
+      yield* updater.setPlaying(true)
+      yield* updater.setPlaying(false)
+      expect(fake.calls).toEqual([
+        { command: "update_set_playing", args: { playing: true } },
+        { command: "update_set_playing", args: { playing: false } },
+      ])
     }).pipe(Effect.provide(fake.layer))
   })
 

@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect"
 import { Download, RefreshCw } from "lucide-react"
-import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import type { AppServices } from "@/core/runtime"
 import type { UpdateCheck } from "@/core/updater"
@@ -13,6 +13,8 @@ import * as updates from "./selfUpdate"
 export type UpdatePhase =
   | { readonly kind: "idle" }
   | { readonly kind: "downloading"; readonly percent: number | undefined }
+  /** Installed while a stream started: it runs after a restart. */
+  | { readonly kind: "installed" }
   | { readonly kind: "restarting" }
   | { readonly kind: "failed"; readonly message: string }
 
@@ -27,12 +29,15 @@ export interface Updates {
   /** A check by hand found this (it shows a release put off with "Later" again). */
   readonly checked: (check: UpdateCheck) => void
   readonly update: () => void
+  /** Restarts into an update installed while a stream started. */
+  readonly restart: () => void
   readonly later: () => void
   /** The release's page on GitHub: what's new, and the DMG when updating here fails. */
   readonly openReleasePage: () => void
 }
 
 const idle: UpdatePhase = { kind: "idle" }
+const installed: UpdatePhase = { kind: "installed" }
 
 /** Runs an effect whose failure the caller shows itself (no toast). */
 const useAttempt = () => {
@@ -60,6 +65,14 @@ const useUpdatesState = (streaming: boolean): Updates => {
   useEffect(() => {
     attempt(updates.loadDismissedUpdate, (version) => { setDismissed(Option.getOrUndefined(version)) }, ignore)
   }, [attempt])
+  // The app's own notion of playing (from Play until back home), which StreamCore's session misses while a
+  // stream starts or reconnects: read before restarting, and handed to the native side, which refuses to
+  // install or restart meanwhile.
+  const playing = useRef(streaming)
+  useEffect(() => {
+    playing.current = streaming
+    attempt(updates.setPlaying(streaming), ignore, ignore)
+  }, [attempt, streaming])
   useFork(
     useMemo(
       () => updates.checkPeriodically((check) => { if (check.status === "available") setAvailable(check.version) }),
@@ -72,18 +85,23 @@ const useUpdatesState = (streaming: boolean): Updates => {
     setDismissed((version) => (version === check.version ? undefined : version))
   }, [])
   const busy = phase.kind === "downloading" || phase.kind === "restarting"
+  // A refusal because a stream started is no failure: the update waits (to install, or to restart into).
+  const restart = useCallback(() => {
+    attempt(
+      updates.restartIntoUpdate(() => playing.current, () => { setPhase({ kind: "restarting" }) }),
+      ignore,
+      (error) => { setPhase(error._tag === "UpdateDeferred" ? installed : { kind: "failed", message: error.message }) },
+    )
+  }, [attempt])
   const update = useCallback(() => {
     if (streaming || busy || available === undefined) return
     setPhase({ kind: "downloading", percent: undefined })
     attempt(
-      updates.installUpdate(
-        (percent) => { setPhase({ kind: "downloading", percent }) },
-        () => { setPhase({ kind: "restarting" }) },
-      ),
-      ignore,
-      (error) => { setPhase({ kind: "failed", message: error.message }) },
+      updates.installUpdate((percent) => { setPhase({ kind: "downloading", percent }) }),
+      restart,
+      (error) => { setPhase(error._tag === "UpdateDeferred" ? idle : { kind: "failed", message: error.message }) },
     )
-  }, [attempt, streaming, busy, available])
+  }, [attempt, restart, streaming, busy, available])
   const later = useCallback(() => {
     if (available === undefined || busy) return
     setDismissed(available)
@@ -100,6 +118,7 @@ const useUpdatesState = (streaming: boolean): Updates => {
     streaming,
     checked,
     update,
+    restart,
     later,
     openReleasePage,
   }
@@ -124,6 +143,8 @@ const headline = (version: string, phase: UpdatePhase): string => {
       return `PlayFX ${version} is available.`
     case "downloading":
       return phase.percent === undefined ? "Downloading…" : `Downloading… ${String(phase.percent)}%`
+    case "installed":
+      return `PlayFX ${version} is installed: restart to use it.`
     case "restarting":
       return "Restarting…"
     case "failed":
@@ -133,7 +154,7 @@ const headline = (version: string, phase: UpdatePhase): string => {
 
 /** The Home screen's banner for a newer release. */
 export const UpdateBanner = () => {
-  const { available, showBanner, phase, streaming, update, later, openReleasePage } = useUpdates()
+  const { available, showBanner, phase, streaming, update, restart, later, openReleasePage } = useUpdates()
   if (!showBanner || available === undefined) return null
   return (
     <section
@@ -145,6 +166,7 @@ export const UpdateBanner = () => {
         <p className="text-sm font-medium text-foreground tabular-nums">{headline(available, phase)}</p>
         {phase.kind === "failed" && <p className="text-xs text-muted-foreground">{phase.message}</p>}
         {phase.kind === "idle" && streaming && <p className="text-xs text-muted-foreground">Finish playing to update</p>}
+        {phase.kind === "installed" && streaming && <p className="text-xs text-muted-foreground">Finish playing to restart</p>}
       </div>
       {phase.kind === "idle" && (
         <>
@@ -156,6 +178,11 @@ export const UpdateBanner = () => {
             Update
           </Button>
         </>
+      )}
+      {phase.kind === "installed" && (
+        <Button size="sm" onClick={restart} disabled={streaming} className="bg-signal text-black hover:bg-signal/90">
+          Restart
+        </Button>
       )}
       {phase.kind === "failed" && (
         <>

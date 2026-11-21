@@ -4,6 +4,8 @@
 //! tauri.conf.json before anything is installed. The plugin sits behind [`Updates`], so the commands are tested
 //! with a fake; [`PluginUpdates`] is the thin adapter over it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use serde_json::{Value, json};
 use tauri::{AppHandle, Context, Emitter, Manager, Runtime, Url};
 
@@ -52,6 +54,15 @@ pub trait Updates: Send + Sync {
 pub struct UpdatesHandle {
     pub updates: &'static dyn Updates,
     pub endpoint: Result<Option<Url>, String>,
+    /// The UI is playing (`update_set_playing`): from Play until it's back home, including the stretches
+    /// where StreamCore holds no session (a PSN token refresh before the start, a retry, a reconnect).
+    pub playing: AtomicBool,
+}
+
+impl UpdatesHandle {
+    pub fn new(updates: &'static dyn Updates, endpoint: Result<Option<Url>, String>) -> Self {
+        Self { updates, endpoint, playing: AtomicBool::new(false) }
+    }
 }
 
 fn updates<R: Runtime>(app: &AppHandle<R>) -> &'static dyn Updates {
@@ -110,15 +121,25 @@ pub fn attach_updates<R: Runtime>(app: &AppHandle<R>, endpoint: Option<&str>) {
         Ok(None) => {}
         Err(error) => log::error!("{error}"),
     }
-    app.manage(UpdatesHandle { updates: real, endpoint });
+    app.manage(UpdatesHandle::new(real, endpoint));
 }
 
-/// Whether a stream is running (or being started): StreamCore holds a session. A reply that can't be read
-/// counts as streaming, so an update never lands on a stream by mistake.
+/// Whether a stream is running or being started: the UI says it's playing, or StreamCore holds a session. A
+/// reply that can't be read counts as streaming, so an update never lands on a stream by mistake.
 fn streaming<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
+    if app.state::<UpdatesHandle>().playing.load(Ordering::SeqCst) {
+        return Ok(true);
+    }
     let core = core(app);
     let stats = on_main(app, move || core.session_stats())?;
     Ok(serde_json::from_str::<Value>(&stats).map_or(true, |stats| stats.get("active") != Some(&Value::Bool(false))))
+}
+
+/// The UI tells whether it's playing (a stream started, starting or reconnecting), so nothing installs or
+/// restarts while StreamCore is between sessions.
+#[tauri::command]
+pub fn update_set_playing<R: Runtime>(app: AppHandle<R>, playing: bool) {
+    app.state::<UpdatesHandle>().playing.store(playing, Ordering::SeqCst);
 }
 
 /// Checks for a newer release: {"status": "upToDate" | "available" | "off", "currentVersion", "version"?}.
@@ -218,16 +239,25 @@ pub fn open_release_page(version: String) -> Result<(), String> {
 /// tested in src/tests/updates.rs against a local server.
 pub struct PluginUpdates<R: Runtime> {
     app: AppHandle<R>,
+    /// What the last check found.
     found: std::sync::Mutex<Option<tauri_plugin_updater::Update>>,
+    /// What the last download was of, for `install`: a check meanwhile (by hand, or the background one)
+    /// replaces `found` but not this.
+    downloading: std::sync::Mutex<Option<tauri_plugin_updater::Update>>,
 }
 
 impl<R: Runtime> PluginUpdates<R> {
     pub fn new(app: AppHandle<R>) -> Self {
-        Self { app, found: std::sync::Mutex::new(None) }
+        Self { app, found: std::sync::Mutex::new(None), downloading: std::sync::Mutex::new(None) }
     }
 
     fn found(&self) -> Result<tauri_plugin_updater::Update, String> {
         self.found.lock().map_err(error_text)?.clone().ok_or_else(|| "No update found: check for updates first".into())
+    }
+
+    /// The update the last download was of, which `install` verifies the bytes against.
+    pub(crate) fn downloaded(&self) -> Result<tauri_plugin_updater::Update, String> {
+        self.downloading.lock().map_err(error_text)?.clone().ok_or_else(|| "No update downloaded: update again".into())
     }
 }
 
@@ -248,6 +278,7 @@ impl<R: Runtime> Updates for PluginUpdates<R> {
 
     fn download(&self, progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<Vec<u8>, String> {
         let update = self.found()?;
+        *self.downloading.lock().map_err(error_text)? = Some(update.clone());
         let mut downloaded = 0u64;
         let chunk = |len: usize, total: Option<u64>| {
             downloaded += len as u64;
@@ -257,7 +288,7 @@ impl<R: Runtime> Updates for PluginUpdates<R> {
     }
 
     fn install(&self, bytes: &[u8]) -> Result<(), String> {
-        self.found()?.install(bytes).map_err(error_text)
+        self.downloaded()?.install(bytes).map_err(error_text)
     }
 
     fn restart(&self) {

@@ -48,6 +48,7 @@ fn main() {
         "update_check",
         "update_install",
         "update_restart",
+        "update_set_playing",
         "open_release_page",
     ])))
     .expect("tauri build");

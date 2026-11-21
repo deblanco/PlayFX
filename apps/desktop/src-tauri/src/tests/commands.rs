@@ -377,7 +377,7 @@ fn ipc_rejects_missing_arguments() {
         "register_console", "wakeup", "start_stream", "set_login_pin", "set_render_params", "set_controller",
         "set_pointer_touch", "keyboard_set_text", "keyboard_done", "set_microphone", "secret_get", "secret_set",
         "secret_remove", "set_audio_output", "set_detailed_logs", "pair_psn", "set_touchpad_touches",
-        "update_check", "open_release_page",
+        "update_check", "open_release_page", "update_set_playing",
     ] {
         let err = invoke(&app, cmd, json!({})).expect_err(cmd);
         assert!(err.as_str().is_some_and(|e| e.contains("missing required key")), "{cmd}: {err}");
@@ -448,10 +448,13 @@ fn ipc_reaches_every_command_with_the_uis_arguments() {
     assert_eq!(ok("fullscreen_state", json!({})), json!(false));
     // The updates, with a fake updater and no stream running.
     let updates = super::fake::FakeUpdates::available("0.9.0").leak();
-    app.manage(crate::updates::UpdatesHandle { updates, endpoint: Ok(None) });
+    app.manage(crate::updates::UpdatesHandle::new(updates, Ok(None)));
     assert_eq!(ok("update_check", json!({"automatic": false}))["status"], json!("available"));
     ok("update_install", json!({}));
     ok("update_restart", json!({}));
+    ok("update_set_playing", json!({"playing": true}));
+    assert_eq!(invoke(&app, "update_restart", json!({})), Err(json!(crate::updates::FINISH_PLAYING)));
+    ok("update_set_playing", json!({"playing": false}));
     ok("open_release_page", json!({"version": "0.9.0"}));
     assert!(super::OPENED.lock().expect("opened").contains(&"https://github.com/deblanco/PlayFX/releases/tag/v0.9.0".to_string()));
 }

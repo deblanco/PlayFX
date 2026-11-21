@@ -9,6 +9,14 @@ export class UpdaterError extends Schema.TaggedError<UpdaterError>()("UpdaterErr
   message: Schema.String,
 }) {}
 
+/** What the native side answers when it won't install or restart because a stream is running or starting. */
+export const finishPlaying = "Finish playing to update"
+
+/** Installing or restarting waits: a stream is running or starting. Nothing failed; it can go ahead after. */
+export class UpdateDeferred extends Schema.TaggedError<UpdateDeferred>()("UpdateDeferred", {
+  message: Schema.String,
+}) {}
+
 /** What a check found. "off": the background check in a development build, which asks nothing. */
 export const UpdateCheck = Schema.Union([
   Schema.Struct({ status: Schema.Literal("available"), version: Schema.String, currentVersion: Schema.String }),
@@ -25,10 +33,13 @@ export class Updater extends Context.Service<
     /** Asks for a newer release; `automatic` is the background check. */
     readonly check: (automatic: boolean) => Effect.Effect<UpdateCheck, UpdaterError>
     /** Downloads, verifies and installs the release the last check found; `onProgress` gets the percentage
-     * (undefined while the size isn't known). Refused while a stream runs. */
-    readonly install: (onProgress: (percent: number | undefined) => void) => Effect.Effect<void, UpdaterError>
-    /** Quits and opens the installed update. Refused while a stream runs. */
-    readonly restart: Effect.Effect<void, UpdaterError>
+     * (undefined while the size isn't known). Refused (UpdateDeferred) while a stream runs or starts. */
+    readonly install: (onProgress: (percent: number | undefined) => void) => Effect.Effect<void, UpdaterError | UpdateDeferred>
+    /** Quits and opens the installed update. Refused (UpdateDeferred) while a stream runs or starts. */
+    readonly restart: Effect.Effect<void, UpdaterError | UpdateDeferred>
+    /** Tells the native side whether the app is playing (from Play until it's back home), so it refuses to
+     * install or restart meanwhile, even while StreamCore is between sessions. */
+    readonly setPlaying: (playing: boolean) => Effect.Effect<void, UpdaterError>
     /** Opens a release's page on GitHub in the browser. */
     readonly openReleasePage: (version: string) => Effect.Effect<void, UpdaterError>
   }
@@ -39,6 +50,9 @@ export const UpdaterLive = Layer.effect(
   Effect.gen(function* () {
     const tauri = yield* TauriBridge
     const failed = (error: { readonly message: string }) => new UpdaterError({ message: error.message })
+    /** The refusal during a stream is UpdateDeferred; anything else, UpdaterError. */
+    const deferrable = (error: UpdaterError): UpdaterError | UpdateDeferred =>
+      error.message === finishPlaying ? new UpdateDeferred({ message: error.message }) : error
 
     const call = <S extends Schema.Top & { readonly DecodingServices: never }>(
       schema: S,
@@ -68,10 +82,11 @@ export const UpdaterLive = Layer.effect(
                 .pipe(Effect.mapError(failed)),
               (unsubscribe) => Effect.sync(unsubscribe),
             )
-            yield* call(Schema.Unknown, "update_install")
+            yield* Effect.mapError(call(Schema.Unknown, "update_install"), deferrable)
           }),
         ),
-      restart: Effect.asVoid(call(Schema.Unknown, "update_restart")),
+      restart: Effect.asVoid(Effect.mapError(call(Schema.Unknown, "update_restart"), deferrable)),
+      setPlaying: (playing) => Effect.asVoid(call(Schema.Unknown, "update_set_playing", { playing })),
       openReleasePage: (version) => Effect.asVoid(call(Schema.Unknown, "open_release_page", { version })),
     }
   }),

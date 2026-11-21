@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Tests release.sh's notarization wait, its DMG app swap and the in-app update it makes, without Apple's notary
-# service, a signing identity or the real updater key: a fake `xcrun` on PATH plays notarytool, the DMG is a small
-# one made here, and the update is signed with a throwaway key generated here (`tauri signer generate`).
+# Tests release.sh's notarization wait, its DMG app swap, the in-app update it makes and how it reads and tries the
+# updater key, without Apple's notary service, a signing identity, the keychain or the real updater key: a fake
+# `xcrun` on PATH plays notarytool, a fake `security` plays the keychain, the DMG is a small one made here, and the
+# update is signed with a throwaway key generated here (`tauri signer generate`).
 #
 # Usage: scripts/test-release.sh
 set -uo pipefail
@@ -163,6 +164,80 @@ chmod +x "$TMP/bin/unbound-signer"
 run_make_update "$TMP/keys/key.pub" SIGNER="$TMP/bin/unbound-signer"
 check "a signature not bound to the version: fails" test "$rc" -ne 0
 check "  saying so" grep -q "isn't bound to version 0.0.1" "$TMP/update.log"
+
+echo "Updater key"
+mkdir -p "$TMP/keychain/items"
+cat >"$TMP/keychain/security" <<'EOF3'
+#!/usr/bin/env bash
+# Fake `security find-generic-password -a <account> -s <service> -w`: an item is the file <account>.<service> in
+# $FAKE_KEYCHAIN/items; a missing one fails with 44, as security does.
+echo "$*" >>"$FAKE_KEYCHAIN/calls"
+[[ "$1" == find-generic-password ]] || exit 99
+shift
+while (($#)); do
+  case "$1" in
+    -a) account="$2"; shift ;;
+    -s) service="$2"; shift ;;
+    -w) ;;
+    *) exit 98 ;;
+  esac
+  shift
+done
+item="$FAKE_KEYCHAIN/items/$account.$service"
+[[ -f "$item" ]] || { echo "security: The specified item could not be found in the keychain." >&2; exit 44; }
+cat "$item"
+EOF3
+chmod +x "$TMP/keychain/security"
+# Runs read_updater_key against the fake keychain: status in $rc, output in $TMP/key.log, what it read in $TMP/key.read.
+run_read_key() {
+  rm -f "$TMP/keychain/calls" "$TMP/key.read"
+  (
+    set -euo pipefail
+    export FAKE_KEYCHAIN="$TMP/keychain" PATH="$TMP/keychain:$PATH"
+    read_updater_key
+    printf '%s\n%s\n' "$UPDATER_KEY" "$UPDATER_KEY_PASSWORD" >"$TMP/key.read"
+  ) >"$TMP/key.log" 2>&1
+  rc=$?
+}
+
+run_read_key
+check "no key in the keychain: fails" test "$rc" -ne 0
+check "  saying it isn't in the login keychain" grep -q "isn't in the login keychain" "$TMP/key.log"
+check "  and pointing at step 3 of the setup" grep -q "step 3 of the setup" "$TMP/key.log"
+check "  having asked for the key, account playfx" grep -qx -- "find-generic-password -a playfx -s playfx-updater-key -w" "$TMP/keychain/calls"
+cp "$TMP/keys/key" "$TMP/keychain/items/playfx.playfx-updater-key"
+run_read_key
+check "the key without its password: fails" test "$rc" -ne 0
+check "  having asked for the password" grep -qx -- "find-generic-password -a playfx -s playfx-updater-key-password -w" "$TMP/keychain/calls"
+printf throwaway >"$TMP/keychain/items/playfx.playfx-updater-key-password"
+run_read_key
+check "both there: reads them" test "$rc" -eq 0
+check "  whole" test "$(cat "$TMP/key.read" 2>/dev/null)" = "$(cat "$TMP/keys/key")"$'\n'throwaway
+check "  printing nothing" test ! -s "$TMP/key.log"
+
+# Runs check_updater_key with a key text, its password and a public key file: status in $rc, output in $TMP/check.log.
+run_check_key() {
+  (
+    set -euo pipefail
+    TAURI_SIGNING_PRIVATE_KEY="$1" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$2" check_updater_key "$(cat "$3")"
+  ) >"$TMP/check.log" 2>&1
+  rc=$?
+}
+KEY_TEXT="$(cat "$TMP/keys/key")"
+run_check_key "$KEY_TEXT" throwaway "$TMP/keys/key.pub"
+check "trying the key: a good one passes" test "$rc" -eq 0
+check "  printing neither the key nor its password" \
+  bash -c "! grep -qF \"\$(cat '$TMP/keys/key')\" '$TMP/check.log' && ! grep -q throwaway '$TMP/check.log'"
+run_check_key "$KEY_TEXT" wrong "$TMP/keys/key.pub"
+check "a wrong password: fails" test "$rc" -ne 0
+check "  saying what to check" grep -q "can't sign an update installed copies accept" "$TMP/check.log"
+# What pasting it at security's -w prompt stores: its first 128 characters.
+run_check_key "${KEY_TEXT:0:128}" throwaway "$TMP/keys/key.pub"
+check "a cut-off key: fails" test "$rc" -ne 0
+run_check_key "$KEY_TEXT" throwaway "$TMP/keys/other.pub"
+check "a key that isn't tauri.conf.json's: fails" test "$rc" -ne 0
+check "  saying installed copies would refuse it" grep -q "another key" "$TMP/check.log"
+check "  without printing the key" bash -c "! grep -qF \"\$(cat '$TMP/keys/key')\" '$TMP/check.log'"
 
 if ((failures > 0)); then
   echo "$failures check(s) failed" >&2

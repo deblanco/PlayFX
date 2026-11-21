@@ -7,7 +7,10 @@ Last updated 2026-11-21, after **in-app updates through GitHub Releases**: a ban
 (checked 5 s after launch and every 6 hours, or by hand in Diagnostics), and Update downloads, verifies, installs
 and restarts, never during a stream; `release.sh` makes the signed update and `latest.json`. Built and tested
 (Rust against a local server with a throwaway key, the release script with one), not yet end to end: that needs a
-release after the first one with the updater. Before that, saying why an HDR stream gets no frame interpolation: `sdrInHdr` (an SDR game with
+release after the first one with the updater. Its review fixes: the UI tells the native side it's playing (from
+Play until back home, StreamCore's session or not), an update installed while a stream starts waits for
+**Restart**, a refusal during a stream is no failure, an install uses the release its download was of, and
+`release.sh` stores the key without `security`'s 128-character prompt and tries it before the build. Before that, saying why an HDR stream gets no frame interpolation: `sdrInHdr` (an SDR game with
 HDR on), `hdrUnsupported` (no MetalFX frame interpolator here) and "MetalFX kept failing (HDR)", in the stats line
 and on the Frame interpolation switch while streaming; unit tests only. Before that, a **Misc** tab in Settings (Picture · Stream · Misc · Diagnostics, each with an
 icon and a line saying what it's for; the controller's Touchpad touches moved there from Stream). Before that, the measured reorder wait: libchiaki's Takion waits for a missing video packet as
@@ -87,8 +90,8 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift SWCOUNT tests (90% lines; 89% as CI's VM sees
-  it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
+  it), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -760,24 +763,37 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   banner on Home (never over the stream): **Update** shows "Downloading… 42%", installs, then "Restarting…"
   (`AppHandle::request_restart`, so the exit steps, quiet pads included, run first); **Later** remembers that
   version (`psrp.dismissedUpdate`, Schema-decoded) and a newer one shows again; **What's new** opens the release
-  page; a failure says why and offers **Download from GitHub**. Nothing installs or restarts while StreamCore
-  holds a session (checked before the download and again before installing, and the Update button is off with
-  "Finish playing to update"). Log lines for the check, the download, the install and failures.
+  page; a failure says why and offers **Download from GitHub**. Nothing installs or restarts while a stream runs
+  or starts: the UI tells the native side it's playing from Play until it's back home (`update_set_playing`),
+  which covers the stretches without a StreamCore session (a PSN token refresh before the start, a retry, a
+  reconnect), and the native side also checks StreamCore's session; checked before the download, again before
+  installing and before restarting, and the Update button is off with "Finish playing to update". A refusal
+  during a stream is no failure: before the install the banner goes back to Update; after it ("PlayFX 0.2.5 is
+  installed: restart to use it.") **Restart** waits for the stream to end. The install uses the release its
+  download was of, whatever a check meanwhile found. Log lines for the check, the download, the install and failures.
   `PLAYFX_UPDATE_ENDPOINT` (any build; https, or http on this Mac only) points the check at a local server; the
   signature check still applies. `release.sh` packs the notarized, stapled app as
   `PlayFX_<version>_aarch64.app.tar.gz` (the app at its root, no AppleDouble files or extended attributes), signs
   it with `tauri signer sign --app-version` from the keychain items `playfx-updater-key` /
-  `playfx-updater-key-password` (setup step 3; never printed, handed to the signer alone), refuses a signature by
+  `playfx-updater-key-password` (setup step 3; never printed, handed to the signer alone; stored with
+  `security -i` fed by the shell's printf, since `security`'s `-w` prompt keeps only 128 of the key's ~350
+  characters; tried at the start by signing a scratch update, so a wrong password or a cut-off or other key
+  stops the release before the tests, the build and the notarization), refuses a signature by
   any other key than `tauri.conf.json`'s, writes `latest.json` next to the DMG and prints the `gh release create`
   for the three assets. Verified by: Rust unit tests with a fake updater (check → up to date / available / error,
-  the automatic check off in debug builds, the endpoint override, install refused during a stream or when one
-  starts mid-download, progress sent once per percent, restart, release pages for versions only) and the real
+  the automatic check off in debug builds, the endpoint override, install refused during a stream, while the UI
+  plays between sessions or when Play comes mid-download, progress sent once per percent, restart, release pages
+  for versions only) and the real
   plugin against a 127.0.0.1 server serving a `latest.json` and an update signed with a throwaway key (found,
-  downloaded and verified; a tampered update and one relabelled as another version rejected; up to date; the
-  shipped configuration accepted); TS tests (the service's decoding and errors, the schedule on `TestClock`, every
-  banner state, Later and a newer version, Diagnostics' lines); `scripts/test-release.sh` makes the update with a
-  throwaway key (layout, no extended attributes, signature bound to the version, `latest.json`'s fields, another
-  key or an unbound signature refused); a release-profile build accepts the plugin configuration.
+  downloaded and verified, and still the one installed after a later check finds another; a tampered update and
+  one relabelled as another version rejected; up to date; the shipped configuration accepted); TS tests (the
+  service's decoding and errors, a refusal during a stream told from a failure, the schedule on `TestClock`,
+  every banner state, Play during the download then Restart after it, Later and a newer version, Diagnostics'
+  lines); `scripts/test-release.sh` (56 checks now) makes the update with a throwaway key (layout, no extended attributes,
+  signature bound to the version, `latest.json`'s fields, another key or an unbound signature refused) and, with a
+  fake `security`, reads the key (missing key or password refused with the setup steps) and tries it (a wrong
+  password, a key cut to 128 characters and another key refused); a release-profile build accepts the plugin
+  configuration.
   `THIRD_PARTY_LICENSES` regenerated (262 Rust crates now: the plugin, reqwest, rustls, ring…). Left: release
   0.2.4 with the updater, then publish 0.2.5 and update a 0.2.4 copy in place from the banner (in
   `/Applications`, and once in `~/Applications`), see it restart into 0.2.5, and check Later and the error path
@@ -1129,7 +1145,8 @@ requests and a bug report.
    status timeout and staples the `.app` too (built and tested with a fake notarytool); left: its first real run,
    at the next release. *(P4)*
 6b. **Release 0.2.4 with the updater, then verify the in-app update with 0.2.5** (built 2026-11-21, see "In-app
-   updates through GitHub Releases"): publish 0.2.4's DMG, `.app.tar.gz` and `latest.json`; then 0.2.5, and on a
+   updates through GitHub Releases"): first check the stored key went in whole (setup step 3's `wc -c`: the
+   .key file's size + 1, not 129); publish 0.2.4's DMG, `.app.tar.gz` and `latest.json`; then 0.2.5, and on a
    0.2.4 copy see the banner, Update to "Restarting…" and 0.2.5 running (in `/Applications` and in
    `~/Applications`), Later until 0.2.5's successor, and Download from GitHub with the network off. *(P4)*
 7. On the PS5 and the pad: ~~frame generation on the built-in 120 Hz screen~~ (done 2026-11-20: GTA VI, 30 fps

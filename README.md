@@ -76,7 +76,8 @@ Check for updates** checks at any time. A new version shows on the home screen, 
 
 - **Update** downloads it (with its progress), checks its signature, puts it in place of the app wherever the app
   is (`/Applications`, `~/Applications`…) and restarts PlayFX. It waits while a stream is running or starting
-  ("Finish playing to update"). If it can't (no network, a folder it can't write to), it says why and offers
+  ("Finish playing to update"); started during the download, the update installs and **Restart** waits for the
+  stream to end. If it can't (no network, a folder it can't write to), it says why and offers
   **Download from GitHub**.
 - **Later** hides it until a newer version comes out (checking by hand shows it again).
 - **What's new** opens the release's page.
@@ -84,7 +85,8 @@ Check for updates** checks at any time. A new version shows on the home screen, 
 **0.2.3 and earlier have no updater: install 0.2.4 or later from the DMG once**; it updates itself from then on.
 
 How it works: `scripts/release.sh` packs the notarized, stapled app into `PlayFX_<version>_aarch64.app.tar.gz`,
-signs it with the updater key (minisign; the private key stays in the owner's keychain) and writes
+signs it with the updater key (minisign; the private key stays in the owner's keychain, and each release first
+signs a scratch update with it, so a wrong or cut-off key stops it before the build) and writes
 `latest.json`; both are assets of the GitHub release, next to the DMG. The app reads
 `releases/latest/download/latest.json` with [Tauri's updater](https://v2.tauri.app/plugin/updater/), which
 refuses an update whose signature doesn't match the public key in `tauri.conf.json` or that was signed for

@@ -18,7 +18,7 @@ const STREAMING: &str = r#"{"active":true,"framesDecoded":1}"#;
 /// A mock app with `updates` behind the commands and StreamCore reporting `stats`.
 fn app_with(updates: &'static FakeUpdates, stats: &str) -> App<MockRuntime> {
     let app = mock(FakeCore { stats: stats.into(), ..Default::default() }.leak());
-    app.manage(UpdatesHandle { updates, endpoint: Ok(None) });
+    app.manage(UpdatesHandle::new(updates, Ok(None)));
     app
 }
 
@@ -65,13 +65,13 @@ fn the_automatic_check_only_runs_in_release_builds() {
 fn the_endpoint_override_is_where_it_checks() {
     let updates = FakeUpdates::default().leak();
     let app = mock(FakeCore::default().leak());
-    app.manage(UpdatesHandle { updates, endpoint: endpoint_override(Some("http://127.0.0.1:9/latest.json")) });
+    app.manage(UpdatesHandle::new(updates, endpoint_override(Some("http://127.0.0.1:9/latest.json"))));
     assert!(run(update_check(app.handle().clone(), false)).is_ok());
     assert_eq!(updates.calls(), ["check http://127.0.0.1:9/latest.json"]);
     // An unusable one: the check says so, without asking anywhere.
     let unused = FakeUpdates::default().leak();
     let app = mock(FakeCore::default().leak());
-    app.manage(UpdatesHandle { updates: unused, endpoint: endpoint_override(Some("http://example.com/latest.json")) });
+    app.manage(UpdatesHandle::new(unused, endpoint_override(Some("http://example.com/latest.json"))));
     let error = run(update_check(app.handle().clone(), false)).expect_err("refused");
     assert!(error.contains("must be an https URL"), "{error}");
     assert!(unused.calls().is_empty());
@@ -162,9 +162,35 @@ fn nothing_installs_or_restarts_during_a_stream() {
     let late = FakeUpdates::available("0.9.0").leak();
     let core = FakeCore { stats: STREAMING.into(), stats_first: Mutex::new([IDLE.to_string()].into()), ..Default::default() };
     let app = mock(core.leak());
-    app.manage(UpdatesHandle { updates: late, endpoint: Ok(None) });
+    app.manage(UpdatesHandle::new(late, Ok(None)));
     assert_eq!(run(update_install(app.handle().clone())), Err(FINISH_PLAYING.into()));
     assert_eq!(late.calls(), ["download"]);
+}
+
+#[test]
+fn nothing_installs_or_restarts_while_the_ui_plays_even_between_sessions() {
+    // StreamCore holds no session (a PSN token refresh before the start, a retry, a reconnect), but the UI
+    // is playing.
+    let updates = FakeUpdates::available("0.9.0").leak();
+    let app = app_with(updates, IDLE);
+    update_set_playing(app.handle().clone(), true);
+    assert_eq!(run(update_install(app.handle().clone())), Err(FINISH_PLAYING.into()));
+    assert_eq!(update_restart(app.handle().clone()), Err(FINISH_PLAYING.into()));
+    assert!(updates.calls().is_empty());
+    // Back home: it goes ahead.
+    update_set_playing(app.handle().clone(), false);
+    assert_eq!(update_restart(app.handle().clone()), Ok(()));
+    assert_eq!(updates.calls(), ["restart"]);
+}
+
+#[test]
+fn play_pressed_during_the_download_stops_the_install() {
+    let updates = FakeUpdates::available("0.9.0").leak();
+    let app = app_with(updates, IDLE);
+    let handle = app.handle().clone();
+    *updates.during_download.lock().expect("hook") = Some(Box::new(move || update_set_playing(handle, true)));
+    assert_eq!(run(update_install(app.handle().clone())), Err(FINISH_PLAYING.into()));
+    assert_eq!(updates.calls(), ["download"]);
 }
 
 #[test]
@@ -275,18 +301,32 @@ fn plugin_app(endpoint: &str) -> App<MockRuntime> {
 #[test]
 fn the_plugin_finds_downloads_and_verifies_a_signed_release() {
     let (listener, base) = server();
-    serve(listener, vec![("/latest.json", manifest(&base, "9.9.9", SIGNATURE)), ("/PlayFX_9.9.9_aarch64.app.tar.gz", UPDATE.to_vec())]);
+    serve(
+        listener,
+        vec![
+            ("/latest.json", manifest(&base, "9.9.9", SIGNATURE)),
+            ("/PlayFX_9.9.9_aarch64.app.tar.gz", UPDATE.to_vec()),
+            ("/old.json", manifest(&base, "0.0.1", SIGNATURE)),
+        ],
+    );
     let app = plugin_app(&format!("{base}/latest.json"));
     let updates = PluginUpdates::new(app.handle().clone());
     assert_eq!(updates.download(&mut |_, _| {}), Err("No update found: check for updates first".into()));
+    // Nothing downloaded: nothing to install (and nothing is touched).
+    assert_eq!(updates.install(&[]), Err("No update downloaded: update again".into()));
     assert_eq!(updates.check(None), Ok(Some(Available { version: "9.9.9".into(), current_version: version(&app) })));
     let mut seen = Vec::new();
     assert_eq!(updates.download(&mut |done, total| seen.push((done, total))).as_deref(), Ok(UPDATE));
     let size = UPDATE.len() as u64;
     assert_eq!(seen.last(), Some(&(size, Some(size))));
+    // A check after the download (by hand, or the background one) finding something else doesn't change what
+    // installs: the download's own release.
+    let old: tauri::Url = format!("{base}/old.json").parse().expect("url");
+    assert_eq!(updates.check(Some(old)), Ok(None));
+    assert_eq!(updates.downloaded().map(|update| update.version), Ok("9.9.9".into()));
     // Through the command too (the plugin's async calls then run on the blocking pool).
     let real: &'static PluginUpdates<MockRuntime> = Box::leak(Box::new(PluginUpdates::new(app.handle().clone())));
-    app.manage(UpdatesHandle { updates: real, endpoint: Ok(None) });
+    app.manage(UpdatesHandle::new(real, Ok(None)));
     app.manage(CoreHandle(FakeCore { stats: IDLE.into(), ..Default::default() }.leak()));
     assert_eq!(run(update_check(app.handle().clone(), false)).map(|r| r["version"].clone()), Ok(json!("9.9.9")));
 }

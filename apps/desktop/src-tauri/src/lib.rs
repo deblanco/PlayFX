@@ -523,6 +523,7 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         updates::update_check,
         updates::update_install,
         updates::update_restart,
+        updates::update_set_playing,
         updates::open_release_page
     ])
 }
