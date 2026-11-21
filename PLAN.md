@@ -821,6 +821,11 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   [v0.2.3](https://github.com/deblanco/PlayFX/releases/tag/v0.2.3) (2026-11-20): frame generation on HDR streams
   (MetalFX, one image per pair; tested offscreen only) and ML upscaling no longer runs on a repeated picture;
   every suite passed (TS 365, Swift 402 in both modes, Rust 55).
+  [v0.2.4](https://github.com/deblanco/PlayFX/releases/tag/v0.2.4) (2026-11-21): in-app updates through GitHub
+  Releases (the first release that carries the signed update and `latest.json`), the measured reorder wait and
+  256-slot video queue, the Touchpad touches switch, the built-in GTA VI profile and new Recommended defaults,
+  Steady Wi-Fi suggested at Play, the Misc tab and why HDR gets no frame generation; every suite passed (TS 425,
+  Swift 413 in both modes, Rust 74, chiaki-ng 150).
 - 🔶 **Packaging** *(built and launched; Developer ID certificate in the keychain; notarization profile `playfx` in the keychain: an App Store Connect API key, Developer access)*: bundle ID
   `dev.deblanco.playfx`, macOS 13+, hardened runtime with only the microphone entitlement,
   `NSLocalNetworkUsageDescription` (a shipped app gets its own local-network prompt, unlike dev runs from
@@ -1141,7 +1146,7 @@ requests and a bug report.
    rate, and a profile saved as "GTA VI" before shows as "GTA VI (saved)". *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
-   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0, v0.2.1, v0.2.2 and v0.2.3 followed). `release.sh` now survives a notarytool
+   [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0 to v0.2.4 followed). `release.sh` now survives a notarytool
    status timeout and staples the `.app` too (built and tested with a fake notarytool); left: its first real run,
    at the next release. *(P4)*
 6b. **Release 0.2.4 with the updater, then verify the in-app update with 0.2.5** (built 2026-11-21, see "In-app
