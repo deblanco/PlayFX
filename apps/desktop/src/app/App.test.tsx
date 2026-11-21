@@ -629,7 +629,7 @@ describe("home: paired consoles", () => {
 })
 
 /** Opens the settings sheet from the home screen or the HUD, on the given tab. */
-const openSettings = async (tab: "Picture" | "Stream" | "Diagnostics") => {
+const openSettings = async (tab: "Picture" | "Stream" | "Misc" | "Diagnostics") => {
   await userEvent.click(screen.getByRole("button", { name: /Settings/ }))
   const sheet = await screen.findByRole("dialog", { name: "Settings" })
   await userEvent.click(within(sheet).getByRole("tab", { name: tab }))
@@ -784,7 +784,7 @@ describe("settings", () => {
     renderApp(core)
     const sheet = await openSettings("Diagnostics")
     expect(sheet.getByText("For tracking down problems and reporting bugs.")).toBeInTheDocument()
-    // The version and the commit it was built from, first thing in the panel.
+    // The version and the commit it was built from, first thing in the panel after its line.
     expect(await sheet.findByLabelText("Version")).toHaveTextContent("PlayFX 0.1.0 (abc1234) on macOS 27.2")
     expect(sheet.getByText(/never contain your PlayStation sign-in/)).toBeInTheDocument()
     expect(sheet.queryByLabelText("Reorder wait")).not.toBeInTheDocument() // no stream connected
@@ -812,6 +812,33 @@ describe("settings", () => {
       expect(core.counts.openSourceCode).toBe(1)
     })
     await userEvent.click(sheet.getByRole("switch", { name: /Detailed logs/ })) // back off
+  })
+
+  it("has four tabs, each saying what it's for, with the controller under Misc, and remembers the tab", async () => {
+    renderApp(fakeCore())
+    const sheet = await openSettings("Stream")
+    expect(sheet.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Picture", "Stream", "Misc", "Diagnostics"])
+    expect(sheet.getByText("What the console sends: resolution, frame rate, codec, sound.")).toBeInTheDocument()
+    expect(sheet.getByRole("switch", { name: "Sound" })).toBeInTheDocument() // sound stays in Stream
+    expect(sheet.queryByRole("switch", { name: /Touchpad touches/ })).not.toBeInTheDocument()
+
+    await userEvent.click(sheet.getByRole("tab", { name: "Picture" }))
+    expect(sheet.getByText("How this Mac cleans up, sharpens and smooths the picture.")).toBeInTheDocument()
+    await userEvent.click(sheet.getByRole("tab", { name: "Diagnostics" }))
+    expect(sheet.getByText("Logs and version, for tracking down problems.")).toBeInTheDocument()
+
+    await userEvent.click(sheet.getByRole("tab", { name: "Misc" }))
+    expect(sheet.getByText("The controller and other options.")).toBeInTheDocument()
+    expect(sheet.getByText("Changes apply right away.")).toBeInTheDocument()
+    expect(sheet.getByRole("region", { name: "Controller" })).toContainElement(sheet.getByRole("switch", { name: /Touchpad touches/ }))
+    expect(sheet.queryByRole("button", { name: /Reset/ })).not.toBeInTheDocument()
+
+    // Closed and opened again, it's back on Misc.
+    await userEvent.click(sheet.getByRole("button", { name: "Close" }))
+    await userEvent.click(screen.getByRole("button", { name: /Settings/ }))
+    const again = within(await screen.findByRole("dialog", { name: "Settings" }))
+    expect(again.getByRole("tab", { name: "Misc" })).toHaveAttribute("aria-selected", "true")
+    expect(again.getByRole("switch", { name: /Touchpad touches/ })).toBeInTheDocument()
   })
 
   it("picks the sound output and volume, applied at once", async () => {
@@ -1823,7 +1850,7 @@ describe("settings profiles", () => {
       expect(core.service.setTouchpadTouches).toHaveBeenCalledWith(true) // saved settings applied at startup
     })
     vi.mocked(core.service.startStream).mockClear()
-    const sheet = await openSettings("Stream")
+    const sheet = await openSettings("Misc")
     const touches = sheet.getByRole("switch", { name: /Touchpad touches/ })
     expect(touches).toBeChecked()
     expect(sheet.getByText(/in GTA VI it opens the map/)).toBeInTheDocument()

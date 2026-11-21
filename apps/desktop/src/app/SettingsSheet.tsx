@@ -1,5 +1,19 @@
 import { Option } from "effect"
-import { ChevronRight, CircleQuestionMark, ClipboardCopy, Code, FolderOpen, RotateCcw, Save, Trash2 } from "lucide-react"
+import {
+  Activity,
+  ChevronRight,
+  CircleQuestionMark,
+  ClipboardCopy,
+  Code,
+  FolderOpen,
+  ImageIcon,
+  Radio,
+  RotateCcw,
+  Save,
+  SlidersHorizontal,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react"
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -35,13 +49,31 @@ const viewHints: Readonly<Record<Settings["view"], string>> = {
   enhanced: "The stream with the steps below.",
 }
 
-export type SettingsTab = "picture" | "stream" | "diagnostics"
+export type SettingsTab = "picture" | "stream" | "misc" | "diagnostics"
 
 const tabHints: Readonly<Record<SettingsTab, string>> = {
   picture: "Changes show on the video right away.",
   stream: "Changes apply the next time you connect.",
+  misc: "Changes apply right away.",
   diagnostics: "For tracking down problems and reporting bugs.",
 }
+
+const tabs: readonly { readonly value: SettingsTab; readonly label: string; readonly icon: LucideIcon }[] = [
+  { value: "picture", label: "Picture", icon: ImageIcon },
+  { value: "stream", label: "Stream", icon: Radio },
+  { value: "misc", label: "Misc", icon: SlidersHorizontal },
+  { value: "diagnostics", label: "Diagnostics", icon: Activity },
+]
+
+/** What each tab controls, at the top of it. */
+const tabAbout: Readonly<Record<SettingsTab, string>> = {
+  picture: "How this Mac cleans up, sharpens and smooths the picture.",
+  stream: "What the console sends: resolution, frame rate, codec, sound.",
+  misc: "The controller and other options.",
+  diagnostics: "Logs and version, for tracking down problems.",
+}
+
+const TabAbout = ({ tab }: { readonly tab: SettingsTab }) => <p className="text-sm text-muted-foreground">{tabAbout[tab]}</p>
 
 /** Shown while streaming: stream settings only take effect on a new connection. */
 export interface ReconnectState {
@@ -115,27 +147,41 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
         )}
         <Tabs
           value={props.tab}
-          onValueChange={(tab) => { props.onTabChange(tab === "stream" || tab === "diagnostics" ? tab : "picture") }}
+          onValueChange={(tab) => {
+            props.onTabChange(tab === "stream" || tab === "misc" || tab === "diagnostics" ? tab : "picture")
+          }}
           className="gap-0"
         >
-          <TabsList className="mx-5 grid grid-cols-3">
-            <TabsTrigger value="picture">Picture</TabsTrigger>
-            <TabsTrigger value="stream">Stream</TabsTrigger>
-            <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
+          {/* Across the sheet, each column as wide as its label plus a share of what's left: "Diagnostics" with its
+              icon wouldn't fit in a quarter. */}
+          <TabsList className="mx-5 grid w-auto grid-cols-[repeat(4,auto)] justify-stretch">
+            {tabs.map(({ value, label, icon: Icon }) => (
+              <TabsTrigger key={value} value={value} className="gap-1 px-0.5">
+                <Icon aria-hidden className="size-4" />
+                {label}
+              </TabsTrigger>
+            ))}
           </TabsList>
           <TabsContent value="picture" className="flex flex-col gap-5 px-5 pt-5 pb-6">
+            <TabAbout tab="picture" />
             <PicturePanel settings={settings} capabilities={props.capabilities} upscaleIdle={props.upscaleIdle} set={set} />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, pictureKeys)) }}>
               <RotateCcw /> Reset picture
             </Button>
           </TabsContent>
           <TabsContent value="stream" className="flex flex-col gap-5 px-5 pt-5 pb-6">
+            <TabAbout tab="stream" />
             <StreamPanel settings={settings} set={set} />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, streamKeys)) }}>
               <RotateCcw /> Reset stream
             </Button>
           </TabsContent>
+          <TabsContent value="misc" className="flex flex-col gap-5 px-5 pt-5 pb-6">
+            <TabAbout tab="misc" />
+            <ControllerOptions settings={settings} set={set} />
+          </TabsContent>
           <TabsContent value="diagnostics" className="flex flex-col gap-5 px-5 pt-5 pb-6">
+            <TabAbout tab="diagnostics" />
             <DiagnosticsPanel settings={settings} set={set} />
           </TabsContent>
         </Tabs>
@@ -497,7 +543,6 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
       />
       <SwitchRow label="Sound" checked={settings.audio} onCheckedChange={(on) => { set("audio", on) }} />
       <SoundOutput settings={settings} set={set} />
-      <ControllerOptions settings={settings} set={set} />
     </>
   )
 }
@@ -551,11 +596,8 @@ const SoundOutput = ({ settings, set }: { readonly settings: Settings; readonly 
 const ControllerOptions = ({ settings, set }: { readonly settings: Settings; readonly set: Set }) => {
   const id = useId()
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-3 border-t border-white/10 pt-4">
-      <div>
-        <h3 id={id} className="text-sm font-medium">Controller</h3>
-        <p className="mt-0.5 text-xs text-muted-foreground">Changes right away.</p>
-      </div>
+    <section aria-labelledby={id} className="flex flex-col gap-3">
+      <h3 id={id} className="text-sm font-medium">Controller</h3>
       <SwitchRow
         label="Touchpad touches"
         description="Sends where your finger is on the pad’s touchpad. Turn off for games that react to a resting thumb (in GTA VI it opens the map); the touchpad click still works."

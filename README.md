@@ -96,7 +96,10 @@ the sign's text and the jacket's texture come back.*
 | Bitrate | Auto, 10–50 Mbps | 20 Mbps by default. Auto is the console's default (about 15 Mbps at 1080p). It pays off in motion: switching tiles at 1080p measured 5.8 Mbps at Auto against 9.5 Mbps with a 40 Mbps cap. |
 | Auto-downgrade | on / off | Lets the console lower the resolution on a weak network. The stats line shows a lower resolution than you asked for in amber. |
 | HDR | on / off | HEVC HDR10 (see below). |
-| Touchpad touches | on / off | Under Controller; changes right away. Off sends only the touchpad click, not where a finger rests: in GTA VI a resting thumb opens the map. The Mac's trackpad as the touchpad isn't affected. |
+
+**Settings → Misc** has the controller's **Touchpad touches** (on / off, changes right away). Off sends only
+the touchpad click, not where a finger rests: in GTA VI a resting thumb opens the map. The Mac's trackpad as
+the touchpad isn't affected.
 
 ### The picture pipeline (Settings → Picture)
 

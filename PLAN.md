@@ -3,7 +3,8 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after the measured reorder wait: libchiaki's Takion waits for a missing video packet as
+Last updated 2026-11-21, after a **Misc** tab in Settings (Picture · Stream · Misc · Diagnostics, each with an
+icon and a line saying what it's for; the controller's Touchpad touches moved there from Stream). Before that, the measured reorder wait: libchiaki's Takion waits for a missing video packet as
 long as the link shows packets come late (3–20 ms, learned from holes that fill and packets that come after a skip;
 it was a fixed 16 ms), its video reorder queue has 256 slots instead of 64, and a full queue skips the missing
 packets instead of dropping ones that arrived; Settings › Diagnostics shows the wait. Then its review fixes: loss
@@ -80,7 +81,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 385 tests (98% lines), Swift 411 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift SWCOUNT tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -433,7 +434,7 @@ Work items:
   Silent Hill 2 an ⌥-click on the video opened the map, as the pad's touchpad button does.) **Touchpad
   touches** switch (built 2026-11-21, **unit tests only, not yet on the console**): some games act on a touch
   alone (in GTA VI a thumb resting on the DualSense's touchpad opens the map, reported by the user and in
-  chiaki-ng PR #896). Settings › Stream › Controller, on by default; off, `ControllerInput` leaves the pad's
+  chiaki-ng PR #896). Settings › Misc › Controller (Stream until the Misc tab came), on by default; off, `ControllerInput` leaves the pad's
   fingers (DualSense and DS4) out of the state it sends, and the touchpad click (`PSRP_BTN_TOUCHPAD`) still
   goes. It applies at once (`set_touchpad_touches` → `sc_set_touchpad_touches`, kept for later sessions), never
   asks for a reconnect, and belongs to profiles (summary "touchpad click only"; settings and profiles saved
@@ -549,6 +550,15 @@ Work items:
   frames back for nothing). Measured on the PS5: 44 ms (3 drawables, Smooth motion wrongly on) → 33 ms
   (2 drawables; not a strict A/B). Not done: audio jitter-buffer tuning (no audio/video sync complaints
   so far).
+- ✅ **Settings tabs** (2026-11-21, asked for: Picture vs Stream read alike): Picture · Stream · **Misc** ·
+  Diagnostics, each with an icon (lucide Image, Radio, SlidersHorizontal, Activity) and a plain line at the
+  top saying what it controls ("How this Mac cleans up, sharpens and smooths the picture.", "What the console
+  sends: …"). Misc holds the Controller group (Touchpad touches), which applies at once and so never belonged
+  with the stream settings; it has no reset button (one setting). The sheet keeps its tab while open and
+  reopened, Misc included. The four labels with their icons fit the 23rem sheet by sizing each column to its
+  label (`grid-cols-[repeat(4,auto)]`, the leftover shared out); measured in headless Chrome with the app's
+  CSS and font (300 px needed of 328), not yet looked at in the app's webview. Verified by unit tests (App: the
+  four tab names, each line, the switch under Misc and not Stream, Misc kept on reopening).
 - ✅ **Audio controls**: Volume (0–100 %) and Output (System default or any of the Mac's outputs, by
   CoreAudio UID) under Sound in Settings → Stream, applied at once to the playing stream and saved for
   later ones (`sc_audio_devices`, `sc_set_audio_output`). A chosen device that's unplugged plays through
@@ -1083,7 +1093,8 @@ requests and a bug report.
    race and the audio output following the system default~~ (done 2026-11-20); the chiaki-ng upstream PR
    (needs the user's OK); echo cancellation for the microphone; audio jitter-buffer tuning; ~~a profile switch
    during a bitrate reconnect reconnecting on its own~~ (fixed 2026-11-20); the Play toast suggesting Steady
-   Wi-Fi (built 2026-11-21, unit tests only: a look at it in the app, with AirDrop on, is left).
+   Wi-Fi (built 2026-11-21, unit tests only: a look at it in the app, with AirDrop on, is left); a look at the Settings sheet's four
+   tabs in the app (icons and labels on one line, measured only in headless Chrome).
 9. Pairing, from the pairing review: ~~the guide and copy fixes~~ (done 2026-11-20; the menu names need a look on
    a PS5 and a PS4); ~~a real "No consoles found" state with next steps and the IP field~~ (done 2026-11-20; the
    Local Network button needs a look on the Mac); ~~the specific pairing failure reasons~~ (built); next, on the

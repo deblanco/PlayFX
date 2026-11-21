@@ -242,7 +242,7 @@ Leave **HDR** off for either one. HDR turns ML upscaling off, and frame interpol
 between two frames there (60 at most from a 30 fps game).
 
 **The map opens by itself?** GTA VI opens the map when a thumb rests on the DualSense's touchpad, even
-without a click. Turn **Touchpad touches** off in Settings › Stream › Controller (it changes right away,
+without a click. Turn **Touchpad touches** off in Settings › Misc › Controller (it changes right away,
 no reconnect). The touchpad click still opens the map when you mean it. The **GTA VI** profile already
 has it off.
 
@@ -259,6 +259,7 @@ frame interpolation works in HDR too, with one image between two frames.
 - **Stream** settings (Settings › Stream: Resolution, Frame rate, Codec, HDR, Bitrate, Lower resolution
   when the network is slow, Sound) apply the next time you connect. While playing, **Reconnect** appears
   when one changed. A Bitrate change alone reconnects by itself after a moment.
+- **Misc** settings (Settings › Misc: the controller's **Touchpad touches**) apply right away.
 - **Bitrate:** 20 Mbps by default. Auto lets the console decide (about 15 Mbps at 1080p). Higher, up to
   50 Mbps, keeps more detail in motion.
 - **Profiles** keep a set of stream and picture settings under a name. Two are built in:
@@ -286,7 +287,7 @@ A DualSense works over USB or Bluetooth, with rumble, adaptive triggers, the tou
   does the player number.
 - When PlayFX quits, it stops any rumble, trigger effect and haptics first, so the controller doesn't
   keep playing them.
-- **Touchpad touches** (Settings › Stream › Controller, on by default) sends where your finger is on the
+- **Touchpad touches** (Settings › Misc › Controller, on by default) sends where your finger is on the
   touchpad. Some games act on a resting thumb (in GTA VI it opens the map): turn it off and only the
   touchpad click is sent. It changes right away, and works the same for a DualShock 4. The Mac's trackpad
   as the touchpad (⌥ + pointer) still sends its touches.
