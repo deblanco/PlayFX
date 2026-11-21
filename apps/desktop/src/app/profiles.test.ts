@@ -107,6 +107,15 @@ describe("profiles", () => {
     expect(Option.isNone(matchingProfile({ ...defaultSettings, sharpness: 0.9 }, profiles))).toBe(true)
   })
 
+  it("prefers a saved profile over a built-in one with the same settings, so it can be selected and deleted", () => {
+    const legacy = withoutBuiltInNames(withProfile([], "GTA VI", applyProfile(defaultSettings, gtaVI)))
+    const gta = applyProfile(defaultSettings, gtaVI)
+    expect(Option.getOrUndefined(matchingProfile(gta, allProfiles(legacy)))?.name).toBe("GTA VI (saved)")
+    expect(Option.getOrUndefined(matchingProfile(gta, allProfiles([])))?.name).toBe("GTA VI")
+    const desk = withProfile([], "Desk", defaultSettings)
+    expect(Option.getOrUndefined(matchingProfile(defaultSettings, allProfiles(desk)))?.name).toBe("Desk")
+  })
+
   it("holds Touchpad touches: a profile can send only the touchpad click", () => {
     const thumb = withProfile([], "Thumb rest", { ...defaultSettings, touchpadTouches: false })
     expect(thumb[0]?.settings.touchpadTouches).toBe(false)

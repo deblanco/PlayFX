@@ -69,10 +69,12 @@ export const applyProfile = (settings: Settings, profile: Profile): Settings => 
 export const needsReconnect = (settings: Settings, profile: Profile, running: StreamOptions): boolean =>
   !sameStreamOptions(streamOptions(applyProfile(settings, profile)), running)
 
-/** The profile `settings` currently matches, if any. */
+/** The profile `settings` currently matches, if any. A saved profile wins over a built-in one with the same
+ * settings, so it can still be selected and deleted. */
 export const matchingProfile = (settings: Settings, profiles: readonly Profile[]): Option.Option<Profile> => {
   const current = profileSettings(settings)
-  return Option.fromNullishOr(profiles.find((p) => sameProfileSettings(p.settings, current)))
+  const matches = profiles.filter((p) => sameProfileSettings(p.settings, current))
+  return Option.fromNullishOr(matches.find((p) => !isBuiltIn(p)) ?? matches[0])
 }
 
 /** Saves `settings` under `name`: a saved profile of that name is replaced where it is, a new one goes last. */

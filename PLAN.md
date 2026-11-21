@@ -74,7 +74,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS TSCOUNT tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 383 tests (98% lines), Swift 409 tests (90% lines; 89% as CI's VM sees
   it), Rust 55 tests (90% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 129/129. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -436,10 +436,12 @@ Work items:
   offer only saved ones. A profile the user saved as "GTA VI" (or "Recommended") before is loaded as "GTA VI
   (saved)" (the next free "(saved 2)"… if taken), so no two options share a name; the stored list keeps the
   old name until the next save or delete writes it back under the new one, by which it is picked, replaced
-  and deleted. Verified by unit tests (profiles: both built-ins, order, summaries, the rename; actions:
+  and deleted. When a saved profile and a built-in one hold the same settings, the saved one shows as
+  selected (and so can be deleted); before, the built-in always won, and a saved "GTA VI" identical to the
+  built-in could be picked but not deleted. Verified by unit tests (profiles: both built-ins, order, summaries, the rename; actions:
   built-in names refused, replace and delete by the new name; App: GTA VI mid-stream asks to reconnect,
   touchpad click only at once, reconnects at 30 fps, and a saved "GTA VI" kept and deleted as "GTA VI
-  (saved)"). Left: GTA VI on the console with that profile. The user saves the current settings under a name,
+  (saved)", also when its settings equal the built-in's). Left: GTA VI on the console with that profile. The user saves the current settings under a name,
   switches, deletes. Settings → Profile; stored in
   `psrp.profiles`. "Custom" when the settings match no profile. **Replacing a profile** (2026-11-20,
   requested): Save as… lists the saved profiles to pick; a matching name turns Save into **Replace** with a

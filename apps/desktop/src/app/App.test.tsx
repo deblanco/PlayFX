@@ -1921,6 +1921,32 @@ describe("settings profiles", () => {
     expect(within(select).queryByRole("option", { name: /saved/ })).not.toBeInTheDocument()
   })
 
+  it("can select and delete a profile saved as GTA VI with the built-in GTA VI's settings", async () => {
+    const { runtime } = await startStreaming(fakeCore(), { profiles: [profile("GTA VI", { fps: 30, touchpadTouches: false })] })
+    const sheet = await openSettings("Picture")
+    const select = sheet.getByRole("combobox", { name: "Profile" })
+    await waitFor(() => {
+      expect(within(select).getAllByRole("option").map((o) => (o as HTMLOptionElement).value)).toEqual([
+        "Recommended",
+        "GTA VI",
+        "GTA VI (saved)",
+      ])
+    })
+    await userEvent.selectOptions(select, "GTA VI (saved)")
+    expect(await screen.findByText(/Switched to GTA VI \(saved\)/)).toBeInTheDocument()
+    expect(select).toHaveValue("GTA VI (saved)")
+
+    await userEvent.click(sheet.getByRole("button", { name: "Delete GTA VI (saved)" }))
+    await waitFor(async () => {
+      expect(await savedProfiles(runtime)).toEqual([])
+    })
+    // The same settings now match the built-in, which can't be deleted.
+    await waitFor(() => {
+      expect(select).toHaveValue("GTA VI")
+    })
+    expect(sheet.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument()
+  })
+
   it("switches profiles from Home, sharing the saved ones with Settings", async () => {
     const { runtime } = renderApp(fakeCore(), { profiles: [profile("Couch", { height: 720, sharpness: 0 })] })
     const home = screen.getByRole("combobox", { name: "Profile" })
