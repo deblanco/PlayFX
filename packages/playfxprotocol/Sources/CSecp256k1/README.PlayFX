@@ -1,0 +1,3 @@
+libsecp256k1 v0.8.0 (https://github.com/bitcoin-core/secp256k1, tag v0.8.0, commit 6e2c8bc4ecdc),
+MIT (COPYING). Vendored unmodified: the library core, its precomputed tables and the ECDH module only
+(no tests, benchmarks or other modules). Used for the stream handshake's secp256k1 ECDH (stream.md).

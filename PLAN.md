@@ -816,7 +816,12 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     packets built from the spec accepted by its parser and GMAC check), 43 stream values (ECDH, launch spec,
     Hello and its split, console messages) and the FEC (300 random cases against jerasure, and the parity in a
     real console capture). Open questions for the console are listed in each doc.
-  - ❌ Next: the stream in Swift from these specs, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
+  - ✅ secp256k1 for the stream handshake (2026-11-23): libsecp256k1 v0.8.0 (bitcoin-core, MIT, August 2026)
+    vendored unmodified as the C target `CSecp256k1` (core, precomputed tables and the ECDH module only; see
+    `Sources/CSecp256k1/README.PlayFX`). CryptoKit has no secp256k1. It goes into `THIRD_PARTY_LICENSES` when
+    PlayFXProtocol first ships in the app.
+  - ❌ Next: the stream in Swift from these specs (Takion, the stream messages and audio/video, built in
+    parallel, then wired together with a `pfxp stream` command), then Takion and the stream (Network.framework vs a BSD socket thread, measured),
     a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
