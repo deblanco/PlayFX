@@ -162,7 +162,9 @@ final class FakeConsole: @unchecked Sendable {
         switch handler(request) {
         case .encrypted(let status, let plaintext):
             let encrypted = Self.cfb(context, Array(plaintext.utf8), encrypt: true)
-            write(fd, Array("HTTP/1.1 \(status)\r\nContent-Length: \(encrypted.count)\r\n\r\n".utf8) + encrypted)
+            // The header a PS5 (system 14230000) sent on 2026-11-23, padding included.
+            let length = String(repeating: " ", count: max(1, 11 - String(encrypted.count).count)) + String(encrypted.count)
+            write(fd, Array("HTTP/1.1 \(status)\r\nConnection: close\r\nRP-Feature: 3\r\nContent-Length:\(length)\r\n\r\n".utf8) + encrypted)
         case .header(let text): write(fd, Array(text.utf8))
         case .raw(let bytes): write(fd, bytes)
         case .close: break

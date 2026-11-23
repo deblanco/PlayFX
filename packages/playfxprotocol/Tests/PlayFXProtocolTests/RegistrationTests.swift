@@ -134,6 +134,19 @@ import Testing
         #expect(throws: FailureKind.invalidData) { try parse(text) }
     }
 
+    /// The answer header of a real PS5 (system 14230000, 2026-11-23): `Content-Length` is padded with spaces.
+    @Test func realPS5AnswerHead() throws {
+        let head = "HTTP/1.1 200 OK\r\nConnection: close\r\nRP-Feature: 3\r\nContent-Length:        195\r\n\r\n"
+        guard case .head(let parsed) = MiniHTTP.parseHead(Array(head.utf8) + [UInt8](repeating: 0, count: 195)) else {
+            Issue.record("expected a head")
+            return
+        }
+        #expect(parsed.status == 200 && parsed.contentLength == 195 && parsed.length == 81)
+        #expect(parsed.headers["rp-feature"] == "3" && parsed.headers["connection"] == "close")
+        #expect(MiniHTTP.trimmed(Array(" \t a b \t".utf8)[...]) == "a b")
+        #expect(MiniHTTP.trimmed(Array("   ".utf8)[...]) == "")
+    }
+
     @Test func httpHead() throws {
         let head = "HTTP/1.1 403 Forbidden\r\nRP-Application-Reason: 80108b09\r\nContent-Length:0\r\nOdd line\r\n\r\nBODY"
         guard case .head(let parsed) = MiniHTTP.parseHead(Array(head.utf8)) else {

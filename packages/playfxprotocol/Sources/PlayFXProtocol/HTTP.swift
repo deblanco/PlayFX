@@ -20,7 +20,7 @@ enum MiniHTTP {
     /// A parsed response header.
     struct ResponseHead: Equatable {
         var status: Int
-        /// Header fields keyed by lower-cased name, values with the optional single space after the colon removed.
+        /// Header fields keyed by lower-cased name, values without the spaces and tabs around them.
         var headers: [String: String]
         /// Bytes of the header including the empty line.
         var length: Int
@@ -58,11 +58,18 @@ enum MiniHTTP {
         var headers: [String: String] = [:]
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: UInt8(ascii: ":")) else { continue }
-            var value = line[(colon + 1)...]
-            if value.first == UInt8(ascii: " ") { value = value.dropFirst() }
-            headers[String(decoding: line[..<colon], as: UTF8.self).lowercased()] = String(decoding: value, as: UTF8.self)
+            // Spaces and tabs around a value are not part of it: a PS5 sends `Content-Length:        195`.
+            headers[String(decoding: line[..<colon], as: UTF8.self).lowercased()] = trimmed(line[(colon + 1)...])
         }
         return .head(ResponseHead(status: status, headers: headers, length: end + terminator.count))
+    }
+
+    /// `value` as text without leading or trailing spaces and tabs.
+    static func trimmed(_ value: ArraySlice<UInt8>) -> String {
+        let isSpace = { (b: UInt8) in b == 0x20 || b == 0x09 }
+        guard let first = value.firstIndex(where: { !isSpace($0) }),
+              let last = value.lastIndex(where: { !isSpace($0) }) else { return "" }
+        return String(decoding: value[first...last], as: UTF8.self)
     }
 
     private static func find(_ needle: [UInt8], in bytes: [UInt8]) -> Int? {
@@ -79,9 +86,7 @@ enum MiniHTTP {
         for var line in bytes.split(separator: UInt8(ascii: "\n")) {
             if line.last == UInt8(ascii: "\r") { line = line.dropLast() }
             guard let colon = line.firstIndex(of: UInt8(ascii: ":")) else { continue }
-            var value = line[(colon + 1)...]
-            if value.first == UInt8(ascii: " ") { value = value.dropFirst() }
-            fields[String(decoding: line[..<colon], as: UTF8.self)] = String(decoding: value, as: UTF8.self)
+            fields[String(decoding: line[..<colon], as: UTF8.self)] = trimmed(line[(colon + 1)...])
         }
         return fields
     }

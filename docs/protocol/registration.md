@@ -160,8 +160,10 @@ section 2), using `K`, `S`, `H` from rpcrypt.md section 6.1 / 6.2 (LAN) or 7 (PS
    bytes for header plus body and a 3000 ms timeout (client choices).
 2. The status line must start with `HTTP/1.1 ` (9 bytes, including the space), followed by a decimal status
    code. The reason phrase is not used. Line endings may be `\r\n` or `\n`.
-3. Header lines are `Name: value` or `Name:value` (one optional space after the colon). Header names are
-   matched case-sensitively in the reference client (`Content-Length`, `RP-Application-Reason`).
+3. Header lines are `Name: value`. **Trim spaces and tabs around the value**: a real PS5 pads it, e.g.
+   `Content-Length:        195` (see "Observed on a real console" below). Header names are matched
+   case-sensitively in the reference client (`Content-Length`, `RP-Application-Reason`); matching them
+   case-insensitively is harmless.
 4. **Status other than 200**: registration failed. Read `RP-Application-Reason` if present: a hexadecimal
    number, with or without a `0x` prefix (e.g. `80108b09` or `0x80108b09`). See section 6. There is no body to
    decrypt.
@@ -273,6 +275,21 @@ then stopped" have different user-facing fixes.
 | Response header | 3000 ms | client choice (observed) |
 | Response body | 3000 ms more | client choice (observed) |
 | PIN lifetime | a few minutes on the console | console behaviour (observed by users, not measured) |
+
+## Observed on a real console
+
+From PlayFX's own hardware check (PS5, `system-version` 14230000, PS5-1 target, LAN, 2026-11-23):
+
+- Answer header to a valid request, byte for byte:
+  `HTTP/1.1 200 OK\r\nConnection: close\r\nRP-Feature: 3\r\nContent-Length:        195\r\n\r\n` (81 bytes),
+  then a 195-byte body. `Content-Length`'s value is right-aligned with spaces after the colon.
+  `RP-Feature: 3` is not otherwise known; store or ignore it.
+- After an answer the client could not use, the console stopped answering the search (`SRC3` refused), so the
+  pairing screen's code can't be retried: reopening the pairing screen gives a new code and the search works
+  again.
+- Pairing the same client again with the same PSN account returned the same registration key and `RP-Key` as
+  that account's earlier pairing (and the same MAC and nickname): a new pairing doesn't replace the old keys.
+- The whole exchange (search, TCP request, answer) took about 0.1 s.
 
 ## Open questions
 

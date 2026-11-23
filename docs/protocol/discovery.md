@@ -204,6 +204,13 @@ value is at most 8 hex digits in practice, it fits in 32 bits.
 - Public: ps4-waker (PS4 discovery and wake on UDP 987): <https://github.com/dhleong/ps4-waker>
 - The reference client's behaviour, as noted in the README's clean-room section.
 
+## Observed on a real console
+
+From PlayFX's own hardware check (PS5 in rest mode, `system-version` 14230000, LAN, 2026-11-23): unicast and
+broadcast searches both got an answer within the first 2 s round (status 620, standby). After a wake packet
+with the console's credential, it stopped answering for a few seconds, then answered with status 200 (ready)
+within 10 s of the wake.
+
 ## Open questions
 
 1. **Reply port.** Whether a console always answers to the search's source port, or prefers the 9303..9319

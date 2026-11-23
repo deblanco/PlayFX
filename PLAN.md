@@ -5,7 +5,8 @@ Status legend: ✅ done · 🔶 partial · ❌ not started.
 
 Last updated 2026-11-23, after **our own discovery, wake and pairing in Swift** (`PlayFXProtocol`, branch
 `deblanco/rewrite-ps-remote-core`, see "Our own Remote Play protocol" under P4), written from the spec alone:
-91 tests, 96.8% lines, and the `pfxp` tool for the hardware round; not yet on a console. Before
+then **its first hardware round**: on the user's PS5 it discovered, woke and paired (the pairing returned
+the same keys libchiaki holds), after a fix for the PS5's padded `Content-Length`; 92 tests, 96.7% lines. Before
 that, the first step: a facts-only protocol spec in
 `docs/protocol` (discovery, wake, registration, RP crypt, session init, ctrl) with known-answer vectors, and the
 empty proprietary Swift package `packages/playfxprotocol` with its design notes and a CI step. Before that, **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
@@ -108,7 +109,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
 - Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), PlayFXProtocol 91 tests (97% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+  it), PlayFXProtocol 92 tests (97% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -781,8 +782,15 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     other networks), a unicast search only accepts answers from that address, and a known console can't be
     moved to another address by a later answer. 91 tests, 96.8% lines. `pfxp discover | wake | pair` drives
     it on a real console (pairings saved apart from psrp's, 0600). Not yet on a console.
-  - ❌ Hardware round: discover, wake and pair the PS5 with it, side by side with libchiaki.
-  - ❌ Then: session init + ctrl, Takion and the stream (Network.framework vs a BSD socket thread, measured),
+  - ✅ Hardware round (2026-11-23, the user's PS5, system 14230000, LAN), with `pfxp`: discovery (unicast and
+    broadcast) found PS5-454 in standby with the same name, state, host ID and system version as `psrp
+    discover`; `pfxp wake` brought it from rest to ready in under 10 s; `pfxp pair` paired in 0.1 s and got the
+    same registration key, RP key, MAC and nickname that libchiaki stored for that account (so the decryption
+    is right and the old pairing stays valid). The first three pairing attempts failed: a PS5 pads
+    `Content-Length:        195`, and the parser took only one space after the colon. Fixed (values trimmed,
+    the fake console answers with the PS5's exact header), and recorded in the spec ("Observed on a real
+    console"). 92 tests, 96.7% lines.
+  - ❌ Next (milestone 2): session init + ctrl in Swift from the spec, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
     a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
@@ -1254,6 +1262,6 @@ requests and a bug report.
    gets "didn't answer pairing through PSN" or "didn't accept" (which one isn't known yet). *(P0)*
 11. **Our own Remote Play protocol** (branch `deblanco/rewrite-ps-remote-core`, see P4): ~~the facts-only spec for
    discovery, wake, registration, session init and ctrl~~ (done 2026-11-23); ~~the Swift discovery, wake and
-   registration from the spec~~ (done 2026-11-23, unit tests only); next, **one hardware round**: discover, wake
-   and pair the PS5 with `pfxp` next to `psrp`, then wake it from rest with the new pairing's key (needs the
-   user). *(P4)*
+   registration from the spec~~ (done 2026-11-23); ~~one hardware round: discover, wake and pair the PS5~~ (done 2026-11-23,
+   all three work); next, milestone 2: the spec's session init and ctrl channel in Swift, then a hardware round
+   that opens a session (login PIN, heartbeat, clean end) next to libchiaki. *(P4)*
