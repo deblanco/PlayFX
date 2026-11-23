@@ -30,7 +30,7 @@ extension flag is set). Names follow takion.md §7.2 where it names them; offset
 | `packetIndex` | u16 | Per-stream packet counter. Consecutive units of one video frame have consecutive `packetIndex`. |
 | `frameIndex` | u16 | Video: the frame this unit belongs to. Audio: the frame index of the packet's first source unit (§6.3). |
 | `unitWord` | u32 | Split differently for video and audio, see below. |
-| `codec` | u8 | Audio: must be 5 (Opus); packets with another value are dropped. Video: 3 seen in an H.264 capture; not used by the assembly. |
+| `codec` | u8 | Audio: must be 5 (Opus); packets with another value are dropped. Video: never read by existing clients; 3 is the only value on record (H.264 capture and the reference client's header test). No HEVC value is on record anywhere; take the codec from what was negotiated (stream.md), not from this byte. |
 | `adaptiveStreamIndex` | 3 bits | Video only: which stream-info resolution (profile) this frame uses (§4.2). |
 | `streamByte` | u8 | PS5 audio packets only: `0x02` = this packet carries haptics (§7), anything else = game audio. |
 | offset-18 field | u16 | Video only. Not needed for assembly; meaning unknown (open question 14). |
@@ -105,11 +105,17 @@ unit:
 
 ### 2.4 When a frame is finished
 
-Client choice (observed): a frame is finished, and handled per §2.5, at the first of:
+Client choice (observed): a frame is finished, and handled per §2.5, at the first of these events:
 
-- units received (source + parity) ≥ `k`;
-- the unit with `unitIndex = n − 1` arrives (even if too few units came);
+- after a unit is stored, units stored so far (source + parity) ≥ `k`;
+- a unit with `unitIndex = n − 1` arrives. This holds unconditionally: also when it is the frame's first or
+  only unit, and also when §2.3 rejected it. The frame is then finished with whatever was stored, which with
+  fewer than `k` units means "FEC failed";
 - a unit of a newer frame arrives (§4.3) while this frame is unfinished.
+
+`k` and `n` are the header values; `fecUnits` = 0 changes neither condition. Because the transport delivers
+video units in `packetIndex` order (below), unit `n − 1` is normally the last one to arrive, so the second rule
+only fires early when units are lost or reordered beyond the reorder wait.
 
 Units of a frame that arrive after it was finished are dropped (existing clients still count them in the
 packet statistics, §4.5). Units of an older frame than the one being assembled are dropped.
@@ -261,17 +267,29 @@ completed successfully, starts at 0), `lastHandedOver` (last frame given to the 
    passed since the last one.
 3. The frame isn't handed over. `lastGood` doesn't change.
 
-**A frame finishes successfully**: read the first slice header of the access unit (§5). If it can't be
-parsed (no start code in the first 64 bytes, or a NAL type other than §5's slice types), skip steps 1–2.
+Existing clients do send that range twice when a newer frame follows a failed one: once here, and once in
+step 2 of the next frame's start (`lastGood` didn't move, so the next frame `current + 1` gives the range
+`lastGood + 1 … current` again; a later frame gives a range that contains it). Each report is a plain range
+(stream.md), so the second one only repeats information; suppressing a repeat should be harmless, but no
+client has been seen doing that, so the console's tolerance of a missing repeat is untested. Matching the
+existing behaviour is the safe choice.
 
-1. If `waitingForIdr`: an I slice clears it. Any other slice type: drop the frame (not handed over,
-   `lastGood` unchanged), and repeat the IDR request if 1000 ms passed since the last one.
+**A frame finishes successfully**: read the first slice header of the access unit (§5). The header "can't be
+parsed" when: no 4-byte start code `00 00 00 01` begins at byte offset 0..64 of the access unit (a 3-byte
+`00 00 01` at offset 0 is not found); the NAL type isn't one §5 accepts (H.264: 1, 5; HEVC: 1, 20); or one of
+§5's parse failures occurs. Then skip steps 1–2 and go to step 3: the frame is handed over without IDR or
+reference logic, **even while `waitingForIdr`** (which stays set).
+
+1. If `waitingForIdr`: an I slice clears it. Any other parsed slice, P or "neither" (§5.1, §5.2), is dropped:
+   not handed over, `lastGood` unchanged, and the IDR request repeated if 1000 ms passed since the last one.
 2. If it's a P slice with a known reference `d` (§5: the slice references the frame `d + 1` frames back):
    if `current − d − 1` is not in `refs`:
    - HEVC: look for the smallest `d' > d`, `d' ≤ 15`, with `current − d' − 1` in `refs`. If one exists,
      rewrite the slice header to reference it (§5.3) and, if that succeeds, mark the frame **recovered**.
    - If there is none, the rewrite fails, or the stream is H.264 (no rewrite): the frame isn't handed over and
-     `lastGood` doesn't change (the next frame's step 2 then reports it as corrupt).
+     `lastGood` doesn't change. Existing clients send **no IDR request** and don't set `waitingForIdr` here;
+     they rely on the next frame's corrupt-frame report (§4.3, "a unit of a newer frame", step 2).
+   - Slices that are "neither" (not P, not I) get no reference check and are handed over (when not waiting).
 3. Hand the access unit to the decoder with `framesLost` (§4.4) and the `recovered` flag. If the decoder
    rejects it, `lastGood` doesn't change and it isn't added to `refs` (client choice, observed).
    Otherwise add `current` to `refs` (dropping the oldest beyond 16) and set `lastGood = current`.
@@ -295,16 +313,30 @@ older good picture; an IDR is the fallback.
 ### 4.5 Packet statistics (for congestion feedback)
 
 When a newer frame starts, existing clients add the previous frame's counts to the statistics behind the
-congestion reports (takion.md): units received (source + parity, including ones that came after the frame
-was finished) and units missing (`k + max(m, 1)` − received). Audio adds one "received" per packet and
-tracks the highest audio `frameIndex` to estimate losses. Client choice (observed) as to the details.
+congestion reports (takion.md §8.3): units received (source + parity units accepted by §2.3, including ones
+that came after the frame was finished; rejected units and duplicates don't count) and units missing
+(`expected − received`). Game-audio packets add one "received" each and track the highest audio `frameIndex`
+(takion.md §8.3). **Haptics packets are not counted** anywhere in these statistics. Client choice (observed).
+
+Where `fecUnits` = 0 matters (the only case where the counts differ):
+
+| Use | Count used by existing clients |
+|---|---|
+| Finishing the frame (§2.4) | `k` and `n` from the header; no phantom unit |
+| FEC recovery (§2.5, §3.5) | `k + max(m, 1)` slots, so the empty phantom slot is one erasure: any missing source unit loses the frame |
+| Congestion statistics `expected` | `k + max(m, 1)`: a complete frame with `fecUnits` = 0 reports 1 unit lost |
+| `framesLost` (§4.4) | frame indices only; units don't matter |
+
+takion.md §8.3 states `expected` as "the frame's total units (source + FEC)"; that is the same number except
+when `fecUnits` = 0, where existing clients use `n + 1`. Every frame in the capture had `fecUnits` ≥ 1, so
+whether consoles send 0 at all is unknown.
 
 ---
 
 ## 5. Bitstream facts the client needs
 
-The client reads a few fields of the **first slice NAL unit** of each access unit (the first start code
-within its first 64 bytes), and needs a few SPS/PPS fields to reach them. Syntax and semantics are from
+The client reads a few fields of the **first slice NAL unit** of each access unit (the first 4-byte start
+code beginning at offset 0..64, §4.3), and needs a few SPS/PPS fields to reach them. Syntax and semantics are from
 ITU-T H.264 (06/2019) and ITU-T H.265 (V8, 08/2021); section numbers below are theirs. All slice-header
 fields are read from the RBSP, i.e. after removing emulation-prevention bytes (`00 00 03` → `00 00`,
 H.264 §7.4.1 / H.265 §7.4.2).
@@ -335,8 +367,11 @@ P: num_ref_idx_active_override_flag u(1) [num_ref_idx_l0_active_minus1 ue(v)],
 - Reference distance `d` for a P slice in a non-IDR NAL: 0 (the previous frame) when there is no list
   modification. With modification entries, an entry with `modification_of_pic_nums_idc` = 0 gives
   `abs_diff_pic_num_minus1 = d`: the first reference is `frame_num − (d + 1)`, i.e. `d + 1` frames back
-  (§8.2.4.3.1; frame numbers step by one per frame in these streams). Existing clients take the last idc-0
-  entry among the first three. Long-term entries (idc 2) are not interpreted.
+  (§8.2.4.3.1; frame numbers step by one per frame in these streams). Existing clients accept at most **two**
+  modification entries before the terminating idc 3, and `d` = the value of the **last** idc-0 entry. With no
+  idc-0 entry (only idc 1 or 2 entries) `d` = 0, the previous frame, whatever the entries say. Three or more
+  entries, or an idc value above 3, is a parse failure (§4.3: handed over without checks). Idc 1 and 2
+  values are read and ignored.
 - Values seen in console H.264 streams (1080p sample): Main profile (77), level 5.0, `pic_order_cnt_type`
   = 2, `frame_mbs_only_flag` = 1, `log2_max_frame_num_minus4` = 3 (frame_num wraps at 128),
   `max_num_ref_frames` = 9, CABAC, no redundant_pic_cnt. P slices referencing 6 frames back use one
@@ -352,7 +387,11 @@ ids, chroma format, picture size, conformance window and bit depths. PPS (§7.3.
 `dependent_slice_segments_enabled_flag`, `output_flag_present_flag`, `num_extra_slice_header_bits`. The
 video header holds VPS (type 32), SPS (33), PPS (34) in that order.
 
-Slice NAL types used by the console: 1 (TRAIL_R, P pictures) and 20 (IDR_N_LP). Slice segment header
+Slice NAL types used by the console: 1 (TRAIL_R, P pictures) and 20 (IDR_N_LP). These are the **only**
+types existing clients parse: any other first NAL (including 19 IDR_W_RADL, 21 CRA_NUT, 0 TRAIL_N, or a
+VPS/SPS/PPS/SEI/AUD ahead of the slice) is "can't be parsed" (§4.3), so an IDR coded as type 19 would be
+handed over but would **not** clear `waitingForIdr`. The rewrite (§5.3) accepts type 1 only. An implementation
+may accept 16..21 as I pictures; that is a deviation, harmless as far as known. Slice segment header
 (§7.3.6.1) up to the short-term RPS:
 
 ```
@@ -373,7 +412,7 @@ no prediction flag: `num_negative_pics ue(v)`, `num_positive_pics ue(v)`, then p
 - Reference distance `d` for a P slice: the index of the first negative picture with
   `used_by_curr_pic_s0_flag` = 1. With every `delta_poc_s0_minus1` = 0 (always so in console streams),
   negative picture `i` is the picture `i + 1` frames back. If no flag is set (or the SPS RPS is used),
-  `d` is unknown and the reference check is skipped. Existing clients reject `num_negative_pics > 16`.
+  `d` is unknown and the reference check is skipped. `num_negative_pics > 16` is a parse failure (§4.3).
 - Values seen in console HEVC streams (1080p sample): Main profile, level 5.0 (`general_level_idc` 150),
   `log2_max_pic_order_cnt_lsb_minus4` = 0 (POC LSB is 4 bits), `num_short_term_ref_pic_sets` = 0, no extra
   slice header bits, no output flag, P slices listing 1 to 9 negative pictures, each `delta_poc_s0_minus1`
@@ -485,8 +524,13 @@ lets the repetition do its job.
   checks as §6.2, including `codec` = 5.
 - **Units are raw PCM, not Opus**: signed 16-bit samples, 2 channels interleaved (left/right actuator),
   3000 Hz. Units seen are 120 bytes = 30 sample frames = 10 ms. Byte order little-endian (open question 3).
-- Frame indices per unit as §6.3. Client choice (observed): a unit is used only if its frame index is newer
-  than the last haptics frame used, in payload order; no jitter buffer, no concealment.
+- Frame indices per unit as §6.3, **including the start-up rule**, with its own state: the haptics stream
+  has its own "a packet with `F > 32768` was seen" flag, independent of game audio's. Unlike game audio it is
+  never reset (no audio header applies to it).
+- Client choice (observed): a unit is used only if its frame index is newer (§4.1) than the last haptics frame
+  used, in payload order; no jitter buffer, no concealment. "Last used" starts at 0, so the first usable
+  haptics frame must be newer than 0 (index 1..32767).
+- Haptics packets don't count in the congestion statistics (§4.5).
 - Consumers either play it on the DualSense's haptic channels (USB audio, resampled to 48 kHz) or reduce it
   to rumble (outside this protocol).
 
@@ -684,17 +728,27 @@ Access unit (27 bytes) in every successful case:
 |---|---|
 | 0, 1, 2 | complete without FEC |
 | 1, 3, 4 | units 0 and 2 recovered by FEC (`S` learnt from unit 1: 11 + 5) |
-| 4, 0, 2 | unit 1 recovered (`S` learnt from parity unit 4: 16) |
+| 3, 0, 2 | unit 1 recovered (`S` learnt from parity unit 3: 16) |
+| 4, 0, 2 | FEC failed: unit 4 (`n − 1`) finishes the frame on arrival with 1 unit stored; 0 and 2 come too late (§2.4) |
 | 1, 3 | FEC failed (2 units < `k`) |
 
-[C]: the reference client's frame assembly, fed the same units, returned the same access unit and the same
-outcome (complete / recovered by FEC / failed) in all four cases.
+[C]: the reference client's frame assembly, fed the same units and finished at the point §2.4 says, returned
+the same access unit and the same outcome (complete / recovered by FEC / failed) in all five cases.
 
 ### V-AV7. Real console capture (§2, §3) [I][R][C]
 
-Not reproduced here (large, and it is the reference client's test data). Frames 1 (`k` = 1, `m` = 1, `S` = 108)
-and 2 (`k` = 17, `m` = 1, `S` = 1400) of the capture in "Observed": the parity unit on the wire equals the spec
-script's encoding of the zero-padded source units. Dropping one source unit (unit 0 of frame 1, unit 5 of
+The units are in [`data/vectors/av-capture-h264.txt`](data/vectors/av-capture-h264.txt): one line per unit
+(byte 0, `packetIndex`, `frameIndex`, `unitIndex`, `unitsTotal`, `fecUnits`, decrypted payload in hex), all 20
+units of frames 1 (`k` = 1, `m` = 1, `S` = 108) and 2 (`k` = 17, `m` = 1, `S` = 1400). The last unit of each
+frame is its parity unit; it equals the spec script's encoding of the zero-padded source units.
+
+| Frame | Access unit length | First 16 bytes | SHA-256 of the access unit |
+|---|---|---|---|
+| 1 | 103 | `00000001658880867f002fc803ff087e` | `7cfcb4169c975d5ff1f6120c2239b9564b5530811c76fe31be79c0fc99fb2982` |
+| 2 | 15995 | `00000001419a04422f9fe004a404fffc` | `02b08cbe0820d13393ea93d17c551a8291bcdbefaf8a76d4c209129306ae5dc6` |
+
+Suggested tests: rebuild both access units from all units; drop any one source unit and recover it from the
+parity unit; re-encode the parity unit from the source units. Dropping one source unit (unit 0 of frame 1, unit 5 of
 frame 2) and recovering it with the spec script gave the same 103- and 15995-byte access units as the
 complete frames; the reference client's assembly agreed.
 
@@ -784,6 +838,25 @@ bytes, TOC byte `0xf4` (configuration 30 = CELT-only fullband 10 ms, stereo, one
 §3.1). A libopus decoder at 48 kHz stereo returned 480 samples per channel for a packet and for concealment.
 
 ---
+
+## Clarifications (2026-11-23)
+
+Answers to implementer questions; facts checked against the reference client as a black box.
+
+1. §2.4: the `unitIndex = n − 1` rule is unconditional (also for a frame's first unit); V-AV6's row
+   "4, 0, 2" was wrong and is now "3, 0, 2", with "4, 0, 2" added as a failure.
+2. §4.5: which count (`n`, `k + max(m,1)`) applies where when `fecUnits` = 0, and the difference from
+   takion.md §8.3's wording.
+3. §4.3: the repeated corrupt-frame range after an FEC failure is real; suppressing it is untested.
+4. §4.3 step 1, §5.1: while waiting for an IDR, every parsed non-I slice is dropped; unparsable frames are
+   handed over and leave the wait set.
+5. §1 `codec`: no HEVC value on record; the byte isn't read for video.
+6. §4.5, §7: haptics packets aren't in the congestion statistics.
+7. §7: haptics apply the start-up rule with their own state.
+8. §4.3 step 2: a dropped P slice with a missing reference triggers no IDR request.
+9. §5.1: H.264 `d` with no idc-0 entry is 0; at most two entries parse.
+10. §5.2, §4.3: HEVC NAL types 1 and 20 only (H.264: 1, 5); the start code must be 4 bytes at offset 0..64.
+11. V-AV7: the capture's units are now in `data/vectors/av-capture-h264.txt`, with access-unit hashes.
 
 ## Sources
 

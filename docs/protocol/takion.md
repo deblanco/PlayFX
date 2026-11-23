@@ -574,7 +574,9 @@ Over each 200 ms interval:
 
 - **Video:** when the first packet of a newer video frame arrives, the frame before it is finished
   (`av.md`): add its units received (source + FEC, duplicates not counted) to `received` and
-  `expected − received` to `lost`, where `expected` = the frame's total units (source + FEC).
+  `expected − received` to `lost`, where `expected` = the frame's total units (source + FEC). One exception
+  (av.md §4.5): with an FEC unit count of 0, `expected` = source units + 1, so even a complete frame reports
+  one lost unit (never seen on a console, where the FEC count isn't 0).
 - **Audio:** count every audio packet received (`aud`) and track the highest audio frame index seen
   (`hi`, in 16-bit serial order). At the end of the interval `audLost = d − aud` if `aud < d`, else 0,
   where `d = (hi − hiPrev) mod 2^16` and `hiPrev` is `hi` at the end of the previous interval (initially 0).
