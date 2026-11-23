@@ -1,0 +1,9 @@
+PlayFXProtocol
+Copyright (C) 2026 Daniel B. All rights reserved.
+
+This package (everything under packages/playfxprotocol) is proprietary. It is NOT covered by the
+GNU Affero General Public License that applies to the rest of the PlayFX repository. No licence to
+use, copy, modify or distribute it is granted except by written permission of the copyright holder.
+
+It was written from the facts-only protocol specification in docs/protocol, without reference to
+chiaki or chiaki-ng source code, and depends on no GPL- or AGPL-licensed code.

@@ -3,7 +3,10 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-23, after **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
+Last updated 2026-11-23, after **the first step of our own Remote Play protocol** (branch
+`deblanco/rewrite-ps-remote-core`, see "Our own Remote Play protocol" under P4): a facts-only protocol spec in
+`docs/protocol` (discovery, wake, registration, RP crypt, session init, ctrl) with known-answer vectors, and the
+empty proprietary Swift package `packages/playfxprotocol` with its design notes and a CI step. Before that, **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
 (8 tests, 17 issues), because `MLSuperResolution` asked VideoToolbox about the model even with stand-in
 processors. Measured on the runner (a temporary diagnostic test on a branch): in its virtual machine VideoToolbox
 names no scale factor for 1280×720 or the 1088×1088 tiles (2× only at 960×544) and an empty output format, so no
@@ -749,6 +752,24 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
 
 ### P4 — build, distribution, compliance
 
+- 🔶 **Our own Remote Play protocol (`PlayFXProtocol`), to replace libchiaki.** libchiaki is AGPL, which keeps
+  PlayFX off the Mac App Store (a native shell replacing Tauri's private API is the other half, later). Decided
+  2026-11-23: a Swift package of our own (`packages/playfxprotocol`, proprietary, no GPL/AGPL dependencies),
+  native frameworks first (`packages/playfxprotocol/DESIGN.md`: Network.framework, Wi-Fi video service class,
+  kernel receive timestamps, `NWPathMonitor`, CryptoKit/CommonCrypto), built clean-room: spec writers read
+  chiaki-ng and write facts only into `docs/protocol`; implementers get only the spec and never open chiaki. A best-effort
+  clean room (AI models have seen chiaki); a lawyer reviews before an App Store submission.
+  - ✅ Spec, milestone 1 (2026-11-23): `docs/protocol` README (process, conventions), discovery + wake,
+    registration, RP crypt (14 constant tables as hex with SHA-256s), session init, ctrl channel, test vectors.
+    Verified: an independent Python script written from the spec text reproduced 82 values that a C harness
+    computed with chiaki-ng's code (40 for session/ctrl, 42 for discovery/registration), and chiaki-ng's
+    registration paired with a fake console built from the spec on loopback, for every target version. Open
+    questions (console refusal codes, heartbeat rate, some `RP-*` fields) are listed in each doc, for the console.
+  - ❌ Swift discovery, wake, RP crypt and registration from the spec, ≥80% coverage on recorded bytes.
+  - ❌ Hardware round: discover, wake and pair the PS5 with it, side by side with libchiaki.
+  - ❌ Then: session init + ctrl, Takion and the stream (Network.framework vs a BSD socket thread, measured),
+    a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
+
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
   exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,
   license fields in every manifest, and Settings → Diagnostics → **Source code** opens the repo. Make the
@@ -1216,3 +1237,6 @@ requests and a bug report.
    ~~Cancel ending at once, and its own message for a PS5 that never answers~~ (done 2026-11-20, fork and
    unit tests); on the console: a Cancel mid-pairing ends at once, and a PS5 signed in to another PSN account
    gets "didn't answer pairing through PSN" or "didn't accept" (which one isn't known yet). *(P0)*
+11. **Our own Remote Play protocol** (branch `deblanco/rewrite-ps-remote-core`, see P4): ~~the facts-only spec for
+   discovery, wake, registration, session init and ctrl~~ (done 2026-11-23); next, the Swift discovery, wake
+   and registration from the spec, then one hardware round pairing the PS5 with it next to libchiaki. *(P4)*
