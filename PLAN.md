@@ -3,7 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-23, after **our own discovery, wake and pairing in Swift** (`PlayFXProtocol`, branch
+Last updated 2026-11-23, after **our own session start and control channel in Swift** (`PlayFXProtocol`
+milestone 2): on the user's PS5 a session opened, kept its heartbeats for 20 s and stopped cleanly, and go to
+bed put the console in rest; 172 tests, 96.4% lines. Before that, **our own discovery, wake and pairing in Swift** (`PlayFXProtocol`, branch
 `deblanco/rewrite-ps-remote-core`, see "Our own Remote Play protocol" under P4), written from the spec alone:
 then **its first hardware round**: on the user's PS5 it discovered, woke and paired (the pairing returned
 the same keys libchiaki holds), after a fix for the PS5's padded `Content-Length`; 92 tests, 96.7% lines. Before
@@ -109,7 +111,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
 - Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), PlayFXProtocol 92 tests (97% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+  it), PlayFXProtocol 172 tests (96% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -790,7 +792,20 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     `Content-Length:        195`, and the parser took only one space after the colon. Fixed (values trimmed,
     the fake console answers with the PS5's exact header), and recorded in the spec ("Observed on a real
     console"). 92 tests, 96.7% lines.
-  - ❌ Next (milestone 2): session init + ctrl in Swift from the spec, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
+  - ✅ Milestone 2, session init + ctrl channel in Swift from the spec (2026-11-23): `ControlSession.start`
+    (session init with the version retry, the session crypt, the ctrl request with its encrypted headers, the
+    `NWProtocolFramer` framing, every ctrl message both ways), events with the session to a handler on a private
+    queue, throwing commands (login PIN only when asked, keyboard, go to bed/home, mic, stop), typed
+    `SessionError`s with user messages (busy, crashed, version mismatch, resets, network), and the
+    `StreamHandoff` for the stream stage (secrets redacted in descriptions and `dump`). 172 tests (spec vectors,
+    an independent fake console, the PS5's observed start and go-to-bed sequences, every error, stop/cancel in
+    each phase), 96.4% lines / 95.6% functions (96.5% with `STREAMCORE_SIMULATE_VM=1`). Reviewed against the
+    spec: no divergence; its fixes are in (an early login-PIN request can be answered, a cancel after connecting
+    no longer kills the session). **On the PS5** (`pfxp session`, 2026-11-23): session init 200 / 1.0 in 20 ms,
+    ctrl up 20 ms later, login accepted unprompted, session ID at 0.5 s, heartbeats every 5.0 s all answered, a
+    clean stop after 20 s; go to bed put it in rest in about 6 s; session init in rest mode is refused (wake
+    first); woken, ready in 9 s. The spec records these ("Observed on a real console").
+  - ❌ Next (milestone 3): the stream, specified first (`takion.md`, `stream.md`, `av.md`), then Takion and the stream (Network.framework vs a BSD socket thread, measured),
     a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
@@ -1263,5 +1278,8 @@ requests and a bug report.
 11. **Our own Remote Play protocol** (branch `deblanco/rewrite-ps-remote-core`, see P4): ~~the facts-only spec for
    discovery, wake, registration, session init and ctrl~~ (done 2026-11-23); ~~the Swift discovery, wake and
    registration from the spec~~ (done 2026-11-23); ~~one hardware round: discover, wake and pair the PS5~~ (done 2026-11-23,
-   all three work); next, milestone 2: the spec's session init and ctrl channel in Swift, then a hardware round
-   that opens a session (login PIN, heartbeat, clean end) next to libchiaki. *(P4)*
+   all three work); ~~milestone 2: session init and the ctrl channel~~ (done 2026-11-23, on the PS5: a session with
+   heartbeats, a clean stop, go to bed); next, milestone 3: the stream (Takion, the stream connection, audio and
+   video, FEC, input) specified, then built, with the stream's receive path measured on Network.framework against a
+   BSD socket thread; its hardware round is the first stream on the new code (not before 2026-11-24, the user is
+   playing). *(P4)*

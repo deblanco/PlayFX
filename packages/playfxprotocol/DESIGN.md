@@ -53,3 +53,12 @@ Not used: private SPI (`recvmsg_x`/`sendmsg_x`, private socket options). The App
   only if it measures at least as fast. Otherwise keep jerasure (BSD).
 - **Instrumentation:** `os_signpost` intervals per frame (first packet → complete → decoded → shown), so
   Instruments shows where latency goes.
+
+## Deviations from observed clients
+- **Session ID.** If the console's session ID (ctrl `0x33`) is malformed, or none arrives within the start-up
+  time, `ControlSession` ends the channel (`.invalidSessionID` / `.startupTimeout`). One existing client
+  instead invents an ID and carries on (ctrl.md section 6.2). Whether a console accepts an invented ID is
+  unverified (ctrl.md open question 8), and a stream that fails later, with a vaguer error, is harder to
+  diagnose than a clear end here. Revisit if a real console is seen to need it.
+- **Events carry the session.** The handler is `(ControlEvent, ControlSession)`, because the console's first
+  frames (a login PIN request) can arrive before `start` returns.

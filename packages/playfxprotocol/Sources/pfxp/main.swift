@@ -4,6 +4,9 @@
 //   pfxp wake [--host IP] [--new]                  wakes a console paired in ~/.config/psrp/config.json
 //                                                  (--new: with a pairing made by `pfxp pair`)
 //   pfxp pair --host IP --pin 12345678 [--ps4]     pairs; saves to ~/.config/playfx-protocol/config.json
+//   pfxp session [--host IP] [--new] [--seconds N] [--login-pin PIN|-] [--sleep]
+//                                                  session init + ctrl; prints each event with its time, then
+//                                                  ends cleanly (--sleep: puts the console to rest instead)
 //
 // `wake --new` from rest mode checks that a pairing made here works. Keys are never printed.
 import Foundation
@@ -117,14 +120,121 @@ func pair(_ args: [String]) throws {
           + "\(String(format: "%.1f", Date().timeIntervalSince(started))) s; saved to \(ownConfig.path)")
 }
 
+/// Prints one line at a time, from any thread.
+let printLock = NSLock()
+func say(_ line: String) {
+    printLock.lock()
+    print(line)
+    fflush(stdout)
+    printLock.unlock()
+}
+
+/// Session init and ctrl against a console paired in psrp's config (or `--new`: ours). Prints only what is
+/// safe: never keys, the nonce, the session ID's text or encrypted header values.
+func session(_ args: [String]) async throws {
+    let file = args.contains("--new") ? ownConfig : psrpConfig
+    let config = Config.load(file)
+    let host = option("host", in: args)
+    guard let console = host.map({ h in config.consoles.first { $0.address == h } }) ?? config.consoles.first else {
+        throw fail("No console paired in \(file.path)\(host.map { " at \($0)" } ?? "")")
+    }
+    guard let regist = Data(base64Encoded: console.registKey), regist.count == 16,
+          let rp = Data(base64Encoded: console.rpKey), rp.count == 16 else {
+        throw fail("The saved pairing for \(console.nickname) has no usable keys")
+    }
+    let seconds = option("seconds", in: args).flatMap(Double.init) ?? 20
+    // `--login-pin -` reads the PIN from stdin, so it doesn't show in `ps`.
+    var pin = option("login-pin", in: args)
+    if pin == "-" { pin = readLine(strippingNewline: true) }
+    let started = Date()
+    @Sendable func stamp() -> String { String(format: "%6.2f s", Date().timeIntervalSince(started)) }
+
+    let ended = Locked(false)
+    let givenPIN = pin
+    let handler: @Sendable (ControlEvent, ControlSession) -> Void = { event, current in
+        switch event {
+        case .sessionInitialized(let version, let attempts):
+            say("\(stamp())  session init ok: status 200, version \(version.protocolVersion), \(attempts) request(s)")
+        case .connected(let model, let prohibited):
+            say("\(stamp())  ctrl connected: server type \(model.map { "\($0)" } ?? "unknown")"
+                + (prohibited ? ", picture prohibited" : ""))
+        case .loginPINRequested:
+            say("\(stamp())  login PIN requested")
+            if let pin = givenPIN {
+                do { try current.sendLoginPIN(pin); say("\(stamp())  login PIN sent") } catch {
+                    say("\(stamp())  --login-pin is not a valid PIN")
+                }
+            }
+        case .loginPINResult(let accepted):
+            say("\(stamp())  login PIN \(accepted ? "accepted" : "wrong")")
+        case .sessionID(let id):
+            say("\(stamp())  session ID received (\(id.length) characters)")
+        case .heartbeat(let count):
+            say("\(stamp())  heartbeat #\(count)")
+        case .displayNotice(let notice):
+            switch notice {
+            case .a(let set): say("\(stamp())  display notice A \(set ? "set" : "cleared")")
+            case .b(let payload, let clears): say("\(stamp())  display notice B, \(payload.count) bytes, clears: \(clears)")
+            }
+        case .keyboardOpened(let text):
+            say("\(stamp())  keyboard opened (\(text.utf8.count) bytes of text)")
+        case .keyboardTextChanged(let sequence, let text):
+            say("\(stamp())  keyboard text changed #\(sequence) (\(text.utf8.count) bytes)")
+        case .keyboardClosed:
+            say("\(stamp())  keyboard closed by console")
+        case .notice(let type, let payload):
+            say("\(stamp())  notice type 0x\(String(format: "%04x", type)), \(payload.count) bytes")
+        case .ended(let reason):
+            say("\(stamp())  ended: \(reason)")
+            ended.with { $0 = true }
+        }
+    }
+
+    say("Starting a session with \(console.nickname) at \(console.address)")
+    let control: ControlSession
+    do {
+        control = try await ControlSession.start(
+            address: console.address, target: console.ps5 ? .ps5v1 : .ps4v10, registKey: Array(regist),
+            rpKey: Array(rp), events: handler)
+    } catch let error as SessionError {
+        throw fail("Session failed (\(error)): \(error.userMessage(ps5: console.ps5))")
+    }
+    func wait(_ limit: Double) async {
+        let deadline = Date().addingTimeInterval(limit)
+        while !ended.with({ $0 }) && Date() < deadline { try? await Task.sleep(nanoseconds: 50_000_000) }
+    }
+    await wait(seconds)
+    if args.contains("--sleep") && !ended.with({ $0 }) {
+        say("\(stamp())  sending go to bed")
+        try? control.goToBed()
+        await wait(3)
+    }
+    control.stop()
+    await wait(2)
+}
+
+/// A lock-protected value shared with the event handler.
+final class Locked<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: T
+    init(_ value: T) { self.value = value }
+    func with<R>(_ body: (inout T) -> R) -> R {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&value)
+    }
+}
+
 let args = Array(CommandLine.arguments.dropFirst())
 do {
     switch args.first {
     case "discover": try discover(args)
     case "wake": try wake(args)
     case "pair": try pair(args)
+    case "session": try await session(args)
     default:
-        print("usage: pfxp discover [--host IP] [--timeout S] | wake [--host IP] [--new] | pair --host IP --pin PIN [--ps4]")
+        print("usage: pfxp discover [--host IP] [--timeout S] | wake [--host IP] [--new] | pair --host IP --pin PIN [--ps4]\n"
+              + "       | session [--host IP] [--new] [--seconds N] [--login-pin PIN] [--sleep]")
         exit(2)
     }
 } catch {

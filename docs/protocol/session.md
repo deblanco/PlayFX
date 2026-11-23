@@ -393,6 +393,17 @@ Named facts this stage hands over:
 
 ---
 
+## Observed on a real console
+
+From PlayFX's own hardware check (PS5, `system-version` 14230000, LAN, 2026-11-23):
+
+- Session init on a ready console: status 200, `RP-Version` 1.0, accepted on the first request, about 20 ms; the
+  ctrl connection was up about 20 ms later.
+- In **rest mode** (discovery status 620), the TCP connection to 9295 for session init was **refused** at once:
+  there is no HTTP answer to read. A client should treat "refused" plus a standby discovery answer as "wake it
+  first".
+- After a wake packet the console answered discovery as ready about 9 s later, and a session could start again.
+
 ## 13. Open questions
 
 1. The HTTP status code the console uses for refusals (only "not 200" is known).

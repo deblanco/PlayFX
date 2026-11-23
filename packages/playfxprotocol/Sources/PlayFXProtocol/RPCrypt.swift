@@ -271,3 +271,10 @@ public struct RPCryptContext: Sendable, Equatable {
         for i in bytes.indices { bytes[i] ^= stream[i] }
     }
 }
+
+/// Keys never show up in logs, `print` or `dump`.
+extension RPCryptContext: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "RPCryptContext(keys hidden)" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}

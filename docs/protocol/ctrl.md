@@ -418,11 +418,28 @@ Out of scope beyond this list. When ctrl runs over PSN's UDP relay instead of TC
 
 ---
 
+## Observed on a real console
+
+From PlayFX's own hardware check (PS5, `system-version` 14230000, LAN, 2026-11-23, a profile with no login
+passcode):
+
+- Start: `RP-Server-Type` was present (decrypting to the PS5 kind). The console then sent a login result
+  `0x0005` with `00` (accepted) without a login-PIN request first, about 30 ms after the ctrl response; the
+  session ID `0x0033` followed about 0.5 s after the start (74 characters), then display notice B `0x0016`
+  (2 bytes, the "clears" form `01 ff`).
+- Heartbeat requests `0x00FE` came every **5.0 s**, the first 5 s after the start; answering each at once kept
+  the session up for the whole 20 s test.
+- After go to bed (`0x0050`), the console sent two messages not in the catalogue above: type `0x8050` (4 bytes,
+  about 10 ms later) and type `0x0003` (4 bytes, about 1.5 s later), then another heartbeat; it was in rest mode
+  (discovery status 620) within about 6 s.
+- A client-side close (no message) ended the session without anything further from the console.
+
 ## 11. Open questions
 
 1. Does the console give its counter 0 to `RP-Server-Type` even when the header is absent or
    malformed? Existing clients advance `remoteCounter` only when it decodes to 16 bytes.
-2. How often the console sends heartbeat requests, and the exact timeout (about 30 s is recorded).
+2. How often the console sends heartbeat requests (5 s on one PS5, see "Observed on a real console"), and the
+   exact timeout (about 30 s is recorded).
 3. The correct keyboard-enable handshake for PS5 (§6.5). The known one ends the stream.
 4. Which `XX` value in `0x0036` means muted.
 5. What display notices `0x0001` and `0x0016` mean, and their full payloads.
