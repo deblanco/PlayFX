@@ -3,7 +3,11 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-23, after **the project's site on GitHub Pages** (`apps/site`, https://deblanco.github.io/PlayFX/):
+Last updated 2026-11-23, after **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
+(8 tests, 17 issues), because `MLSuperResolution` asked VideoToolbox for the model's scale factors even with
+stand-in processors, and in a virtual machine VideoToolbox names none, so every frame was refused before the
+stand-ins ran (`STREAMCORE_SIMULATE_VM=1` can't show it: a real Mac still answers). The query is now injected like
+the processor, and the tests give the 1.5× a Mac names. Before that, **the project's site on GitHub Pages** (`apps/site`, https://deblanco.github.io/PlayFX/):
 one screen that looks like the app — the idle backdrop's ribbons (StreamCore's shader ported to WebGL), the stream
 HUD's stats line and buttons, a Download card that links the latest DMG (from GitHub's API, the release page
 without it), and the Settings sheet's glass with feature tabs (Picture with the amber step strip, Stream, Pad,

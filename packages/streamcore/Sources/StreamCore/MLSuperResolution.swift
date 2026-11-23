@@ -92,14 +92,24 @@ final class MLSuperResolution {
     private let health: VideoProcessorHealth
     private let available: Bool
     private let makeProcessor: () -> VideoProcessing?
+    private let scaleFactors: (Int, Int) -> [Float]
 
-    /// `available` and `makeProcessor`: VideoToolbox in the app, stand-ins in tests.
+    /// `available`, `makeProcessor` and `scaleFactors` (what the model takes a tile of this size up by):
+    /// VideoToolbox in the app, stand-ins in tests — in a virtual machine (CI's) VideoToolbox names no factors.
     init(device: MTLDevice? = MTLCreateSystemDefaultDevice(), health: VideoProcessorHealth = .upscaling,
-         available: Bool = MLSuperResolution.isAvailable, makeProcessor: @escaping () -> VideoProcessing? = makeVTProcessor) {
+         available: Bool = MLSuperResolution.isAvailable, makeProcessor: @escaping () -> VideoProcessing? = makeVTProcessor,
+         scaleFactors: @escaping (Int, Int) -> [Float] = MLSuperResolution.videoToolboxScaleFactors) {
         self.device = device
         self.health = health
         self.available = available
         self.makeProcessor = makeProcessor
+        self.scaleFactors = scaleFactors
+    }
+
+    static func videoToolboxScaleFactors(width: Int, height: Int) -> [Float] {
+        guard #available(macOS 26.0, iOS 26.0, *) else { return [] }
+        return VTLowLatencySuperResolutionScalerConfiguration.__supportedScaleFactors(forFrameWidth: width, frameHeight: height)
+            .map(\.floatValue)
     }
 
     deinit { end() }
@@ -123,8 +133,7 @@ final class MLSuperResolution {
         guard !unsupported.contains(sizeKey) else { return nil }
         let tiling = Self.tiling(width: w, height: h)
         let supported = tiling.map {
-            Config.__supportedScaleFactors(forFrameWidth: $0.width, frameHeight: $0.height).map(\.floatValue)
-                .filter { Self.evenOutput(factor: $0, width: w, height: h) }
+            scaleFactors($0.width, $0.height).filter { Self.evenOutput(factor: $0, width: w, height: h) }
         } ?? []
         guard let tiling, !supported.isEmpty else {
             unsupported.insert(sizeKey) // the model can't take this size at all
