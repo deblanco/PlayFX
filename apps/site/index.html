@@ -17,7 +17,7 @@
     <canvas id="ribbons" class="fixed inset-0 -z-10 size-full" aria-hidden="true"></canvas>
 
     <div class="flex min-h-svh flex-col lg:h-svh lg:flex-row">
-      <section class="flex min-w-0 flex-1 flex-col">
+      <section class="flex min-w-0 flex-1 flex-col lg:overflow-y-auto">
         <!-- Like the app's controls over a stream: the console, the stats line, the buttons. -->
         <header class="flex items-center gap-3 bg-gradient-to-b from-black/45 to-transparent px-4 pt-3 pb-6 sm:px-6">
           <span class="hidden text-sm font-semibold md:inline">PS5</span>
@@ -38,28 +38,56 @@
           </nav>
         </header>
 
-        <main class="flex flex-1 flex-col items-center justify-center gap-7 px-6 py-10 text-center">
-          <div class="flex flex-col items-center gap-3">
-            <h1 class="font-display text-[clamp(4.5rem,13vw,9.5rem)] leading-none font-semibold tracking-[-0.01em] text-white [text-shadow:0_0_36px_var(--color-ribbon)]">
-              PlayFX
-            </h1>
-            <p class="max-w-lg text-lg text-balance text-white/85 [text-shadow:0_1px_14px_var(--color-abyss)] sm:text-xl">
-              Play your PS5 or PS4 on your Mac, with the picture cleaned up, upscaled and sharpened on its GPU.
-            </p>
+        <main class="grid flex-1 content-center items-center justify-items-center gap-8 px-6 py-8 sm:px-10 lg:gap-5 lg:py-4 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:justify-items-start xl:gap-10">
+          <div class="flex flex-col items-center gap-6 text-center lg:gap-4 xl:items-start xl:gap-6 xl:text-left">
+            <div class="flex flex-col items-center gap-3 xl:items-start">
+              <h1 class="font-display text-[clamp(3.5rem,min(13vw,15svh),9rem)] lg:text-[clamp(3.5rem,11svh,9rem)] xl:text-[clamp(4rem,min(7vw,14svh),7rem)] leading-none font-semibold tracking-[-0.01em] text-white [text-shadow:0_0_36px_var(--color-ribbon)]">
+                PlayFX
+              </h1>
+              <p class="max-w-lg text-lg text-balance text-white/85 [text-shadow:0_1px_14px_var(--color-abyss)] sm:text-xl">
+                Play your PS5 or PS4 on your Mac, with the picture cleaned up, upscaled and sharpened on its GPU.
+              </p>
+            </div>
+
+            <div class="flex w-full max-w-sm flex-col gap-3 rounded-xl border border-white/10 bg-card/70 p-4 shadow-2xl backdrop-blur-xl">
+              <a id="download"
+                 class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                 href="https://github.com/deblanco/PlayFX/releases/latest">
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+                Download for Mac
+              </a>
+              <p class="text-xs text-muted-foreground">
+                <span id="version"></span>For Macs with Apple silicon on macOS 13 or later. Signed and notarized, and it
+                updates itself.
+              </p>
+            </div>
           </div>
 
-          <div class="flex w-full max-w-sm flex-col gap-3 rounded-xl border border-white/10 bg-card/70 p-4 shadow-2xl backdrop-blur-xl">
-            <a id="download"
-               class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-               href="https://github.com/deblanco/PlayFX/releases/latest">
-              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
-              Download for Mac
-            </a>
-            <p class="text-xs text-muted-foreground">
-              <span id="version"></span>For Macs with Apple silicon on macOS 13 or later. Signed and notarized, and it
-              updates itself.
-            </p>
-          </div>
+          <!-- The app's Split view: the stream as it arrives on the left of the line, with the picture steps on the right. -->
+          <figure class="flex w-full max-w-[min(100%,calc(46svh*728/444))] flex-col gap-2 lg:max-w-[min(100%,calc(33svh*728/444))] xl:max-w-[min(100%,calc(62svh*728/444))]">
+            <div id="compare" style="--split: 50%"
+                 class="relative aspect-[728/444] touch-pan-y overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl select-none has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ice">
+              <img src="./src/assets/original.jpg" width="728" height="444" draggable="false"
+                   alt="A 720p stream as it arrives, zoomed in: a shop sign's lettering and a jacket's knit are smeared."
+                   class="absolute inset-0 size-full" />
+              <img src="./src/assets/enhanced.jpg" width="728" height="444" draggable="false"
+                   alt="The same frame with ML upscaling, MetalFX and sharpening: the lettering and the knit are clear again."
+                   class="absolute inset-0 size-full [clip-path:inset(0_0_0_var(--split))]" />
+              <div class="pointer-events-none absolute inset-y-0 left-[var(--split)] w-0.5 -translate-x-1/2 bg-white shadow-[0_0_12px_rgb(0_0_0/60%)]" aria-hidden="true">
+                <span class="absolute top-1/2 left-1/2 grid size-8 -translate-1/2 place-items-center rounded-full border border-white/70 bg-black/70 backdrop-blur">
+                  <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18-6-6 6-6"/><path d="m15 6 6 6-6 6"/></svg>
+                </span>
+              </div>
+              <span class="pointer-events-none absolute right-[calc(100%-var(--split)+0.5rem)] bottom-2 rounded-md bg-black/65 px-2 py-0.5 text-xs font-medium whitespace-nowrap" aria-hidden="true">Original</span>
+              <span class="pointer-events-none absolute bottom-2 left-[calc(var(--split)+0.5rem)] rounded-md bg-black/65 px-2 py-0.5 text-xs font-medium whitespace-nowrap" aria-hidden="true">Enhanced</span>
+              <input id="compare-range" type="range" min="0" max="100" value="50"
+                     aria-label="Where the line between the original and the enhanced picture sits"
+                     class="sr-only" />
+            </div>
+            <figcaption class="text-xs text-white/60 [text-shadow:0_1px_10px_var(--color-abyss)]">
+              A 720p stream, zoomed in: as it arrives, and with ML upscaling, MetalFX and sharpening. Drag the line to compare.
+            </figcaption>
+          </figure>
         </main>
 
         <footer class="px-6 pb-4 text-center text-[0.6875rem] text-balance text-white/45 lg:text-left">
@@ -101,6 +129,15 @@
         <!-- Picture: the app's strip of picture steps, lit amber where a step changes the picture. -->
         <div role="tabpanel" id="panel-picture" aria-labelledby="tab-picture" tabindex="0" class="flex flex-col gap-5 px-5 pt-5 pb-6">
           <p class="text-sm text-muted-foreground">What your Mac does to every frame, on its GPU.</p>
+          <div class="flex flex-col gap-1.5">
+            <span id="view-label" class="text-xs text-muted-foreground">View</span>
+            <div id="view" role="group" aria-labelledby="view-label" class="grid grid-cols-3 rounded-md border border-white/10 bg-black/20 p-0.5 text-xs text-muted-foreground">
+              <button type="button" data-split="100" aria-pressed="false" class="rounded-[5px] py-1.5 hover:text-foreground aria-pressed:bg-white/12 aria-pressed:text-foreground">Original</button>
+              <button type="button" data-split="50" aria-pressed="true" class="rounded-[5px] py-1.5 hover:text-foreground aria-pressed:bg-white/12 aria-pressed:text-foreground">Split</button>
+              <button type="button" data-split="0" aria-pressed="false" class="rounded-[5px] py-1.5 hover:text-foreground aria-pressed:bg-white/12 aria-pressed:text-foreground">Enhanced</button>
+            </div>
+            <p id="view-hint" class="text-xs text-muted-foreground">Left of the line as it arrives, right of it with the steps below.</p>
+          </div>
           <ol class="grid grid-cols-4 gap-1.5" aria-label="Picture steps, in order">
             <li class="relative flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/[0.03] px-2 pt-1.5 pb-2.5">
               <span class="text-[0.6875rem] text-muted-foreground">Clean up</span>

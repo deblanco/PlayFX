@@ -134,6 +134,47 @@ const tabs = (list) => {
   })
 }
 
+// The before/after comparison, as in the app's Split view: drag the line (or use the arrow keys on it), or pick
+// Original, Split or Enhanced under Picture.
+const comparison = (frame, range, view, hint) => {
+  const hints = {
+    original: "The stream as it arrives.",
+    split: "Left of the line as it arrives, right of it with the steps below.",
+    enhanced: "With ML upscaling, MetalFX and sharpening.",
+  }
+  const show = (split) => {
+    const at = Math.min(100, Math.max(0, split))
+    frame.style.setProperty("--split", `${at}%`)
+    range.value = String(Math.round(at))
+    const mode = at >= 100 ? "original" : at <= 0 ? "enhanced" : "split"
+    range.setAttribute("aria-valuetext", mode === "split" ? `Line at ${Math.round(at)}%` : `${mode[0].toUpperCase()}${mode.slice(1)} only`)
+    for (const button of view.querySelectorAll("button")) {
+      const target = Number(button.dataset.split)
+      const pressed = mode === "split" ? target === 50 : target === at
+      button.setAttribute("aria-pressed", String(pressed))
+    }
+    hint.textContent = hints[mode]
+  }
+  const fromPointer = (e) => {
+    const box = frame.getBoundingClientRect()
+    show(((e.clientX - box.left) / box.width) * 100)
+  }
+  frame.addEventListener("pointerdown", (e) => {
+    frame.setPointerCapture(e.pointerId)
+    fromPointer(e)
+    range.focus({ preventScroll: true })
+  })
+  frame.addEventListener("pointermove", (e) => {
+    if (frame.hasPointerCapture(e.pointerId)) fromPointer(e)
+  })
+  range.addEventListener("input", () => { show(Number(range.value)) })
+  view.addEventListener("click", (e) => {
+    const button = e.target.closest("button")
+    if (button) show(Number(button.dataset.split))
+  })
+  show(50)
+}
+
 // The download button goes straight to the latest DMG once GitHub says which it is; until then (or without
 // the network), to the latest release's page.
 const latestRelease = async (link, version) => {
@@ -151,4 +192,6 @@ const latestRelease = async (link, version) => {
 
 ribbons(document.getElementById("ribbons"))
 tabs(document.querySelector('[role="tablist"]'))
+comparison(document.getElementById("compare"), document.getElementById("compare-range"),
+  document.getElementById("view"), document.getElementById("view-hint"))
 latestRelease(document.getElementById("download"), document.getElementById("version"))

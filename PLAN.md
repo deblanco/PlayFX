@@ -766,7 +766,12 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   motion, paused in a hidden tab, the page's deep blue without WebGL); the Download button goes to the latest
   release's DMG once GitHub's API names it. Checked in Chrome at 1440×900, 1280×720 and a 390×844 phone (one screen
   on desktop, scrolling on the phone). `.github/workflows/pages.yml` builds and deploys it on a push to main that
-  touches it (Pages set to deploy from Actions); it holds no keys.
+  touches it (Pages set to deploy from Actions); it holds no keys. An in-game comparison (asked for the same day):
+  the 720p before/after from `docs/images/ml-upscaling.jpg` as the app's Split view — a line to drag (or arrow
+  keys on it), "Original"/"Enhanced" labels, and the Picture tab's View control (Original · Split · Enhanced)
+  moving it. The two halves of that image weren't framed alike (the enhanced one 2% wider, shifted 10×22 px), so
+  the original is resampled onto the enhanced one's frame (edge correlation 0.85) and both cropped to what they
+  share; the enhanced side is untouched. Two columns from 1280 px wide; one screen down to 1024×768.
 - 🔶 **In-app updates through GitHub Releases** (built 2026-11-21; **not yet verified end to end**, which needs a
   release after the first one that has the updater). Tauri's updater plugin (`tauri-plugin-updater` 2.14, Rust
   only: the webview gets none of its commands) reads
