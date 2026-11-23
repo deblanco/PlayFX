@@ -43,8 +43,9 @@ Not used: private SPI (`recvmsg_x`/`sendmsg_x`, private socket options). The App
 ## Crypto
 - AES-128 ECB/CFB/CTR: CommonCrypto (hardware AES).
 - AES-GCM, HMAC-SHA256, SHA-256, secure random: CryptoKit / `SecRandomCopyBytes`.
-- ECDH on secp256k1 for the stream handshake: not in CryptoKit. Pick an MIT/BSD package when the stream
-  milestone starts, and check its licence file.
+- ECDH on secp256k1 for the stream handshake: not in CryptoKit. libsecp256k1 v0.8.0 (bitcoin-core, MIT),
+  vendored unmodified as the C target `CSecp256k1` (core + ECDH module; `Sources/CSecp256k1/README.PlayFX`).
+  When the app first links PlayFXProtocol, `scripts/third-party-licenses.py` must list it.
 
 ## Later stages (native replacements to evaluate)
 - **Opus audio:** AudioToolbox's `AudioConverter` with `kAudioFormatOpus` could replace libopus (verify
@@ -62,3 +63,17 @@ Not used: private SPI (`recvmsg_x`/`sendmsg_x`, private socket options). The App
   diagnose than a clear end here. Revisit if a real console is seen to need it.
 - **Events carry the session.** The handler is `(ControlEvent, ControlSession)`, because the console's first
   frames (a login PIN request) can arrive before `start` returns.
+- **Decoder rejections raise no IDR request (av.md section 4.3 step 3).** A rejected frame only leaves `lastGood`
+  alone; it doesn't set the IDR wait either (an earlier version asked for a key frame at once, which
+  looped at one request per round trip when a decoder kept failing). PlayFX adds a separate, clearly
+  labelled `VideoCallbacks.decoderRejecting(consecutive)`, raised at most once per second from the 5th
+  rejection in a row. It is not an IDR request; the app decides what to do (rebuild the decoder, ask for a key frame).
+- **Missing reference: optional IDR request.** av.md sends none; `VideoReceiver(idrOnMissingReference:)` (default
+  off) requests one, for a console that turns out to ignore corrupt-frame reports.
+- **Audio gap cap (not in av.md section 6.5).** An outage mustn't fire thousands of events. A gap conceals up
+  to `AudioReceiver.maxConcealedFrames` frames (the larger of 64 and 500 ms of frames at the header's
+  rate, 640 ms at 10 ms frames) with one `.lost` each; the rest is one `.skipped(firstFrame:count:)` event
+  and the jitter buffer resynchronises.
+- **Thread safety.** The congestion counters (`takeCongestionCounters`, `AudioReceiver.statistics`) sit behind
+  an `OSAllocatedUnfairLock`, so the transport's 200 ms timer can read them while the receive thread
+  writes; everything else in the AV layer is receive-thread only. Checked under ThreadSanitizer.

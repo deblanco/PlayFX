@@ -820,8 +820,22 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     vendored unmodified as the C target `CSecp256k1` (core, precomputed tables and the ECDH module only; see
     `Sources/CSecp256k1/README.PlayFX`). CryptoKit has no secp256k1. It goes into `THIRD_PARTY_LICENSES` when
     PlayFXProtocol first ships in the app.
-  - ❌ Next: the stream in Swift from these specs (Takion, the stream messages and audio/video, built in
-    parallel, then wired together with a `pfxp stream` command), then Takion and the stream (Network.framework vs a BSD socket thread, measured),
+  - ✅ The stream messages and the audio/video layer in Swift from the spec (2026-11-23), built in parallel by
+    implementers that never saw chiaki, each reviewed against the spec (no wire divergence found) and fixed.
+    **Stream** (`Sources/PlayFXProtocol/Stream`): a hand-written proto2 codec and every stream.md message, the
+    Hello and its split, a stateful handshake that keeps an early StreamInfo and wipes the key pair only at the
+    end, secp256k1 ECDH through `CSecp256k1`, the launch spec byte for byte, quit reasons with user messages,
+    rumble, triggers, pad info, the feedback-state body and history events, the orientation estimator; secrets
+    redacted in descriptions and `dump`. **Audio/video** (`Sources/PlayFXProtocol/AV`): frame assembly with
+    the spec's completion and loss rules, our own Cauchy Reed-Solomon FEC (NEON split-nibble: 6 of 60 units of
+    1400 bytes recovered in 17 µs, asserted under 100 µs in release; jerasure no longer needed), Annex-B into
+    one reused buffer, H.264/HEVC slice parsing and the HEVC reference rewrite, IDR-wait and corrupt-frame
+    rules (no IDR storm on decoder rejection), Opus packets with loss marking, haptics, the mic packetiser;
+    no allocation per unit. The av.md writer answered the implementer's ten questions (a spec vector was
+    wrong) and added a real console capture, which the decoder reproduces. 469 tests with Takion (below),
+    97.7% lines; four cancel-timing tests got wider margins (they failed only when the whole, heavier suite
+    ran in parallel).
+  - ❌ Next: Takion (merged, in review), then the integration with a `pfxp stream` command, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
     a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL

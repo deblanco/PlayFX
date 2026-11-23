@@ -397,7 +397,8 @@ let sessionIDPlain = [UInt8(0x4a)] + Array(SessionVector.sessionIDText.utf8)
         defer { silent.stop() }
         let started = monotonicSeconds()
         #expect(await Self.failure(silent, tweak: { $0.initHeaderTimeout = 0.2 }) == .noAnswer(.timeout))
-        #expect(monotonicSeconds() - started < 1.2)
+        // The 0.2 s timeout was used (the 5 s default would take 15 s); margin for a loaded parallel run.
+        #expect(monotonicSeconds() - started < 3)
 
         let refused = FakeSessionConsole()
         refused.stop()
@@ -712,7 +713,8 @@ let sessionIDPlain = [UInt8(0x4a)] + Array(SessionVector.sessionIDText.utf8)
         task.cancel()
         let result = await task.result
         #expect(result.failureError == .cancelled)
-        #expect(monotonicSeconds() - started < 1.2)
+        // Well before the 5 s header timeout; margin for a loaded parallel run.
+        #expect(monotonicSeconds() - started < 3)
     }
 
     @Test func cancelBeforeStarting() async {

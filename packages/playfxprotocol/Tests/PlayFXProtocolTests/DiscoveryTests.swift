@@ -228,7 +228,8 @@ import Testing
         try? await Task.sleep(nanoseconds: 100_000_000)
         task.cancel()
         let result = await task.result
-        #expect(monotonicSeconds() - started < 1)
+        // Far under the 30 s timeout; the margin is for a loaded machine running the suite in parallel.
+        #expect(monotonicSeconds() - started < 3)
         #expect(throws: FailureKind.cancelled) { try result.get() }
     }
 

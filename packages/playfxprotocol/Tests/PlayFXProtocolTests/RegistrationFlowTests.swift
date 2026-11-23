@@ -229,7 +229,8 @@ final class FakeConnection: BlockingTCPConnection, @unchecked Sendable {
         let started = monotonicSeconds()
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { token.cancel() }
         #expect(failure(slow) == RegistrationError(kind: .cancelled, consoleAnswered: false))
-        #expect(monotonicSeconds() - started < 1)
+        // Well under the 5 s search timeout; the margin is for a loaded machine running the suite in parallel.
+        #expect(monotonicSeconds() - started < 2.5)
     }
 
     @Test func inputErrorsBeforeAnyNetwork() {
