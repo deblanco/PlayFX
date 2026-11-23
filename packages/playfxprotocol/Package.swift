@@ -8,9 +8,12 @@ let package = Package(
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [
         .library(name: "PlayFXProtocol", targets: ["PlayFXProtocol"]),
+        // Drives the package against a real console, side by side with psrp (libchiaki).
+        .executable(name: "pfxp", targets: ["pfxp"]),
     ],
     targets: [
         .target(name: "PlayFXProtocol"),
+        .executableTarget(name: "pfxp", dependencies: ["PlayFXProtocol"]),
         // swift-testing ships with the Command Line Tools as a framework outside the default search
         // paths, and its Foundation cross-import overlay has no module there, so overlays are off.
         .testTarget(

@@ -140,11 +140,11 @@ import Testing
             let id = String(format: "%012d", i)
             socket.queue(.success(Datagram(bytes: Array("HTTP/1.1 200 Ok\r\nhost-id:\(id)\r\n".utf8), source: "10.0.0.\(i)")))
         }
-        // A known host still updates after the cap is reached.
-        socket.queue(.success(Datagram(bytes: Array("HTTP/1.1 620 X\r\nhost-id:000000000000\r\n".utf8), source: "10.0.0.99")))
-        let found = try Discovery.run(socket: socket, target: "10.0.0.1", broadcasts: [], timeout: 0.1, interval: 10)
+        // A known host still updates after the cap is reached (from its own address).
+        socket.queue(.success(Datagram(bytes: Array("HTTP/1.1 620 X\r\nhost-id:000000000000\r\n".utf8), source: "10.0.0.0")))
+        let found = try Discovery.run(socket: socket, target: "255.255.255.255", broadcasts: [], timeout: 0.1, interval: 10)
         #expect(found.count == 16)
-        #expect(found.first?.state == .standby && found.first?.address == "10.0.0.99")
+        #expect(found.first?.state == .standby && found.first?.address == "10.0.0.0")
         #expect(!found.contains { $0.hostID == "000000000016" })
     }
 
@@ -157,12 +157,57 @@ import Testing
         let socket = FakeDatagramSocket()
         socket.onSend = { _ in throw FailureKind.networkUnreachable }
         environment.makeSocket = { _ in socket }
-        environment.broadcastAddresses = { ["10.0.0.255"] }
+        environment.broadcastAddresses = { _ in ["10.0.0.255"] }
         #expect(throws: FailureKind.networkUnreachable) {
             try Discovery.discover(host: nil, timeout: 0.05, environment: environment, token: CancelToken())
         }
         // The first send of a broadcast search goes to the limited broadcast address.
         #expect(socket.sent.with { $0.map(\.host).prefix(2) } == ["255.255.255.255", "10.0.0.255"])
+    }
+
+    @Test func unicastSearchOnlyAcceptsTheTarget() throws {
+        let socket = FakeDatagramSocket()
+        socket.queue(.success(Datagram(bytes: Array("HTTP/1.1 200 Ok\r\nhost-id:00000000000B\r\n".utf8), source: "10.0.0.66")))
+        socket.queue(.success(Datagram(bytes: Array(DiscoveryTests.ps5Answer.utf8), source: "10.0.0.1")))
+        let found = try Discovery.run(socket: socket, target: "10.0.0.1", broadcasts: [], timeout: 0.1, interval: 10)
+        #expect(found.map(\.hostID) == ["0A1B2C3D4E5F"])
+
+        let v6 = FakeDatagramSocket()
+        v6.queue(.success(Datagram(bytes: Array(DiscoveryTests.ps5Answer.utf8), source: "::1")))
+        #expect(try Discovery.run(socket: v6, target: "0:0::1", broadcasts: [], timeout: 0.1, interval: 10).count == 1)
+    }
+
+    @Test func aKnownHostCannotMoveToAnotherAddress() throws {
+        let socket = FakeDatagramSocket()
+        socket.queue(.success(Datagram(bytes: Array(DiscoveryTests.ps5Answer.utf8), source: "10.0.0.1")))
+        let spoof = "HTTP/1.1 620 X\r\nhost-id:0A1B2C3D4E5F\r\nhost-name:EVIL\r\n"
+        socket.queue(.success(Datagram(bytes: Array(spoof.utf8), source: "10.0.0.66")))
+        let found = try Discovery.run(socket: socket, target: "255.255.255.255", broadcasts: [], timeout: 0.1, interval: 10)
+        #expect(found.count == 1)
+        #expect(found.first?.address == "10.0.0.1" && found.first?.name == "PS5-TEST" && found.first?.state == .ready)
+    }
+
+    @Test func addressComparison() {
+        #expect(Discovery.sameAddress("10.0.0.1", "10.0.0.1"))
+        #expect(Discovery.sameAddress("::1", "0:0:0:0:0:0:0:1"))
+        #expect(!Discovery.sameAddress("10.0.0.1", "10.0.0.2"))
+        #expect(!Discovery.sameAddress("::1", "::2"))
+        #expect(!Discovery.sameAddress("10.0.0.1", "::1"))
+        #expect(!Discovery.sameAddress("console.local", "10.0.0.1"))
+    }
+
+    @Test func wakeBroadcastsOnlyOnTheConsolesSubnet() {
+        let socket = FakeDatagramSocket()
+        let asked = Locked<[String?]>([])
+        var environment = DiscoveryEnvironment()
+        environment.makeSocket = { _ in socket }
+        environment.broadcastAddresses = { host in
+            asked.with { $0.append(host) }
+            return ["10.0.0.255"]
+        }
+        #expect(Discovery.wake(address: "10.0.0.5", registKey: Vector.registKey, ps5: true, environment: environment))
+        #expect(asked.with { $0 } == ["10.0.0.5"])
+        #expect(socket.sent.with { $0.map(\.host) } == ["10.0.0.5", "10.0.0.255"])
     }
 
     @Test func cancelledTokenStopsDiscovery() {
@@ -177,7 +222,7 @@ import Testing
         let socket = FakeDatagramSocket()
         var environment = DiscoveryEnvironment()
         environment.makeSocket = { _ in socket }
-        environment.broadcastAddresses = { [] }
+        environment.broadcastAddresses = { _ in [] }
         let started = monotonicSeconds()
         let task = Task { try await Discovery.discoverAsync(host: "10.0.0.1", timeout: 30, environment: environment) }
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -232,6 +277,14 @@ import Testing
         ]
         #expect(directedBroadcastAddresses(of: interfaces) == ["192.168.1.255", "10.0.7.255", "172.18.15.255"])
         #expect(directedBroadcastAddresses(of: []).isEmpty)
+        // Only the interface on the console's subnet.
+        #expect(directedBroadcastAddresses(of: interfaces, containing: 0x0a00_0601) == ["10.0.7.255"])  // 10.0.6.1
+        #expect(directedBroadcastAddresses(of: interfaces, containing: 0x0808_0808).isEmpty)
+        #expect(ipv4Value("192.168.1.23") == 0xc0a8_0117)
+        #expect(ipv4Value("::1") == nil && ipv4Value("nope") == nil)
+        #expect(directedBroadcastAddresses(containing: "::1").isEmpty)
+        #expect(directedBroadcastAddresses(containing: "not an address").isEmpty)
+        #expect(directedBroadcastAddresses(containing: "127.0.0.1").isEmpty)  // loopback is never a broadcast
     }
 
     /// Smoke test of the real interface list (sends nothing).

@@ -205,13 +205,15 @@ struct InterfaceAddress: Equatable {
 }
 
 /// The directed broadcast addresses (`address | ~netmask`, text) of interfaces that are up, can broadcast and
-/// are not loopback or /32 (discovery.md section 4.2), without duplicates.
-func directedBroadcastAddresses(of interfaces: [InterfaceAddress]) -> [String] {
+/// are not loopback or /32 (discovery.md section 4.2), without duplicates. With `containing`, only the
+/// interfaces whose subnet holds that IPv4 address (so a wake credential isn't broadcast on unrelated networks).
+func directedBroadcastAddresses(of interfaces: [InterfaceAddress], containing target: UInt32? = nil) -> [String] {
     var seen = Set<UInt32>()
     var result: [String] = []
     for interface in interfaces {
         guard interface.flags & IFF_UP != 0, interface.flags & IFF_BROADCAST != 0,
               interface.flags & IFF_LOOPBACK == 0, interface.netmask != 0xffff_ffff else { continue }
+        if let target, target & interface.netmask != interface.address & interface.netmask { continue }
         let broadcast = interface.address | ~interface.netmask
         guard seen.insert(broadcast).inserted else { continue }
         result.append((0..<4).map { String((broadcast >> UInt32(24 - 8 * $0)) & 0xff) }.joined(separator: "."))
@@ -219,8 +221,18 @@ func directedBroadcastAddresses(of interfaces: [InterfaceAddress]) -> [String] {
     return result
 }
 
-/// The directed broadcast address of every IPv4 interface of this Mac that qualifies.
-func directedBroadcastAddresses() -> [String] {
+/// The 32-bit value of an IPv4 address in dotted text, or nil if it isn't one.
+func ipv4Value(_ text: String) -> UInt32? {
+    var address = in_addr()
+    guard inet_pton(AF_INET, text, &address) == 1 else { return nil }
+    return UInt32(bigEndian: address.s_addr)
+}
+
+/// The directed broadcast address of every IPv4 interface of this Mac that qualifies; with `host`, only of the
+/// interfaces on that address's subnet (none for an IPv6 or unparsable host).
+func directedBroadcastAddresses(containing host: String? = nil) -> [String] {
+    let target = host.map(ipv4Value)
+    if case .some(.none) = target { return [] }
     var list: UnsafeMutablePointer<ifaddrs>?
     guard getifaddrs(&list) == 0, let first = list else { return [] }
     defer { freeifaddrs(first) }
@@ -234,5 +246,5 @@ func directedBroadcastAddresses() -> [String] {
         let m = mask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
         interfaces.append(InterfaceAddress(flags: Int32(entry.pointee.ifa_flags), address: a, netmask: m))
     }
-    return directedBroadcastAddresses(of: interfaces)
+    return directedBroadcastAddresses(of: interfaces, containing: target ?? nil)
 }

@@ -102,7 +102,7 @@ extension DiscoveryEnvironment {
         environment.makeSocket = { ipv6 in
             LoopbackGuardedSocket(try POSIXDatagramSocket(ipv6: ipv6, broadcast: true, bindRange: Discovery.localPorts))
         }
-        environment.broadcastAddresses = { [] }
+        environment.broadcastAddresses = { _ in [] }
         environment.ps4Port = ps4Port
         environment.ps5Port = ps5Port
         environment.interval = interval

@@ -45,7 +45,8 @@ struct DiscoveryEnvironment: Sendable {
     var makeSocket: @Sendable (_ ipv6: Bool) throws -> DatagramSocket = { ipv6 in
         try POSIXDatagramSocket(ipv6: ipv6, broadcast: true, bindRange: Discovery.localPorts)
     }
-    var broadcastAddresses: @Sendable () -> [String] = { directedBroadcastAddresses() }
+    /// Directed broadcasts: of every interface (nil), or of the interfaces on a console address's subnet.
+    var broadcastAddresses: @Sendable (_ containing: String?) -> [String] = { directedBroadcastAddresses(containing: $0) }
     var ps4Port = Discovery.ps4Port
     var ps5Port = Discovery.ps5Port
     var interval = Discovery.roundInterval
@@ -130,7 +131,9 @@ public enum Discovery {
     static let maximumHosts = 16
 
     /// Runs the polling service of section 5 for `timeout` seconds and returns the consoles that answered,
-    /// deduplicated by `host-id` (a later answer updates the fields), in order of first answer, at most 16.
+    /// deduplicated by `host-id` (a later answer from the same address updates the fields; one from another
+    /// address is ignored), in order of first answer, at most 16. A unicast search (no broadcasts, a target
+    /// other than 255.255.255.255) only accepts answers from the target.
     /// Throws the first send error when no search at all could be sent, and `.cancelled` if the token fires.
     static func run(
         socket: DatagramSocket, target: String, broadcasts: [String], ps4Port: UInt16 = Discovery.ps4Port,
@@ -141,6 +144,7 @@ public enum Discovery {
         var order: [String] = []
         var found: [String: DiscoveredConsole] = [:]
         let destinations = [target] + broadcasts
+        let unicast = broadcasts.isEmpty && target != "255.255.255.255"
         var nextRound = monotonicSeconds()
         var firstSendError: Error?
         var sentAny = false
@@ -163,9 +167,14 @@ public enum Discovery {
             // Short waits, so a cancelled task stops within a slice.
             let wait = min(nextRound, deadline, monotonicSeconds() + 0.05) - monotonicSeconds()
             if let datagram = try? socket.receive(timeout: max(0, wait)),
-               let console = parseResponse(datagram.bytes, from: datagram.source),
-               found[console.hostID] != nil || found.count < maximumHosts {
-                if found.updateValue(console, forKey: console.hostID) == nil { order.append(console.hostID) }
+               !unicast || sameAddress(datagram.source, target),
+               let console = parseResponse(datagram.bytes, from: datagram.source) {
+                if let known = found[console.hostID] {
+                    if known.address == console.address { found[console.hostID] = console }
+                } else if found.count < maximumHosts {
+                    found[console.hostID] = console
+                    order.append(console.hostID)
+                }
             }
             if monotonicSeconds() >= deadline { break }
         }
@@ -173,7 +182,16 @@ public enum Discovery {
         return order.compactMap { found[$0] }
     }
 
-    /// Sends the wake packet to `address` and to every directed broadcast; true if any send succeeded.
+    /// Whether two address texts name the same IP address (`::1` and `0:0::1`, for instance).
+    static func sameAddress(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        if let x = ipv4Value(a), let y = ipv4Value(b) { return x == y }
+        var x = in6_addr(), y = in6_addr()
+        guard inet_pton(AF_INET6, a, &x) == 1, inet_pton(AF_INET6, b, &y) == 1 else { return false }
+        return withUnsafeBytes(of: &x) { p in withUnsafeBytes(of: &y) { q in p.elementsEqual(q) } }
+    }
+
+    /// Sends the wake packet to `address` and to the given directed broadcasts; true if any send succeeded.
     static func wake(
         socket: DatagramSocket, address: String, broadcasts: [String], registKey: [UInt8], ps5: Bool,
         port: UInt16? = nil
@@ -233,12 +251,13 @@ public enum Discovery {
         let socket = try environment.makeSocket(host.map(SocketAddress.isIPv6) ?? false)
         return try run(
             socket: socket, target: host ?? "255.255.255.255",
-            broadcasts: host == nil ? environment.broadcastAddresses() : [], ps4Port: environment.ps4Port,
+            broadcasts: host == nil ? environment.broadcastAddresses(nil) : [], ps4Port: environment.ps4Port,
             ps5Port: environment.ps5Port, timeout: timeout, interval: environment.interval, token: token)
     }
 
-    /// Wakes a console in rest mode: sends the wake packet to `address` and to every IPv4 directed broadcast
-    /// address. `registKey` is the 16-byte registration key field from `PairingResult`. Returns true if a
+    /// Wakes a console in rest mode: sends the wake packet to `address` and to the directed broadcast address of
+    /// the Mac's interface on the console's subnet (a PS5 in deep rest may not answer ARP for its own address),
+    /// never to other networks. `registKey` is the 16-byte registration key field from `PairingResult`. Returns true if a
     /// packet was sent (a console never answers a wake; search again to see it come up).
     public static func wake(address: String, registKey: [UInt8], ps5: Bool) -> Bool {
         wake(address: address, registKey: registKey, ps5: ps5, environment: DiscoveryEnvironment())
@@ -248,7 +267,7 @@ public enum Discovery {
         guard Discovery.wakeCredential(registKey: registKey) != nil,
               let socket = try? environment.makeSocket(SocketAddress.isIPv6(address)) else { return false }
         return wake(
-            socket: socket, address: address, broadcasts: environment.broadcastAddresses(),
+            socket: socket, address: address, broadcasts: environment.broadcastAddresses(address),
             registKey: registKey, ps5: ps5, port: ps5 ? environment.ps5Port : environment.ps4Port)
     }
 }

@@ -5,7 +5,8 @@ Status legend: ✅ done · 🔶 partial · ❌ not started.
 
 Last updated 2026-11-23, after **our own discovery, wake and pairing in Swift** (`PlayFXProtocol`, branch
 `deblanco/rewrite-ps-remote-core`, see "Our own Remote Play protocol" under P4), written from the spec alone:
-87 tests, 96.6% lines; not yet on a console. Before that, the first step: a facts-only protocol spec in
+91 tests, 96.8% lines, and the `pfxp` tool for the hardware round; not yet on a console. Before
+that, the first step: a facts-only protocol spec in
 `docs/protocol` (discovery, wake, registration, RP crypt, session init, ctrl) with known-answer vectors, and the
 empty proprietary Swift package `packages/playfxprotocol` with its design notes and a CI step. Before that, **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
 (8 tests, 17 issues), because `MLSuperResolution` asked VideoToolbox about the model even with stand-in
@@ -107,7 +108,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
 - Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), PlayFXProtocol 87 tests (97% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+  it), PlayFXProtocol 91 tests (97% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -775,7 +776,11 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     87 tests (all spec vectors, the 14 tables' SHA-256s, extra vectors from an independent script, a loopback
     fake console for every target and failure), 96.6% lines / 94.3% functions (96.5% with
     `STREAMCORE_SIMULATE_VM=1`); a guard fails any test that sends to a non-loopback address. Reviewed against the
-    spec by a separate agent: no interop divergence found; its fixes are in. Not yet on a console.
+    spec by a separate agent: no interop divergence found; its fixes are in. From the automated security
+    review: wake broadcasts only on the Mac's interface on the console's subnet (the credential never goes to
+    other networks), a unicast search only accepts answers from that address, and a known console can't be
+    moved to another address by a later answer. 91 tests, 96.8% lines. `pfxp discover | wake | pair` drives
+    it on a real console (pairings saved apart from psrp's, 0600). Not yet on a console.
   - ❌ Hardware round: discover, wake and pair the PS5 with it, side by side with libchiaki.
   - ❌ Then: session init + ctrl, Takion and the stream (Network.framework vs a BSD socket thread, measured),
     a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
@@ -1250,4 +1255,5 @@ requests and a bug report.
 11. **Our own Remote Play protocol** (branch `deblanco/rewrite-ps-remote-core`, see P4): ~~the facts-only spec for
    discovery, wake, registration, session init and ctrl~~ (done 2026-11-23); ~~the Swift discovery, wake and
    registration from the spec~~ (done 2026-11-23, unit tests only); next, **one hardware round**: discover, wake
-   and pair the PS5 with it next to libchiaki (needs the user and a `psrp` command for it). *(P4)*
+   and pair the PS5 with `pfxp` next to `psrp`, then wake it from rest with the new pairing's key (needs the
+   user). *(P4)*
