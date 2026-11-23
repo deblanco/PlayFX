@@ -440,16 +440,20 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
 /// `MLSuperResolution` with stand-in processors: whole frames, and 1080p in two tiles (the cut and join are real Metal).
 @Suite struct MLSuperResolutionDefenceTests {
     let screen = CGSize(width: 3840, height: 2160)
-    /// What VideoToolbox names on a Mac for these tiles. Asked of VideoToolbox, a virtual machine (CI's) names
-    /// none, and every frame would be refused before the stand-in processors were reached.
-    let oneAndAHalf: (Int, Int) -> [Float] = { _, _ in [1.5] }
+    /// What VideoToolbox answers on a Mac for these tiles (1.5×, NV12 output). Asked of VideoToolbox, a virtual
+    /// machine (CI's) names no factor and no output format, and every frame would be refused before the stand-in
+    /// processors were reached.
+    let mac = MLScalerModel(scaleFactors: { _, _ in [1.5] }, outputAttributes: { width, height, factor in
+        MLSuperResolution.nv12Attributes(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                                         Int(Float(width) * factor), Int(Float(height) * factor))
+    })
 
     @Test func restartsTheVideoProcessorAfterAnException() throws {
         guard #available(macOS 26.0, *) else { return }
         let health = testHealth()
         let fakes = FakeProcessors()
         fakes.next = { FakeProcessor(process: fakes.all.isEmpty ? [.exception] : [.ok]) }
-        var ml: MLSuperResolution? = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        var ml: MLSuperResolution? = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         let frame = try makeNV12(width: 1280, height: 720, y: 90, cb: 128, cr: 128)
         #expect(ml?.upscale(frame, target: screen) == nil)
         let out = try #require(ml?.upscale(frame, target: screen))
@@ -466,7 +470,7 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
         let fakes = FakeProcessors()
         // The second tile's first processor raises an exception.
         fakes.next = { FakeProcessor(process: fakes.all.count == 1 ? [.exception] : [.ok]) }
-        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         let frame = try makeNV12(width: 1920, height: 1080, y: 90, cb: 128, cr: 128)
         #expect(ml.upscale(frame, target: screen) == nil)
         let out = try #require(ml.upscale(frame, target: screen))
@@ -480,7 +484,7 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
         let health = testHealth()
         let fakes = FakeProcessors()
         fakes.next = { FakeProcessor(process: [.ok, .error]) }
-        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         let frame = try makeNV12(width: 1280, height: 720, y: 90, cb: 128, cr: 128)
         for _ in 0..<3 {
             #expect(ml.upscale(frame, target: screen) != nil)
@@ -497,7 +501,7 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
         let health = testHealth()
         let fakes = FakeProcessors()
         fakes.next = { FakeProcessor(process: [.error]) }
-        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         let frame = try makeNV12(width: 1280, height: 720, y: 90, cb: 128, cr: 128)
         #expect(ml.upscale(frame, target: screen) == nil)
         #expect(!ml.refuses(width: 1280, height: 720)) // one fresh processor erring isn't yet a refusal
@@ -511,7 +515,7 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
         let health = testHealth()
         let fakes = FakeProcessors()
         fakes.plan([[.ok, .error], [.error, .ok]])
-        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         let frame = try makeNV12(width: 1280, height: 720, y: 90, cb: 128, cr: 128)
         let upscaled = (0..<6).map { _ in ml.upscale(frame, target: screen) != nil }
         #expect(upscaled == [true, false, false, true, true, true])
@@ -523,7 +527,7 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
         let health = testHealth()
         let fakes = FakeProcessors()
         fakes.next = { fakes.all.count == 1 ? FakeProcessor(start: .error) : FakeProcessor(process: fakes.all.isEmpty ? [.ok, .error] : [.ok]) }
-        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         let frame = try makeNV12(width: 1280, height: 720, y: 90, cb: 128, cr: 128)
         let upscaled = (0..<4).map { _ in ml.upscale(frame, target: screen) != nil }
         #expect(upscaled == [true, false, false, true])
@@ -534,7 +538,7 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
         guard #available(macOS 26.0, *) else { return }
         let health = testHealth()
         let fakes = FakeProcessors()
-        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         #expect(ml.upscale(try makeNV12(width: 1920, height: 1080, y: 90, cb: 128, cr: 128), target: screen) != nil)
         for _ in 0..<3 { health.failed("elsewhere") } // and never called again: the lane stops once it's off
         #expect(health.waitForRetirements(timeout: 2))
@@ -547,7 +551,7 @@ func testHealth(grace: Double = 0.02, clock: TestClock = TestClock()) -> VideoPr
         let health = testHealth()
         let fakes = FakeProcessors()
         fakes.next = { FakeProcessor(start: fakes.all.isEmpty ? .exception : .error) }
-        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, scaleFactors: oneAndAHalf)
+        let ml = MLSuperResolution(health: health, available: true, makeProcessor: fakes.make, model: mac)
         let frame = try makeNV12(width: 1280, height: 720, y: 90, cb: 128, cr: 128)
         #expect(ml.upscale(frame, target: screen) == nil)
         #expect(!ml.refuses(width: 1280, height: 720))

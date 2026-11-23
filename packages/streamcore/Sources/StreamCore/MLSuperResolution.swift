@@ -92,24 +92,17 @@ final class MLSuperResolution {
     private let health: VideoProcessorHealth
     private let available: Bool
     private let makeProcessor: () -> VideoProcessing?
-    private let scaleFactors: (Int, Int) -> [Float]
+    private let model: MLScalerModel
 
-    /// `available`, `makeProcessor` and `scaleFactors` (what the model takes a tile of this size up by):
-    /// VideoToolbox in the app, stand-ins in tests — in a virtual machine (CI's) VideoToolbox names no factors.
+    /// `available`, `makeProcessor` and `model`: VideoToolbox in the app, stand-ins in tests.
     init(device: MTLDevice? = MTLCreateSystemDefaultDevice(), health: VideoProcessorHealth = .upscaling,
          available: Bool = MLSuperResolution.isAvailable, makeProcessor: @escaping () -> VideoProcessing? = makeVTProcessor,
-         scaleFactors: @escaping (Int, Int) -> [Float] = MLSuperResolution.videoToolboxScaleFactors) {
+         model: MLScalerModel = .videoToolbox) {
         self.device = device
         self.health = health
         self.available = available
         self.makeProcessor = makeProcessor
-        self.scaleFactors = scaleFactors
-    }
-
-    static func videoToolboxScaleFactors(width: Int, height: Int) -> [Float] {
-        guard #available(macOS 26.0, iOS 26.0, *) else { return [] }
-        return VTLowLatencySuperResolutionScalerConfiguration.__supportedScaleFactors(forFrameWidth: width, frameHeight: height)
-            .map(\.floatValue)
+        self.model = model
     }
 
     deinit { end() }
@@ -133,7 +126,7 @@ final class MLSuperResolution {
         guard !unsupported.contains(sizeKey) else { return nil }
         let tiling = Self.tiling(width: w, height: h)
         let supported = tiling.map {
-            scaleFactors($0.width, $0.height).filter { Self.evenOutput(factor: $0, width: w, height: h) }
+            model.scaleFactors($0.width, $0.height).filter { Self.evenOutput(factor: $0, width: w, height: h) }
         } ?? []
         guard let tiling, !supported.isEmpty else {
             unsupported.insert(sizeKey) // the model can't take this size at all
@@ -188,7 +181,7 @@ final class MLSuperResolution {
             guard outcome == .done else { return outcome }
             sessions.append(processor)
         }
-        var attrs = config.destinationPixelBufferAttributes
+        var attrs = model.outputAttributes(tiling.width, tiling.height, factor)
         attrs[kCVPixelBufferMetalCompatibilityKey as String] = true
         pool = Self.makePool(attrs)
         guard pool != nil else { return .failed("no buffer pool") }
@@ -336,4 +329,25 @@ final class MLSuperResolution {
         outputPool = nil
         key = nil
     }
+}
+
+/// What the ML super-resolution model answers before any frame goes through it: the factors it takes a tile of
+/// a size up by, and the buffers its output goes in. VideoToolbox in the app; in tests what it answers on a Mac,
+/// since in a virtual machine (CI's) it names no factors and no output format, and every frame would be refused
+/// before the tests' stand-in processors were reached.
+struct MLScalerModel {
+    let scaleFactors: (_ width: Int, _ height: Int) -> [Float]
+    let outputAttributes: (_ width: Int, _ height: Int, _ factor: Float) -> [String: Any]
+
+    static let videoToolbox = MLScalerModel(
+        scaleFactors: { width, height in
+            guard #available(macOS 26.0, iOS 26.0, *) else { return [] }
+            return VTLowLatencySuperResolutionScalerConfiguration.__supportedScaleFactors(forFrameWidth: width, frameHeight: height)
+                .map(\.floatValue)
+        },
+        outputAttributes: { width, height, factor in
+            guard #available(macOS 26.0, iOS 26.0, *) else { return [:] }
+            return VTLowLatencySuperResolutionScalerConfiguration(frameWidth: width, frameHeight: height, scaleFactor: factor)
+                .destinationPixelBufferAttributes
+        })
 }
