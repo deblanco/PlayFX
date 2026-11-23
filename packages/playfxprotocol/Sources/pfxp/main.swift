@@ -232,9 +232,11 @@ do {
     case "wake": try wake(args)
     case "pair": try pair(args)
     case "session": try await session(args)
+    case "bench-transport": try benchTransport(args)
     default:
         print("usage: pfxp discover [--host IP] [--timeout S] | wake [--host IP] [--new] | pair --host IP --pin PIN [--ps4]\n"
-              + "       | session [--host IP] [--new] [--seconds N] [--login-pin PIN] [--sleep]")
+              + "       | session [--host IP] [--new] [--seconds N] [--login-pin PIN] [--sleep]\n"
+              + "       | bench-transport [--packets N] [--rate R]   (loopback only)")
         exit(2)
     }
 } catch {

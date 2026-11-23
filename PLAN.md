@@ -111,7 +111,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
 - Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), PlayFXProtocol 172 tests (96% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+  it), PlayFXProtocol 481 tests (98% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -835,7 +835,22 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     wrong) and added a real console capture, which the decoder reproduces. 469 tests with Takion (below),
     97.7% lines; four cancel-timing tests got wider margins (they failed only when the whole, heavier suite
     ran in parallel).
-  - ❌ Next: Takion (merged, in review), then the integration with a `pfxp stream` command, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
+  - ✅ Takion in Swift from the spec (2026-11-23, `Sources/PlayFXProtocol/Takion`): every packet type, the
+    handshake, DATA/DATA_ACK, retransmission, fragmentation and reassembly, GKCrypt (counter blocks over
+    AES-ECB, the keyPos rules, epoch keys pre-derived on a helper thread and cached only after the tag verifies,
+    the GMAC as our own table GHASH, checked against CryptoKit in a randomised test), the AV header for every
+    version, the congestion report (its numbers from the AV layer, which knows duplicates and frame completion),
+    feedback framing, wrap arithmetic and PlayFX's reorder wait and 256-slot queue. Reviewed against the spec (no
+    divergence) and fixed: haptics no longer counted as audio loss, no socket use after close, forged packets
+    can't fill the key cache, hard send errors end the connection. **Two receive transports, measured on
+    loopback** (`pfxp bench-transport`, release, 20,000 packets/s of 1400 bytes, alternating runs after a
+    warm-up): a BSD socket thread (poll + `recvmsg` into a preallocated ring, `NET_SERVICE_TYPE_VI`,
+    `SO_TIMESTAMP_MONOTONIC`) at 8.2 ms CPU per 1000 packets, p50/p99 8/13 µs, 0 allocations per packet;
+    `NWConnection` (interactive video, kernel receive times) at 27 ms, 18/25 µs, 28 allocations. The BSD path
+    is the default unless the console round on Wi-Fi says otherwise. A release test asserts 0 allocations on
+    the receive path. 481 tests, 97.7% lines (same with `STREAMCORE_SIMULATE_VM=1` and serially).
+  - ❌ Next: the integration (a `StreamSession`: ctrl, the probe, Takion, the handshake, StreamInfo into the AV
+    layer, heartbeats, feedback, congestion) with a `pfxp stream` command, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
     a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL

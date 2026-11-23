@@ -42,7 +42,10 @@ Not used: private SPI (`recvmsg_x`/`sendmsg_x`, private socket options). The App
 
 ## Crypto
 - AES-128 ECB/CFB/CTR: CommonCrypto (hardware AES).
-- AES-GCM, HMAC-SHA256, SHA-256, secure random: CryptoKit / `SecRandomCopyBytes`.
+- HMAC-SHA256, SHA-256, secure random: CryptoKit / `SecRandomCopyBytes`.
+- The Takion GMAC (AES-GCM with a 16-byte IV, empty plaintext, 4-byte tag) is our own table-driven GHASH over
+  CommonCrypto AES: CryptoKit's GCM allocates on every call and the stream path allows none. A randomised
+  differential test checks it against CryptoKit's `AES.GCM` with a 16-byte nonce.
 - ECDH on secp256k1 for the stream handshake: not in CryptoKit. libsecp256k1 v0.8.0 (bitcoin-core, MIT),
   vendored unmodified as the C target `CSecp256k1` (core + ECDH module; `Sources/CSecp256k1/README.PlayFX`).
   When the app first links PlayFXProtocol, `scripts/third-party-licenses.py` must list it.
