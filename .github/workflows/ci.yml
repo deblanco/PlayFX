@@ -20,6 +20,10 @@ jobs:
         with:
           submodules: recursive
 
+      # Our own Remote Play protocol package: no libchiaki, so it runs first.
+      - name: PlayFXProtocol tests and coverage
+        run: packages/playfxprotocol/scripts/coverage.sh --no-parallel
+
       - name: Homebrew dependencies for libchiaki
         run: brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent
 
