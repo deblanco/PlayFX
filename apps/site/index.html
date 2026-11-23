@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PlayFX: PS5 Remote Play for the Mac</title>
+    <meta name="description" content="PlayFX streams your PS5 or PS4 to your Mac, with Metal upscaling, HDR, frame interpolation and full DualSense support. Free and open source." />
+    <meta name="theme-color" content="#03061a" />
+    <meta property="og:title" content="PlayFX" />
+    <meta property="og:description" content="PS5 and PS4 Remote Play for the Mac, with Metal upscaling, HDR and full DualSense support." />
+    <link rel="icon" type="image/png" href="../desktop/src-tauri/icons/128x128@2x.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body class="min-h-svh lg:h-svh lg:overflow-hidden">
+    <!-- The app's idle backdrop (StreamCore's ribbon shader), drawn with WebGL by main.js. -->
+    <canvas id="ribbons" class="fixed inset-0 -z-10 size-full" aria-hidden="true"></canvas>
+
+    <div class="flex min-h-svh flex-col lg:h-svh lg:flex-row">
+      <section class="flex min-w-0 flex-1 flex-col">
+        <!-- Like the app's controls over a stream: the console, the stats line, the buttons. -->
+        <header class="flex items-center gap-3 bg-gradient-to-b from-black/45 to-transparent px-4 pt-3 pb-6 sm:px-6">
+          <span class="hidden text-sm font-semibold md:inline">PS5</span>
+          <p class="hidden min-w-0 truncate text-xs text-white/55 tabular-nums md:block">
+            1920×1080 · 60 fps · HEVC HDR10 · 20 Mbps · ping 7 ms · latency 33 ms · MetalFX
+          </p>
+          <nav class="ml-auto flex shrink-0 gap-2" aria-label="Project">
+            <a class="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-black/55 px-2.5 py-1 text-sm font-medium hover:bg-black/75"
+               href="https://github.com/deblanco/PlayFX/blob/main/docs/HELP.md">
+              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v16"/><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/></svg>
+              Help
+            </a>
+            <a class="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-black/55 px-2.5 py-1 text-sm font-medium hover:bg-black/75"
+               href="https://github.com/deblanco/PlayFX">
+              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg>
+              Source
+            </a>
+          </nav>
+        </header>
+
+        <main class="flex flex-1 flex-col items-center justify-center gap-7 px-6 py-10 text-center">
+          <div class="flex flex-col items-center gap-3">
+            <h1 class="font-display text-[clamp(4.5rem,13vw,9.5rem)] leading-none font-semibold tracking-[-0.01em] text-white [text-shadow:0_0_36px_var(--color-ribbon)]">
+              PlayFX
+            </h1>
+            <p class="max-w-lg text-lg text-balance text-white/85 [text-shadow:0_1px_14px_var(--color-abyss)] sm:text-xl">
+              Play your PS5 or PS4 on your Mac, with the picture cleaned up, upscaled and sharpened on its GPU.
+            </p>
+          </div>
+
+          <div class="flex w-full max-w-sm flex-col gap-3 rounded-xl border border-white/10 bg-card/70 p-4 shadow-2xl backdrop-blur-xl">
+            <a id="download"
+               class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+               href="https://github.com/deblanco/PlayFX/releases/latest">
+              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+              Download for Mac
+            </a>
+            <p class="text-xs text-muted-foreground">
+              <span id="version"></span>For Macs with Apple silicon on macOS 13 or later. Signed and notarized, and it
+              updates itself.
+            </p>
+          </div>
+        </main>
+
+        <footer class="px-6 pb-4 text-center text-[0.6875rem] text-balance text-white/45 lg:text-left">
+          Free software under the <a class="underline decoration-white/25 underline-offset-2 hover:text-white/70" href="https://github.com/deblanco/PlayFX/blob/main/LICENSE">GNU AGPL-3.0</a>.
+          PlayFX is an independent project, not affiliated with or endorsed by Sony Interactive Entertainment.
+        </footer>
+      </section>
+
+      <!-- Like the app's Settings sheet: graphite glass, tabs with icons, a line saying what each is for. -->
+      <aside class="w-full shrink-0 border-t border-white/10 bg-glass backdrop-blur-2xl lg:w-[23rem] lg:overflow-y-auto lg:border-t-0 lg:border-l" aria-labelledby="features">
+        <div class="px-5 pt-5 pb-4">
+          <h2 id="features" class="text-base font-semibold">What it does</h2>
+          <p class="mt-1 text-sm text-muted-foreground">Everything between the console and your screen.</p>
+        </div>
+
+        <div role="tablist" aria-label="Features" class="mx-5 grid grid-cols-4 rounded-lg bg-white/[0.06] p-[3px] text-muted-foreground">
+          <button role="tab" id="tab-picture" aria-controls="panel-picture" aria-selected="true" tabindex="0"
+                  class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-transparent px-0.5 text-sm font-medium whitespace-nowrap hover:text-foreground aria-selected:border-white/15 aria-selected:bg-white/10 aria-selected:text-foreground">
+            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+            Picture
+          </button>
+          <button role="tab" id="tab-stream" aria-controls="panel-stream" aria-selected="false" tabindex="-1"
+                  class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-transparent px-0.5 text-sm font-medium whitespace-nowrap hover:text-foreground aria-selected:border-white/15 aria-selected:bg-white/10 aria-selected:text-foreground">
+            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/></svg>
+            Stream
+          </button>
+          <button role="tab" id="tab-pad" aria-controls="panel-pad" aria-selected="false" tabindex="-1"
+                  class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-transparent px-0.5 text-sm font-medium whitespace-nowrap hover:text-foreground aria-selected:border-white/15 aria-selected:bg-white/10 aria-selected:text-foreground">
+            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg>
+            Pad
+          </button>
+          <button role="tab" id="tab-start" aria-controls="panel-start" aria-selected="false" tabindex="-1"
+                  class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-transparent px-0.5 text-sm font-medium whitespace-nowrap hover:text-foreground aria-selected:border-white/15 aria-selected:bg-white/10 aria-selected:text-foreground">
+            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>
+            Setup
+          </button>
+        </div>
+
+        <!-- Picture: the app's strip of picture steps, lit amber where a step changes the picture. -->
+        <div role="tabpanel" id="panel-picture" aria-labelledby="tab-picture" tabindex="0" class="flex flex-col gap-5 px-5 pt-5 pb-6">
+          <p class="text-sm text-muted-foreground">What your Mac does to every frame, on its GPU.</p>
+          <ol class="grid grid-cols-4 gap-1.5" aria-label="Picture steps, in order">
+            <li class="relative flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/[0.03] px-2 pt-1.5 pb-2.5">
+              <span class="text-[0.6875rem] text-muted-foreground">Clean up</span>
+              <span class="text-sm font-medium text-muted-foreground">Off</span>
+              <span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-white/15" aria-hidden="true"></span>
+            </li>
+            <li class="relative flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/[0.03] px-2 pt-1.5 pb-2.5">
+              <span class="text-[0.6875rem] text-muted-foreground">Upscale</span>
+              <span class="text-sm font-medium">MetalFX</span>
+              <span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-signal shadow-[0_0_8px_var(--color-signal)]" aria-hidden="true"></span>
+            </li>
+            <li class="relative flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/[0.03] px-2 pt-1.5 pb-2.5">
+              <span class="text-[0.6875rem] text-muted-foreground">Sharpen</span>
+              <span class="text-sm font-medium">30%</span>
+              <span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-signal shadow-[0_0_8px_var(--color-signal)]" aria-hidden="true"></span>
+            </li>
+            <li class="relative flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/[0.03] px-2 pt-1.5 pb-2.5">
+              <span class="text-[0.6875rem] text-muted-foreground">Color</span>
+              <span class="text-sm font-medium">Accurate</span>
+              <span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-signal shadow-[0_0_8px_var(--color-signal)]" aria-hidden="true"></span>
+            </li>
+          </ol>
+          <dl class="flex flex-col gap-4">
+            <div class="flex items-start justify-between gap-4">
+              <div><dt class="text-sm font-medium">Frame interpolation</dt>
+                <dd class="mt-0.5 text-xs text-muted-foreground">An in-between image after each frame, so 30 fps games look like 60. Works in HDR too.</dd></div>
+              <span class="mt-0.5 inline-flex h-[18.4px] w-8 shrink-0 items-center rounded-full bg-signal" aria-hidden="true"><span class="size-4 translate-x-[calc(100%-2px)] rounded-full bg-primary-foreground"></span></span>
+            </div>
+            <div class="flex items-start justify-between gap-4">
+              <div><dt class="text-sm font-medium">ML upscaling</dt>
+                <dd class="mt-0.5 text-xs text-muted-foreground">Apple's neural upscaler brings back detail in 720p and lower streams, before MetalFX.</dd></div>
+              <span class="mt-0.5 inline-flex h-[18.4px] w-8 shrink-0 items-center rounded-full bg-signal" aria-hidden="true"><span class="size-4 translate-x-[calc(100%-2px)] rounded-full bg-primary-foreground"></span></span>
+            </div>
+            <div class="flex items-start justify-between gap-4">
+              <div><dt class="text-sm font-medium">HDR</dt>
+                <dd class="mt-0.5 text-xs text-muted-foreground">HEVC HDR10, shown in full brightness on XDR and HDR displays.</dd></div>
+              <span class="mt-0.5 inline-flex h-[18.4px] w-8 shrink-0 items-center rounded-full bg-signal" aria-hidden="true"><span class="size-4 translate-x-[calc(100%-2px)] rounded-full bg-primary-foreground"></span></span>
+            </div>
+            <div class="flex items-start justify-between gap-4">
+              <div><dt class="text-sm font-medium">Stats on screen</dt>
+                <dd class="mt-0.5 text-xs text-muted-foreground">Frame rate, bitrate, ping, GPU time and lost frames, while you play.</dd></div>
+              <span class="mt-0.5 inline-flex h-[18.4px] w-8 shrink-0 items-center rounded-full bg-signal" aria-hidden="true"><span class="size-4 translate-x-[calc(100%-2px)] rounded-full bg-primary-foreground"></span></span>
+            </div>
+          </dl>
+          <p class="text-xs text-white/45">Frame interpolation and ML upscaling need macOS 26.</p>
+        </div>
+
+        <div role="tabpanel" id="panel-stream" aria-labelledby="tab-stream" tabindex="0" hidden class="flex flex-col gap-5 px-5 pt-5 pb-6">
+          <p class="text-sm text-muted-foreground">How PlayFX reaches the console, and keeps the stream going.</p>
+          <div class="flex flex-col gap-1.5">
+            <span class="text-xs text-muted-foreground">Connect</span>
+            <div class="grid grid-cols-3 rounded-md border border-white/10 bg-black/20 p-0.5 text-xs text-muted-foreground" aria-hidden="true">
+              <span class="rounded-[5px] bg-white/12 py-1.5 text-center text-foreground">Automatic</span>
+              <span class="py-1.5 text-center">Home network</span>
+              <span class="py-1.5 text-center">Internet</span>
+            </div>
+            <p class="text-xs text-muted-foreground">Your home network first, and through PSN when the console can't be reached there.</p>
+          </div>
+          <dl class="flex flex-col gap-4">
+            <div><dt class="text-sm font-medium">Wakes the console</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">Finds it on your network and turns it on from rest mode.</dd></div>
+            <div><dt class="text-sm font-medium">Reconnects on its own</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">When the connection drops, the Mac changes network, or the picture stops while the sound goes on.</dd></div>
+            <div><dt class="text-sm font-medium">Steady Wi-Fi</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">Pauses AirDrop and Handoff while you play: they take the Mac's Wi-Fi away for about 90 ms every second.</dd></div>
+            <div><dt class="text-sm font-medium">Up to 1080p at 60 fps</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">H.264 or HEVC, at up to 50 Mbps.</dd></div>
+          </dl>
+        </div>
+
+        <div role="tabpanel" id="panel-pad" aria-labelledby="tab-pad" tabindex="0" hidden class="flex flex-col gap-5 px-5 pt-5 pb-6">
+          <p class="text-sm text-muted-foreground">Your controller, as the console expects it.</p>
+          <dl class="flex flex-col gap-4">
+            <div><dt class="text-sm font-medium">DualSense haptics</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">With the pad on a USB cable, the game's haptics play on its motors as they were made.</dd></div>
+            <div><dt class="text-sm font-medium">Adaptive triggers and rumble</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">Plus the light bar colour and player number the game sets.</dd></div>
+            <div><dt class="text-sm font-medium">Touchpad and motion</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">The Mac's trackpad works as the touchpad too: hold ⌥ Option.</dd></div>
+            <div><dt class="text-sm font-medium">Other pads, and the keyboard</dt>
+              <dd class="mt-0.5 text-xs text-muted-foreground">DualShock 4, Xbox and MFi pads. No pad at hand? The keyboard works as one.</dd></div>
+          </dl>
+        </div>
+
+        <div role="tabpanel" id="panel-start" aria-labelledby="tab-start" tabindex="0" hidden class="flex flex-col gap-5 px-5 pt-5 pb-6">
+          <p class="text-sm text-muted-foreground">Once, from a new download to playing.</p>
+          <ol class="flex flex-col gap-4">
+            <li class="flex gap-3"><span class="text-xs leading-5 text-signal tabular-nums">1</span>
+              <div><p class="text-sm font-medium">Turn on Remote Play on the console</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">Settings › System › Remote Play › Enable Remote Play.</p></div></li>
+            <li class="flex gap-3"><span class="text-xs leading-5 text-signal tabular-nums">2</span>
+              <div><p class="text-sm font-medium">Sign in with PlayStation</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">Open PlayFX on the console's home network. You sign in on Sony's own page.</p></div></li>
+            <li class="flex gap-3"><span class="text-xs leading-5 text-signal tabular-nums">3</span>
+              <div><p class="text-sm font-medium">Pair with the code</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">Pick the console and type the 8-digit code from Remote Play › Pair Device.</p></div></li>
+            <li class="flex gap-3"><span class="text-xs leading-5 text-signal tabular-nums">4</span>
+              <div><p class="text-sm font-medium">Press Play</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">Once paired, it plays over the internet too.</p></div></li>
+          </ol>
+          <a class="self-start text-xs text-muted-foreground underline decoration-white/25 underline-offset-2 hover:text-foreground"
+             href="https://github.com/deblanco/PlayFX/blob/main/docs/HELP.md">Help with setup and common problems</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

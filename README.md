@@ -14,7 +14,7 @@ adaptive triggers, touchpad and motion.
 ![PlayFX streaming a PS5 game, with the stats line and the controls at the top](docs/images/stream.jpg)
 
 **[Download the latest release](https://github.com/deblanco/PlayFX/releases/latest)** (signed and notarized,
-Apple silicon, macOS 13 or later).
+Apple silicon, macOS 13 or later). Website: [deblanco.github.io/PlayFX](https://deblanco.github.io/PlayFX/).
 
 ## Features
 

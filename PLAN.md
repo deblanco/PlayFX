@@ -3,7 +3,12 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-21, after **in-app updates through GitHub Releases**: a banner on Home offers a newer release
+Last updated 2026-11-23, after **the project's site on GitHub Pages** (`apps/site`, https://deblanco.github.io/PlayFX/):
+one screen that looks like the app — the idle backdrop's ribbons (StreamCore's shader ported to WebGL), the stream
+HUD's stats line and buttons, a Download card that links the latest DMG (from GitHub's API, the release page
+without it), and the Settings sheet's glass with feature tabs (Picture with the amber step strip, Stream, Pad,
+Setup); it scrolls on a phone. Deployed by `.github/workflows/pages.yml` when it changes on main. Before that,
+**in-app updates through GitHub Releases**: a banner on Home offers a newer release
 (checked 5 s after launch and every 6 hours, or by hand in Diagnostics), and Update downloads, verifies, installs
 and restarts, never during a stream; `release.sh` makes the signed update and `latest.json`. Built and tested
 (Rust against a local server with a throwaway key, the release script with one), not yet end to end: that needs a
@@ -62,6 +67,7 @@ apps/desktop            Tauri v2 app: React 19 + Effect + Tailwind + shadcn UI o
   src/core              Effect services: Core (Tauri bridge), Preferences, schemas, runtime.
   src/app               React UI: Home, ConsoleList, Settings, StreamView, actions/format.
   src-tauri             Rust: Tauri commands → StreamCore C ABI (NativeCore trait, ffi/native).
+apps/site               The project's GitHub Pages site (Vite + Tailwind, plain JS).
 packages/streamcore     Swift package (macOS + iOS target):
   Sources/CChiaki       psrp.h — thin C shim over libchiaki.
   Sources/StreamCore    Console (discover/register/wake), PSNAuth, StreamSession,
@@ -750,6 +756,13 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     Clause, which the AGPL can't carry, so the PIN input and the status badge are plain shadcn/ui. CLAUDE.md now
     allows only AGPL-compatible code (shadcn/ui, not shadcn/studio), and the studio registry is gone from
     `components.json`.
+- ✅ **Project site on GitHub Pages** (2026-11-23, asked for: one screen, looking like the app, responsive):
+  `apps/site` (Vite, Tailwind v4 with the app's fonts and dark tokens, plain JS, no framework) at
+  https://deblanco.github.io/PlayFX/. The backdrop is StreamCore's ribbon shader in WebGL (still for reduced
+  motion, paused in a hidden tab, the page's deep blue without WebGL); the Download button goes to the latest
+  release's DMG once GitHub's API names it. Checked in Chrome at 1440×900, 1280×720 and a 390×844 phone (one screen
+  on desktop, scrolling on the phone). `.github/workflows/pages.yml` builds and deploys it on a push to main that
+  touches it (Pages set to deploy from Actions); it holds no keys.
 - 🔶 **In-app updates through GitHub Releases** (built 2026-11-21; **not yet verified end to end**, which needs a
   release after the first one that has the updater). Tauri's updater plugin (`tauri-plugin-updater` 2.14, Rust
   only: the webview gets none of its commands) reads

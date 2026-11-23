@@ -1,0 +1,20 @@
+{
+  "name": "@psrp/site",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource/titillium-web": "^5.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4",
+    "tailwindcss": "4",
+    "vite": "^8.0.16"
+  }
+}

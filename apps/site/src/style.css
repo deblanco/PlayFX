@@ -1,0 +1,34 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource/titillium-web/latin-600.css";
+
+/* The app's look (apps/desktop/src/index.css, its dark theme): the same fonts, the idle backdrop's blues, the
+   tally amber that marks what is on, and the graphite glass its panels are made of. */
+@theme {
+    --font-sans: "Geist Variable", sans-serif;
+    --font-display: "Titillium Web", sans-serif;
+    --color-ice: #a9c8ff;
+    --color-ribbon: #1e5bff;
+    --color-abyss: #03061a;
+    --color-signal: oklch(0.81 0.15 78);
+    --color-glass: oklch(0.2 0.006 260 / 72%);
+    --color-foreground: oklch(0.985 0 0);
+    --color-muted-foreground: oklch(0.708 0 0);
+    --color-primary: oklch(0.922 0 0);
+    --color-primary-foreground: oklch(0.205 0 0);
+    --color-card: oklch(0.205 0 0);
+}
+
+@layer base {
+    html {
+        @apply bg-abyss font-sans text-foreground antialiased;
+        color-scheme: dark;
+    }
+    button:not(:disabled),
+    [role="tab"] {
+        @apply cursor-pointer;
+    }
+    :focus-visible {
+        @apply outline-2 outline-offset-2 outline-ice;
+    }
+}
