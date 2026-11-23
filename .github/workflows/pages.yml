@@ -11,10 +11,8 @@ on:
       - .github/workflows/pages.yml
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+# Nothing by default; each job asks for what it needs.
+permissions: {}
 
 concurrency:
   group: pages
@@ -23,9 +21,12 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      # Third-party: pinned to a commit, so a moved tag can't change what runs here.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Install
         run: bun install --frozen-lockfile
       - name: Build the site
@@ -37,6 +38,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
