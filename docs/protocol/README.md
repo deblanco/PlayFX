@@ -10,14 +10,17 @@ an interoperable client (`PlayFXProtocol`, Swift) from these documents alone.
 | [discovery.md](discovery.md) | LAN discovery (search, response fields, polling, when a console counts as gone) and wake from rest mode |
 | [registration.md](registration.md) | Pairing with the console PIN: UDP search, HTTP request/response, body layout and encryption, errors, the pairing record to store |
 | [rpcrypt.md](rpcrypt.md) | "RP crypt": key/IV derivation and the AES-CFB payload cipher, for registration (LAN and PSN) and session use, PS4 and PS5 |
-| [session.md](session.md) | Session request and session handshake (written separately) |
-| [ctrl.md](ctrl.md) | The ctrl channel: request, message framing, counters (written separately) |
+| [session.md](session.md) | Session init over HTTP: request, nonce, refusals, the session crypt, what the stream stage gets |
+| [ctrl.md](ctrl.md) | The ctrl channel: request, message framing, counters, every message, heartbeats, how it ends |
+| [takion.md](takion.md) | Takion, the UDP transport (9296, and 9297 for the probe): packets, handshake, chunks and acks, GKCrypt (AES-GCM, key positions), the AV packet header, congestion reports, controller feedback packets, sequence numbers, PlayFX's own reorder policy |
+| [stream.md](stream.md) | The stream connection over Takion: protobuf messages, the network probe, the Hello/HelloReply handshake with secp256k1 ECDH, the launch spec, stream info, heartbeats, IDR and corrupt-frame reports, quit reasons, rumble, trigger effects, haptics, LED, motion, touch, the mic |
+| [av.md](av.md) | Audio and video frames: unit assembly, the Reed-Solomon (Cauchy, GF(2^8)) FEC in full, the Annex-B access unit, H.264/HEVC bitstream facts, Opus audio and haptics, the mic upstream |
 | [test-vectors.md](test-vectors.md) | Known-answer vectors for discovery, wake, RP crypt and registration, and how each was verified |
 | [`data/`](data/) | Constant tables (hex) used by rpcrypt.md, with SHA-256 checksums in rpcrypt.md section 3 |
-| [`data/vectors/`](data/vectors/) | Large test vectors (full registration bodies) |
+| [`data/vectors/`](data/vectors/) | Large test vectors (full registration bodies, a PS5 Hello) |
 
-Not yet covered here: the streaming transport (Takion, audio/video, FEC, feedback) and internet play (PSN
-session setup, NAT traversal, reliable UDP). Those need their own documents before they can be implemented.
+Not yet covered here: internet play (PSN session setup, NAT traversal, reliable UDP). It needs its own
+documents before it can be implemented.
 
 ## Clean-room process
 

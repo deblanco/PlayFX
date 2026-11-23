@@ -441,7 +441,8 @@ passcode):
 2. How often the console sends heartbeat requests (5 s on one PS5, see "Observed on a real console"), and the
    exact timeout (about 30 s is recorded).
 3. The correct keyboard-enable handshake for PS5 (§6.5). The known one ends the stream.
-4. Which `XX` value in `0x0036` means muted.
+4. ~~Which `XX` value in `0x0036` means muted.~~ Answered while writing stream.md: in the reference client `XX`
+   = `01` means the mic is on (unmuted), `00` off. Not yet seen on a console.
 5. What display notices `0x0001` and `0x0016` mean, and their full payloads.
 6. What `0x0011`, `0x0013`, `0x0910`, and the unknown fields of `0x0021`, `0x0024` and
    `RP-Server-Type` bytes 1–15 mean.

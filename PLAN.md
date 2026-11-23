@@ -805,7 +805,18 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     ctrl up 20 ms later, login accepted unprompted, session ID at 0.5 s, heartbeats every 5.0 s all answered, a
     clean stop after 20 s; go to bed put it in rest in about 6 s; session init in rest mode is refused (wake
     first); woken, ready in 9 s. The spec records these ("Observed on a real console").
-  - ❌ Next (milestone 3): the stream, specified first (`takion.md`, `stream.md`, `av.md`), then Takion and the stream (Network.framework vs a BSD socket thread, measured),
+  - ✅ Milestone 3 spec (2026-11-23): `takion.md` (the UDP transport: packets, handshake, chunks and acks,
+    GKCrypt with AES-GCM and key positions, the AV header, congestion and feedback packets, sequence numbers,
+    and PlayFX's own reorder wait and 256-slot queue described as our design), `stream.md` (protobuf messages,
+    the network probe, the Hello handshake with secp256k1 ECDH, the launch spec from PlayFX's settings, stream
+    info, IDR and corrupt-frame reports, quit reasons, rumble, triggers, haptics, LED, motion, touch, mic) and
+    `av.md` (frame assembly, the Cauchy Reed-Solomon FEC over GF(2^8) as maths so we can drop jerasure, the
+    Annex-B unit, H.264/HEVC facts, Opus audio, haptics, the mic). Verified: independent scripts from the spec
+    text matched chiaki's code on 16 Takion vector sets (client packets captured off loopback, console
+    packets built from the spec accepted by its parser and GMAC check), 43 stream values (ECDH, launch spec,
+    Hello and its split, console messages) and the FEC (300 random cases against jerasure, and the parity in a
+    real console capture). Open questions for the console are listed in each doc.
+  - ❌ Next: the stream in Swift from these specs, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
     a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
