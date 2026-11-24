@@ -325,28 +325,41 @@ public enum StunClient {
         let started = monotonicSeconds()
         let tracker = Tracker(count: servers.count)
         let name: @Sendable (Int) -> String = { i in "\(servers[i].host):\(servers[i].port)" }
+        // Every worker acts on the socket, the log and the caller's closures only while holding `tracker.lock` with
+        // `finished` still false, and `finished` is set under the same lock before this function returns: so when it returns
+        // no worker is inside `socket.send` or a log call, and none will start one (the workers that are still asleep or
+        // resolving a name find `finished` set and do nothing). They then end by themselves; `workers` is waited on for a
+        // moment so that they usually have ended too.
+        let workers = DispatchGroup()
         for index in servers.indices {
+            workers.enter()
             Thread {
-                // Wait for this server's turn, then resolve and send.
+                defer { workers.leave() }
+                // Wait for this server's turn.
                 let due = started + Double(index) * stagger
                 while monotonicSeconds() < due {
                     if tracker.lock.withLock({ tracker.finished }) || environment.isCancelled() { return }
                     sleepSeconds(0.005)
                 }
                 if tracker.lock.withLock({ tracker.finished }) || environment.isCancelled() { return }
+                // Resolving can take seconds and touches nothing of the caller's but the closure itself.
                 guard let address = environment.resolve(servers[index].host) else {
-                    tracker.lock.withLock { tracker.entries[index].outcome = .failed }
-                    environment.log("STUN \(name(index)): did not resolve")
+                    tracker.lock.withLock {
+                        guard !tracker.finished else { return }
+                        tracker.entries[index].outcome = .failed
+                        environment.log("STUN \(name(index)): did not resolve")
+                    }
                     return
                 }
                 let transaction = environment.transactionID()
                 tracker.lock.withLock {
+                    guard !tracker.finished else { return }
                     tracker.entries[index].transaction = transaction
                     tracker.entries[index].deadline = monotonicSeconds() + environment.timeout
-                }
-                if (try? socket.send(bindingRequest(transactionID: transaction), to: address, port: servers[index].port)) == nil {
-                    tracker.lock.withLock { tracker.entries[index].outcome = .failed }
-                    environment.log("STUN \(name(index)): the request could not be sent")
+                    if (try? socket.send(bindingRequest(transactionID: transaction), to: address, port: servers[index].port)) == nil {
+                        tracker.entries[index].outcome = .failed
+                        environment.log("STUN \(name(index)): the request could not be sent")
+                    }
                 }
             }.start()
         }
@@ -389,6 +402,8 @@ public enum StunClient {
             }
         }
         tracker.lock.withLock { tracker.finished = true }
+        // The workers that were asleep notice within 5 ms; one stuck in a name lookup is not waited for.
+        _ = workers.wait(timeout: .now() + 0.25)
         let result = Array(answered().prefix(wanted))
         environment.log(String(format: "STUN: %d answer(s) of %d wanted from %d server(s) in %.1f s", result.count, wanted,
                                servers.count, monotonicSeconds() - started))

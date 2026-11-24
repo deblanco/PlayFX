@@ -107,6 +107,40 @@ import Testing
         for server in servers { #expect(server.askedFrom.with { $0 } == [socket.localPort]) }
     }
 
+    /// An early stop leaves no worker acting afterwards: not a send, not a log line, not even a request to the servers it
+    /// hadn't reached yet. Repeated with the socket closed as soon as the call returns (the way a caller drops it).
+    @Test func anEarlyStopLeavesNoWorkerBehind() throws {
+        // Server 0 answers at once; the five others would be asked 0.1 s to 0.5 s in.
+        let servers = try [Server(delay: 0)] + (0..<5).map { _ in try Server(delay: nil) }
+        defer { servers.forEach { $0.stop() } }
+        struct Run {
+            var socket: LoopbackGuardedPunchSocket
+            var lines: Locked<[String]>
+            var sentAtReturn: Int
+            var loggedAtReturn: Int
+        }
+        var runs: [Run] = []
+        for _ in 0..<40 {
+            let socket = try loopbackSocket()
+            let lines = Locked<[String]>([])
+            let answers = StunClient.collectConcurrently(
+                socket: socket, servers: servers.map(\.entry), wanted: 1,
+                environment: Self.environment(timeout: 5, log: { line in lines.with { $0.append(line) } }))
+            #expect(answers.count == 1)
+            runs.append(Run(socket: socket, lines: lines, sentAtReturn: socket.destinations.with { $0.count },
+                            loggedAtReturn: lines.with { $0.count }))
+            socket.close()  // gone as soon as the call returns
+        }
+        // Well after the staggered servers' turns: nothing more was sent or logged by any of the calls.
+        sleepSeconds(0.8)
+        for run in runs {
+            #expect(run.socket.destinations.with { $0.count } == run.sentAtReturn)
+            #expect(run.lines.with { $0.count } == run.loggedAtReturn)
+        }
+        for server in servers.dropFirst() { #expect(server.askedFrom.with { $0.isEmpty }, "a server behind the stop was asked") }
+        #expect(servers[0].askedFrom.with { $0.count } == 40)
+    }
+
     @Test func aServerThatDoesNotResolveDoesNotHoldTheOthersBack() throws {
         let good = try [Server(delay: 0), Server(delay: 0, shift: 1)]
         defer { good.forEach { $0.stop() } }

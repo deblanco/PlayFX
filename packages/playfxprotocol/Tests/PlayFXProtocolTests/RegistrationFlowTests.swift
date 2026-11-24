@@ -228,7 +228,11 @@ final class FakeConnection: BlockingTCPConnection, @unchecked Sendable {
         slow.searchTimeout = 5
         let token = slow.token
         let started = monotonicSeconds()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { token.cancel() }
+        // A thread of its own: a dispatch queue's worker can be kept waiting for seconds while the whole suite runs.
+        Thread {
+            sleepSeconds(0.1)
+            token.cancel()
+        }.start()
         #expect(failure(slow) == RegistrationError(kind: .cancelled, consoleAnswered: false))
         // Well under the 5 s search timeout; the margin is for a loaded machine running the suite in parallel.
         #expect(monotonicSeconds() - started < 2.5)

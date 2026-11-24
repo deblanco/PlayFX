@@ -3,7 +3,8 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **the input lane (PR #6) merged into this branch**: pad readings reach the console off the
+Last updated 2026-11-24, after **parallel STUN hardened** (no STUN worker acts after the call returns; CI's one
+SIGBUS there not reproduced locally; PlayFXProtocol 896 tests). Before that, **the input lane (PR #6) merged into this branch**: pad readings reach the console off the
 main thread, read by a loop of their own (`streamcore.input`, user-interactive) paced by `InputPacer` (500 Hz while
 readings change, 125 Hz after a second of quiet), motion readings identical to the last one dropped, states handed
 on under the lock they're merged in; with `PlayFXEngine` behind `StreamSession` unchanged. Unit tests only; the
@@ -1197,6 +1198,16 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     server order (at most ~6 s); the start command goes out as soon as the PSN session exists, so the console boots
     while candidates are gathered (the OFFER order on the wire is unchanged). Expected: ~15 s from rest, 1-6 s awake.
     PlayFXProtocol 895 tests, StreamCore 525.
+  - ✅ Parallel STUN hardened (2026-11-24): CI's pull_request run crashed once (SIGBUS) as
+    `itStopsAsSoonAsEnoughHaveAnswered` started; the push run on the same commit passed. Not reproduced locally
+    (150 debug, 60 TSan, 60 ASan, 100 coverage `--no-parallel` loops, all clean), so no proven cause. The one window
+    the code left is closed: a STUN worker now sends, logs and records only under the tracker lock while the call
+    hasn't finished, so nothing acts after `collectConcurrently` returns; it waits up to 0.25 s for the workers to
+    end. New `anEarlyStopLeavesNoWorkerBehind` (40 early stops, socket closed at once: nothing sent or logged
+    after the return). The flaky `cancelledDuringTheSearch` now cancels from a thread of its own (a starved
+    dispatch queue delivered the 0.1 s cancel after ~2.8 s). PlayFXProtocol 896 tests, 97.5% lines (plain, VM,
+    serial); release allocation test; StreamCore 525. If CI crashes again: run `StunConcurrencyTests` alone with
+    coverage in the VM and keep the crash report.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
