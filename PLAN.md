@@ -1141,6 +1141,12 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   - ✅ "Lower resolution when the network is slow" only where it acts (2026-11-24, requested): it only ever affected a
     PS4 (a PS5 always may resize, with libchiaki too: the launch spec has no "don't resize"), so Settings → Stream
     shows it only when a PS4 is paired, or while streaming a PS4, labelled "PS4 only". TS 427 tests.
+  - ✅ The microphone heard on the PS5 (2026-11-24, the user, Settings → Sound → Microphone → Adjust Microphone
+    Level): the spec had the ctrl `0x0036` state byte backwards (`00` = unmuted, `01` = muted; the reference's
+    argument is named "muted"), so turning the mic on connected it and then muted it, and the console wouldn't let
+    the user unmute. Corrected in ctrl.md/stream.md (with what the reference sends at start-up, on, mute and unmute,
+    and new vectors) and in `ControlSession.setMicrophone`; tests now check the byte, not only the message type.
+    It had never been confirmed on a console before, with libchiaki either.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 

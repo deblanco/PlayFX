@@ -522,13 +522,13 @@ extension StreamSessionSuites {
             let sent = console.messages.with { $0.map { ($0.channel, $0.bytes) } }
             #expect(sent[3].0 == 1 && sent[3].1 == SessionBytes.micStreamInfo)
 
-            // The ctrl signalling: connect once, then the state byte.
+            // The ctrl signalling: connect once, then the state byte (00 = unmuted, 01 = muted; ctrl.md 6.6).
             try session.setMicrophone(on: true)
             try session.setMicrophone(on: false)
             let peer = try #require(console.ctrlPeer)
             #expect(await waitUntil { peer.received.with { $0.suffix(3).map(\.type) } == [0x30, 0x36, 0x36] })
             let ctrl = peer.received.with { Array($0.suffix(3)) }
-            #expect(ctrl[1].plain == hex("00010159") && ctrl[2].plain == hex("00010059"))
+            #expect(ctrl[1].plain == hex("00010059") && ctrl[2].plain == hex("00010159"))
 
             // 40-byte frames become secured microphone packets (V-ST11); other sizes don't.
             #expect(!session.sendMicrophoneFrame([UInt8](repeating: 1, count: 39)))

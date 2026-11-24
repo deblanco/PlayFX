@@ -758,12 +758,29 @@ frame, treats small values as zero and scales to 0..255).
 
 ### 9.10 Microphone (client → console)
 
-Set-up:
+Set-up, in the reference client's order (client choice, observed; ctrl.md §6.6 has the full table):
 
-1. During §6.7 the client always sends its microphone StreamInfo (audio header below).
-2. When the user first turns the mic on: ctrl `0x0030` "mic connect" (`ctrl.md` §6.6).
-3. Mute state on ctrl `0x0036` `00 01 XX 59`: existing clients write `XX = 01` for **unmuted** and `00` for
-   muted.
+1. Ctrl start-up, right after the session ID: `0x0036 00 01 01 59` twice, i.e. **muted**.
+2. During §6.7, every session and whether or not the user ever turns the mic on: the client's microphone
+   StreamInfo (audio header below), after StreamInfoAck and ControllerConnection.
+3. When the user first turns the mic on: ctrl `0x0030 00 00` ("mic connect"), then `0x0036 00 01 00 59`
+   (**unmuted**). Later mutes and unmutes send only `0x0036` with `01` (muted) or `00` (unmuted).
+   (Correction: an earlier draft said `01` meant unmuted. It is the other way round; a PS5 confirmed `01` = muted,
+   ctrl.md "Observed on a real console: the microphone".)
+4. Audio packets (below) start only after the unmute message and stop at a mute; the reference sends none
+   while muted.
+
+Order facts (as far as the reference shows):
+
+- The microphone StreamInfo normally goes out long before `0x0030` (step 2 vs 3). With the reference's "start
+  with the mic on" setting, `0x0030` and the unmute are queued on ctrl while the console's StreamInfo is being
+  handled, i.e. just **before** the client's own mic StreamInfo is sent on the stream; ctrl (TCP/RUDP) and the
+  stream (UDP) aren't ordered against each other, so the console evidently accepts either order.
+- Audio packets don't have to flow before the state message: the reference only starts them after it.
+- The mute state is carried by ctrl `0x0036` alone: not by the launch spec, the microphone StreamInfo,
+  ControllerConnection, or any feedback bit (takion.md §9). The schema's MicConnection (30) and DirectMessage
+  mic info (§4.2, which has a `muted` field) are never sent or handled by the reference; whether the console
+  uses them with other clients is unknown (§14).
 
 Client's audio header (§8.2) as sent: `01 10 0000bb80 000001e0 00000001`: 1 channel, 16 bits, 48000 Hz, 480
 samples per frame (10 ms), unknown = 1.
@@ -1070,6 +1087,13 @@ Not new captures; facts already recorded in `PLAN.md`:
 - The microphone path (§9.10) was exercised (capture, encode, send, the stream stays clean); hearing it on the
   console wasn't checked.
 
+## Observed on a real console: the microphone (2026-11-24)
+
+PS5 14230000, PlayFX's client: after start-up `0x0036 00 01 01 59` ×2, then `0x0030 00 00` and
+`0x0036 00 01 01 59` when the user turned the mic on, then microphone audio packets. The console listed the
+Remote Play device's microphone but showed it **muted**, the level meter didn't move, and it couldn't be
+unmuted from the console. Explained by step 3 above: `01` is mute. See ctrl.md §6.6 for the bytes to send.
+
 ## Observed on a real console (2026-11-24)
 
 PS5 (system 14230000) on the LAN, four streams by PlayFX's own client (720p60 H.264, 1080p60 HEVC, 1080p60 HEVC
@@ -1119,6 +1143,8 @@ HDR, each 15–30 s; two receive transports), next to a reference-client stream 
     existing clients send on every PS5 LAN session, so the console accepts at least the 1378 + 31 form.
 12. Whether `CorruptFrame` from the console means anything.
 13. Haptics PCM byte order (little-endian assumed from working playback).
+14. Microphone: whether the console uses the schema's MicConnection / DirectMessage mic-info messages (with a
+    `muted` field) from any client, and whether it reports its own mute state back to the client anywhere.
 
 ---
 

@@ -530,7 +530,8 @@ index); payload at 18 (audio type) or 21 (video type), plus 3 with the extension
 ### 7.5 Client microphone packets (optional)
 
 Not needed for streaming. For completeness, the client's audio packets (type 3, sent only after the
-microphone was enabled, `stream.md` / `ctrl.md` §6.6):
+microphone was connected and unmuted on ctrl, and only while it stays unmuted, `stream.md` §9.10 /
+`ctrl.md` §6.6):
 
 | Offset | Size | Value |
 |---|---|---|
@@ -608,6 +609,10 @@ latest values) and **feedback history** (button, trigger and touch events). Butt
 
 Order of construction: take `keyPos` (§6.6 with `s = 16 + n`), encrypt the body, write `keyPos`, compute
 the GMAC over the whole datagram (GMAC field zero), write it.
+
+**No microphone state in feedback.** Neither the feedback state (§9.2) nor the history events (§9.4) carry
+a mic or mute bit, in the reference: its button set has 16 buttons (none for the mic), and a DualSense's mute
+button is consumed by the client (it toggles the client's own mute, ctrl.md §6.6) and never forwarded.
 
 ### 9.2 Feedback state body
 

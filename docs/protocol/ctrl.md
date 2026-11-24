@@ -316,11 +316,44 @@ The console can ask the client for text when a text field is focused.
 
 ### 6.6 Microphone (`0x30`, `0x36`)
 
-- `0x0030` with `00 00`: "microphone connect". Sent once, before the client starts sending microphone
-  audio over the stream (next stage).
-- `0x0036` with `00 01 XX 59` sets the microphone state, where `XX` is `01` or `00`. Existing clients'
-  start-up sequence sends `00 01 01 59` **twice** (§8). Which of `00` and `01` means muted isn't clear
-  from existing clients (§11).
+- `0x0030` with `00 00`: "microphone connect". Sent once per session, the first time the user turns the
+  mic on, before the first mute-state message that unmutes and before any microphone audio.
+- `0x0036` with `00 01 XX 59` sets the microphone state:
+
+  | `XX` | Meaning | Bytes |
+  |---|---|---|
+  | `00` | **unmuted** (mic on) | `00 01 00 59` |
+  | `01` | **muted** (mic off) | `00 01 01 59` |
+
+  (Correction: an earlier draft of this spec and of stream.md had these the other way round. The reference
+  client's own variable naming invites that misreading; what it actually sends is above, and a PS5 confirms
+  it, see "Observed on a real console".)
+
+**What the reference sends, in order (client choice, observed):**
+
+| When | Ctrl messages (plaintext payloads) |
+|---|---|
+| Start-up, right after the session ID (§8), every session | `0x0036 00 01 01 59`, `0x0036 00 01 01 59` (**muted**, twice; between the DualSense/keyboard messages and `0x0910`) |
+| The user turns the mic on for the first time | `0x0030 00 00`, then `0x0036 00 01 00 59` (unmuted) |
+| The user mutes | `0x0036 00 01 01 59` |
+| The user unmutes again | `0x0036 00 01 00 59` (no second `0x0030`) |
+| "Start with the mic on" setting | the first-time pair (`0x0030`, `0x0036 … 00 …`) as soon as the console's stream info has arrived (stream.md §6.6), so after the two start-up mute messages |
+
+- At connect the reference therefore always sends `01` (muted) twice first and never `00` before them; an
+  unmute (`00`) only follows, later, on a user action or the setting above.
+- Microphone audio packets (stream.md §9.10) are sent **only while unmuted**: capture starts after the
+  unmute message has been queued and stops at a mute (client choice).
+- Each message is a normal encrypted ctrl frame and takes the next `localCounter` (§4). Vectors: V-C8 and
+  V-C10.
+- **The mute state travels only here.** The reference has no mic or mute bit in the controller feedback
+  (takion.md §9), nothing in the launch spec, and nothing on the stream besides the one microphone
+  StreamInfo (stream.md §9.10). A DualSense's mute button is handled by the client itself: it toggles the
+  client's mute state (so it sends the messages above) and lights the controller's own mute LED; the button
+  is never forwarded to the console.
+- **Nothing comes back.** The reference handles no console message about the microphone: no ctrl type for
+  it exists in its catalogue, and the stream-schema messages that could carry one (MicConnection, and
+  DirectMessage with mic info, stream.md §4.2) are neither sent nor handled by it. A console message of an
+  unknown ctrl type is only counted (§4) and ignored.
 
 ### 6.7 Display notices (`0x01`, `0x16`)
 
@@ -374,8 +407,8 @@ client                                              console
   |-- feature messages (next local ctrs, in order): --->|
   |     [DualSense] 0x0013, 0x0011                      |
   |     [keyboard ] 0x000D, 0x0020   (off by default)   |
-  |     0x0036 00 01 01 59                              |
-  |     0x0036 00 01 01 59                              |
+  |     0x0036 00 01 01 59   (mic muted)                |
+  |     0x0036 00 01 01 59   (mic muted)                |
   |     0x0910 00 00 00 00                              |
   |<- 0x00FE / 0x01FE heartbeats, notices, … -----------|   (any time from here on)
   |   → stream stage (session.md §12)                   |
@@ -455,6 +488,17 @@ passcode):
   (discovery status 620) within about 6 s.
 - A client-side close (no message) ended the session without anything further from the console.
 
+## Observed on a real console: the microphone (2026-11-24)
+
+PS5, `system-version` 14230000, stream up, PlayFX's own client. It sent, at start-up after the session ID,
+`0x0036 00 01 01 59` twice; when the user turned the mic on, `0x0030 00 00` then `0x0036 00 01 01 59`; then
+microphone audio packets (av.md §8.2 form). The console's Settings › Sound › Microphone › Adjust Microphone Level
+listed "Microphone level for Microphone on Remote Play Device" (the remote mic was known) but said "Your
+microphone is muted. Unmute to continue", the level meter didn't move, and the console's control centre
+couldn't unmute it. That matches §6.6: `01` is **muted**, so the client had connected the mic and then muted
+it; the console appears to take the client's state as authoritative. The unmute message is
+`0x0036 00 01 00 59` (not yet re-tested on the console at the time of writing).
+
 ## 11. Open questions
 
 1. Does the console give its counter 0 to `RP-Server-Type` even when the header is absent or
@@ -463,8 +507,10 @@ passcode):
    exact timeout (about 30 s is recorded).
 3. The correct keyboard-enable handshake for PS5 (§6.5). The known one ends the stream, and the reference has
    no other; whether a PS5 sends keyboard-opened (`0x0021`) without being enabled is unknown.
-4. ~~Which `XX` value in `0x0036` means muted.~~ Answered while writing stream.md: in the reference client `XX`
-   = `01` means the mic is on (unmuted), `00` off. Not yet seen on a console.
+4. ~~Which `XX` value in `0x0036` means muted.~~ Answered (§6.6): `00` = unmuted, `01` = muted. The earlier
+   answer here (`01` = on) was a misreading of the reference and is withdrawn; a PS5 confirmed the new
+   reading (2026-11-24). Still open: what bytes 0–1 (`00 01`) and 3 (`59`) mean, and whether a client may
+   send `0x0030` at start-up or more than once.
 5. What display notices `0x0001` and `0x0016` mean, and their full payloads.
 6. What `0x0011`, `0x0013`, `0x0910`, and the unknown fields of `0x0021`, `0x0024` and
    `RP-Server-Type` bytes 1–15 mean.
@@ -609,6 +655,22 @@ Plaintext `00010159`:
 ```
 00000004 0036 0000 837aca85
 ```
+
+V-C8's plaintext is the **muted** state (`01`).
+
+### V-C10. Turning the microphone on, PS5, `localCounter` = 10 and 11 [I][C]
+
+The counters are those of a PS5 session with DualSense enabled: header 0–4, then `0x0013` 5, `0x0011` 6, the two
+start-up mute messages 7 and 8, `0x0910` 9.
+
+| Message | Plaintext | Frame |
+|---|---|---|
+| Mic connect, counter 10 | `0000` | `00000002 0030 0000 332c` |
+| Unmute, counter 11 | `00010059` | `00000004 0036 0000 f25b874b` |
+| Mute again, counter 12 | `00010159` | `00000004 0036 0000 e7fe4b0e` |
+
+[I]: an independent script from §1 and session.md V-S3's keys (it also reproduces V-C8). [C]: the same bytes
+from a copy of the reference's RP crypt.
 
 ### V-C9. Keyboard set text "hi", PS5, `localCounter` = 7, sequence 1 [I][C]
 

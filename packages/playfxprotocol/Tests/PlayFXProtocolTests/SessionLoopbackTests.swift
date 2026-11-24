@@ -163,7 +163,7 @@ final class EventLog: @unchecked Sendable {
         #expect(log.all == expected)
 
         // Commands, in the order they are issued.
-        try session.setMicrophone(false)
+        try session.setMicrophone(true) // unmuted: 00
         try session.keyboardSetText("héllo")
         try session.keyboardSetText("x")
         try session.keyboardDone()

@@ -544,8 +544,9 @@ lets the repetition do its job.
    whose audio header bytes are exactly `01 10 0000bb80 000001e0 00000001` (read per §6.1: 1 channel, 16 bits,
    48000 Hz, 480 samples, unknown = 1). This is what existing clients send even though they encode stereo
    (open question 4).
-2. Before the first microphone packet: ctrl "microphone connect" (`ctrl.md` §6.6), and ctrl "microphone
-   state" to unmute/mute.
+2. Before the first microphone packet: ctrl "microphone connect" `0x0030 00 00`, then ctrl "microphone state"
+   `0x0036 00 01 00 59` (**`00` = unmuted**; `01` = muted, which is also what the start-up sequence sends).
+   Packets are sent only while unmuted (`ctrl.md` §6.6).
 
 ### 8.2 Encoding
 

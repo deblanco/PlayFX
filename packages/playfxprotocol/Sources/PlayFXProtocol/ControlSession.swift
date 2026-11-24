@@ -448,9 +448,10 @@ public final class ControlSession: @unchecked Sendable {
     /// Announces that microphone audio will follow on the stream connection (`0x0030`).
     public func connectMicrophone() throws { try send(.microphoneConnect) }
 
-    /// Sets the microphone state byte: `0x0036` with `00 01 XX 59`, XX = 1 for true. Which value means
-    /// muted is not known (ctrl.md section 11): the start-up sequence sends 1.
-    public func setMicrophone(_ on: Bool) throws { try send(.microphoneState(on ? 1 : 0)) }
+    /// Mutes or unmutes the microphone: `0x0036` with `00 01 XX 59`, where XX = `00` is unmuted and `01` muted
+    /// (ctrl.md section 6.6; the start-up sequence sends two muted ones, and a PS5 showed the remote mic muted,
+    /// unable to unmute, when the client sent `01` to turn it on).
+    public func setMicrophone(_ on: Bool) throws { try send(.microphoneState(on ? 0 : 1)) }
 
     /// Closes everything and emits `.ended(.stoppedByClient)` (once). Safe to call at any time, repeatedly.
     public func stop() {

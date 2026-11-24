@@ -262,6 +262,8 @@ extension Serial {
             h.engine.setMicrophone(true)
             let peer = try #require(h.console.ctrlPeer)
             #expect(await waitUntil { peer.received.with { $0.suffix(2).map(\.type) } == [0x30, 0x36] })
+            // On means unmuted: state byte 00 (ctrl.md 6.6; 01 left a PS5's remote mic muted).
+            #expect(peer.received.with { $0.last?.plain } == [0x00, 0x01, 0x00, 0x59])
             send()
             send()
             #expect(await waitUntil { h.console.streamConsole.packets(ofType: 3).count >= 2 })
@@ -277,6 +279,7 @@ extension Serial {
             // Off again: nothing more goes out.
             h.engine.setMicrophone(false)
             #expect(await waitUntil { peer.received.with { $0.suffix(2).map(\.type) } == [0x36, 0x36] })
+            #expect(peer.received.with { $0.last?.plain } == [0x00, 0x01, 0x01, 0x59])
             let count = h.console.streamConsole.packets(ofType: 3).count
             send()
             try await Task.sleep(nanoseconds: 100_000_000)
