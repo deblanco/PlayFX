@@ -158,6 +158,7 @@ public final class Rumble {
         lastLevels = levels
         guard !PadQuiet.isEnding else { return } // the process is ending with its pads quiet
         for controller in Self.controllers() { drive(controller, levels) }
+        USBHapticsMode.padOutputSent() // GameController's report may end a USB pad's audio haptics
     }
 
     /// Stops all rumble (e.g. when the session ends).

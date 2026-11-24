@@ -83,6 +83,7 @@ public final class AdaptiveTriggers {
             set(pad.leftTrigger, left)
             set(pad.rightTrigger, right)
         }
+        USBHapticsMode.padOutputSent() // GameController's report may end a USB pad's audio haptics
     }
 
     /// Releases the triggers (e.g. when the session ends).

@@ -285,9 +285,14 @@ frame interpolation works in HDR too, with one image between two frames.
 A DualSense works over USB or Bluetooth, with rumble, adaptive triggers, the touchpad and motion.
 
 - **Real haptics over USB:** PS5 games drive the DualSense's motors with sound. With the controller on a
-  USB cable, PlayFX plays that sound on the motors, so you feel what the game was made with. Set it up
+  USB cable, PlayFX plays that sound on the motors, so you feel what the game was made with. On a Mac the
+  controller ignores that sound until it's switched into its haptics mode; PlayFX does that itself while
+  the haptics play (and again after each time you plug it in), so there's nothing to install. Set it up
   once: open **Audio MIDI Setup** (in Applications › Utilities), select the DualSense, and set its output
   to **4 channels (Quadraphonic)**. Left at 2 channels, you get rumble instead.
+- **No haptics?** The log (see [Logs and bug reports](#logs-and-bug-reports)) says what PlayFX found:
+  "audio haptics enabled on … (USB)" when it's working, a hint when the controller is at 2 channels, or,
+  when it found no DualSense at all, the Mac's sound outputs with their channel counts.
 - **Over Bluetooth**, PlayFX sends the haptics to the controller too (not yet confirmed on a real
   controller). If that can't start, you get rumble.
 - **The light bar** follows the game (a colour per character, red and blue in a police chase), and so

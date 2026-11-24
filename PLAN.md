@@ -3,7 +3,11 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **libopus built from source**: libopus 1.6.1 is vendored unmodified in StreamCore
+Last updated 2026-11-24, after **USB haptics felt**: on macOS a DualSense on USB ignores the haptics audio on its
+sound device's channels 3 and 4 until it gets one all-zero HID output report 0x02 (found on the user's pad with a test
+tone); StreamCore now sends it when haptics start on a USB pad, about once a second while they play and shortly after
+the app's own rumble, trigger or light bar output, and logs what it found when no pad plays them (StreamCore 509
+tests, 91.6% lines / 89.9% functions; 90.2% / 88.7% in VM mode). Before that, **libopus built from source**: libopus 1.6.1 is vendored unmodified in StreamCore
 (`Sources/CLibopus`, float build, generic C) and compiled for the package's deployment targets, so the build needs
 no Homebrew and the "built for newer macOS version" linker warnings are gone (StreamCore 501 tests, 91.5% lines / 90.1%
 in VM mode; Rust 74, 91.4% lines; TS 424). Before that, **the final check of the libchiaki removal**: every gate green with no libchiaki
@@ -503,8 +507,30 @@ Work items:
   game) and tells the shim not to make rumble from it. Devices are looked at every 2 s off the receive
   thread, so plugging or unplugging mid-stream switches between the two. A pad left at 2-channel sound gets
   a hint in the log (set it to Quadraphonic in Audio MIDI Setup) and stays on rumble, as chiaki-ng does.
-  **Works in a game** (GTA VI, pad on a cable, 2026-11-20: the log shows the haptics stream playing on the pad,
-  and the user reports rumble and triggers working). Astro's Playroom would show the fine textures best.
+  **Not felt until 2026-11-24** (GTA VI, pad on a cable, 2026-11-20: the log showed the haptics stream playing on
+  the pad and rumble and triggers worked, but nothing came from the haptics themselves: on macOS the pad ignores
+  that audio until it's switched into audio-haptics mode; fixed below). Astro's Playroom would show the fine
+  textures best.
+- ✅ **USB haptics felt: the pad switched into audio-haptics mode** (2026-11-24). What was wrong: out of the box on
+  macOS a DualSense on USB plays nothing from channels 3 and 4 of its sound device, so the USB path above played
+  into nothing. How it was found: a scratch tool played 150 Hz pulses on those channels of the user's pad
+  (macOS 27.2) and sent different HID output reports first; nothing was felt until one report 0x02 of 48 bytes
+  (the pad's `kIOHIDMaxOutputReportSizeKey`) with every byte after the ID zero (all "valid" flags clear, so
+  rumble, light bar, triggers and volumes don't change); a report with only the "haptics select" flag (0x02) did
+  nothing. The pad forgets it when replugged, and GameController's own reports (rumble, triggers, light bar) may
+  switch it back. The fix (`USBHapticsMode.swift`): when haptics start on a USB pad, `DualSenseHaptics` sends
+  that report to the first DualSense (054C:0CE6) or DualSense Edge (054C:0DF2) HID device on USB (opened
+  non-exclusively, kept open while they play), again about once a second while haptics frames keep coming, and
+  0.1 s after the app's own rumble, trigger or light bar output (a counter `Rumble`, `AdaptiveTriggers` and
+  `PadLight` bump); it lets the device go when they stop. All of it on the haptics queue, never the audio thread,
+  and not per frame (the receive thread only compares times under the lock it already takes). Never on Bluetooth.
+  A failed report (no HID device, or an IOReturn) is logged once and the haptics audio plays on. New log lines:
+  "DualSense haptics: audio haptics enabled on <name> (USB)" once a session, and, when haptics arrive but no
+  DualSense is found on USB or Bluetooth, the Mac's sound outputs with their channel counts (once a session).
+  Unit-tested with a stand-in HID device: the bytes, sent at start and each second, sooner after pad output, not on
+  Bluetooth or with no pad, failures logged once with playback going on (StreamCore 509 tests, +8). Docs: HELP
+  and README. **Left**: feeling it in a game with the app (Astro's Playroom), including right after a rumble or
+  trigger effect.
 - 🔶 **Touchpad + motion.** *(touchpad built, **unverified on hardware**: the shim takes a struct-based
   controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
   DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new
@@ -1561,7 +1587,9 @@ requests and a bug report.
    in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080, now skipping repeated pictures (the shown rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
-   haptics in Astro's Playroom.
+   haptics in Astro's Playroom; **USB haptics in a game with the app** (2026-11-24: the pad is now switched into
+   audio-haptics mode, felt with a test tone only; see "USB haptics felt"), also right after a rumble or trigger
+   effect.
 7b. **On the console: an HDR game with frame interpolation on** (Silent Hill 2 on the MacBook Pro's XDR display),
    new since 2026-11-20 and only tested offscreen: `pacing.interpolation` reads `on` (not `failed`), about 60
    shown/s for a 30 fps game on 60 Hz and on 120 Hz (halves only in HDR), highlights still above SDR white in the

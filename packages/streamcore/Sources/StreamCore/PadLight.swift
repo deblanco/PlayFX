@@ -53,6 +53,7 @@ public final class PadLight {
             light.color = GCColor(red: Float(color.red) / 255, green: Float(color.green) / 255, blue: Float(color.blue) / 255)
         }
         if let player { controller.playerIndex = player }
+        USBHapticsMode.padOutputSent() // GameController's report may end a USB pad's audio haptics
     }
 
     /// The console's player number → GameController's (players 1–4; anything else shows none).

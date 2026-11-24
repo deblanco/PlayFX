@@ -6,8 +6,9 @@ import os
 /// Real DualSense haptics. The console drives the DualSense's two voice-coil motors with an audio stream
 /// (stereo, 3 kHz). On USB the pad is also a 4-channel sound device whose channels 3 and 4 are those motors,
 /// so the stream is played there as it is (needs the pad's sound set to 4 channels, "Quadraphonic" in Audio
-/// MIDI Setup). On Bluetooth it goes to the pad in HID reports (see
-/// BluetoothHaptics.swift). Without either, the caller plays it as rumble.
+/// MIDI Setup), with the pad switched into audio-haptics mode while it plays (see USBHapticsMode). On
+/// Bluetooth it goes to the pad in HID reports (see BluetoothHaptics.swift). Without either, the caller plays
+/// it as rumble.
 final class DualSenseHaptics: @unchecked Sendable {
     struct Device: Equatable {
         let id: AudioDeviceID
@@ -63,6 +64,12 @@ final class DualSenseHaptics: @unchecked Sendable {
         var warnedStereo = false
         /// A Bluetooth pad that wouldn't open is said once, not every check.
         var warnedBluetooth = false
+        /// No pad at all is said once a session, with the Mac's outputs.
+        var loggedNoPad = false
+        /// When the audio-haptics report last went to the USB pad.
+        var enabledAt = -TimeInterval.infinity
+        /// `USBHapticsMode.padOutputCount` as last seen.
+        var padOutputs: UInt64 = 0
     }
     /// Only `push` uses it, always from the engine's one haptics thread.
     private var upsampler = HapticsUpsampler()
@@ -72,6 +79,8 @@ final class DualSenseHaptics: @unchecked Sendable {
     let bluetoothQueue = BluetoothHapticsQueue()
     /// Looking at the devices and opening one takes milliseconds: not on the engine's receive thread.
     private let queue = DispatchQueue(label: "streamcore.haptics", qos: .userInitiated)
+    /// Keeps a USB pad in audio-haptics mode. On `queue`.
+    private let mode = USBHapticsMode()
 
     init() { PadQuiet.register(self) }
 
@@ -86,12 +95,28 @@ final class DualSenseHaptics: @unchecked Sendable {
     /// One frame of the haptics stream (interleaved stereo at 3 kHz), from the engine's thread. Returns whether
     /// it was played on a pad; if not, the caller makes rumble from it.
     func push(_ samples: UnsafeBufferPointer<Int16>, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
-        let (route, due) = state.withLock { state -> (Route?, Bool) in
+        let padOutputs = USBHapticsMode.padOutputCount
+        let (route, due, resend) = state.withLock { state -> (Route?, Bool, Bool) in
             let due = now - state.checkedAt >= Self.recheckInterval
             if due { state.checkedAt = now }
-            return (state.output == nil ? nil : state.route, due)
+            let route = state.output == nil ? nil : state.route
+            let padOutput = padOutputs != state.padOutputs
+            state.padOutputs = padOutputs
+            guard case .usb? = route else { return (route, due, false) }
+            // The app's own output to the pad may have switched it back to rumble emulation: again shortly after.
+            if padOutput {
+                state.enabledAt = min(state.enabledAt, now - USBHapticsMode.resendInterval + USBHapticsMode.afterPadOutput)
+            }
+            let resend = now - state.enabledAt >= USBHapticsMode.resendInterval
+            if resend { state.enabledAt = now }
+            return (route, due, resend)
         }
-        if due { queue.async { [weak self] in self?.refresh() } }
+        if due || resend {
+            queue.async { [weak self] in
+                if due { self?.refresh(now: now) }
+                if resend { self?.enableAudioHaptics() }
+            }
+        }
         switch route {
         case .usb: buffer.append(upsampler.upsample(samples))
         case .bluetooth: bluetoothQueue.append(samples, now: now)
@@ -111,11 +136,12 @@ final class DualSenseHaptics: @unchecked Sendable {
             return state.output
         }
         output?.stop()
+        queue.async { [mode] in mode.reset() }
     }
 
     /// Starts playing on a pad that was plugged in, or stops when it's gone. On `queue`; the device is opened
     /// outside the lock, so the receive thread never waits for it.
-    private func refresh() {
+    private func refresh(now: TimeInterval) {
         let devices = Self.devices()
         // Only looked for when no USB pad can play: listing HID devices isn't free.
         let choice = Self.choose(devices, bluetooth: Self.choose(devices) == .none ? Self.bluetoothPad() : nil)
@@ -127,13 +153,30 @@ final class DualSenseHaptics: @unchecked Sendable {
         }
         let previous = state.withLock { state -> Output? in
             guard state.checkedAt != .infinity else { return opened } // stopped meanwhile: close what was opened
-            return apply(choice, opened: opened, to: &state)
+            return apply(choice, opened: opened, to: &state, devices: devices)
         }
         previous?.stop()
+        let route = state.withLock { state -> Route? in
+            guard case .usb? = state.route, state.output != nil else { return nil }
+            if opened != nil { state.enabledAt = now }
+            return state.route
+        }
+        if route == nil {
+            mode.reset()
+        } else if opened != nil { // just started on USB (or on another USB pad)
+            mode.reset()
+            enableAudioHaptics()
+        }
+    }
+
+    /// Sends the USB pad playing the haptics the report that has it play them. On `queue`.
+    private func enableAudioHaptics() {
+        guard case .usb(let device)? = state.withLock({ $0.output == nil ? nil : $0.route }) else { return }
+        mode.enable(device.name)
     }
 
     /// Returns the output to stop, if any.
-    private func apply(_ choice: Choice, opened: Output?, to state: inout State) -> Output? {
+    private func apply(_ choice: Choice, opened: Output?, to state: inout State, devices: [Device]) -> Output? {
         let previous = state.output
         switch choice {
         case .play(let device) where state.route == .usb(device):
@@ -167,8 +210,20 @@ final class DualSenseHaptics: @unchecked Sendable {
             if previous != nil { Log.info(.input, "DualSense haptics: pad gone, back to rumble") }
             state.output = nil
             state.route = nil
+            if !state.loggedNoPad {
+                state.loggedNoPad = true
+                Log.info(.input, "DualSense haptics: no DualSense sound device on USB and no DualSense on Bluetooth; playing "
+                    + "them as rumble. The Mac's sound outputs: \(Self.describe(devices))")
+            }
         }
         return previous
+    }
+}
+
+extension DualSenseHaptics {
+    /// The outputs' names and channel counts, for the log.
+    static func describe(_ devices: [Device]) -> String {
+        devices.isEmpty ? "none" : devices.map { "\($0.name) (\($0.outputChannels) ch)" }.joined(separator: ", ")
     }
 }
 
