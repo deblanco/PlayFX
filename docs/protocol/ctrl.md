@@ -469,6 +469,9 @@ holds, with these differences:
 - **End.** An RUDP FINISH from the console ends ctrl (and the session). The client has no RUDP-level close
   (rudp.md §9).
 - **Frame size.** One frame per RUDP message, at most 4085 bytes of frame (rudp.md §7.1).
+- **Type `0x0041` (S→C).** Not in the reference's catalogue. As for any unknown type, the reference decrypts
+  it (so `remoteCounter` advances, §4), logs it and ignores it. Its meaning is unknown (§11); it has been
+  seen right after the switch acknowledgement `0x0034`, see "Observed on a real console".
 
 ---
 
@@ -499,6 +502,20 @@ couldn't unmute it. That matches §6.6: `01` is **muted**, so the client had con
 it; the console appears to take the client's state as authoritative. The unmute message is
 `0x0036 00 01 00 59` (not yet re-tested on the console at the time of writing).
 
+## Observed on a real console: internet play (2026-11-24)
+
+PS5 14230000 over the internet (iPhone hotspot → home network), PlayFX's clean-room client, ctrl over RUDP:
+
+- The session ID (`0x0033`) came **6.2 s** after ctrl was up, after the client had started punching the data
+  hole (it started it 0.1 s after ctrl came up). That is earlier than the reference would start it: the
+  reference waits for the session ID, a login PIN request or 10 s first (holepunch.md §8). Whether the console
+  holds the session ID back until the data hole exists, or just takes that long over the internet, is open
+  (§11).
+- The switch message (rudp.md §8) was acknowledged with ctrl `0x0034` (empty), as expected.
+- Right after `0x0034` the console sent ctrl type **`0x0041`** with an 8-byte payload. Unknown to the reference
+  (§10). Like any message with a payload it takes a `remoteCounter` value (§4).
+- Heartbeat requests (`0x00FE`) came about every 5 s, as on the LAN.
+
 ## 11. Open questions
 
 1. Does the console give its counter 0 to `RP-Server-Type` even when the header is absent or
@@ -522,7 +539,9 @@ it; the console appears to take the client's state as authoritative. The unmute 
     request (§10); whether PS4 over the internet needs the same.
 12. Whether `RP-StartBitrate` carries a meaningful non-zero value (byte order and units unknown).
 13. Whether the console retransmits ctrl frames over RUDP and how a client should treat duplicates
-    (rudp.md §7.3, §11).
+    (rudp.md §7.3, §11). (It does send duplicates, observed 2026-11-24.)
+14. What ctrl type `0x0041` (8 bytes, S→C, seen right after `0x0034` over the internet) means.
+15. Whether over the internet the console sends the session ID only once the data hole is being punched.
 
 ---
 

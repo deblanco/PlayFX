@@ -240,6 +240,14 @@ differences), with each ctrl frame carried in one RUDP message.
 
 A retransmission resends the identical bytes (same `seq`).
 
+**Which console messages credit acks (the reference, exactly):** only `flags` `0x12`, `0x26`, `0x36` and
+`0x24`, from their data bytes 2–3, for **every** message of a datagram (also the 2nd, 3rd …). Plain DATA
+(`0x02`), `0x20`, FINISH and unknown types credit nothing. One credited value releases every kept message
+whose key is equal to it or older (16-bit serial comparison), i.e. it is cumulative. The reference keeps no
+timer per ack and doesn't change its 400 ms threshold with the measured round-trip time: retransmission
+timing is fixed (client choice). When and how often the console sends its acks (per message, delayed,
+batched) is not visible in the reference (§11; see "Observed on a real console").
+
 ### 7.3 Console → client, per message `flags` (as the reference handles them)
 
 For every message in a received datagram (also the 2nd, 3rd … message):
@@ -251,10 +259,25 @@ For every message in a received datagram (also the 2nd, 3rd … message):
 | `0x26` | data 2–3 | yes | 6 |
 | `0x36` | data 2–3 | yes | 2 (as the reference does it; doubtful, §11) |
 | `0x24` (ACK) | data 2–3 | no | – (no frame) |
+| `0x20` (console's REQUEST-shaped message) | – (none read) | yes | 4, so a 4-byte one has no frame |
 | `0xC0` (FINISH) | – | no | – the console ended ctrl (§9) |
 | anything else | – | yes | 4 (client choice, observed) |
 
 - A message with fewer than 4 data bytes (other than FINISH) is skipped (client choice).
+- **Incoming `0x20`.** The reference has no case for it: it falls under "anything else". So it sends an ACK
+  (`ack` = the datagram's first message's `seq + 1`, §4.3), reads **no** `ack` field from it (none of the
+  client's kept messages is released by it), and looks for a ctrl frame at data offset 4, which a 4-byte
+  message can't hold, so nothing more happens. A duplicate is treated the same way again (a second ACK). By
+  its shape (the client's own `0x20` is `seq` then `ack`) bytes 2–3 are probably the console's `ack`, but the
+  reference doesn't use them; crediting them as an ack is an untested choice (§11). During the HTTP-style
+  exchanges (§6, §10) an incoming `0x20` is simply "a message of the wrong kind".
+- **Incoming `0x36` (ack and payload).** The reference credits data bytes 2–3 as the console's `ack` (it
+  releases kept messages up to it), sends an ACK, and then looks for a ctrl frame at offset 2, over those
+  ack bytes. For a 20-byte `0x36` that means it expects the BE32 at data 2–5 to be 10 (20 − 2 − 8); with real
+  ack bytes there that only holds by accident, so the reference drops such a message's content. Nothing in
+  the reference shows a `0x36` of a specific size being handled; where its payload really starts is open
+  (§11). A way to find it from a capture: the offset at which a BE32 equals `dataLength − offset − 8` (a whole
+  ctrl frame to the end), and whose type field is a known ctrl type.
 - **Frame check (client choice, observed):** at the frame offset there must be a whole ctrl frame and
   nothing else: the BE32 `payloadLength` there must equal `dataLength − offset − 8`. Otherwise the
   message's content is dropped (the ACK is still sent). Taken frames go into the ctrl frame stream of
@@ -360,8 +383,27 @@ times out) is allowed by everything known about the console.
 7. Whether a client-side close exists (the official client may send FINISH at the end).
 8. What happens if the client's `seq` values restart (the reference never resets them within a session).
 9. Whether the console needs the switch message's 16 bytes to be random, or checks them.
+10. The layout of the console's `0x20` messages (seq + ack, like the client's?) and whether their bytes 2–3
+    should be credited as an ack; why the console sends them (and duplicates of them) during ctrl.
+11. When the console acknowledges client DATA: immediately, delayed or batched, and with which message type;
+    whether a 400 ms fixed retransmission threshold is too short for it (see the observation below).
 
 ---
+
+## Observed on a real console (2026-11-24)
+
+First internet stream on PlayFX's clean-room code: iPhone hotspot → home PS5 (14230000), 1080p30, 0 lost
+frames, RTT about 45 ms, a 3.5-minute session. From the RUDP trace:
+
+- The console sent messages with `flags` `0x20` and 4 data bytes during ctrl (one with `seq 0x6dea`, then a
+  duplicate of it). Not described by the reference (§7.3 says what it would do).
+- It sent a `0x36` message with 20 data bytes (`seq 0x6de8`); its layout is open (§7.3, §11).
+- The client (400 ms fixed threshold, §7.2) retransmitted 66 times in the session, and 4 duplicate messages
+  arrived from the console. The console's acks therefore often came later than 400 ms after a client message
+  (or were lost), and the console itself retransmits; both support §7.3's advice to drop duplicate console
+  data by `seq`.
+- Ctrl over RUDP otherwise worked for the whole session (heartbeats, the switch acknowledged with ctrl
+  `0x0034`; ctrl.md "Observed on a real console").
 
 ## 12. Known-answer vectors
 

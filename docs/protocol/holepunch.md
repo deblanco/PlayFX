@@ -437,7 +437,10 @@ Notes:
 - A register-only run (PIN-less pairing) stops after step 8 and jumps to step 15.
 - The order between 11 and the session ID: the reference starts the data hole once ctrl has delivered the
   session ID, the login PIN exchange is over, or 10 s have passed, and then waits up to 5 s more for the
-  session ID if it hadn't come.
+  session ID if it hadn't come. Observed (PlayFX, 2026-11-24, see ctrl.md "Observed on a real console:
+  internet play"): a client that started the data hole 0.1 s after ctrl came up got the session ID 6.2 s
+  later, during the data hole; the stream then worked. So starting the data hole early is accepted by a PS5;
+  whether the console waits for it before sending the session ID is open.
 
 ---
 
