@@ -391,6 +391,9 @@ extension StreamSessionSuites {
             rig.mapper.failsMapping = true
             rig.stun.shifts.with { $0 = [5, 0, 0, 0, 3] }  // ctrl: the first answer differs; data: its one answer too
             rig.environment.punch.extraSocketCount = 3
+            // 75 guesses and 3 extra sockets per hole keep the fake console busy: on CI's loaded VM its first probe after
+            // the selection came later than the rig's 0.25 s quiet time (consoleDidNotProbe).
+            rig.environment.punch.quietTime = 1
             let recorder = EventRecorder()
             let session = try await rig.start(recorder: recorder)
             defer { session.stop() }

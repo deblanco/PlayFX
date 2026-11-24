@@ -29,6 +29,8 @@ final class NWDatagramTransport: DatagramTransport, @unchecked Sendable {
     private let state = UnfairLock()
     private var port32: UInt16 = 0
     private var sendError: Int32?
+    /// The last receive time handed on (the receive callbacks run one at a time on `queue`).
+    private var lastStamp: UInt64 = 0
 
     init(host: String, port: UInt16, dontFragment: Bool = false, outstandingReceives: Int = 8) {
         self.host = host
@@ -151,6 +153,10 @@ final class NWDatagramTransport: DatagramTransport, @unchecked Sendable {
                     kernel = true
                 }
             }
+            // The two clocks are read one after the other: a preemption between the reads makes the age look larger,
+            // which could put this datagram before the previous one. Datagrams come in arrival order, so never go back.
+            stamp = max(stamp, lastStamp)
+            lastStamp = stamp
             handler.transportDidReceive(UnsafeMutableRawBufferPointer(start: buffer, count: data.count), at: stamp,
                                         kernelTimestamp: kernel)
         }

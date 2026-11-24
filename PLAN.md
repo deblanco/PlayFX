@@ -1208,6 +1208,12 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     dispatch queue delivered the 0.1 s cancel after ~2.8 s). PlayFXProtocol 896 tests, 97.5% lines (plain, VM,
     serial); release allocation test; StreamCore 525. If CI crashes again: run `StunConcurrencyTests` alone with
     coverage in the VM and keep the crash report.
+  - ✅ CI on that commit: no crash; three timing failures on CI's loaded VM, one run each. Fixed: the
+    Network.framework transport's receive times never go backwards (the kernel time is converted by reading two
+    clocks one after the other; a preemption between them put one datagram before the previous one); the
+    per-destination NAT test waits 1 s, not 0.25 s, for the fake console's probe after the selection; StreamCore's
+    `hapticsRumbleLastsWhileItKeepsComing` checks the level only when its last 50 ms sleep stayed under the 0.15 s
+    timeout.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
