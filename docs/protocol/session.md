@@ -1,7 +1,7 @@
 # Session start: from pairing keys to the stream connection
 
-Status: draft 1 (clean-room spec, facts only). Covers the local-network (LAN) path. The PSN relay
-path is summarised in §11 but not specified.
+Status: draft 1 (clean-room spec, facts only). Written for the local-network (LAN) path; §11 lists what
+changes for internet play (PSN), which is specified in psn.md, holepunch.md and rudp.md.
 
 Related documents:
 
@@ -353,20 +353,42 @@ reconnect. Remote disconnect with a reason, rest mode, incompatible → don't re
 
 ---
 
-## 11. PSN relay path (out of scope, differences noted)
+## 11. Internet play (PSN path)
 
-When the console is reached through PSN rather than on the LAN, the same session-init and ctrl HTTP
-texts are carried over a UDP "RUDP" transport set up by PSN hole punching.
+Over the internet there is no TCP and no fixed port. The PSN steps (psn.md) and the ctrl hole
+(holepunch.md) come first; then this stage runs over the ctrl hole's RUDP channel (rudp.md). The texts of
+§4 and §5 are unchanged except where listed.
 
-Differences seen at this stage:
+| Item | LAN | Internet |
+|---|---|---|
+| Keys used | the stored pairing | a **registration through PSN** runs first on the same channel (registration.md §8), and its `RegistKey` and `RP-Key` are used for `RP-Registkey`, `RP-Auth` and the session keys of this session |
+| Transport for session init | new TCP connection to 9295 per attempt | RUDP handshake, then one request/response, then ACK and FINISH (rudp.md §5, §6), on the ctrl-hole socket |
+| `Host` header | `<console address>:9295` | `<addr>:<port>` of the ctrl hole's selected console candidate (holepunch.md §6), e.g. `Host: 198.51.100.7:50123` |
+| Version negotiation (§5.3) | a new TCP connection per retry | a new RUDP handshake and exchange per retry, same socket |
+| Response size | read up to `\r\n\r\n` from the stream | the whole response header must be in one RUDP data message |
+| Connection-level failures (§5.5) | refused / timeout | no "refused": a console that doesn't answer shows as RUDP tries running out (3 × 1 s per step) |
+| Ctrl | TCP 9295 | the same RUDP channel, after another handshake (ctrl.md §10) |
+| Before the probe | – | after the session ID (or the login PIN exchange), the **data hole** is punched (holepunch.md); the probe and the stream run on it (stream.md §16) |
+| Before the stream connection | – | the RUDP switch message, answered by ctrl `0x0034` within 5 s (rudp.md §8) |
 
-- `Host` carries the address and ctrl port that hole punching selected, not 9295.
-- After the session-init response the RUDP layer exchanges a finish/ack.
-- On PS5 the client's ctrl counter skips one value after the ctrl request (`ctrl.md` §10).
-- There's an extra "switch to stream connection" exchange (ctrl `0x34`) before the stream stage.
+Sequence (holepunch.md §8 has the whole picture):
 
-RUDP framing, hole punching and PSN account handling need their own spec, which is a later
-milestone.
+```
+client                                                    console (via the ctrl hole)
+  |== RUDP handshake; POST …/rgst (no PIN); reply; FINISH =====>|   registration.md §8
+  |== RUDP handshake; GET <init path>, Host: addr:port ========>|
+  |<= 200 + RP-Nonce (one RUDP data message) ===================|
+  |== ACK; <= FINISH                                            |
+  |   derive session keys (with the RP-Key just received)       |
+  |== RUDP handshake; GET <ctrl path>; <= 200; ACK; frames ====>|   ctrl.md §10
+  |<= session ID (0x33)                                         |
+  |   punch the data hole (holepunch.md)                        |
+  |== probe on the data hole; switch message; <= 0x0034; stream |
+```
+
+Timeouts that change (client choices, observed): each RUDP step 3 tries of 1 s instead of the 5 s TCP
+limits of §9; the registration before it is given 10 s; after the data hole is punched the client waits up
+to 5 s more for the session ID if it hasn't come.
 
 ---
 
@@ -376,9 +398,9 @@ Named facts this stage hands over:
 
 | Name | Value / origin |
 |---|---|
-| `consoleAddress` | The address that accepted session init (§5.5). |
-| `streamPort` | UDP 9296 (stream connection). |
-| `probePort` | UDP 9297 (network probe, before the stream). |
+| `consoleAddress` | The address that accepted session init (§5.5). Internet play: none; the data-hole socket instead (§11). |
+| `streamPort` | UDP 9296 (stream connection). Internet play: the data hole's console port. |
+| `probePort` | UDP 9297 (network probe, before the stream). Internet play: the same data-hole socket as the stream. |
 | `negotiatedVersion` | §5.3. PS4 8.0 / 9.0 / 10.0 or PS5 1.0. The stream stage uses it too (launch spec, key tables). |
 | `sessionAesKey`, `sessionIvSeed` | §6.1. The stream stage uses them again for the launch spec, in rpcrypt.md §2.3's keystream-only form at counter 0 (the same IV as `RP-Auth`, independent of the ctrl counters). |
 | `sessionId` | ASCII string `[A-Za-z0-9]`, from ctrl `0x33` minus its first byte (`ctrl.md` §6.2). |

@@ -1,6 +1,6 @@
 # Stream connection: handshake, launch spec, messages and controller input
 
-Status: draft 1 (clean-room spec, facts only). LAN path. Covers everything carried **inside** the Takion
+Status: draft 1 (clean-room spec, facts only). LAN path; the internet (PSN) differences are §16. Covers everything carried **inside** the Takion
 transport on the console's UDP ports 9297 (network probe) and 9296 (stream connection): the protobuf message
 set, the ECDH handshake, the launch spec, what is exchanged during the stream, the meaning of the controller
 values, and how the stream ends.
@@ -1326,6 +1326,27 @@ the first sent orientation is exactly (0, 0, 0, 1) [C]. The network probe's timi
 heartbeat/feedback cadences are behaviour, not bytes. GKCrypt keys from V-ST1's secret belong to takion.md.
 
 ---
+
+## 16. Internet play
+
+The stream layer is the same over the internet; only its transport and two steps around it change:
+
+- **Socket.** The network probe (§5) and the stream connection (§6) both run on the data hole's socket
+  (holepunch.md §7, takion.md §18), not on UDP 9297 and 9296. The probe's end (§5.6) doesn't close it.
+- **Order.** After the session ID, the data hole is punched first (holepunch.md, the same steps as the ctrl
+  hole); then the probe; then the RUDP switch message with its ctrl `0x0034` answer (rudp.md §8, ≤ 5 s);
+  then §6.
+- **Probe results.** The RTT and MTU measured are the internet path's. The fallback when the probe fails is
+  the same (1454 / 1454 bytes, 1 ms).
+- **Launch spec, Hello, keys, messages, AV:** unchanged. The launch spec's `network.ports` value stays
+  `[53,2053]` (it isn't the hole's ports).
+- **End reasons.** Reasons 13 (`psnRegistrationFailed`) and 14 (`psnRegistrationUnanswered`) of §11.2 come
+  from the registration through PSN (registration.md §8); failures of the PSN steps or of hole punching
+  happen before this layer (psn.md §9, holepunch.md §5.3).
+- **Observed (PlayFX, through the reference, real PS5 on the home network routed through PSN, 2026-11):**
+  connected in 27–28 s; 1280×720 with 0 lost frames; controller input reached the console. Separately, a
+  run over the internet route once lost 95% of the video while audio continued (a keyframe never arrived
+  whole), which PlayFX now recovers from by asking for keyframes and reconnecting (PLAN.md).
 
 ## Sources
 

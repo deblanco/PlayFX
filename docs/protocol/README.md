@@ -8,19 +8,25 @@ an interoperable client (`PlayFXProtocol`, Swift) from these documents alone.
 | Document | Covers |
 |----------|--------|
 | [discovery.md](discovery.md) | LAN discovery (search, response fields, polling, when a console counts as gone) and wake from rest mode |
-| [registration.md](registration.md) | Pairing with the console PIN: UDP search, HTTP request/response, body layout and encryption, errors, the pairing record to store |
+| [registration.md](registration.md) | Pairing with the console PIN: UDP search, HTTP request/response, body layout and encryption, errors, the pairing record to store; registration through PSN without a PIN (§8) |
 | [rpcrypt.md](rpcrypt.md) | "RP crypt": key/IV derivation and the AES-CFB payload cipher, for registration (LAN and PSN) and session use, PS4 and PS5 |
 | [session.md](session.md) | Session init over HTTP: request, nonce, refusals, the session crypt, what the stream stage gets |
 | [ctrl.md](ctrl.md) | The ctrl channel: request, message framing, counters, every message, heartbeats, how it ends |
 | [takion.md](takion.md) | Takion, the UDP transport (9296, and 9297 for the probe): packets, handshake, chunks and acks, GKCrypt (AES-GCM, key positions), the AV packet header, congestion reports, controller feedback packets, sequence numbers, PlayFX's own reorder policy |
 | [stream.md](stream.md) | The stream connection over Takion: protobuf messages, the network probe, the Hello/HelloReply handshake with secp256k1 ECDH, the launch spec, stream info, heartbeats, IDR and corrupt-frame reports, quit reasons, rumble, trigger effects, haptics, LED, motion, touch, the mic |
 | [av.md](av.md) | Audio and video frames: unit assembly, the Reed-Solomon (Cauchy, GF(2^8)) FEC in full, the Annex-B access unit, H.264/HEVC bitstream facts, Opus audio and haptics, the mic upstream |
-| [test-vectors.md](test-vectors.md) | Known-answer vectors for discovery, wake, RP crypt and registration, and how each was verified |
+| [psn.md](psn.md) | Internet play, PSN side: token requirements, console list and device IDs, the push-notification WebSocket, the remote-play session (create, start, `customData1`, leave), session messages (OFFER/RESULT/ACCEPT) and their JSON, errors, timeouts |
+| [holepunch.md](holepunch.md) | Internet play, NAT traversal: UPnP and STUN, the candidate list, the 88-byte probe packets, choosing the pair, the ctrl and data holes and what each carries, the end-to-end sequence |
+| [rudp.md](rudp.md) | Internet play, the reliable-UDP control transport on the ctrl hole: framing, message types, counters and acks, the handshake, carrying registration/session init/ctrl, retransmission, the switch to the stream, the end |
+| [test-vectors.md](test-vectors.md) | Known-answer vectors for discovery, wake, RP crypt and registration (including PSN-mode registration crypto), and how each was verified |
 | [`data/`](data/) | Constant tables (hex) used by rpcrypt.md, with SHA-256 checksums in rpcrypt.md section 3 |
 | [`data/vectors/`](data/vectors/) | Large test vectors (full registration bodies, a PS5 Hello) |
 
-Not yet covered here: internet play (PSN session setup, NAT traversal, reliable UDP). It needs its own
-documents before it can be implemented.
+Internet play is covered by psn.md, holepunch.md and rudp.md, plus "Internet play" sections in session.md
+(§11), ctrl.md (§10), takion.md (§18) and stream.md (§16). Unlike the LAN documents, nothing in them has been
+checked against a real internet session by PlayFX's own code yet; their open questions say what only such a
+session (or a capture of the official app) can settle. Their known-answer vectors are in the documents
+themselves.
 
 ## Clean-room process
 

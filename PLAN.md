@@ -3,7 +3,8 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **the StreamCore engine seam**: `StreamSession` now drives the protocol through a
+Last updated 2026-11-24, after **the internet-play spec** (`docs/protocol/psn.md`, `holepunch.md`, `rudp.md`, PIN-less
+pairing through PSN; facts only, vectors checked against the reference's byte layouts). Before that, **the StreamCore engine seam**: `StreamSession` now drives the protocol through a
 small Swift interface (`StreamEngine` / `StreamEngineSink`), with libchiaki as its only engine and behaviour
 unchanged, so `PlayFXEngine` can be written against that contract alone (Swift 428 tests, 90.4% lines; 88.8% as CI's
 VM sees it). Before that, **the first stream on our own protocol code, with no libchiaki**: on the user's
@@ -943,10 +944,21 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     from its own thread, as libchiaki does; 4 runs under 12 CPU burners didn't fail them (2 of 3 did before).
     BridgeTests' `discover()` fails while the user's PS5 rests on the LAN: it answers the broadcast and the
     unicast discovery to TEST-NET reports it (left as it is, same on main).
-  - ❌ Next: `PlayFXEngine`, a second `StreamEngine` over PlayFXProtocol, written clean-room against
-    StreamEngine.swift (libchiaki stays the default until parity on the console); libchiaki under the same loss
-    (psrp has no `--drop`: whether it also loses ≈100 ms per unrepairable frame, or a smarter HEVC recovery is
-    worth it); PSN hole-punching.
+  - ✅ Internet play specified (2026-11-24, facts only, by a spec writer reading chiaki-ng read-only; nothing sent
+    to PSN, STUN servers or the console): `docs/protocol/psn.md` (the PSN web APIs: console list, push WebSocket,
+    remote-play session, OFFER/RESULT/ACCEPT/TERMINATE messages and candidates, errors, timeouts),
+    `holepunch.md` (UPnP IGD, STUN, candidate lists with NAT port prediction, the 88-byte probes, the selected
+    pair, the end-to-end sequence), `rudp.md` (the reliable UDP carrying registration, session init and ctrl over
+    the punched path), PIN-less pairing through PSN (registration.md §8), and "Internet play" sections in
+    session, ctrl, takion, stream and rpcrypt. Vectors computed by an independent script from the text and, for
+    the byte layouts, confirmed by C harnesses over copies of the reference with every network call stubbed.
+    Riskiest without a real internet test: RUDP reliability for ctrl, the probes across real NATs, PSN's error
+    and notification behaviour.
+  - Scope decided by the user (2026-11-24): this PR ends with third_party/ and chiaki-ng gone, PSN play rebuilt
+    clean-room (not dropped), and PlayFX proprietary.
+  - ❌ Next: `PlayFXEngine` review and commit; discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
+    in PlayFXProtocol from the new spec, with a hardware round over the internet; the parity round in the app;
+    then removing chiaki-ng, third_party/ and libchiaki's C libraries, and the licence change.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
   exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,

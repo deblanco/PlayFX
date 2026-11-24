@@ -1,6 +1,6 @@
 # Control channel ("ctrl")
 
-Status: draft 1 (clean-room spec, facts only). LAN path over TCP. The PSN relay differences are in §10.
+Status: draft 1 (clean-room spec, facts only). LAN path over TCP. The internet (PSN) differences are in §10.
 
 The ctrl channel is a TCP connection to the console's port 9295. It is opened after a successful
 session init (`session.md` §4–§5) and stays open for the whole session. It starts with one HTTP-style
@@ -187,7 +187,7 @@ C→S means client to console. S→C means console to client. Names are this spe
 | `0x0025` | C→S | Keyboard close | 4 bytes, uint32: `0` accept (Return), `1` reject (Esc) |
 | `0x0030` | C→S | Microphone connect | 2 bytes `00 00` |
 | `0x0033` | S→C | Session ID | §6.2 |
-| `0x0034` | S→C | Switch-to-stream acknowledgement (PSN relay only) | empty |
+| `0x0034` | S→C | Switch-to-stream acknowledgement (internet play only, §10) | empty |
 | `0x0036` | C→S | Microphone state | 4 bytes `00 01 XX 59` (§6.6) |
 | `0x0050` | C→S | Go to bed (put the console into rest mode) | empty |
 | `0x00FE` | S→C | Heartbeat request | empty |
@@ -342,7 +342,7 @@ This is the same state that `RP-Prohibit: 1` (§3.2) reports at connect time.
 |---|---|
 | Console | Sends heartbeat requests at intervals (exact period unknown). Ends the session after about 30 s with no reply (observed). |
 | Client, LAN | Answers each request at once. Never sends heartbeats on its own. |
-| Client, PSN relay | Also sends an unrequested reply every 4.95 s once the first request has arrived (client choice, observed; see §10). |
+| Client, internet (RUDP) | Also sends an unrequested reply every 4.95 s once the first request has arrived (client choice, observed; see §10). |
 
 The client should keep answering heartbeats from the moment ctrl is up until the session ends,
 whatever the stream connection is doing.
@@ -398,23 +398,35 @@ Session-init refusal codes (`RP-Application-Reason`) and the suggested end-reaso
 
 ---
 
-## 10. PSN relay (RUDP) differences seen at ctrl
+## 10. Internet play (RUDP) differences
 
-Out of scope beyond this list. When ctrl runs over PSN's UDP relay instead of TCP:
+Over the internet, ctrl runs on the ctrl hole's RUDP channel (rudp.md), not on TCP. Everything in §1–§9
+holds, with these differences:
 
-- The same HTTP request and binary frames travel inside RUDP messages. `Host` carries the
-  hole-punched address and port.
+- **Transport.** An RUDP handshake, then the HTTP start request as one RUDP request and the response as one
+  RUDP data message (rudp.md §5, §6); the client acknowledges it, and from then on each binary frame
+  (§5) travels in its own RUDP data message, sent reliably by the client (rudp.md §7). Frames from the
+  console are taken from RUDP data messages (rudp.md §7.3) and fed into the frame stream of §5 in arrival
+  order. There's no TCP connection, so §2's connect and reset retries don't apply.
+- **`Host`** is the ctrl hole's selected console candidate, `<addr>:<port>` (holepunch.md §6), not `:9295`.
+- **Keys.** The session keys come from the registration through PSN that ran just before session init
+  (registration.md §8, session.md §11), so `RP-Auth` encrypts that registration's `RegistKey`.
 - **PS5:** after building the ctrl request, `localCounter` is advanced by one more without using that
   value. With the 5 header counters (0–4), the first binary message uses counter 6.
 - **Login PIN reply:** the payload is encrypted with counter value `localCounter − 1` (one less than
-  the next unused value), and `localCounter` still advances by one. This is observed client behaviour
-  that works over the relay. Why it works isn't known.
-- **Switch to stream connection:** the client sends an RUDP-level request, and the console
-  acknowledges with ctrl `0x0034` (empty) before the stream starts.
+  the next unused value), and `localCounter` still advances by one. On a PS5 the two rules combine: a PIN
+  reply sent as the first encrypted binary message uses counter 5 (the skipped value), and later messages
+  continue at 7. On PS4 10.0 the same rule would reuse counter 3 (`RP-StartBitrate`'s). This is observed
+  client behaviour that works on a PS5 over the internet; why the console expects it isn't known (§11).
+- **Switch to stream connection:** after the network probe the client sends the RUDP switch message
+  (rudp.md §8); the console answers with ctrl `0x0034` (empty), after which the stream connection starts.
+  The reference waits 5 s for it.
 - **Heartbeats:** besides answering requests, the client sends an unrequested heartbeat reply every
-  4950 ms once the first request has arrived. Replies can be lost on the relay. Client choice
-  (observed).
-- An RUDP "finish" message from the console ends ctrl.
+  4950 ms once the first request has arrived, because a reply can be lost after its RUDP retries run out.
+  Client choice (observed).
+- **End.** An RUDP FINISH from the console ends ctrl (and the session). The client has no RUDP-level close
+  (rudp.md §9).
+- **Frame size.** One frame per RUDP message, at most 4085 bytes of frame (rudp.md §7.1).
 
 ---
 
@@ -450,8 +462,11 @@ passcode):
 8. Whether the console accepts a session made with a client-made session ID (§6.2).
 9. Whether the stream-level reason after go-to-bed is always `Server shutting down`.
 10. Whether byte 0 of the session ID message is always its length.
-11. Why the PSN-relay PIN reply uses counter `localCounter − 1` (§10).
+11. Why the internet-play PIN reply uses counter `localCounter − 1` and why PS5 skips a counter after the
+    request (§10); whether PS4 over the internet needs the same.
 12. Whether `RP-StartBitrate` carries a meaningful non-zero value (byte order and units unknown).
+13. Whether the console retransmits ctrl frames over RUDP and how a client should treat duplicates
+    (rudp.md §7.3, §11).
 
 ---
 

@@ -1,7 +1,7 @@
 # Takion: the UDP transport (stream 9296, network probe 9297)
 
 Status: draft 1 (clean-room spec, facts only). LAN path. Takion over a PSN hole-punched socket uses the
-same packets; only how the socket is obtained differs (out of scope here).
+same packets; how that socket is obtained and what differs around it is §18.
 
 Takion is the datagram transport under the stream connection. It is an SCTP-like protocol (RFC 4960 was
 clearly its model: verification tags, a four-way INIT / INIT_ACK / COOKIE / COOKIE_ACK handshake, TSNs,
@@ -1207,6 +1207,29 @@ PS5 (system 14230000), PlayFX's own client, two connections per stream (the prob
   verifies.
 
 ---
+
+## 18. Internet play
+
+Over the internet both Takion connections (the network probe and the stream connection) run on the **data
+hole** (holepunch.md): one UDP socket, already `connect()`ed to the console address and port that hole
+punching selected. Nothing in the Takion packets changes. The differences are around them:
+
+| Item | LAN (§1.1) | Internet |
+|---|---|---|
+| Console port, probe | 9297 | the data hole's selected port |
+| Console port, stream | 9296 | the **same** port and socket as the probe |
+| Client socket | a new socket per connection | one socket for both; the probe's end does **not** close it; the stream connection closes it when it ends |
+| Before each Takion handshake | – | the client reads and discards whatever is queued on the socket (late hole-punch probes or packets of the previous connection): it waits up to 200 ms at a time, for at most 1 s (client choice, observed) |
+| Between probe and stream | – | the RUDP switch message on the ctrl hole and ctrl `0x0034` (rudp.md §8) |
+| Don't-Fragment, receive buffer, traffic class | as §10 / §14 | set on the data-hole socket the same way |
+
+- The client still sends INIT first (§4); the console's packets come from the selected address, which the
+  connected socket filters.
+- Liveness and shutdown are as §13. With NAT in the path a long gap in traffic could let a mapping expire;
+  during streaming there is constant traffic in both directions (AV, feedback, acks), and the stream
+  layer's heartbeat runs every second.
+- MTU: the probe measures the internet path as on the LAN; nothing is assumed about it (path MTUs below
+  1454, for example through PPPoE or VPNs, are found by the probe's MTU test, stream.md §5.5).
 
 ## Sources
 

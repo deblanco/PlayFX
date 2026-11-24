@@ -12,8 +12,9 @@ and uses for every later session and for wake (see "Pairing record").
 LAN registration has two steps: a UDP **search** that checks the console is listening, then one HTTP-style
 **request/response** over TCP whose bodies are encrypted with RP crypt ([rpcrypt.md](rpcrypt.md)).
 
-Internet (PSN) registration uses the same request and response bodies over a PSN-brokered reliable-UDP
-connection. That transport is out of scope here; differences in the body are noted where they occur.
+Internet (PSN) registration needs no PIN: it uses the same request and response over the reliable-UDP
+channel of an internet session ([rudp.md](rudp.md)), with a key made from values exchanged through PSN
+instead of the PIN. It is section 8.
 
 ## 1. Inputs
 
@@ -103,7 +104,7 @@ Content-Length: <body length, decimal>\r\n
 | `<path>` for `PS4-8`, `PS4-9` | `/sce/rp/regist` |
 | `HOST` header name | upper case, `HOST` |
 | `<host>` (LAN) | the literal placeholder `10.0.2.15`. It is not the console's or client's address; consoles accept it |
-| `<host>` (PSN) | the client's local IP address as text, as reported during PSN session setup |
+| `<host>` (PSN) | the client's LAN IPv4 address as text (section 8.3) |
 | `RP-Version` | present for `PS4-9` (`9.0`), `PS4-10` (`10.0`) and `PS5-1` (`1.0`); **absent** for `PS4-8` |
 
 Header order is as shown. The header ends with an empty line (`\r\n\r\n` overall). The body follows
@@ -276,6 +277,82 @@ then stopped" have different user-facing fixes.
 | Response body | 3000 ms more | client choice (observed) |
 | PIN lifetime | a few minutes on the console | console behaviour (observed by users, not measured) |
 
+## 8. Registration through PSN (no PIN)
+
+The same request and response as sections 3–5, sent over the internet path instead of TCP, with the PIN
+replaced by secrets exchanged through PSN. The result is a normal pairing record (section 5).
+
+### 8.1 When it happens
+
+- **At the start of every internet session** (the reference): right after the ctrl hole is punched
+  (holepunch.md §8, step 8), before session init. The session then uses the registration key and RP key
+  **this** registration returned for its session init and ctrl, not the stored ones.
+- **Register-only (PIN-less pairing):** the same steps, then the session is stopped (the PSN session left,
+  psn.md §8) and the keys are stored as a pairing. This is how PlayFX pairs without a code (`PSNPairing`).
+
+Requirements: a PSN session in which the console has joined and sent `customData1` (psn.md §6), and the ctrl
+hole (holepunch.md). Targets: only `PS4-10` and `PS5-1` (the reference: `PS5-1` for a PS5, `PS4-10` for a PS4).
+There is no search step (no `SRC2`/`SRC3`) and no TCP.
+
+### 8.2 What replaces the PIN
+
+| LAN (section 3, rpcrypt.md section 6.1) | PSN (rpcrypt.md section 7) |
+|---|---|
+| `K` = key table column XOR the PIN in bytes 12–15 | `K` = key table column XOR `E`, where `E` = RP-crypt encryption of `customData1` under the context {`K = data1`, `S = data2`, `H` of the target} at counter 0 |
+| masked seed with `m` = `0x29` / `0xd3` | masked seed with `m'` = `0xd7` (PS4-10) / `0x2b` (PS5-1), different formula (rpcrypt.md section 7) |
+| the user types the PIN shown on the console | `data1`, `data2`: 16 random bytes each that the client sent to the console through PSN's start command (psn.md §6.3); `customData1`: 16 bytes the console sent back through PSN (psn.md §6.5) |
+
+So the shared secret is bound to this PSN session: only a client that started the session (and so chose
+`data1`/`data2`) and saw the console's `customData1` can build the key. The account ID in the inner text must
+still be the console user's (`0x80108b02` otherwise, presumably as on the LAN).
+
+Everything else in the body is as section 3.2: `0x41` filler, the masked seed at `0x0c7`/`0x191`, the inner
+text `Client-Type: dabfa2ec…d34f\r\nNp-AccountId: <base64 account ID>\r\n` encrypted at counter 0; 587 bytes.
+
+### 8.3 Header
+
+As section 3.1, with `HOST:` set to the client's LAN IPv4 address: the `addr` of the `LOCAL` candidate of the
+client's ctrl-hole OFFER (holepunch.md §4.1), e.g. `HOST: 192.168.1.20`. No port.
+
+### 8.4 Transport
+
+Over the ctrl hole's RUDP channel (rudp.md §5, §6):
+
+1. RUDP handshake (INIT … COOKIE_ACK). The console's INIT_ACK is the reference's "console answered" signal
+   (it decides between "refused" and "never answered", stream.md §11.2 reasons 13 and 14).
+2. One request: the REQUEST wrapper plus one DATA message holding the **header and the body together**.
+3. One DATA message back holding the **whole** response, header and body (`Content-Length` bytes must all be
+   in it; the reference reads up to 1500 bytes).
+4. ACK, then the console's FINISH (rudp.md §6.3).
+
+### 8.5 Response
+
+As section 4: status 200 and a body decrypted with the same context at counter 0, or a non-200 status with
+`RP-Application-Reason`. The pairing record fields are the same as a PIN pairing's (section 5). The console's
+LAN address is not learned (PlayFX stores an empty address until the console is found on the home network).
+
+### 8.6 Timing (client choices, observed)
+
+| Step | Value |
+|---|---|
+| Whole registration, as waited for by the session | 10 s; a registration still running then is cancelled and the session ends as plainly stopped. A registration that fails before that ends the session as "refused" if the console had answered the RUDP handshake, "unanswered" otherwise |
+| Each RUDP step | 1 s per try, 3 tries (rudp.md §10) |
+| Whole PIN-less pairing as PlayFX runs it (PSN setup + registration) | 20–30 s; PlayFX gives up after 120 s |
+
+### 8.7 Vector [I]
+
+`PS5-1`, `HOST` `192.168.1.20`, the body `data/vectors/regist-body-psn-ps5-1.hex` (test-vectors.md section 4.2:
+`D1` = `10…1f` = psn.md's `data1`, `D2` = `20…2f` = `data2`, `CD` = `30…3f` = psn.md vector P3's
+`customData1`). Header (159 bytes):
+
+```
+POST /sie/ps5/rp/sess/rgst HTTP/1.1\r\n HTTP/1.1\r\nHOST: 192.168.1.20\r\nUser-Agent: remoteplay Windows\r\nConnection: close\r\nContent-Length: 587\r\nRP-Version: 1.0\r\n\r\n
+```
+
+Request = header + body = 746 bytes. With `localSeq` `0x1234` and `ack` `0x5679` the datagram starts
+`c00c244f244f2030 12345679 c2f4244f244f0230 1234 504f5354…` (DATA `lenField` `0xC000 | (8 + 2 + 746)`), 768 bytes
+in all.
+
 ## Observed on a real console
 
 From PlayFX's own hardware check (PS5, `system-version` 14230000, PS5-1 target, LAN, 2026-11-23):
@@ -300,4 +377,9 @@ From PlayFX's own hardware check (PS5, `system-version` 14230000, PS5-1 target, 
 3. Whether the console sends `RES2`/`RES3` with a trailing `0x00` (5 bytes) or 4 bytes is not recorded; compare
    only the first 4 bytes.
 4. The exact semantics of `RP-KeyType`, `RP-SupportCmd` and the `AP-*` fields are unknown.
-5. PSN registration transport (reliable UDP over a PSN-brokered connection) is not specified here.
+5. Registration through PSN (section 8) is unverified by PlayFX on its own code: does its registration key work for
+   sessions on the home network, and does the console return the same keys as a PIN pairing of the same account
+   (a repeated LAN pairing did, see "Observed on a real console")?
+6. Whether the console needs a registration through PSN before every internet session (the reference always
+   does one), or accepts session init with keys stored from an earlier pairing.
+7. The PSN-mode `PS4-10` path is untested on a console by PlayFX.
