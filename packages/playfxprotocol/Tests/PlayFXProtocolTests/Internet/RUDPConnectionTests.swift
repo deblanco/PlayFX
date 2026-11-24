@@ -63,7 +63,7 @@ final class FakeRUDPConsole: @unchecked Sendable {
         RUDPFraming.encode(type: type, data: RUDPFraming.be16(seq) + middle + frame)
     }
 
-    func nextSeq() -> UInt16 { consoleSeq.with { defer { $0 &+= 1 }; return $0 } }
+    func nextSeq() -> UInt16 { consoleSeq.with { seq in defer { seq &+= 1 }; return seq } }
 
     /// Notes a client `seq` and returns the cumulative ack: the next value in order that hasn't arrived.
     private func cumulativeAck(after seq: UInt16) -> UInt16 {

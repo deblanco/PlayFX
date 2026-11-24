@@ -1102,6 +1102,8 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   - ✅ Licence rule settled (2026-11-24, the owner): MPL-2.0 is allowed only as an unmodified dependency (the five
     crates Tauri brings in: cssparser, cssparser-macros, dtoa-short, selectors, option-ext); GPL/LGPL/AGPL and
     source-available licences stay out (CLAUDE.md).
+  - 🔶 First CI run without libchiaki (PR #7, 2026-11-24): failed to compile one test helper (`$0` inside a `defer` in a
+    closure, accepted by the local Swift, rejected by the runner's); fixed.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
