@@ -20,6 +20,15 @@ public final class StreamSession: StreamEngineSink {
         public var engine: String = "chiaki"
         public init() {}
 
+        /// Tests put an environment (`[String: String]`) in a decoder's `userInfo` under this key instead of the process's.
+        static let environmentKey = CodingUserInfoKey(rawValue: "playfx.environment")!
+
+        /// DEV ONLY, TEMPORARY (libchiaki is being removed): the engine for JSON that doesn't name one, from the
+        /// `PLAYFX_ENGINE` variable ("playfx" or "chiaki"; anything else, or unset, is "chiaki").
+        static func defaultEngine(environment: [String: String]) -> String {
+            environment["PLAYFX_ENGINE"] == "playfx" ? "playfx" : "chiaki"
+        }
+
         /// Missing keys keep their defaults, so older hosts' JSON still decodes.
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -31,7 +40,9 @@ public final class StreamSession: StreamEngineSink {
             audio = try c.decodeIfPresent(Bool.self, forKey: .audio) ?? d.audio
             autoDowngrade = try c.decodeIfPresent(Bool.self, forKey: .autoDowngrade) ?? d.autoDowngrade
             hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
-            engine = try c.decodeIfPresent(String.self, forKey: .engine) ?? d.engine
+            engine = try c.decodeIfPresent(String.self, forKey: .engine) ??
+                Self.defaultEngine(environment: decoder.userInfo[Self.environmentKey] as? [String: String]
+                                    ?? ProcessInfo.processInfo.environment)
         }
     }
 

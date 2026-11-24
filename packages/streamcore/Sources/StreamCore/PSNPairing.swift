@@ -194,3 +194,25 @@ public enum PSNPairingError: Error, LocalizedError {
     case cancelled
     public var errorDescription: String? { "Pairing cancelled." }
 }
+
+extension Console {
+    /// The credentials a libchiaki PSN registration reports (PIN pairing goes through PlayFXProtocol instead).
+    static func credentials(from registration: PsrpRegistration, address: String, ps5: Bool,
+                            accountId: String) -> ConsoleCredentials {
+        var out = registration
+        let registKey = withUnsafeBytes(of: out.regist_key) { Data($0) }
+        let rpKey = withUnsafeBytes(of: out.rp_key) { Data($0) }
+        let mac = withUnsafeBytes(of: out.mac) { $0.map { String(format: "%02x", $0) }.joined(separator: ":") }
+        return ConsoleCredentials(address: address, ps5: ps5, nickname: string(&out.nickname), mac: mac,
+                                  registKey: registKey.base64EncodedString(), rpKey: rpKey.base64EncodedString(),
+                                  accountId: accountId)
+    }
+
+    /// Reads a fixed-size C char array (imported as a tuple) as a String.
+    static func string<T>(_ tuple: inout T) -> String {
+        withUnsafeBytes(of: &tuple) { raw in
+            let bytes = raw.prefix(while: { $0 != 0 })
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+}

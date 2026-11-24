@@ -268,9 +268,22 @@ import Testing
     // MARK: Choosing the engine
 
     @Test func optionsDecodeTheEngineWithTheChiakiDefault() throws {
-        func decode(_ json: String) throws -> CoreSession.Options {
-            try JSONDecoder().decode(CoreSession.Options.self, from: Data(json.utf8))
+        func decode(_ json: String, environment: [String: String] = [:]) throws -> CoreSession.Options {
+            let decoder = JSONDecoder()
+            decoder.userInfo[CoreSession.Options.environmentKey] = environment
+            return try decoder.decode(CoreSession.Options.self, from: Data(json.utf8))
         }
+        // PLAYFX_ENGINE (dev only, temporary) is the default for JSON that doesn't name an engine.
+        #expect(try decode("{}", environment: ["PLAYFX_ENGINE": "playfx"]).engine == "playfx")
+        #expect(try decode(#"{"fps":30}"#, environment: ["PLAYFX_ENGINE": "playfx"]).engine == "playfx")
+        #expect(try decode("{}", environment: ["PLAYFX_ENGINE": "chiaki"]).engine == "chiaki")
+        #expect(try decode("{}", environment: ["PLAYFX_ENGINE": "nonsense"]).engine == "chiaki")
+        #expect(try decode(#"{"engine":"chiaki"}"#, environment: ["PLAYFX_ENGINE": "playfx"]).engine == "chiaki")
+        #expect(try decode(#"{"engine":"playfx"}"#, environment: ["PLAYFX_ENGINE": "chiaki"]).engine == "playfx")
+        #expect(CoreSession.Options.defaultEngine(environment: [:]) == "chiaki")
+        // Without an injected environment the process's is read; the choice is one of the two.
+        let real = try JSONDecoder().decode(CoreSession.Options.self, from: Data("{}".utf8))
+        #expect(real.engine == "chiaki" || real.engine == "playfx")
         #expect(CoreSession.Options().engine == "chiaki")
         #expect(try decode("{}").engine == "chiaki")
         #expect(try decode(#"{"height":720}"#).engine == "chiaki")   // an older host's JSON

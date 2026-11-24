@@ -122,7 +122,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 483 tests (91% lines; 89.5% as CI's VM sees
+- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 490 tests (91% lines; 89.8% as CI's VM sees
   it; 2026-11-24), PlayFXProtocol 574 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -971,6 +971,11 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     engine outside its lock), per-gate nesting, a nested stop's quit, microphone ordering. Not honoured: a PS5 may
     always lower the resolution (the spec has no "don't resize"). StreamCore 483 tests, 91% lines (89.5% in VM
     mode). Not yet run against a console.
+  - ✅ Discovery, wake and PIN pairing in the app on PlayFXProtocol (2026-11-24): `Console.swift` no longer uses
+    libchiaki; same public API, pairing failures now say which (wrong PIN, wrong account, busy, no answer).
+    `BridgeTests.discover` no longer broadcasts on the LAN (loopback responder). `PLAYFX_ENGINE=playfx` picks the
+    stream engine when the options don't (dev only, temporary). StreamCore 490 tests, 91% lines. Not yet on a
+    console through the app.
   - ❌ Next: discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
     in PlayFXProtocol from the new spec, with a hardware round over the internet; the parity round in the app;
     then removing chiaki-ng, third_party/ and libchiaki's C libraries, and the licence change.

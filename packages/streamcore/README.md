@@ -15,10 +15,19 @@ microphone capture, stats and event buffering.
 
 There are two engines: `ChiakiEngine` (`Sources/StreamCore/ChiakiEngine.swift`), over libchiaki through the C shim
 in `Sources/CChiaki`, the default; and `PlayFXEngine`, on PlayFX's own `packages/playfxprotocol` (below).
-`StreamSession.Options.engine` (`"chiaki"` by default, `"playfx"`; JSON without it decodes as `"chiaki"`) picks one in
+`StreamSession.Options.engine` (`"chiaki"` by default, `"playfx"`; JSON without it decodes as `"chiaki"`, unless `PLAYFX_ENGINE` is set, below) picks one in
 the public initialiser, and internet play (`remote`) always uses libchiaki. `StreamSession`'s internal initialiser
 takes a `StreamEngineFactory`, which is how tests run it on `FakeStreamEngine`
 (`Tests/StreamCoreTests/FakeStreamEngine.swift`) or on `PlayFXEngine` against a fake console.
+
+**`PLAYFX_ENGINE` (dev only, temporary).** When the options JSON doesn't name an engine, the environment variable
+`PLAYFX_ENGINE` (`playfx` or `chiaki`; anything else, or unset, is `chiaki`) chooses, so a dev build can be run on
+either engine without the app passing `engine`, e.g. `PLAYFX_ENGINE=playfx bun run desktop`. An `engine` in the JSON
+always wins, and `StreamSession.Options()` built in code keeps `"chiaki"`. The switch goes away with libchiaki.
+
+LAN discovery, wake-up and PIN pairing (`Console`) no longer go through libchiaki: they use PlayFXProtocol's
+`Discovery` and `Registration` whichever engine streams. Pairing through PSN (`PSNPairing`) and internet play still
+use libchiaki.
 
 ## PlayFX engine
 
