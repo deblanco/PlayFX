@@ -1140,6 +1140,17 @@ Times in µs. Wait after each step:
 
 ---
 
+## Observed on a real console (2026-11-24)
+
+PS5 (system 14230000), PlayFX's own client, two connections per stream (the probe and the stream):
+
+- The stream connection used Takion version 12; the probe connection version 9 was answered on a PS5 every time
+  (open question 13: v9 works; [12] still untried).
+- No packet failed the GMAC check and nothing was retransmitted in about 20,900 received packets over four
+  sessions; the `keyPos` rules of §6.6 as written were accepted by the console (open question 3: they work;
+  whether simpler ones would is still untested).
+- Both receive paths (a BSD socket thread and Network.framework) gave the same results on this LAN.
+
 ## 16. Open questions
 
 1. **Console initial TSN.** Whether the INIT_ACK initial-TSN field always equals `consoleTag`. Existing

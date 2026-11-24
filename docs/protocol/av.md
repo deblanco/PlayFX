@@ -610,6 +610,21 @@ packets, first frames of a stream), checked with this spec's own script:
 
 ---
 
+## Observed on a real console (2026-11-24)
+
+PS5 (system 14230000), home screen, by PlayFX's own client:
+
+- **Audio header:** 2 channels, 16 bit, 48000 Hz, frame size 480, unknown field 1 (open question 1: as expected).
+  About 100 audio packets per second, none lost.
+- **Video:** 720p60 H.264 (profile header 40 bytes), 1080p60 HEVC (92 bytes) and 1080p60 HEVC HDR (103 bytes).
+  Each stream had exactly one IDR, at the start, and no losses. The access units written out after the
+  §5 rewrite (Annex-B) decoded in ffmpeg with no errors: H.264 Main 1280×720; HEVC Main 1920×1080 BT.709;
+  HEVC Main 10 1920×1080, `yuv420p10le`, SMPTE 2084 transfer, BT.2020 primaries (open question 13, for these
+  three).
+- The `codec` byte of HEVC streams (open question 2) wasn't logged; still open.
+- The static home screen ran at about 0.14 Mbit/s, so no FEC unit was ever needed: recovery is still only
+  checked against recordings.
+
 ## 10. Open questions
 
 1. The audio header values real consoles send (expected 2 / 16 / 48000 / 480 / 1).

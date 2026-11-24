@@ -3,7 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **our own whole stream session in Swift, ready for its first console round**
+Last updated 2026-11-24, after **the first stream on our own protocol code, with no libchiaki**: on the user's
+PS5, `pfxp stream` ran 720p60 H.264, 1080p60 HEVC and HEVC HDR with nothing lost, on both receive transports,
+and the saved video decoded cleanly in ffmpeg. Before that, **our own whole stream session in Swift**
 (`PlayFXProtocol` milestone 3: `StreamSession` and `pfxp stream`, end to end over loopback against the real
 console's recording; 544 tests, 97.9% lines). Before that, **our own session start and control channel in Swift** (`PlayFXProtocol`
 milestone 2): on the user's PS5 a session opened, kept its heartbeats for 20 s and stopped cleanly, and go to
@@ -867,10 +869,22 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     MTU, a lock held across sends, answers sent after `connected` instead of before, and `pfxp` output files
     that could overwrite anything. One deliberate deviation: the microphone StreamInfo is only sent with the mic
     enabled (`--mic-info` compares both on the console). 544 tests, 97.9% lines (same with
-    `STREAMCORE_SIMULATE_VM=1` and serially). Not yet run against a console.
-  - ❌ Next: the first console round with `pfxp stream` (bsd vs nw, side by side with `psrp stream`, the open
-    questions in takion.md, stream.md and av.md), then a backend switch in StreamCore (libchiaki stays the
-    default until parity on the console), PSN hole-punching.
+    `STREAMCORE_SIMULATE_VM=1` and serially).
+  - ✅ First console round for the stream (2026-11-24, the user's PS5 on the LAN, woken from rest and put back
+    to rest by our own code): `psrp stream` (libchiaki) as the baseline, then four `pfxp stream` runs, 720p60
+    H.264 on the BSD socket thread and on Network.framework (30 s each), 1080p60 HEVC and 1080p60 HEVC HDR with
+    `--mic-info` (15 s each). Every run connected in 0.5–1.1 s, kept 60 fps with no frame or audio packet lost, no
+    GMAC failure or retransmission in about 20,900 packets, and ended cleanly; the saved video decoded in ffmpeg
+    with no errors (H.264 Main; HEVC Main BT.709; HEVC Main 10 PQ/BT.2020). Answered in the spec ("Observed"
+    sections of stream.md, av.md, takion.md): the console signs its HelloReply with the handshake key as
+    expected, ConnectionQuality's target bitrate is in bit/s, the audio header is 2/16/48000/480, the probe's
+    Takion v9 works on a PS5, and the console streams with or without the microphone StreamInfo. Probe RTT
+    0.9 ms (bsd) vs 1.1 ms (nw). **Not yet checked on hardware:** loss, FEC recovery, reorder and congestion
+    under load (the home screen runs at about 0.14 Mbit/s, so neither transport was stressed), controller input,
+    haptics, the HEVC codec byte, the pad-info form.
+  - ❌ Next: a stream with motion (a game running, input from a pad) to load FEC, reorder and both transports;
+    then a backend switch in StreamCore (libchiaki stays the default until parity on the console),
+    PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
   exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,
@@ -1345,5 +1359,6 @@ requests and a bug report.
    all three work); ~~milestone 2: session init and the ctrl channel~~ (done 2026-11-23, on the PS5: a session with
    heartbeats, a clean stop, go to bed); ~~milestone 3: the stream (Takion, the stream connection, audio and
    video, FEC, input) specified, then built, with the stream's receive path measured on Network.framework against a
-   BSD socket thread~~ (done 2026-11-24, `StreamSession` and `pfxp stream`, tested over loopback); next, its
-   hardware round: the first stream on the new code, with the user's go-ahead. *(P4)*
+   BSD socket thread~~ (done 2026-11-24, `StreamSession` and `pfxp stream`, tested over loopback); ~~its first
+   hardware round~~ (done 2026-11-24: H.264, HEVC and HDR streams on the PS5 with nothing lost, both transports);
+   next, a stream under load (a game, a pad) with the user's go-ahead, then the backend switch in StreamCore. *(P4)*

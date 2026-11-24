@@ -1064,10 +1064,29 @@ Not new captures; facts already recorded in `PLAN.md`:
 - The microphone path (§9.10) was exercised (capture, encode, send, the stream stays clean); hearing it on the
   console wasn't checked.
 
+## Observed on a real console (2026-11-24)
+
+PS5 (system 14230000) on the LAN, four streams by PlayFX's own client (720p60 H.264, 1080p60 HEVC, 1080p60 HEVC
+HDR, each 15–30 s; two receive transports), next to a reference-client stream with the same settings:
+
+- Each session reached `connected` 0.5–1.1 s after session init, ran for its full length with nothing lost,
+  and ended cleanly on the client's Disconnect.
+- **HelloReply:** `serverVersion` 12 with an empty version text; the console's signature equalled
+  HMAC-SHA256(`streamHandshakeKey`, console public key) in 4 of 4 sessions (open question 1).
+- The client's Hello split as in §2.3 was accepted every time (open question 11).
+- **ConnectionQuality `targetBitrate`** arrived about once a second as 9708000 for a request of 10000 kbit/s:
+  bits per second (open question 6). The reference client reported the same session's target as 9708 kbit/s.
+- **The microphone StreamInfo** (§6.7 step 3): the console streamed normally with and without it (no
+  microphone frames were sent in either case).
+- On the home screen, a light-bar colour (all zero), player index 0, a motion reset and one trigger-effect
+  message (mode 5 on both triggers) arrived right after StreamInfo; no rumble or haptics.
+- The probe (§5) succeeded every time: RTT 0.9–1.1 ms, MTU 1454 both ways on this LAN.
+
 ## 14. Open questions
 
 1. Whether the console's HelloReply signature is HMAC-SHA256(`streamHandshakeKey`, console public key), and
-   whether a client should reject a mismatch. Existing clients don't check it.
+   whether a client should reject a mismatch. Existing clients don't check it. *Observed: it is, on a PS5
+   (4 of 4 sessions); whether to reject a mismatch is still a client's choice.*
 2. Meaning of HelloReply `serverVersion`, `token` and `sessionKey`, and of Hello `encryptedKey` (always 4 zero
    bytes).
 3. Which channels the console uses for its messages, and whether it cares which channel the client uses.
@@ -1076,7 +1095,7 @@ Not new captures; facts already recorded in `PLAN.md`:
 5. Which launch-spec keys the console reads (only resolution, fps, bitrate, codec, range and the handshake key
    are known to matter), and whether `adaptiveStreamMode` works on PS4 (an existing client's note suggests
    maybe for newer PS4 versions).
-6. Unit of ConnectionQuality `targetBitrate` (kbit/s or bit/s) and `rtt`; the meaning of
+6. Unit of ConnectionQuality `targetBitrate` (kbit/s or bit/s; *observed: bit/s*) and `rtt`; the meaning of
    `disableUpstreamAudio`.
 7. Pad-info: when the 17-byte vs 25-byte form is sent; the unknown bytes; the time stamp's unit.
 8. Rumble byte 0 and trigger-effect bytes 0, 3 and 4.
