@@ -906,8 +906,15 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     wrapper left after a failed start, a flaky test). An implementer test accidentally made four refused
     session-init attempts to the console (in rest, nothing exchanged); it now runs pfxp only against 127.0.0.1.
     574 tests, 98% lines.
-  - ❌ Next: a heavier load (spin the camera, `rx=1`) with `--trace-input`; compare libchiaki under the same loss
-    (whether it also drops ≈100 ms per unrepairable frame, or a smarter HEVC recovery is worth it);
+  - ✅ Heavy load (2026-11-24, the camera spun at full right-stick deflection in GTA VI, 1080p60 HEVC asking
+    30 Mbit/s, the user's tip): libchiaki 21.6 Mbit/s, 58.8 fps, nothing lost; `pfxp` 21.9 (BSD) and 21.5 Mbit/s
+    (Network.framework), about 2,170 packets/s, at least 56 fps, nothing lost, video clean in ffmpeg; half
+    deflection 18.5 Mbit/s. With 5% loss in pairs the console's congestion control cut the bitrate to 10–12 Mbit/s
+    (49–53 fps average, 26–31 unrepairable frames, FEC rebuilt 698–735); with 1% single drops 20.6 Mbit/s, 58 fps,
+    4 unrepairable frames. `--trace-input` showed exactly the three intended states. After a lossy session the console
+    answered "busy" for 6–9 s (vs under 6 s): the app must retry a busy console with a backoff.
+  - ❌ Next: libchiaki under the same loss (psrp has no `--drop`: whether it also loses ≈100 ms per unrepairable
+    frame, or a smarter HEVC recovery is worth it), then milestone 4;
     then a backend switch in StreamCore (libchiaki stays the default until parity on the console),
     PSN hole-punching.
 

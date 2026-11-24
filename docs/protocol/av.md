@@ -628,6 +628,11 @@ PS5 (system 14230000), home screen, by PlayFX's own client:
   restore, and each was followed by about 6 frames dropped while waiting for the requested key frame (§4.3). The
   console answered with a key frame each time (31–38 key frames per 30 s, about 100 ms after the request). Audio
   lost nothing at that rate.
+- **Heavy load** (a third round: the game camera spun at full stick deflection, 1080p60 HEVC, 30 Mbit/s asked):
+  21.5–22 Mbit/s, about 2,170 datagrams/s, nothing lost on the LAN (half deflection: 18.5 Mbit/s). With the client
+  reporting losses (congestion reports, takion.md §8) from dropping 5% of datagrams in pairs, the console's actual
+  bitrate fell to 10–12 Mbit/s and the frame rate averaged 49–53; at 1% single drops it stayed at about 20.6 Mbit/s,
+  58 fps, with 4 unrepairable frames in 30 s.
 - The static home screen ran at about 0.14 Mbit/s, so no FEC unit was ever needed: recovery is still only
   checked against recordings.
 

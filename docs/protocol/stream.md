@@ -1083,6 +1083,9 @@ HDR, each 15–30 s; two receive transports), next to a reference-client stream 
 - The probe (§5) succeeded every time: RTT 0.9–1.1 ms, MTU 1454 both ways on this LAN.
 - Pad info arrived in the 17-byte form at the start of every session of a second round (open question 7).
 - Controller input (§9, feedback state and history) drove a game and the system UI: buttons, both sticks, PS.
+- After a session in which the client dropped received datagrams on purpose, the next session init was answered
+  "busy" (§11.2) 6 s after the client's Disconnect and accepted at 9 s; after loss-free sessions 6 s was always
+  enough. A client should retry a busy console for several seconds.
 
 ## 14. Open questions
 
