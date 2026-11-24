@@ -263,6 +263,27 @@ For every message in a received datagram (also the 2nd, 3rd … message):
   console retransmission would be processed twice and break the ctrl counters, ctrl.md §4). A new
   implementation should ignore a data message whose `seq` it has already taken (recommendation; the
   console's retransmission behaviour is unverified, §11).
+
+**What the reference assumes about the console's `seq` (answers to implementer questions):**
+
+- **Contiguity is never checked.** The reference never compares a console `seq` with an earlier one. The
+  `ack` it sends is always derived from the message just received (`seq + 1` of the datagram's first
+  message, §4.3), never from a running "next expected" value. So whether the console's data `seq`s continue
+  contiguously from COOKIE_ACK's `seq + 1` (and from the HTTP response's `seq + 1` into ctrl) is **not
+  established**; in the reference's design it doesn't matter. An implementation that wants to detect
+  duplicates or gaps must not rely on contiguity without a capture (§11).
+- **Duplicates: never.** No received message is ever treated as a duplicate, in the HTTP exchanges or in
+  ctrl. (In the HTTP exchanges a repeated response can't do harm: the reference reads one response per
+  request and moves on; a late copy arriving afterwards is read by the next step as an unexpected message,
+  which costs that step a try, §10.)
+- **Layouts of `0x12`, `0x26`, `0x36`:** nothing beyond the table above is known. In all three, data bytes
+  0–1 are taken as the console's `seq` and bytes 2–3 as its `ack`. For `0x12` the reference skips 4 more bytes
+  (frame at 8), for `0x26` 2 more (frame at 6). For `0x36` it reads the `ack` at 2–3 but then looks for the
+  frame at offset **2**, i.e. over the `ack` bytes; such a message passes the frame check only by accident,
+  so in practice the reference drops the ctrl content of `0x36` messages (it still acknowledges them). The
+  real offset for `0x36` is open (§11); by the pattern of the others it would be 10 (2 + 2 + 4 + 2), which is
+  a guess, not an observation. The HTTP exchange (§6.2) reads any of these from offset 2, which is right
+  only for `0x02`.
 - Receive errors (a datagram that can't be read or parsed) are skipped. The reference gives up on ctrl
   only when receiving has failed continuously for 10 s, retrying every 50 ms (client choice).
 
@@ -330,7 +351,8 @@ times out) is allowed by everything known about the console.
    not the reference's offset 2 for `0x36`. Only captures can settle the layout of `0x12`, `0x26` and `0x36`
    and what their extra bytes are.
 4. Whether the console retransmits unacknowledged data, after how long, and whether it ever reorders. The
-   reference processes every received data message once per arrival.
+   reference processes every received data message once per arrival. Also whether the console's data `seq`s
+   are contiguous across the handshake, the HTTP response and ctrl (the reference never checks, §7.3).
 5. Whether an HTTP response can be split over several DATA messages (the reference assumes not; real
    registration and session-init responses fit in one).
 6. Whether the console expects a fresh handshake before each exchange (the reference always does one) or

@@ -312,7 +312,9 @@ text `Client-Type: dabfa2ec…d34f\r\nNp-AccountId: <base64 account ID>\r\n` enc
 ### 8.3 Header
 
 As section 3.1, with `HOST:` set to the client's LAN IPv4 address: the `addr` of the `LOCAL` candidate of the
-client's ctrl-hole OFFER (holepunch.md §4.1), e.g. `HOST: 192.168.1.20`. No port.
+client's ctrl-hole OFFER (holepunch.md §4.1), e.g. `HOST: 192.168.1.20`. No port. When the client has no LAN
+address the reference sends the header with an empty value (`HOST: ` then CR LF); whether the console accepts
+that is unknown (holepunch.md §4.1, §10).
 
 ### 8.4 Transport
 

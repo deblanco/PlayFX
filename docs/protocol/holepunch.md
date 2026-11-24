@@ -28,7 +28,7 @@ session.md §11, ctrl.md §10, takion.md §18, stream.md §16. Conventions as in
 | `accountId` | integer | psn.md §6.1 | for `localPeerAddr` |
 | `localSid` | 16-bit | random, once per PSN session | the client's "sid" in every message of both holes |
 | `localHashedId` | 20 bytes | random (cryptographically secure), once per PSN session | sent base64 in each OFFER and raw in every probe packet |
-| `consoleSid`, `consoleHashedId` | 16-bit, 20 bytes | the console's OFFER for this hole | replaced by each new console OFFER |
+| `consoleSid`, `consoleHashedId` | 16-bit, 20 bytes | the console's OFFER for this hole | replaced by each new console OFFER; the reference keeps the low 16 bits of the console's JSON `sid` (psn.md §7.3) |
 
 Client choices (observed): `localSid` is the low 16 bits of a random 32-bit number; `localHashedId` is 20
 random bytes. Nothing is known to be derived from them (the name suggests a hash, but the reference sends
@@ -57,9 +57,25 @@ For each hole, before its OFFER is built:
 
 Client choice (observed). Done once per PSN session, before the session is created:
 
-- **Discovery:** SSDP search for an Internet Gateway Device (UPnP IGD, any version), waiting 2 s for answers
-  (multicast TTL 2), the whole discovery bounded to 7 s. Then the first valid, connected IGD is used, and
-  the client's LAN address towards it (the address the IGD was reached from) is noted as **`lanIp`**.
+- **Discovery:** SSDP M-SEARCH over IPv4 multicast, waiting 2 s for answers, multicast TTL 2, source port
+  chosen by the system; the whole discovery (including fetching and parsing the description documents) is
+  bounded to 7 s. The reference doesn't pick the search targets itself: it uses the miniupnpc library's
+  discovery with its default target list (a BSD-licensed library, nothing Sony-specific). Those defaults are,
+  as far as the spec writer knows but **not verified from the library's source here**:
+  `urn:schemas-upnp-org:device:InternetGatewayDevice:1`, then
+  `urn:schemas-upnp-org:service:WANIPConnection:1`, `urn:schemas-upnp-org:service:WANPPPConnection:1`,
+  `upnp:rootdevice`, stopping at the first target that gets answers. Any standard IGD discovery (IGD:1 and
+  IGD:2) serves the same purpose.
+- **Which gateway counts:** the first discovered device that the library classifies as "a valid IGD,
+  connected, with a routable external address". "Connected" is the library's test: the WAN connection
+  service's `GetStatusInfo` reports `NewConnectionStatus` = `Connected`; "routable" means
+  `GetExternalIPAddress` doesn't return a private or reserved address (so a router behind another NAT is
+  **not** used). A gateway that is found but fails either test is treated like no gateway (STUN is used).
+  The client's LAN address towards the chosen IGD (the local address of the connection that fetched its
+  description) is noted as **`lanIp`**.
+- **Several WAN services:** the reference uses the **first** `WANIPConnection:1` or `WANPPPConnection:1`
+  service in the IGD's description document (document order) for every action below; any other WAN
+  connection service is ignored.
 - **Mapping (per hole):** `AddPortMapping` on the IGD's WANIPConnection/WANPPPConnection service with
   `NewExternalPort = localPort`, `NewInternalPort = localPort`, `NewInternalClient = lanIp`,
   `NewProtocol = UDP`, `NewRemoteHost` empty, `NewLeaseDuration = 0` (no expiry), and a description
@@ -91,9 +107,31 @@ skipped unchecked. Wait 5 s for a response per server (client choice).
 
 1. First the list at `https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_hosts.txt`
    (a third-party list of public servers): up to the first 10 lines, each `host:port`.
-2. Then (or when that list can't be fetched) a built-in list: `stun.moonlight-stream.org:3478` first, then
-   `stun.l.google.com`, `stun1.l.google.com` … `stun4.l.google.com`, each on ports 19302 and 19305, in a
-   shuffled order (the shuffle keeps the first two entries in place).
+2. Then (or when that list can't be fetched) a built-in list of 11 entries, in this order before shuffling:
+
+   | # | Host | Port |
+   |---|---|---|
+   | 0 | `stun.moonlight-stream.org` | 3478 |
+   | 1 | `stun.l.google.com` | 19302 |
+   | 2 | `stun.l.google.com` | 19305 |
+   | 3 | `stun1.l.google.com` | 19302 |
+   | 4 | `stun1.l.google.com` | 19305 |
+   | 5 | `stun2.l.google.com` | 19302 |
+   | 6 | `stun2.l.google.com` | 19305 |
+   | 7 | `stun3.l.google.com` | 19302 |
+   | 8 | `stun3.l.google.com` | 19305 |
+   | 9 | `stun4.l.google.com` | 19302 |
+   | 10 | `stun4.l.google.com` | 19305 |
+
+   Before each use of the built-in list the reference shuffles it in place: for `i` from 10 down to 2, swap
+   entry `i` with entry `j = 1 + (random mod (i − 1))`, so `j` is in `1..i−1`. Only **entry 0** (the
+   Moonlight server) is guaranteed to stay first; entry 1 can move (at `i = 2` entries 1 and 2 always swap).
+   (Correction: an earlier draft said the first two stay in place.) The shuffled order persists in the
+   process and is shuffled again on the next use.
+
+The servers are tried one after the other until enough have answered (one for a single query; four for the
+prediction of §3.3), so with unresponsive servers this step can take a long time: up to 10 + 11 servers at
+5 s each in the worst case (client choice, observed).
 
 A client may use any working public STUN servers; the console never sees which.
 
@@ -113,7 +151,33 @@ flag, kept for the whole PSN session:
 | 2 | no | `inc = 0`, port `p2` |
 | 3 | all | `inc = p2 − p1`; if `p3 − p2 ≠ inc`: random-allocation (and if `inc` was 0, `inc = p3 − p2`); port `p3 + inc` |
 | 4 | all | port `p4`; `d1 = p2−p1`, `d2 = p3−p2`, `d3 = p4−p3`, each **mod 2^16** (a decreasing NAT gives a large positive step); all equal → `inc = d1`; `d1` equals `d2` or `d3` → `inc = d1`; `d2 = d3` → `inc = d2`; else random-allocation, `inc = d1` if non-zero, else `d2` |
-| 3 or 4 | mixed | `inc` from the answers that share an address (a span divided by its number of steps), `0` if none share one; port = the last answer's port (+ `inc` with 3 answers) |
+| 3 or 4 | mixed | see the exact rules below |
+
+Exact rules when the addresses differ (`=` compares the public addresses `a1…a4`; "÷" is integer division
+truncating towards zero; differences are ordinary signed integers here):
+
+| Answers | Addresses | `inc` | random-allocation |
+|---|---|---|---|
+| 3 | `a1 ≠ a2`, `a1 = a3` | `(p3 − p1) ÷ 2` | no |
+| 3 | `a1 ≠ a2`, `a2 = a3` | `p3 − p2` | no |
+| 3 | all three differ | `0` | no |
+| 3 | `a1 = a2 ≠ a3` | `p2 − p1` | no |
+| 4 | `a1 ≠ a2`, `a1 = a3 = a4` | `p4 − p3`; if `(p3 − p1) ÷ 2` differs: random (and if `inc` was 0, it takes that value) | maybe |
+| 4 | `a1 ≠ a2`, `a1 = a4 ≠ a3` | `(p4 − p1) ÷ 4` | no |
+| 4 | `a1 ≠ a2`, `a1 = a3 ≠ a4` | `(p3 − p1) ÷ 2` | no |
+| 4 | `a1` differs from all others, `a2 = a3 = a4` | `p4 − p3`; if `p3 − p2` differs: random (and if `inc` was 0, it takes that value) | maybe |
+| 4 | `a1` differs from all others, `a2 = a4 ≠ a3` | `(p4 − p1) ÷ 4` | no |
+| 4 | `a1` differs from all others, `a2 = a3 ≠ a4` | `(p3 − p1) ÷ 2` | no |
+| 4 | `a1`, `a2` each differ from all others, `a3 = a4` | `p3 − p4` (note the order) | no |
+| 4 | all four differ | `0` | no |
+| 4 | `a1 = a2`, `a3 ≠ a2`, `a4 = a2` | `p2 − p1`; if `(p4 − p2) ÷ 2` differs: random (and if `inc` was 0, it takes that value) | maybe |
+| 4 | `a1 = a2`, `a3 ≠ a2`, `a4 ≠ a2` | `p2 − p1` | no |
+| 4 | `a1 = a2 = a3 ≠ a4` | `p2 − p1`; if `p3 − p2` differs: random (and if `inc` was 0, it takes that value) | maybe |
+
+Several of these use an answer from a different address (`(p4 − p1) ÷ 4` spans three steps; `(p3 − p1) ÷ 2`
+when `a1` stands apart; the reversed `p3 − p4`). They are reproduced as observed, but they look unintended:
+the prediction is a client choice, and a client may use its own. The predicted port is `p3 + inc` with 3
+answers, `p4` with 4, and `p2 + 2·inc` with 2 (each kept as a 16-bit value).
 
 The public address used is the **last** answer's. For the **data hole** only one Binding Request is sent
 (one server); its answer is the base port, and `inc` and the random-allocation flag of the ctrl hole are
@@ -136,6 +200,14 @@ Candidate fields and their JSON encoding are in psn.md §7.4. Types used by the 
 
 `LOCAL`'s address is also the `HOST` value of the registration through PSN (registration.md §8.3) when
 this is the ctrl hole.
+
+**No LAN address.** Without UPnP, the reference takes the first interface (in the system's interface-list
+order) that is up, running, not loopback and has an IPv4 address; on macOS that can also be a VPN tunnel
+interface. If there is none, it does **not** fail: the lookup's error is ignored and the `LOCAL` candidate
+is sent with an **empty** `addr` (`"addr":""`), still with `port` = `localPort`; the registration's header
+then reads `HOST: ` with an empty value. Whether the console accepts that is unknown (§10). (With a
+public address from STUN but no LAN address the client is most likely directly on the internet; leaving the
+`LOCAL` candidate out, or using the public address, are untested alternatives.)
 
 ### 4.2 Which list is sent (client choice, observed)
 
@@ -161,9 +233,18 @@ above 65535 → `49152 + (port − 65536)`; below 1024 → `65535 − (1024 − 
 
 ### 4.4 Increment ports
 
-Each next port is the previous one plus `inc` (starting from `p`). Out of range: if the result is below
-1024 while the previous port was above 1024 → `65535 − (1024 − result)`; else below 1 → `+ 65535`; else
-above 65535 → `result − 65535 + 1024`. (These are the reference's rules, not a protocol requirement.)
+Each next port is the previous one plus `inc` (starting from `p`), computed as a **signed 32-bit integer,
+not modulo 2^16**. Out of range: if the result is below 1024 while the previous port was above 1024 →
+`65535 − (1024 − result)`; else below 1 → `+ 65535`; else above 65535 → `result − 65535 + 1024`. The result is
+then stored as a 16-bit port (any value still above 65535 loses its high bits). (These are the reference's
+rules, not a protocol requirement.)
+
+`inc` itself can be negative (signed differences in the 2- and 3-answer rules of §3.3), but with four answers
+from one address it is the 16-bit step of §3.3, so a NAT that **decreases** by 2 gives `inc = 65534`, not
+`−2`. The reference then computes, from `p = 40006`: `40006 + 65534 = 105540` → above 65535 →
+`105540 − 65535 + 1024 = 41029`, then `41029 + 65534 = 106563` → `42052`, and so on: it does not predict
+`40004, 40002, …`. A client that wants decreasing allocations predicted should treat steps above 32767 as
+negative (a client choice the reference doesn't make).
 
 ### 4.5 The other OFFER fields
 
@@ -255,8 +336,11 @@ For each datagram received on any hole socket during the checks:
 2. A datagram that isn't 88 bytes: ignored if it came from a derived candidate, otherwise the reference
    fails the hole (client choice; a more tolerant client may ignore it).
 3. Type `06000000` (a request from the console): answer it with a response (§5.1) **to its source**, from
-   the socket it arrived on. If that candidate hasn't answered yet and it is derived (or random allocation
-   is on), also send the client's request to it.
+   the socket it arrived on. Then, if the candidate is `DERIVED` (or random allocation is on, for any
+   candidate), also send the client's request to that source **from the same socket**. This happens for
+   **every** console request received from it, not once: the "hasn't answered yet" condition is always true
+   here, because the first valid response ends the checks (step 4). In addition, a derived candidate is part
+   of every later resend of step 3 of §5.3, which goes out from the main socket only.
 4. Type `07000000` with the right request ID: this candidate and this socket are **selected**. Stop the
    checks, `connect()` the socket to the candidate's address and port, close every other socket of this
    hole.
@@ -391,6 +475,9 @@ Notes:
 7. How long the console keeps the holes' NAT mappings alive without traffic (ctrl heartbeats every ~5 s keep
    the ctrl hole busy; the data hole idles between the probe and the stream connection).
 8. Whether `localHashedId` is meant to be a hash of something (account, device) rather than random.
+9. Whether the console accepts a `LOCAL` candidate with an empty address, and a registration with an empty
+   `HOST` (§4.1).
+10. Which SSDP search targets the official client uses (the reference relies on a library's defaults, §3.1).
 
 ---
 

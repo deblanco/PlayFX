@@ -595,6 +595,12 @@ Existing clients' presets (client choice, observed):
   - PS4 or PS4 Pro (0, 1) → H.264.
 - "Auto-downgrade" has no other effect in existing clients. Resolution changes **during** a PS5 stream come
   from `adaptiveStreamMode` "resize", which is always requested on PS5 (§8.1).
+- **No "don't resize" value is known.** On a PS5 the reference always sends `"adaptiveStreamMode": "resize"`;
+  it has no other value and never omits the key for a PS5 (it omits it only for PS4 targets). Turning
+  auto-downgrade off changes nothing in the launch spec: the setting only gates the client-side base-PS4
+  1080p → 720p step above, before the spec is built. Whether the console accepts another value, or the key's
+  absence on a PS5, and what it would then do, is unknown (§14 question 5). An implementation that omits the
+  key or sends another value on a PS5 is outside what the reference has exercised.
 
 ### 7.3 Encoding
 
@@ -1099,7 +1105,8 @@ HDR, each 15–30 s; two receive transports), next to a reference-client stream 
    client's stop.
 5. Which launch-spec keys the console reads (only resolution, fps, bitrate, codec, range and the handshake key
    are known to matter), and whether `adaptiveStreamMode` works on PS4 (an existing client's note suggests
-   maybe for newer PS4 versions).
+   maybe for newer PS4 versions). Whether a PS5 accepts any `adaptiveStreamMode` other than `"resize"`, or its
+   absence, and whether that stops in-stream resolution changes (§7.2).
 6. Unit of ConnectionQuality `targetBitrate` (kbit/s or bit/s; *observed: bit/s*) and `rtt`; the meaning of
    `disableUpstreamAudio`.
 7. Pad-info: when the 17-byte vs 25-byte form is sent (*observed: 17-byte at session start on a PS5*); the unknown bytes; the time stamp's unit.

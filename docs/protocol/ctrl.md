@@ -267,6 +267,15 @@ The console can ask the client for text when a text field is focused.
 - **Warning (observed by PlayFX):** sending these to a PS5 makes it end the stream at once, with the
   stream-level reason `Server shutting down`. Existing clients leave the keyboard disabled. The right
   handshake isn't known (§11).
+- **What the reference does on a PS5 (answer to an implementer question):** nothing that makes keyboard
+  events work. Its application always starts sessions with the keyboard switched off, so it never sends
+  `0x000D` or `0x0020` at all (to any console). When the switch is on, the two messages are sent once, in
+  the start-up feature set right after the session ID, after the DualSense messages and before the mic
+  messages (§8), with no other keyboard message and no condition on the console type. The reference has no
+  other way to subscribe to keyboard events. It does decode `0x0021`, `0x0022` and `0x0024` whenever they
+  arrive, and answers only on the user's action (`0x0023` set text, `0x0025` accept/reject). Whether a PS5
+  sends `0x0021` without any enabling message is not recorded. So the reference offers no recipe for a
+  working PS5 keyboard; an implementation should leave it off on a PS5, or treat it as experimental.
 
 **Keyboard opened, `0x0021` (S→C):**
 
@@ -452,7 +461,8 @@ passcode):
    malformed? Existing clients advance `remoteCounter` only when it decodes to 16 bytes.
 2. How often the console sends heartbeat requests (5 s on one PS5, see "Observed on a real console"), and the
    exact timeout (about 30 s is recorded).
-3. The correct keyboard-enable handshake for PS5 (§6.5). The known one ends the stream.
+3. The correct keyboard-enable handshake for PS5 (§6.5). The known one ends the stream, and the reference has
+   no other; whether a PS5 sends keyboard-opened (`0x0021`) without being enabled is unknown.
 4. ~~Which `XX` value in `0x0036` means muted.~~ Answered while writing stream.md: in the reference client `XX`
    = `01` means the mic is on (unmuted), `00` off. Not yet seen on a console.
 5. What display notices `0x0001` and `0x0016` mean, and their full payloads.

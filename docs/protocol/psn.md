@@ -39,6 +39,13 @@ are made up.
   doesn't read error bodies (§9). The device list must answer exactly 200; elsewhere any status below 400
   counts as success (and a body that isn't the expected JSON then fails the step).
 - Each request has its own timeout (§10).
+- **Byte-exact JSON.** The reference writes every request body as text from fixed templates, not with a JSON
+  library. Values are inserted as they are: base64 values keep `/` and `+` unescaped (never `\/`), and
+  nothing else is escaped. The only escaping is the `\"` of a JSON text nested inside a string
+  (`initialParams` in §6.3, the message in §7.1's `payload`). No whitespace is added except where a
+  template shows it (`"roomId": 0` in §6.4, `"adaptiveStreamMode": "resize"` is the launch spec's, not
+  PSN's). The vectors of §12 are byte-exact under these rules. Whether PSN would also accept other valid
+  JSON spellings (`\/`, other key orders, spaces) is unknown (§11).
 
 ---
 
@@ -196,6 +203,15 @@ Each text or binary frame carries one JSON object. The client dispatches on `dat
 | `psn:sessionManager:sys:rps:members:deleted` | a member left | – |
 | `psn:sessionManager:sys:remotePlaySession:deleted` | the session ended | `/body/data/sessionId` (string) |
 
+**Which `members:created` is which (client choice, observed).** The reference never reads the content of
+the client's own `members:created`: during the create step (§6.1) it takes the first `members:created` to
+arrive as "the client joined", whatever it says. What PSN puts in the client's own notification (its device
+ID, `"me"`, or something else) is not recorded (§11). The console's is the first `members:created` the
+reference takes **after** the create step, i.e. after the start command; it must carry the console's DUID at
+`/body/data/members/0/deviceUniqueId`, and a different value fails the start (PS5) instead of being skipped.
+A sturdier rule, compatible with everything known: treat a `members:created` as the console's only when that
+field equals the console's DUID, and ignore any other.
+
 Other `dataType` values are ignored. Frames that aren't JSON are ignored. Notifications can arrive before
 the step that wants them is reached (for example the console's first OFFER during the start step): the
 reference keeps every notification in arrival order and each step takes the first one of the type it waits
@@ -255,7 +271,9 @@ Authorization: Bearer <token>
 X-PSN-SESSION-MANAGER-SESSION-IDS: <sessionId>
 ```
 
-Nothing in the answer is used. A client may skip it.
+Nothing in the answer is used. A client may skip it. `X-PSN-SESSION-MANAGER-SESSION-IDS` is sent on these
+inspect requests **only**; the reference builds the header from the create response (§6.1) but no other
+request carries it (not the start command, session messages or the DELETE).
 
 ### 6.3 Start (PS5): ask the console to join
 
@@ -364,8 +382,16 @@ Exactly this key order, as the reference writes it:
 | `localPeerAddr` | object `{"accountId":"<decimal>","platform":"<p>"}`; may be **missing its value** in console messages (§7.5) | `{"accountId":"<accountId>","platform":"REMOTE_PLAY"}` | same |
 | `localHashedId` | string, base64 of 20 bytes, or `""` | base64 of `localHashedId` | `""` |
 
-`platform` in `localPeerAddr` is `REMOTE_PLAY` for the client; the reference's notes say `PROSPERO` for a
-PS5 and `ORBIS` for a PS4.
+`platform` in `localPeerAddr` is `REMOTE_PLAY` for the client, for a PS4 as for a PS5. The reference's notes
+say a PS5 puts `PROSPERO` there and a PS4 `ORBIS`; the client never sends either value and never reads the
+console's `localPeerAddr`. The only per-console platform value the client sends is the envelope's
+`to[].platform` (`PS4` or `PS5`, §7.1) and the start command's `platform` (§6.3).
+
+**`sid` width.** The client's own `sid` is 16-bit (0–65535). The console's `sid` arrives as a JSON integer;
+the reference keeps only its **low 16 bits** (for `peerSid` and in the probe packets, holepunch.md §5.1),
+and parses it as a signed 32-bit integer. Every value seen in the reference's development fitted in 16 bits
+(the probe packets have 16-bit fields for it), but no statement that the console's `sid` is always below
+65536 exists (§11).
 
 ### 7.4 Candidate
 
@@ -416,6 +442,15 @@ Rules (client choice, observed):
   otherwise ignored, from the moment the hole's first OFFER is in until that hole is established, and for
   the rest of the session once the data hole's OFFER is in.
 - Each wait is up to 30 s.
+
+### 7.7 Aborting
+
+The reference **never sends `TERMINATE`** (nor any other session message) to abort. To give up on a hole, or
+on the whole setup, it stops waiting, closes its sockets and leaves the PSN session with the DELETE of §8
+(sent only if the push WebSocket is still open, §5.3). Its message writer can spell `"action":"TERMINATE"`
+with the same full `connRequest` form as an OFFER, but no code path uses it, so what a client `TERMINATE`
+should contain (and whether the console reacts to one) is unknown (§11). A console `TERMINATE` received while
+waiting ends the client's setup ("canceled", §7.6).
 
 ---
 
@@ -484,6 +519,11 @@ The exact HTTP status codes and error bodies PSN returns are not recorded in the
 7. How long PSN keeps an abandoned session (one whose client vanished without the DELETE), and whether
    that blocks the next one.
 8. Whether the console checks `localPeerAddr` or `defaultRouteMacAddr` in the client's messages.
+9. What PSN puts in the client's own `members:created` (§5.4).
+10. Whether the console's `sid` can exceed 16 bits (§7.3).
+11. The form and effect of a client-sent `TERMINATE` (§7.7); the reference never sends one.
+12. Whether PSN accepts JSON spelled differently from the reference's templates (escaped `\/`, spaces, other
+    key orders) (§1).
 
 ---
 
@@ -504,8 +544,10 @@ reference's PSN code with the HTTP library replaced by a stub that printed each 
 ```
 
 The stubbed reply `{"remotePlaySessions":[{"sessionId":"2b5e4c0a-1d3f-4e6a-9b7c-0d1e2f3a4b5c","members":[{"accountId":"1234567890123456789",…}]}]}`
-gave `sessionId` as above, `accountId` 1234567890123456789 (from a string) and the header
-`X-PSN-SESSION-MANAGER-SESSION-IDS: 2b5e4c0a-1d3f-4e6a-9b7c-0d1e2f3a4b5c` [C].
+gave `sessionId` as above and `accountId` 1234567890123456789 (from a string) [C]. From then on the
+reference holds the header line `X-PSN-SESSION-MANAGER-SESSION-IDS: 2b5e4c0a-1d3f-4e6a-9b7c-0d1e2f3a4b5c`
+for the inspect requests of §6.2 (the create request itself doesn't carry it; its headers are only
+`Authorization` and `Content-Type`) [C].
 
 ### P2. Start command body (PS5) [I][C]
 
