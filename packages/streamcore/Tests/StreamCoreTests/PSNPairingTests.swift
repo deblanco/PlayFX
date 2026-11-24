@@ -11,7 +11,10 @@ import Testing
                                             registKey: "AAAAAAAAAAAAAAAAAAAAAA==", rpKey: "AAAAAAAAAAAAAAAAAAAAAA==",
                                             accountId: "AQEBAQEBAQE=")
 
-    /// A session that reports `reports` from another thread, as libchiaki does, and records its stop.
+    /// A session that reports `reports` from a thread of its own, as libchiaki does, and records its stop. Not
+    /// from `DispatchQueue.global()`: `run` blocks a test thread for up to its timeout, and in a full parallel run
+    /// the CPU-bound suites keep GCD's pool of default-QoS workers full, so a block queued there could wait longer
+    /// than that (seen: 6 s).
     private final class FakeSession: @unchecked Sendable {
         let reports: [PSNPairing.Report]
         let started = OSAllocatedUnfairLock<PSNPairing.Request?>(initialState: nil)
@@ -21,7 +24,7 @@ import Testing
         func start(_ request: PSNPairing.Request, _ report: @escaping @Sendable (PSNPairing.Report) -> Void) -> () -> Void {
             started.withLock { $0 = request }
             let reports = reports
-            DispatchQueue.global().async { reports.forEach(report) }
+            Thread { reports.forEach(report) }.start()
             return { self.stops.withLock { $0 += 1 } }
         }
     }
@@ -92,7 +95,10 @@ import Testing
     @Test func cancelStopsIt() throws {
         let session = FakeSession([.progress(.linking)]) // never finishes on its own
         let p = pairing(session)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { p.cancel() }
+        Thread { // not on GCD's pool, for the same reason as FakeSession's reports
+            Thread.sleep(forTimeInterval: 0.05)
+            p.cancel()
+        }.start()
         #expect(throws: PSNPairingError.cancelled) { try p.run { _ in } }
         #expect(session.stops.withLock { $0 } == 1)
         #expect(PSNPairingError.cancelled.localizedDescription == "Pairing cancelled.")

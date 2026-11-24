@@ -51,9 +51,11 @@ import Testing
 
     @Test func statsTakeEachReorderField() {
         var stats = StreamSession.Stats()
-        stats.setReorder(PsrpReorderStats(wait_us: 7500, holes_filled: 1, late_packets: 2, holes_lost: 3, queue_full_skips: 4))
+        let reorder = PsrpReorderStats(wait_us: 7500, holes_filled: 1, late_packets: 2, holes_lost: 3, queue_full_skips: 4)
+        stats.setEngine(ChiakiEngine.stats(rttMicros: 1500, targetBitrate: 15_000_999, reorder: reorder))
         #expect(stats.reorderWaitMs == 7.5 && stats.reorderHolesFilled == 1 && stats.reorderLatePackets == 2
             && stats.reorderHolesLost == 3 && stats.reorderQueueFull == 4)
+        #expect(stats.rttMs == 1.5 && stats.targetBitrateKbps == 15_000)
     }
 }
 

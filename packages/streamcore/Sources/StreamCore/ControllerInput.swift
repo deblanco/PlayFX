@@ -40,32 +40,6 @@ public struct ControllerState: Equatable, Sendable {
         }
     }
 
-    /// The C shim's form of this state.
-    var psrp: PsrpControllerState {
-        var c = PsrpControllerState()
-        c.buttons = buttons
-        c.l2 = l2
-        c.r2 = r2
-        c.left_x = leftX
-        c.left_y = leftY
-        c.right_x = rightX
-        c.right_y = rightY
-        func touch(_ i: Int) -> PsrpTouch {
-            guard i < touches.count else { return PsrpTouch(id: -1, x: 0, y: 0) }
-            let t = touches[i]
-            func scale(_ v: Float, _ max: Int32) -> UInt16 { UInt16((min(1, Swift.max(0, v)) * Float(max)).rounded()) }
-            return PsrpTouch(id: Int8(t.id & 0x7F), x: scale(t.x, PSRP_TOUCHPAD_WIDTH), y: scale(t.y, PSRP_TOUCHPAD_HEIGHT))
-        }
-        c.touches = (touch(0), touch(1))
-        if let motion {
-            c.motion = true
-            (c.gyro_x, c.gyro_y, c.gyro_z) = (motion.gyro.x, motion.gyro.y, motion.gyro.z)
-            (c.accel_x, c.accel_y, c.accel_z) = (motion.accel.x, motion.accel.y, motion.accel.z)
-            c.motion_timestamp_us = motion.timestampMicros
-        }
-        return c
-    }
-
     public static let buttonNames: [String: UInt32] = [
         "cross": UInt32(PSRP_BTN_CROSS.rawValue), "circle": UInt32(PSRP_BTN_CIRCLE.rawValue),
         "square": UInt32(PSRP_BTN_SQUARE.rawValue), "triangle": UInt32(PSRP_BTN_TRIANGLE.rawValue),

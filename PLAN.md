@@ -3,7 +3,10 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **the first stream on our own protocol code, with no libchiaki**: on the user's
+Last updated 2026-11-24, after **the StreamCore engine seam**: `StreamSession` now drives the protocol through a
+small Swift interface (`StreamEngine` / `StreamEngineSink`), with libchiaki as its only engine and behaviour
+unchanged, so `PlayFXEngine` can be written against that contract alone (Swift 428 tests, 90.4% lines; 88.8% as CI's
+VM sees it). Before that, **the first stream on our own protocol code, with no libchiaki**: on the user's
 PS5, `pfxp stream` ran 720p60 H.264, 1080p60 HEVC and HEVC HDR with nothing lost, on both receive transports,
 and the saved video decoded cleanly in ffmpeg. Before that, **our own whole stream session in Swift**
 (`PlayFXProtocol` milestone 3: `StreamSession` and `pfxp stream`, end to end over loopback against the real
@@ -117,8 +120,8 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), PlayFXProtocol 574 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 428 tests (90% lines; 89% as CI's VM sees
+  it; 2026-11-24), PlayFXProtocol 574 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -916,10 +919,34 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     (49–53 fps average, 26–31 unrepairable frames, FEC rebuilt 698–735); with 1% single drops 20.6 Mbit/s, 58 fps,
     4 unrepairable frames. `--trace-input` showed exactly the three intended states. After a lossy session the console
     answered "busy" for 6–9 s (vs under 6 s): the app must retry a busy console with a backoff.
-  - ❌ Next: libchiaki under the same loss (psrp has no `--drop`: whether it also loses ≈100 ms per unrepairable
-    frame, or a smarter HEVC recovery is worth it), then milestone 4;
-    then a backend switch in StreamCore (libchiaki stays the default until parity on the console),
-    PSN hole-punching.
+  - ✅ StreamCore engine seam (2026-11-24, milestone 4's first step): `StreamSession` no longer calls the C shim.
+    `Sources/StreamCore/StreamEngine.swift` (pure Swift) declares `StreamEngine` (controller state, login PIN,
+    microphone on/off and 10 ms frames, keyboard text/done, key frame, go to bed, stats, `stop()` with its "no sink
+    call after it returns" guarantee), `StreamEngineSink` (video access units → accepted or not, audio format and
+    PCM, haptics PCM → played on a USB pad or left for the engine to turn into `.hapticRumble`, trigger effects,
+    events), `StreamEngineConfig`/`StreamEngineStats` and the `StreamEngineFactory` StreamSession's internal
+    initialiser takes; its doc comments are the whole contract (formats, units, threads, lifetimes, which ending
+    is which `QuitKind`, when `.connected` comes). Every `psrp_session_*` call, the callbacks, the shim's event
+    codes and its controller/stats structs moved to `ChiakiEngine.swift`; StreamSession keeps the decoder, audio,
+    USB haptics, the pointer merge, microphone capture, stats and event buffering, and its public API is
+    unchanged (the app and `psrp` build as before). Tests: the existing ones unchanged in meaning, plus
+    StreamSession on `FakeStreamEngine` (a reusable test stand-in): the config it builds and the codec it asks
+    for, an engine that can't start, events in order (buffered before a handler), video and the engine's stats in
+    `stats`, haptics played on a stand-in USB pad or handed back, the pointer merged into what reaches the
+    engine, every command, stop once with nothing crossing after it, release stopping the engine; libchiaki's
+    engine stopping twice and ignoring commands after stop; the contract's numbers (key sizes, button bits, mic
+    and haptics formats) checked against the shim. 428 tests (+15), 90.4% lines / 88.3% functions (88.8% / 86.9%
+    with `STREAMCORE_SIMULATE_VM=1`). Not run against a console (no behaviour change intended). Fixed on the way:
+    four PSNPairing tests timed out (5 s) in busy parallel runs, before this change too. Their stand-in session
+    reported from `DispatchQueue.global()` while `run` blocked a cooperative thread, and the CPU-bound suites kept
+    GCD's default-QoS workers busy (seen in a `sample`), so the reports waited past the timeout. It now reports
+    from its own thread, as libchiaki does; 4 runs under 12 CPU burners didn't fail them (2 of 3 did before).
+    BridgeTests' `discover()` fails while the user's PS5 rests on the LAN: it answers the broadcast and the
+    unicast discovery to TEST-NET reports it (left as it is, same on main).
+  - ❌ Next: `PlayFXEngine`, a second `StreamEngine` over PlayFXProtocol, written clean-room against
+    StreamEngine.swift (libchiaki stays the default until parity on the console); libchiaki under the same loss
+    (psrp has no `--drop`: whether it also loses ≈100 ms per unrepairable frame, or a smarter HEVC recovery is
+    worth it); PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
   exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,
@@ -1397,4 +1424,5 @@ requests and a bug report.
    BSD socket thread~~ (done 2026-11-24, `StreamSession` and `pfxp stream`, tested over loopback); ~~its first
    hardware round~~ (done 2026-11-24: H.264, HEVC and HDR streams on the PS5 with nothing lost, both transports);
    ~~a stream under load (a game, a pad)~~ (done 2026-11-24: in GTA VI with our own input and 5% simulated loss, FEC
-   working); next, the backend switch in StreamCore (milestone 4). *(P4)*
+   working); ~~the engine seam in StreamCore: libchiaki behind `StreamEngine`~~ (done 2026-11-24, unit tests, behaviour
+   unchanged); next, `PlayFXEngine` on that seam, then the backend switch (milestone 4). *(P4)*

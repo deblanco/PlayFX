@@ -1,11 +1,10 @@
-import CChiaki
 import CoreVideo
 import Foundation
 import os
 
-/// One Remote Play streaming session: libchiaki protocol → VideoToolbox decode → frames,
-/// Opus → AudioPlayer, ControllerState → console.
-public final class StreamSession {
+/// One Remote Play streaming session: the protocol engine (`StreamEngine`, libchiaki for now) → VideoToolbox
+/// decode → frames, PCM → AudioPlayer, ControllerState → console.
+public final class StreamSession: StreamEngineSink {
     public struct Options: Codable, Sendable {
         public var height: Int = 1080   // 360, 540, 720, 1080
         public var fps: Int = 60        // 30, 60
@@ -114,17 +113,20 @@ public final class StreamSession {
         public var reorderHolesLost = 0
         public var reorderQueueFull = 0
 
-        /// Takes the reorder wait's fields from libchiaki's (the wait in µs, as ms).
-        mutating func setReorder(_ reorder: PsrpReorderStats) {
-            reorderWaitMs = Double(reorder.wait_us) / 1000
-            reorderHolesFilled = Int(reorder.holes_filled)
-            reorderLatePackets = Int(reorder.late_packets)
-            reorderHolesLost = Int(reorder.holes_lost)
-            reorderQueueFull = Int(reorder.queue_full_skips)
+        /// Takes the engine's figures: the round trip and the reorder wait in µs as ms, the target bitrate in
+        /// bit/s as kbps.
+        mutating func setEngine(_ engine: StreamEngineStats) {
+            rttMs = Double(engine.rttMicros) / 1000
+            targetBitrateKbps = engine.targetBitrate / 1000
+            reorderWaitMs = Double(engine.reorder.waitMicros) / 1000
+            reorderHolesFilled = engine.reorder.holesFilled
+            reorderLatePackets = engine.reorder.latePackets
+            reorderHolesLost = engine.reorder.holesLost
+            reorderQueueFull = engine.reorder.queueFullSkips
         }
     }
 
-    /// Called from libchiaki's threads.
+    /// Called from the engine's threads.
     /// Events that arrive before it's set (a session can report progress, or fail, right as it starts)
     /// are kept and delivered when it is.
     public var onEvent: ((Event) -> Void)? {
@@ -159,7 +161,7 @@ public final class StreamSession {
     }
     /// Called from the video thread with every decoded frame.
     /// Each decoded frame with its place in the stream (counting frames lost on the way), for pacing.
-    /// Set on the main thread after libchiaki has started (its video thread reads it): behind a lock, boxed
+    /// Set on the main thread after the engine has started (its video thread reads it): behind a lock, boxed
     /// like `onEvent`'s handler.
     public var onFrame: ((CVPixelBuffer, UInt64?) -> Void)? {
         get { frameHandler.withLock { $0?.call } }
@@ -186,13 +188,7 @@ public final class StreamSession {
 
     public var stats: Stats {
         var s = lock.withLock { _stats }
-        withHandle { handle in
-            s.rttMs = Double(psrp_session_rtt_us(handle)) / 1000
-            s.targetBitrateKbps = Int(psrp_session_target_bitrate(handle) / 1000)
-            var reorder = PsrpReorderStats()
-            psrp_session_reorder_stats(handle, &reorder)
-            s.setReorder(reorder)
-        }
+        withEngine { s.setEngine($0.stats()) }
         s.decodeMs = decoder.decodeMilliseconds
         return s
     }
@@ -205,16 +201,16 @@ public final class StreamSession {
     /// Waits for the frames VideoToolbox is still decoding (tests).
     func waitForDecodedFrames() { decoder.flush() }
 
-    private var handle: OpaquePointer?
-    /// Held while the handle is used, and by `stop()` while it frees it: callers off the main thread (the
+    private var engine: (any StreamEngine)?
+    /// Held while the engine is used, and by `stop()` while it stops it: callers off the main thread (the
     /// latency test's presses, a stats poll) can't use a session being stopped.
-    private let handleLock = NSRecursiveLock()
+    private let engineLock = NSRecursiveLock()
 
-    /// Runs `body` with the session's handle unless it was stopped.
-    private func withHandle(_ body: (OpaquePointer) -> Void) {
-        handleLock.lock()
-        defer { handleLock.unlock() }
-        if let handle { body(handle) }
+    /// Runs `body` with the session's engine unless it was stopped.
+    private func withEngine(_ body: (any StreamEngine) -> Void) {
+        engineLock.lock()
+        defer { engineLock.unlock() }
+        if let engine { body(engine) }
     }
     private let decoder: VideoDecoder
     private let audio: AudioPlayer?
@@ -224,10 +220,19 @@ public final class StreamSession {
     private var _stats = Stats()
     private var _latestFrame: CVPixelBuffer?
 
-    public init(credentials: ConsoleCredentials, options: Options = Options(), remote: Remote? = nil) throws {
-        guard let regist = Data(base64Encoded: credentials.registKey), regist.count == Int(PSRP_REGIST_KEY_SIZE),
-              let rpKey = Data(base64Encoded: credentials.rpKey), rpKey.count == Int(PSRP_RP_KEY_SIZE),
-              let account = Data(base64Encoded: credentials.accountId), account.count == Int(PSRP_ACCOUNT_ID_SIZE)
+    /// Starts connecting to the console on libchiaki; progress and the outcome arrive as events.
+    public convenience init(credentials: ConsoleCredentials, options: Options = Options(), remote: Remote? = nil) throws {
+        try self.init(credentials: credentials, options: options, remote: remote) {
+            try ChiakiEngine(config: $0, sink: $1)
+        }
+    }
+
+    /// Starts connecting through the engine `makeEngine` starts (tests: a stand-in).
+    init(credentials: ConsoleCredentials, options: Options = Options(), remote: Remote? = nil,
+         engine makeEngine: StreamEngineFactory) throws {
+        guard let regist = Data(base64Encoded: credentials.registKey), regist.count == StreamEngineConfig.registKeySize,
+              let rpKey = Data(base64Encoded: credentials.rpKey), rpKey.count == StreamEngineConfig.rpKeySize,
+              let account = Data(base64Encoded: credentials.accountId), account.count == StreamEngineConfig.accountIDSize
         else { throw ConsoleError.message("Invalid console credentials") }
 
         let hevc = credentials.ps5 && options.hevc
@@ -247,63 +252,11 @@ public final class StreamSession {
             frameHandler.withLock { $0 }?.call(frame, index)
         }
 
-        var config = PsrpSessionConfig()
-        config.ps5 = credentials.ps5
-        _ = withUnsafeMutableBytes(of: &config.regist_key) { regist.copyBytes(to: $0) }
-        _ = withUnsafeMutableBytes(of: &config.rp_key) { rpKey.copyBytes(to: $0) }
-        _ = withUnsafeMutableBytes(of: &config.account_id) { account.copyBytes(to: $0) }
-        config.height = Int32(options.height)
-        config.fps = Int32(options.fps)
-        config.codec = Int32(hdr ? PSRP_CODEC_H265_HDR.rawValue : hevc ? PSRP_CODEC_H265.rawValue : PSRP_CODEC_H264.rawValue)
-        config.bitrate = Int32(options.bitrate)
-        config.auto_downgrade = options.autoDowngrade
-
-        var callbacks = PsrpCallbacks()
-        callbacks.user = Unmanaged.passUnretained(self).toOpaque()
-        callbacks.video = { user, data, size, framesLost, _ in
-            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
-            return s.handleVideo(UnsafeRawBufferPointer(start: data, count: size), framesLost: Int(framesLost))
-        }
-        callbacks.audio_format = { user, channels, rate in
-            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
-            s.audio?.configure(channels: Int(channels), sampleRate: Double(rate))
-        }
-        callbacks.audio = { user, pcm, frames in
-            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
-            if let pcm { s.audio?.push(pcm, frames: frames) }
-        }
-        callbacks.trigger_effects = { user, typeLeft, left, typeRight, right in
-            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
-            s.handleTriggerEffects(typeLeft, left.map { Array(UnsafeBufferPointer(start: $0, count: 10)) } ?? [],
-                                   typeRight, right.map { Array(UnsafeBufferPointer(start: $0, count: 10)) } ?? [])
-        }
-        callbacks.haptics = { user, pcm, frames in
-            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
-            guard let pcm else { return false }
-            return s.handleHaptics(UnsafeBufferPointer(start: pcm, count: frames * 2))
-        }
-        callbacks.event = { user, type, a, b, message in
-            let s = Unmanaged<StreamSession>.fromOpaque(user!).takeUnretainedValue()
-            if let event = Event(type: type, a: a, b: b, message: message.map { String(cString: $0) } ?? "") {
-                s.deliver(event)
-            }
-        }
-
-        var error = [CChar](repeating: 0, count: 512)
-        // The C strings only need to live for this call; the shim copies what it keeps.
-        let handle = credentials.address.withCString { host -> OpaquePointer? in
-            config.host = host
-            guard let remote else { return psrp_session_start(&config, &callbacks, &error, error.count) }
-            return remote.token.withCString { token in
-                remote.duid.withCString { duid in
-                    config.psn_token = token
-                    config.psn_duid = duid
-                    return psrp_session_start(&config, &callbacks, &error, error.count)
-                }
-            }
-        }
-        guard let handle else { throw ConsoleError.message(String(cString: error)) }
-        self.handle = handle
+        let config = StreamEngineConfig(
+            host: credentials.address, ps5: credentials.ps5, registKey: regist, rpKey: rpKey, accountID: account,
+            height: options.height, fps: options.fps, codec: hdr ? .hevcHDR : hevc ? .hevc : .h264,
+            bitrateKbps: options.bitrate, autoDowngrade: options.autoDowngrade, remote: remote)
+        engine = try makeEngine(config, self)
     }
 
     deinit { stop() }
@@ -335,16 +288,13 @@ public final class StreamSession {
     static func merged(_ s: ControllerState, _ pointer: PointerTouch) -> ControllerState {
         var out = s
         if let touch = pointer.touch { out.touches = Array(([touch] + s.touches).prefix(2)) }
-        if pointer.pressed { out.buttons |= UInt32(PSRP_BTN_TOUCHPAD.rawValue) }
+        if pointer.pressed { out.buttons |= ControllerState.touchpadButton }
         return out
     }
 
-    private func send(_ s: ControllerState) {
-        var state = s.psrp
-        withHandle { psrp_session_set_controller_state($0, &state) }
-    }
+    private func send(_ s: ControllerState) { withEngine { $0.setController(s) } }
 
-    public func setLoginPin(_ pin: String) { withHandle { psrp_session_set_login_pin($0, pin) } }
+    public func setLoginPin(_ pin: String) { withEngine { $0.setLoginPin(pin) } }
     /// Where and how loud the sound plays (also kept in AudioOutput.current for later sessions).
     public func applyAudioOutput(_ output: AudioOutput) { audio?.apply(output) }
 
@@ -353,42 +303,42 @@ public final class StreamSession {
     /// Turns the Mac's microphone on (asking for permission the first time) or off; `done` gets the
     /// resulting state, possibly later and on another queue.
     public func setMicrophone(_ on: Bool, done: @escaping @Sendable (Microphone.State) -> Void) {
-        guard let handle else { return done(.off) }
+        guard let engine else { return done(.off) }
         guard on else {
             microphone?.stop()
             microphone = nil
-            psrp_session_set_mic(handle, false)
+            engine.setMicrophone(false)
             return done(.off)
         }
         let mic = microphone ?? Microphone()
         microphone = mic
-        mic.start(frames: { psrp_session_mic_frame(handle, $0) }) { state in
-            if state == .on { psrp_session_set_mic(handle, true) }
+        mic.start(frames: { engine.sendMicrophoneFrame(UnsafeBufferPointer(start: $0, count: MicFramer.frameValues)) }) { state in
+            if state == .on { engine.setMicrophone(true) }
             done(state)
         }
     }
     /// Replaces the text of the console's focused field, then `finishKeyboard` sends (true) or cancels it.
-    public func setKeyboardText(_ text: String) { withHandle { psrp_session_keyboard_set_text($0, text) } }
-    public func finishKeyboard(accept: Bool) { withHandle { psrp_session_keyboard_done($0, accept) } }
-    public func requestKeyframe() { withHandle { psrp_session_request_idr($0) } }
-    public func sleepConsole() { withHandle { psrp_session_goto_bed($0) } }
+    public func setKeyboardText(_ text: String) { withEngine { $0.setKeyboardText(text) } }
+    public func finishKeyboard(accept: Bool) { withEngine { $0.finishKeyboard(accept: accept) } }
+    public func requestKeyframe() { withEngine { $0.requestKeyFrame() } }
+    public func sleepConsole() { withEngine { $0.goToBed() } }
 
-    /// Stops the stream and waits for libchiaki's threads to finish.
+    /// Stops the stream and waits for the engine's threads to finish.
     public func stop() {
-        handleLock.lock()
-        guard let handle else { handleLock.unlock(); return }
-        microphone?.stop() // no more frames into the session we're about to free
+        engineLock.lock()
+        guard let engine else { engineLock.unlock(); return }
+        microphone?.stop() // no more frames into the session we're about to stop
         microphone = nil
-        self.handle = nil
-        psrp_session_stop(handle)
-        handleLock.unlock()
+        self.engine = nil
+        engine.stop()
+        engineLock.unlock()
         decoder.flush() // no frame comes out after the session stopped
         audio?.stop()
         padHaptics.stop()
     }
 
     /// One frame of the DualSense haptics stream: played on a USB pad if there is one (returns true), else the
-    /// shim makes rumble from it.
+    /// engine makes rumble from it.
     func handleHaptics(_ samples: UnsafeBufferPointer<Int16>) -> Bool {
         padHaptics.push(samples)
     }
@@ -397,6 +347,12 @@ public final class StreamSession {
         deliver(.triggerEffects(left: TriggerEffect(mode: typeLeft, parameters: left),
                                  right: TriggerEffect(mode: typeRight, parameters: right)))
     }
+
+    func handleAudioFormat(channels: Int, sampleRate: Int) {
+        audio?.configure(channels: channels, sampleRate: Double(sampleRate))
+    }
+
+    func handleAudio(_ samples: UnsafePointer<Int16>, frames: Int) { audio?.push(samples, frames: frames) }
 
     func handleVideo(_ data: UnsafeRawBufferPointer, framesLost: Int) -> Bool {
         let bytes = data.count
@@ -410,50 +366,6 @@ public final class StreamSession {
         let ok = decoder.decode(data, index: index)
         if !ok { lock.withLock { _stats.decodeErrors += 1 } }
         return ok
-    }
-}
-
-extension StreamSession.QuitKind {
-    /// From a PsrpQuitKind code.
-    init(code: Int32) {
-        switch UInt32(code) {
-        case PSRP_QUIT_BUSY.rawValue: self = .busy
-        case PSRP_QUIT_DROPPED.rawValue: self = .dropped
-        case PSRP_QUIT_STOPPED.rawValue: self = .stopped
-        default: self = .final
-        }
-    }
-}
-
-extension StreamSession.Event {
-    /// Maps a PsrpEventType callback to an Event (nil for unknown types).
-    init?(type: Int32, a: Int32, b: Int32, message text: String) {
-        switch UInt32(type) {
-        case PSRP_EVENT_CONNECTED.rawValue: self = .connected
-        case PSRP_EVENT_QUIT.rawValue: self = .quit(reason: text, error: a != 0, kind: StreamSession.QuitKind(code: b))
-        case PSRP_EVENT_LOGIN_PIN_REQUEST.rawValue: self = .loginPinRequested(incorrect: a != 0)
-        case PSRP_EVENT_RUMBLE.rawValue: self = .rumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
-        case PSRP_EVENT_HAPTIC_RUMBLE.rawValue: self = .hapticRumble(left: UInt8(clamping: a), right: UInt8(clamping: b))
-        case PSRP_EVENT_NICKNAME.rawValue: self = .nickname(text)
-        case PSRP_EVENT_LIGHT.rawValue:
-            self = .light(red: UInt8(truncatingIfNeeded: a >> 16), green: UInt8(truncatingIfNeeded: a >> 8),
-                          blue: UInt8(truncatingIfNeeded: a))
-        case PSRP_EVENT_PLAYER_INDEX.rawValue: self = .playerIndex(Int(a))
-        case PSRP_EVENT_KEYBOARD.rawValue:
-            let change: StreamSession.KeyboardChange = switch UInt32(a) {
-            case PSRP_KEYBOARD_OPEN.rawValue: .open
-            case PSRP_KEYBOARD_CHANGE.rawValue: .change
-            default: .close
-            }
-            self = .keyboard(change, text: text)
-        case PSRP_EVENT_REMOTE_PROGRESS.rawValue:
-            switch UInt32(a) {
-            case PSRP_REMOTE_DATA.rawValue: self = .remoteProgress(.data)
-            case PSRP_REMOTE_CONNECTED.rawValue: self = .remoteProgress(.connected)
-            default: self = .remoteProgress(.linking)
-            }
-        default: return nil
-        }
     }
 }
 
