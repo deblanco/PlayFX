@@ -7,43 +7,6 @@ import Testing
 
 // Test doubles for internet play: nothing here may reach beyond the loopback interface.
 
-/// Wraps a socket and refuses (and fails the test) any destination that is not loopback, so a test can never put a
-/// packet on the LAN, a router or the internet. Every attempt is recorded.
-final class LoopbackGuardedPunchSocket: UDPPunchSocket, @unchecked Sendable {
-    let inner: any UDPPunchSocket
-    let destinations = Locked<[String]>([])
-    /// Every time to live set, in order.
-    let ttls = Locked<[Int]>([])
-    init(_ inner: any UDPPunchSocket) { self.inner = inner }
-
-    var localPort: UInt16 { inner.localPort }
-
-    func send(_ bytes: [UInt8], to host: String, port: UInt16) throws {
-        destinations.with { $0.append(host) }
-        // A connected socket ignores `host`; the empty one RUDP passes is fine there.
-        guard host.isEmpty || isLoopback(host) else {
-            Issue.record("test tried to send to non-loopback address \(host)")
-            throw FailureKind.networkUnreachable
-        }
-        try inner.send(bytes, to: host, port: port)
-    }
-
-    func receive(timeout: Double) throws -> UDPPacket? { try inner.receive(timeout: timeout) }
-    func connect(host: String, port: UInt16) throws {
-        guard isLoopback(host) else {
-            Issue.record("test tried to connect to non-loopback address \(host)")
-            throw FailureKind.networkUnreachable
-        }
-        try inner.connect(host: host, port: port)
-    }
-    func setTimeToLive(_ ttl: Int) throws {
-        ttls.with { $0.append(ttl) }
-        try inner.setTimeToLive(ttl)
-    }
-    func close() { inner.close() }
-    func releaseDescriptor() -> Int32? { inner.releaseDescriptor() }
-}
-
 /// A loopback-only HTTP client: refuses non-loopback hosts.
 struct LoopbackGuardedHTTP: UPnPHTTPClient {
     func exchange(host: String, port: UInt16, request: [UInt8], timeout: Double) throws -> [UInt8] {
@@ -53,11 +16,6 @@ struct LoopbackGuardedHTTP: UPnPHTTPClient {
         }
         return try TCPHTTPClient().exchange(host: host, port: port, request: request, timeout: timeout)
     }
-}
-
-/// A guarded UDP socket bound to 127.0.0.1.
-func loopbackSocket() throws -> LoopbackGuardedPunchSocket {
-    LoopbackGuardedPunchSocket(try POSIXPunchSocket(bindHost: "127.0.0.1"))
 }
 
 /// Two guarded sockets connected to each other on loopback.

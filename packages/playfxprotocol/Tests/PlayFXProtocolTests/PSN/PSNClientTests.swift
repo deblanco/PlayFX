@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct PSNClientTests {
     static func client(_ psn: FakePSN) -> PSNClient {

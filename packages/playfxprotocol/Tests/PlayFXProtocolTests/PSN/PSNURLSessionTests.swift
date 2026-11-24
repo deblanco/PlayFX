@@ -5,6 +5,7 @@ import Testing
 import os
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 // The real URLSession adapters, with nothing but stubs and loopback behind them: HTTP through a URLProtocol that
 // fails every request it has no answer for, the WebSocket against a small RFC 6455 server on 127.0.0.1.

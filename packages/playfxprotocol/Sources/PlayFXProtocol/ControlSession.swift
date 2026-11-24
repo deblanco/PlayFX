@@ -156,8 +156,8 @@ struct ControlEnvironment: Sendable {
         NWCtrlLink(try CtrlFramer.makeConnection(host: host, port: port))
     }
     /// Internet play (ctrl.md section 10): the ctrl hole's RUDP channel carries ctrl, so a failure before the response
-    /// header is final (no reset or timeout retries), PS5 skips one counter after the request, the login PIN reply
-    /// uses counter `localCounter - 1`, and the client sends an unrequested heartbeat reply every 4.95 s.
+    /// header is final (no reset or timeout retries), PS5 skips one counter after the request, the first login PIN reply
+    /// uses that skipped counter (later ones, and a PS4's, a fresh one: `CtrlSendCounters`), and the client sends an unrequested heartbeat reply every 4.95 s.
     var internet = false
     var unsolicitedHeartbeatInterval = 4.95
     var randomBytes: @Sendable (_ count: Int) -> [UInt8] = secureRandomBytes
@@ -177,6 +177,45 @@ private final class Deadline: @unchecked Sendable {
     func cancel() {
         item?.cancel()
         item = nil
+    }
+}
+
+/// The counters of the encrypted messages the client sends (ctrl.md sections 4 and 10), and the guarantee that none is
+/// ever used twice: a repeated counter repeats the keystream, and the XOR of two such messages gives a PIN away.
+struct CtrlSendCounters: Equatable {
+    /// The next fresh counter.
+    private(set) var next: UInt64
+    /// The counter a PS5 skipped after the ctrl request over the internet, while nothing has used it.
+    private(set) var skipped: UInt64?
+    private(set) var used = Set<UInt64>()
+
+    init(next: UInt64, skipped: UInt64?) {
+        self.next = next
+        self.skipped = skipped
+    }
+
+    /// After the request's headers used counters below `next`. With `skipsOne` (a PS5 over the internet) the counter
+    /// `next` is left unused for the first PIN reply and the fresh ones start one further on.
+    init(next: UInt64, skipsOne: Bool) {
+        self.init(next: skipsOne ? next + 1 : next, skipped: skipsOne ? next : nil)
+    }
+
+    /// The counter for the next encrypted message, or nil if it would repeat one (it never does: nothing is sent then).
+    /// A PIN reply over the internet uses the skipped counter if it is still unused and advances `next` as any message
+    /// does (the PS5 sequence of ctrl.md section 10: 5 for the PIN reply, then 7). Without one, a PIN reply is an
+    /// ordinary message on a fresh counter: a second reply after a wrong PIN, and a PS4 (which skips none; whether it
+    /// would take `localCounter - 1` is ctrl.md open question 11).
+    mutating func take(pinReply: Bool) -> UInt64? {
+        let counter: UInt64
+        if pinReply, let skipped {
+            counter = skipped
+            self.skipped = nil
+        } else {
+            counter = next
+        }
+        guard used.insert(counter).inserted else { return nil }
+        next += 1
+        return counter
     }
 }
 
@@ -225,7 +264,7 @@ public final class ControlSession: @unchecked Sendable {
     private var generation = 0
     private var resets = 0
     private var timeoutRetried = false
-    private var localCounter: UInt64 = 0
+    private var sendCounters = CtrlSendCounters(next: 0, skipped: nil)
     private var remoteCounter: UInt64 = 0
     private var heartbeats = 0
     private var sessionIDReceived = false
@@ -320,7 +359,8 @@ public final class ControlSession: @unchecked Sendable {
             self.context = result.context
             self.request = request
             // Over the internet a PS5 skips one counter after the request (ctrl.md section 10).
-            self.localCounter = request.nextLocalCounter + (self.environment.internet && result.target.isPS5 ? 1 : 0)
+            self.sendCounters = CtrlSendCounters(
+                next: request.nextLocalCounter, skipsOne: self.environment.internet && result.target.isPS5)
             self.update { $0.negotiated = result.target }
             self.emit(.sessionInitialized(version: result.target, attempts: result.attempts))
         }
@@ -682,13 +722,13 @@ public final class ControlSession: @unchecked Sendable {
         guard phase == .active, let link, let context else { return false }
         var payload = message.payload
         if !payload.isEmpty {
-            // Over the internet the login PIN reply uses the counter before the next unused one (ctrl.md section 10).
-            let counter = pinReply && environment.internet ? localCounter - 1 : localCounter
-            guard (try? context.encrypt(&payload, counter: counter)) != nil else {
+            // The login PIN reply over the internet takes the counter skipped after the request, once, when there is one
+            // (ctrl.md section 10); every other message, and any later PIN reply, takes a fresh counter.
+            guard let counter = sendCounters.take(pinReply: pinReply && environment.internet),
+                  (try? context.encrypt(&payload, counter: counter)) != nil else {
                 finish(.protocolError)
                 return false
             }
-            localCounter += 1
         }
         let attempt = generation
         link.send(CtrlWire.frame(type: message.type, payload: payload)) { [weak self] failure in

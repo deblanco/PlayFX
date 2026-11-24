@@ -3,6 +3,7 @@ import Testing
 import os
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 // Regression tests for the review of the first PSN delivery (one per real bug).
 

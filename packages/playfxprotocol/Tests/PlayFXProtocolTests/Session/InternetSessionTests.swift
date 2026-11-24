@@ -291,6 +291,40 @@ extension StreamSessionSuites {
             #expect(peer.received.with { $0.filter { $0.type == 0x36 }.allSatisfy { $0.plain == [0, 1, 1, 0x59] } })
         }
 
+        /// A wrong PIN and a second reply: it takes a fresh counter, not the skipped one again.
+        @Test func aSecondLoginPINReplyUsesAFreshCounter() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            let replies = Locked<[(type: UInt16, plain: [UInt8], wire: [UInt8])]>([])
+            rig.console.rudp.ctrlScript = { peer in
+                peer.sendHead()
+                peer.send(0x04)
+                if let first = peer.receive(timeout: 5) { replies.with { $0.append(first) } }
+                peer.send(0x05, [1])  // wrong
+                peer.send(0x04)
+                if let second = peer.receive(timeout: 5) { replies.with { $0.append(second) } }
+                peer.send(0x05, [0])
+                peer.send(0x33, sessionIDPlain)
+                peer.pump(limit: 30)
+            }
+            let asked = Locked(0)
+            let recorder = EventRecorder()
+            recorder.onEvent = { event, session in
+                if case .loginPINRequested = event {
+                    let n = asked.with { $0 += 1; return $0 }
+                    try? session.sendLoginPIN(n == 1 ? "1111" : "2222")
+                }
+            }
+            let session = try await rig.start(recorder: recorder)
+            defer { session.stop() }
+            let peer = try #require(rig.console.rudp.peers.with { $0.first })
+            let got = replies.with { $0 }
+            #expect(got.count == 2)
+            // First: the skipped counter 5. Second: a fresh one, 7 (6 stays unused, as in ctrl.md section 10).
+            #expect(peer.cipher.apply(got[0].wire, counter: 5, encrypt: false) == Array("1111".utf8))
+            #expect(peer.cipher.apply(got[1].wire, counter: 7, encrypt: false) == Array("2222".utf8))
+        }
+
         @Test func aCtrlRequestNobodyAnswersEndsAsNoAnswer() async throws {
             let rig = try InternetRig()
             defer { rig.stop() }

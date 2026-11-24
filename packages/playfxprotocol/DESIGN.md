@@ -153,6 +153,13 @@ sockets and the switch (11 to 14).
   note). Ctrl's own 10 s start-up limit still applies; the extra 5 s the reference waits is not used.
 - **No third-party STUN list.** The built-in servers are used (shuffled as holepunch.md section 3.2 says); the GitHub host list
   isn't fetched.
+- **The login PIN reply never reuses a counter (ctrl.md section 10).** Over the internet the reference encrypts it with
+  `localCounter - 1`. That is the counter a PS5 skipped after the request, unused, so the first PIN reply takes it (5, then
+  the messages continue at 7). Taken again (a second reply after a wrong PIN) or on a PS4, which skips none, it would be
+  a counter another message already used, and the XOR of the two ciphertexts would give the PIN away. So the skipped
+  counter is used once, and every other PIN reply takes a fresh counter like any message. What a PS4 over the internet
+  expects is ctrl.md open question 11; this is the safe reading. `CtrlSendCounters` also refuses any counter that was
+  already used (the message is not sent and ctrl ends with `protocolError`).
 - **A registration that outlives its 10 s** ends the start with a typed `registration` error (timeout), not "plainly stopped".
 
 - **Session ID.** If the console's session ID (ctrl `0x33`) is malformed, or none arrives within the start-up
