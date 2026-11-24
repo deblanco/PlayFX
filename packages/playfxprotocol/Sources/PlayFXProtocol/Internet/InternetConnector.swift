@@ -217,20 +217,40 @@ final class InternetLink: @unchecked Sendable {
         identity = PunchIdentity(sid: session.parameters.localSid, hashedID: session.parameters.localHashedID)
         note("PSN session created")
 
-        // 5. The ctrl socket and the client's candidates (the OFFER is built, not sent yet).
+        // 6 and 5, together. The start command carries nothing that depends on the candidates (psn.md section 6.3: the
+        // account, the session, `data1`, `data2`), so it goes out at once and the console boots (a PS5 in rest takes
+        // 15 s) while the UPnP mapping and STUN run. A client choice (DESIGN.md): the OFFER, the first thing the console
+        // sees of the candidates, still goes out only when both are done, so the wire order of psn.md section 7 is the same.
         let socket = try makeHoleSocket()
-        let environment = self.environment
-        let (candidates, prediction) = try await runBlocking { [self] in
-            try buildCandidates(socket: socket, hole: .ctrl, answersWanted: 4, ctrlPrediction: nil, environment: environment)
-        }
-        ctrlPrediction = prediction
-        try Task.checkCancellation()
-
-        // 6. The start command, then the console's join and `customData1`.
         report(.wakingConsole)
-        let started = try await session.start(
-            remote.platform == .ps5 ? .ps5(duid: remote.consoleDUID) : .ps4)
-        consoleStarted = started
+        let abortCandidates = LockedFlag(false)
+        let target: PSNStartTarget = remote.platform == .ps5 ? .ps5(duid: remote.consoleDUID) : .ps4
+        let startTask = Task { () throws -> PSNStartedConsole in
+            do { return try await session.start(target) } catch {
+                abortCandidates.set(true)  // no use finishing STUN for a console that won't come
+                throw error
+            }
+        }
+        let environment = self.environment
+        let built = await withTaskCancellationHandler {
+            await Result { () async throws -> (ClientCandidates, NATPrediction?) in
+                try await runBlocking { [self] in
+                    try buildCandidates(
+                        socket: socket, hole: .ctrl, answersWanted: 4, ctrlPrediction: nil, environment: environment,
+                        abort: { abortCandidates.get() })
+                }
+            }
+        } onCancel: {
+            startTask.cancel()
+        }
+        if case .failure = built { startTask.cancel() }
+        let startResult = await startTask.result
+        // A PSN failure is the better explanation than the candidates that were cut short because of it.
+        if case .failure(let error) = startResult, !(error is CancellationError) { throw error }
+        let (candidates, prediction) = try built.get()
+        ctrlPrediction = prediction
+        let started = try startResult.get()
+        try Task.checkCancellation()
         note("console joined (\(started.platform.rawValue))")
 
         // 7. The ctrl hole.
@@ -302,7 +322,7 @@ final class InternetLink: @unchecked Sendable {
     /// UPnP mapping or STUN for one hole, then the candidate list (holepunch.md sections 3, 4). Blocking.
     private func buildCandidates(
         socket: any UDPPunchSocket, hole: InternetHole, answersWanted: Int, ctrlPrediction: NATPrediction?,
-        environment: InternetEnvironment
+        environment: InternetEnvironment, abort: @escaping @Sendable () -> Bool = { false }
     ) throws -> (ClientCandidates, NATPrediction?) {
         let port = socket.localPort
         // The mapping is attempted for the hole's port and always removed later, even when it failed.
@@ -319,10 +339,11 @@ final class InternetLink: @unchecked Sendable {
                 note("\(hole.rawValue) hole: UPnP found a gateway but the mapping or the external address failed (or the address isn't public); using STUN")
             }
             var stun = environment.stun
-            stun.isCancelled = cancelCheck
+            let cancelled = cancelCheck
+            stun.isCancelled = { cancelled() || abort() }
             let log = options.log
             stun.log = { log("\(hole.rawValue) hole: \($0)") }
-            let answers = StunClient.collect(
+            let answers = StunClient.collectConcurrently(
                 socket: socket, servers: environment.stunServers(), wanted: answersWanted, environment: stun)
             if answersWanted == 1 {
                 prediction = answers.first.map { NATPrediction.forDataHole(answer: $0, ctrl: ctrlPrediction) }

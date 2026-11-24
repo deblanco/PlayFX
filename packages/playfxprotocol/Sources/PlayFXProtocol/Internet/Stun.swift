@@ -299,6 +299,102 @@ public enum StunClient {
         return answers
     }
 
+    /// The same question asked of all `servers` at once, from the same socket (so every answer still describes this socket's
+    /// NAT mapping): server `i` is asked `i * stagger` seconds in (`stagger` 0.1 s, so the earlier servers of the list lead),
+    /// each with its own `environment.timeout`, and the names are resolved on the sending threads, not one after the other.
+    /// It stops as soon as `wanted` servers have answered, or every server has answered, failed or timed out.
+    ///
+    /// The result is in the spec's server order (the order of `servers`), not the order the answers arrived in, because the
+    /// step of section 3.3 depends on it. A client choice (DESIGN.md): the sequential version waits 5 s for each server
+    /// that doesn't answer; this takes about 5 s for all of them.
+    public static func collectConcurrently(socket: any UDPPunchSocket, servers: [StunServer], wanted: Int,
+                                           stagger: Double = 0.1,
+                                           environment: StunEnvironment = StunEnvironment()) -> [StunAnswer] {
+        final class Tracker: @unchecked Sendable {
+            enum Outcome { case waiting, answered(StunAnswer), failed }
+            struct Entry {
+                var transaction: [UInt8]?
+                var deadline: Double?
+                var outcome = Outcome.waiting
+            }
+            let lock = NSLock()
+            var entries: [Entry]
+            var finished = false
+            init(count: Int) { entries = Array(repeating: Entry(), count: count) }
+        }
+        let started = monotonicSeconds()
+        let tracker = Tracker(count: servers.count)
+        let name: @Sendable (Int) -> String = { i in "\(servers[i].host):\(servers[i].port)" }
+        for index in servers.indices {
+            Thread {
+                // Wait for this server's turn, then resolve and send.
+                let due = started + Double(index) * stagger
+                while monotonicSeconds() < due {
+                    if tracker.lock.withLock({ tracker.finished }) || environment.isCancelled() { return }
+                    sleepSeconds(0.005)
+                }
+                if tracker.lock.withLock({ tracker.finished }) || environment.isCancelled() { return }
+                guard let address = environment.resolve(servers[index].host) else {
+                    tracker.lock.withLock { tracker.entries[index].outcome = .failed }
+                    environment.log("STUN \(name(index)): did not resolve")
+                    return
+                }
+                let transaction = environment.transactionID()
+                tracker.lock.withLock {
+                    tracker.entries[index].transaction = transaction
+                    tracker.entries[index].deadline = monotonicSeconds() + environment.timeout
+                }
+                if (try? socket.send(bindingRequest(transactionID: transaction), to: address, port: servers[index].port)) == nil {
+                    tracker.lock.withLock { tracker.entries[index].outcome = .failed }
+                    environment.log("STUN \(name(index)): the request could not be sent")
+                }
+            }.start()
+        }
+        func answered() -> [StunAnswer] {
+            tracker.lock.withLock {
+                tracker.entries.compactMap { if case .answered(let answer) = $0.outcome { answer } else { nil } }
+            }
+        }
+        while !environment.isCancelled() {
+            if answered().count >= wanted { break }
+            // A server that has had its time is done; the loop ends when every server is.
+            let now = monotonicSeconds()
+            let allDone = tracker.lock.withLock { () -> Bool in
+                var open = false
+                for index in tracker.entries.indices {
+                    guard case .waiting = tracker.entries[index].outcome else { continue }
+                    if let deadline = tracker.entries[index].deadline, now >= deadline {
+                        tracker.entries[index].outcome = .failed
+                        environment.log("STUN \(name(index)): no answer in \(Int(environment.timeout)) s")
+                    } else {
+                        open = true
+                    }
+                }
+                return !open
+            }
+            if allDone { break }
+            guard let packet = try? socket.receive(timeout: 0.02) else { continue }
+            let hit = tracker.lock.withLock { () -> (Int, StunAnswer)? in
+                for index in tracker.entries.indices {
+                    guard case .waiting = tracker.entries[index].outcome, let transaction = tracker.entries[index].transaction,
+                          let answer = parseBindingResponse(packet.bytes, transactionID: transaction) else { continue }
+                    tracker.entries[index].outcome = .answered(answer)
+                    return (index, answer)
+                }
+                return nil
+            }
+            if let (index, answer) = hit {
+                environment.log("STUN \(name(index)): mapped \(AddressMask.describe(answer.address)):\(answer.port), "
+                    + "sent from local port \(socket.localPort)")
+            }
+        }
+        tracker.lock.withLock { tracker.finished = true }
+        let result = Array(answered().prefix(wanted))
+        environment.log(String(format: "STUN: %d answer(s) of %d wanted from %d server(s) in %.1f s", result.count, wanted,
+                               servers.count, monotonicSeconds() - started))
+        return result
+    }
+
     /// The first ten lines of the public server list, each `host:port` (holepunch.md section 3.2 servers, 1).
     public static func servers(fromHostList text: String) -> [StunServer] {
         text.split(whereSeparator: \.isNewline).prefix(10).compactMap { line in

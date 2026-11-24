@@ -177,6 +177,21 @@ sockets and the switch (11 to 14).
 - **Retransmissions are named.** Each kept RUDP message has a label (`ctrl frame 0x01fe`, `switch message`); the statistics
   count retransmissions by label, and the trace says which seq was resent and which acknowledgement credited what, with
   seconds since the connection. A message the frame check drops is always logged with its data (up to 64 bytes, 20 times).
+- **STUN asks every server at once** (a client choice; the console can't tell). holepunch.md section 3.2 asks one server after
+  the other, up to 5 s each: a real run spent 15-21 s on Google servers that didn't answer. `StunClient.collectConcurrently`
+  sends from the hole's own socket (so every answer still measures that socket's mapping) to server `i` at `i * 0.1 s`,
+  each with its own 5 s limit, resolving names on the sending threads, and stops when the answers wanted (4 for the ctrl
+  hole, 1 for the data hole) are in or every server has answered or run out. The answers are returned in the list's order,
+  not the order they arrived in, because section 3.3's step depends on it; a slow early server can therefore be left out
+  for faster later ones. The log has each server's line and the total time.
+- **The start command goes out right after the PSN session exists, not after STUN** (holepunch.md section 8 steps 5 and 6;
+  a client choice). Nothing in the command depends on the candidates (psn.md section 6.3: account, session, `data1`,
+  `data2`, DUID), so the PS5 boots (15 s from rest) while UPnP and STUN run. The OFFER, the first thing that shows the console
+  the candidates, still goes out only when both are done, and the console's OFFER waits in the inbox until then, so what the
+  console sees on the wire is the same. If the start fails, STUN is cut short and the PSN error is the one reported; if the
+  candidates fail (no public address), the pending start is cancelled and the PSN session left as usual. Expected timeline:
+  session created, then `max(STUN, console join)` instead of their sum (STUN is about 1 s when four servers answer, at most
+  about 6 s with servers that don't).
 - **No third-party STUN list.** The built-in servers are used (shuffled as holepunch.md section 3.2 says); the GitHub host list
   isn't fetched.
 - **The login PIN reply never reuses a counter (ctrl.md section 10).** Over the internet the reference encrypts it with

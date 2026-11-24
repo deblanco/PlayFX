@@ -1189,6 +1189,14 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     in that session, cause not yet known); messages the frame check drops are always logged with their data (the
     console sent a 4-byte `0x20` and a 20-byte `0x36` the spec can't place: spec requests). Left: a confirmation run
     without the dev switch from a non-home network.
+  - ✅ App round on our engine finished (2026-11-24, the user): PIN pairing, PIN-less pairing through PSN, go to bed,
+    streaming, wake, USB haptics, mic all work in the app; the console keyboard stays off on a PS5, as it was with
+    libchiaki (the user: fine); no login passcode to test. PIN-less pairing took ~45 s: STUN asked its servers one at
+    a time (dead ones cost 5 s each, ~21 s) before the start command, and the console then took ~15 s to boot from
+    rest. Now (client choices, in DESIGN.md): STUN asks all servers at once, staggered 0.1 s, answers kept in the spec's
+    server order (at most ~6 s); the start command goes out as soon as the PSN session exists, so the console boots
+    while candidates are gathered (the OFFER order on the wire is unchanged). Expected: ~15 s from rest, 1-6 s awake.
+    PlayFXProtocol 895 tests, StreamCore 525.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
