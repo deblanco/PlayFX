@@ -98,24 +98,35 @@ public enum HolePunch {
                            peerSid: UInt16, signaling: any PunchSignaling,
                            options: HolePunchOptions = HolePunchOptions()) throws -> PunchedHole {
         var sockets: [any UDPPunchSocket] = [socket]
+        let stage = StageBox()
         do {
             return try attempt(socket: socket, identity: identity, client: client, peerSid: peerSid,
-                               signaling: signaling, options: options, sockets: &sockets)
+                               signaling: signaling, options: options, sockets: &sockets, stage: stage)
         } catch {
+            options.log("failed while \(stage.name): \(error)")
             for s in sockets { s.close() }
             throw error
         }
     }
 
+    /// Where `run` is, for the line it logs when it fails.
+    private final class StageBox {
+        var name = "waiting for the console's OFFER"
+    }
+
     private static func attempt(socket: any UDPPunchSocket, identity: PunchIdentity, client: ClientCandidates,
                                 peerSid: UInt16, signaling: any PunchSignaling, options: HolePunchOptions,
-                                sockets: inout [any UDPPunchSocket]) throws -> PunchedHole {
+                                sockets: inout [any UDPPunchSocket], stage: StageBox) throws -> PunchedHole {
         let consoleOffer = try signaling.receiveConsoleOffer(timeout: options.signalingWait)
+        options.log("console offered \(AddressMask.describe(consoleOffer.candidates)); "
+            + "we offer \(AddressMask.describe(client.candidates))")
         guard consoleOffer.hashedID.count == 20, !consoleOffer.candidates.isEmpty else { throw PunchError.invalidOffer }
+        stage.name = "sending our OFFER and waiting for its RESULT"
         try signaling.sendOffer(
             PunchOffer(sid: identity.sid, peerSid: peerSid, hashedID: identity.hashedID, candidates: client.candidates),
             timeout: options.signalingWait)
 
+        stage.name = "making the extra sockets"
         let prober = Prober(identity: identity, console: consoleOffer, randomAllocation: client.randomAllocation,
                             options: options, main: socket)
         if client.randomAllocation {
@@ -129,19 +140,37 @@ public enum HolePunch {
                 prober.addExtra(extra)
             }
         }
-        let selection = try prober.probe()
+        stage.name = "probing the console's candidates (up to \(options.resends + 1) rounds of \(options.probeWait) s)"
+        let started = monotonicSeconds()
+        let selection: Prober.Selection
+        do {
+            selection = try prober.probe()
+        } catch {
+            options.log("probing ended after \(prober.elapsed(since: started)): \(prober.summary())")
+            throw error
+        }
+        options.log("probing selected \(AddressMask.describe(selection.candidate.address, port: selection.candidate.port)) "
+            + "(\(selection.candidate.type.rawValue)) after \(prober.elapsed(since: started)): \(prober.summary())")
+        stage.name = "connecting the selected pair"
         for s in sockets where s !== selection.socket { s.close() }
         sockets = [selection.socket]
         try selection.socket.connect(host: selection.candidate.address, port: selection.candidate.port)
 
         // Section 5.5: keep answering for as long as the console keeps asking; it must ask at least once.
+        stage.name = "answering the console's probes after the selection"
         prober.answerUntilQuiet(on: selection.socket)
         if options.isCancelled() { throw PunchError.cancelled }
-        guard prober.answered > 0 else { throw PunchError.consoleDidNotProbe }
+        guard prober.answered > 0 else {
+            options.log("the console sent no probe of its own after the selection: \(prober.summary())")
+            throw PunchError.consoleDidNotProbe
+        }
+        stage.name = "sending our ACCEPT"
 
         let accepted = CandidateBuilder.acceptCandidate(selected: selection.candidate, client: client)
         try signaling.sendAccept(PunchAccept(sid: identity.sid, peerSid: consoleOffer.sid, candidate: accepted))
+        stage.name = "waiting for the console's ACCEPT"
         _ = try signaling.receiveConsoleAccept(timeout: options.signalingWait)
+        stage.name = "answering the console's probes after the ACCEPT"
         prober.answerUntilQuiet(on: selection.socket)
         if options.isCancelled() { throw PunchError.cancelled }
         return PunchedHole(socket: selection.socket, selected: selection.candidate, consoleSid: consoleOffer.sid,
@@ -168,6 +197,65 @@ public enum HolePunch {
         private var loggedMismatch = false
         var warmed = Set<Int>()
         private(set) var answered = 0
+
+        // What the probing saw, for the log.
+        struct Stats {
+            var sentMain = 0, sentExtra = 0, received = 0, notProbes = 0
+            var requests = 0, responses = 0, wrongRequestID = 0, mismatches = 0, sendErrors = 0
+            var firstSendError: String?
+        }
+        struct Tally {
+            var requests = 0, responses = 0, mismatches = 0
+        }
+        private(set) var stats = Stats()
+        private var tallies: [String: Tally] = [:]
+        private var tallyOrder: [String] = []
+        private var lastSummary = monotonicSeconds()
+
+        private func tally(_ source: (address: String, port: UInt16), _ change: (inout Tally) -> Void) {
+            let key = AddressMask.describe(source.address, port: source.port)
+            if tallies[key] == nil {
+                guard tallyOrder.count < 8 else { return }
+                tallyOrder.append(key)
+            }
+            change(&tallies[key, default: Tally()])
+        }
+
+        /// Counts a datagram and returns it as a probe when it is one.
+        private func counted(_ packet: UDPPacket) -> ProbePacket? {
+            stats.received += 1
+            guard let probe = ProbePacket.parse(packet.bytes) else {
+                stats.notProbes += 1
+                return nil
+            }
+            switch probe.kind {
+            case .request: stats.requests += 1
+            case .response: stats.responses += 1
+            }
+            tally((packet.host, packet.port)) { if probe.kind == .request { $0.requests += 1 } else { $0.responses += 1 } }
+            return probe
+        }
+
+        func elapsed(since start: Double) -> String { String(format: "%.1f s", monotonicSeconds() - start) }
+
+        /// One line: what was sent, what came back and from where.
+        func summary() -> String {
+            let parsed = stats.requests + stats.responses
+            var text = "sent \(stats.sentMain) from the main socket + \(stats.sentExtra) from \(max(0, sockets.count - 1)) "
+                + "extra socket(s); received \(stats.received) datagram(s): \(parsed) probe(s) "
+                + "(\(stats.requests) request, \(stats.responses) response, \(stats.wrongRequestID) response(s) with "
+                + "another request id), \(stats.notProbes) not a probe, \(stats.mismatches) identity mismatch(es)"
+            if let first = stats.firstSendError { text += "; \(stats.sendErrors) send error(s), first: \(first)" }
+            if tallyOrder.isEmpty {
+                text += "; from no source"
+            } else {
+                text += "; from " + tallyOrder.map { key in
+                    let t = tallies[key] ?? Tally()
+                    return "\(key) (\(t.requests) req, \(t.responses) resp, \(t.mismatches) mismatch)"
+                }.joined(separator: ", ")
+            }
+            return text
+        }
 
         init(identity: PunchIdentity, console: PunchOffer, randomAllocation: Bool, options: HolePunchOptions,
              main: any UDPPunchSocket) {
@@ -196,10 +284,12 @@ public enum HolePunch {
             if probe.receiverHashedID != identity.hashedID { wrong.append("receiver hashed id") }
             if probe.receiverSid != identity.sid { wrong.append("receiver sid") }
             if wrong.isEmpty { return true }
+            stats.mismatches += 1
+            tally(source) { $0.mismatches += 1 }
             let strict = options.probeIdentity == .strict
             if !loggedMismatch {
                 loggedMismatch = true
-                options.log("probe from \(source.address):\(source.port) \(strict ? "dropped" : "accepted anyway (log only)"), "
+                options.log("probe from \(AddressMask.describe(source.address, port: source.port)) \(strict ? "dropped" : "accepted anyway (log only)"), "
                     + "identity mismatch: " + wrong.joined(separator: ", ")
                     + " (further mismatches in this hole are not logged)")
             }
@@ -208,7 +298,13 @@ public enum HolePunch {
 
         func sendRequest(from socketIndex: Int, to candidateIndex: Int) {
             let c = candidates[candidateIndex]
-            try? sockets[socketIndex].send(request, to: c.address, port: c.port)
+            if socketIndex == 0 { stats.sentMain += 1 } else { stats.sentExtra += 1 }
+            do {
+                try sockets[socketIndex].send(request, to: c.address, port: c.port)
+            } catch {
+                stats.sendErrors += 1
+                if stats.firstSendError == nil { stats.firstSendError = "\(error)" }
+            }
         }
 
         /// Sections 5.3 and 5.4.
@@ -233,6 +329,10 @@ public enum HolePunch {
                     }
                 }
                 if round < options.resends { sendRound() }
+                if monotonicSeconds() - lastSummary >= 2 {
+                    lastSummary = monotonicSeconds()
+                    options.log("probing, round \(round + 1) of \(options.resends + 1): \(summary())")
+                }
             }
             throw PunchError.hostUnreachable
         }
@@ -260,7 +360,7 @@ public enum HolePunch {
         private func handle(_ packet: UDPPacket, on index: Int) -> Selection? {
             // Not a probe at all (also a probe-sized datagram of another type), or not from the console to us:
             // nothing to learn from it, nothing to answer, and no derived candidate.
-            guard let probe = ProbePacket.parse(packet.bytes),
+            guard let probe = counted(packet),
                   isAuthentic(probe, from: (packet.host, packet.port)) else { return nil }
             if index > 0 && warmed.insert(index).inserted { try? sockets[index].setTimeToLive(64) }
             var candidateIndex = candidates.firstIndex { $0.address == packet.host && $0.port == packet.port }
@@ -283,6 +383,7 @@ public enum HolePunch {
                 if probe.requestID == requestID {
                     return Selection(socket: sockets[index], candidate: candidates[candidateIndex])
                 }
+                stats.wrongRequestID += 1
             }
             return nil
         }
@@ -309,7 +410,7 @@ public enum HolePunch {
                     continue
                 }
                 guard let packet = received else { continue }
-                if let probe = ProbePacket.parse(packet.bytes), probe.kind == .request,
+                if let probe = counted(packet), probe.kind == .request,
                    isAuthentic(probe, from: (packet.host, packet.port)) {
                     if let response = ProbePacket.response(
                         senderHashedID: identity.hashedID, receiverHashedID: console.hashedID,

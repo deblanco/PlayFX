@@ -184,10 +184,9 @@ final class InternetLink: @unchecked Sendable {
         let socket = try makeHoleSocket()
         let environment = self.environment
         let (candidates, prediction) = try await runBlocking { [self] in
-            try buildCandidates(socket: socket, answersWanted: 4, ctrlPrediction: nil, environment: environment)
+            try buildCandidates(socket: socket, hole: .ctrl, answersWanted: 4, ctrlPrediction: nil, environment: environment)
         }
         ctrlPrediction = prediction
-        note("ctrl hole: local port \(socket.localPort), candidates \(Self.describe(candidates))")
         try Task.checkCancellation()
 
         // 6. The start command, then the console's join and `customData1`.
@@ -263,7 +262,7 @@ final class InternetLink: @unchecked Sendable {
 
     /// UPnP mapping or STUN for one hole, then the candidate list (holepunch.md sections 3, 4). Blocking.
     private func buildCandidates(
-        socket: any UDPPunchSocket, answersWanted: Int, ctrlPrediction: NATPrediction?,
+        socket: any UDPPunchSocket, hole: InternetHole, answersWanted: Int, ctrlPrediction: NATPrediction?,
         environment: InternetEnvironment
     ) throws -> (ClientCandidates, NATPrediction?) {
         let port = socket.localPort
@@ -277,25 +276,45 @@ final class InternetLink: @unchecked Sendable {
         let mapping = gateway?.mapPort(port)
         var prediction: NATPrediction?
         if mapping == nil {
+            if gateway != nil {
+                note("\(hole.rawValue) hole: UPnP found a gateway but the mapping or the external address failed (or the address isn't public); using STUN")
+            }
             var stun = environment.stun
             stun.isCancelled = cancelCheck
+            let log = options.log
+            stun.log = { log("\(hole.rawValue) hole: \($0)") }
             let answers = StunClient.collect(
                 socket: socket, servers: environment.stunServers(), wanted: answersWanted, environment: stun)
-            note("STUN: \(answers.count) answer(s)")
             if answersWanted == 1 {
                 prediction = answers.first.map { NATPrediction.forDataHole(answer: $0, ctrl: ctrlPrediction) }
+                note("\(hole.rawValue) hole: \(answers.count) STUN answer(s); "
+                    + (prediction.map { "base port \($0.basePort), step \($0.increment) and random allocation "
+                        + "\($0.randomAllocation ? "yes" : "no") taken from the ctrl hole" } ?? "no public address from STUN"))
             } else {
                 prediction = NATPrediction.predict(answers)
+                note("\(hole.rawValue) hole: " + NATPrediction.explain(answers: answers, prediction: prediction, localPort: port))
             }
         } else {
-            note("UPnP: port \(port) mapped")
+            note("\(hole.rawValue) hole: UPnP mapped port \(port); external address \(AddressMask.describe(mapping?.publicAddress ?? ""))")
         }
         if token.isCancelled { throw InternetStartError.cancelled }
         do {
             let inputs = CandidateInputs(
                 localPort: port, interfaceAddress: environment.interfaceAddress(), upnp: mapping, stun: prediction,
                 forcePortGuessing: options.forcePortGuessing)
-            return (try CandidateBuilder.build(inputs), prediction)
+            let built = try CandidateBuilder.build(inputs)
+            let stunCount = built.candidates.filter { $0.type == .stun }.count
+            let plan: String
+            if built.randomAllocation {
+                plan = "port guesses: \(stunCount), extra low-TTL sockets: \(environment.punch.extraSocketCount)"
+                    + (options.forcePortGuessing ? " (forcePortGuessing)" : "")
+            } else if stunCount > 0 {
+                plan = "predicted ports: \(stunCount), no extra sockets"
+            } else {
+                plan = "no STUN candidates (the NAT keeps the port or UPnP mapped it), no extra sockets"
+            }
+            note("\(hole.rawValue) hole: local port \(port), offering \(AddressMask.describe(built.candidates)); \(plan)")
+            return (built, prediction)
         } catch {
             throw InternetStartError.noPublicAddress
         }
@@ -311,7 +330,7 @@ final class InternetLink: @unchecked Sendable {
         punchOptions.isCancelled = cancelCheck
         punchOptions.probeIdentity = options.probeIdentity
         let log = options.log
-        punchOptions.log = { log("holepunch: \($0)") }
+        punchOptions.log = { log("\(hole.rawValue) hole: \($0)") }
         do {
             return try HolePunch.run(
                 socket: socket, identity: identity, client: candidates, peerSid: peerSid, signaling: signaling,
@@ -335,8 +354,7 @@ final class InternetLink: @unchecked Sendable {
         report(.dataHole)
         let socket = try makeHoleSocket()
         let (candidates, _) = try buildCandidates(
-            socket: socket, answersWanted: 1, ctrlPrediction: ctrlPrediction, environment: environment)
-        note("data hole: local port \(socket.localPort), candidates \(Self.describe(candidates))")
+            socket: socket, hole: .data, answersWanted: 1, ctrlPrediction: ctrlPrediction, environment: environment)
         let hole = try punch(socket: socket, candidates: candidates, peerSid: ctrlHole?.consoleSid ?? 0, hole: .data)
         note("data hole open: \(Self.describe(hole.selected))")
         guard let descriptor = hole.socket.releaseDescriptor() else {
@@ -497,15 +515,8 @@ final class InternetLink: @unchecked Sendable {
 
     // MARK: Logging helpers
 
-    static func describe(_ candidates: ClientCandidates) -> String {
-        var counts: [String: Int] = [:]
-        for candidate in candidates.candidates { counts[candidate.type.rawValue, default: 0] += 1 }
-        let list = counts.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
-        return "\(list)\(candidates.randomAllocation ? ", random allocation" : "")"
-    }
-
     static func describe(_ candidate: PunchCandidate) -> String {
-        "\(candidate.type.rawValue) \(candidate.address):\(candidate.port)"
+        "\(candidate.type.rawValue) \(AddressMask.describe(candidate.address, port: candidate.port))"
     }
 }
 

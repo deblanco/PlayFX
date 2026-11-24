@@ -65,7 +65,11 @@ session init and the stream (about 30 s on a real PS5), in the background, as fo
   they can carry the console's and this network's public addresses, so they are in the app's log file, never the default
   system log.
 - *Development switch.* `PLAYFX_PROBE_IDENTITY=logOnly` accepts every hole-punch probe and logs the first mismatch of
-  each hole (holepunch.md section 10, question 1), for a first run on real hardware; unset is the strict default.
+  each hole (holepunch.md section 10, question 1), for a first run on real hardware; unset is the strict default. Dev-only.
+- *Development switch.* `PLAYFX_FORCE_PORT_GUESSING=1` forces port guessing: the 75 port guesses and the 250 extra low-TTL
+  probe sockets are used even when STUN shows a stable mapping (holepunch.md section 4.2, sixth row), for a network
+  whose NAT the STUN answers don't describe (a carrier NAT, a phone hotspot). Anything but `1`, or unset, leaves it off.
+  Dev-only. The library's debug log lines say what STUN answered, which candidates went out and what the probing saw.
 
 The same library registration is what `PSNPairing` uses (PIN-less pairing, with stages `linking` and `registering`),
 and `PSNAccount.consoles()` lists the account's PS5s with `PSNClient.consoles()` (one refresh and retry when PSN

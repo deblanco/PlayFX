@@ -135,6 +135,15 @@ sockets and the switch (11 to 14).
   `0x0034`.
 - **Descriptors.** The link clears the punched descriptor in the same locked section that marks it shut, and the probe
   and stream transports take it under that lock, so a closed number is never `dup`ed or adopted.
+- **Diagnostics for a first run.** `InternetOptions.log` prints, one readable line each: every STUN server's answer (host,
+  mapped address masked, mapped port, the local port it was sent from, or why there was none), the prediction with the case of
+  holepunch.md section 3.3 it fell into and its steps, the candidates offered and the console's, whether port guesses and extra
+  sockets are used and how many, a probing summary every 2 s and at the end (sent from the main and the extra sockets,
+  datagrams received, probes by kind, wrong request ids, identity mismatches, send errors, by masked source), and
+  `failed while <stage>: <PunchError>`. Addresses are masked to their kind and first two octets (`public 203.0.x.x`,
+  `private 192.168.x.x`, `cgnat 100.64.x.x`); ports are in full; no token, key, hashed id or sid is ever printed.
+  `NATPredictionRulesTests` compares `NATPrediction.predict` with an independent model of the section 3.3 tables over many
+  inputs: the only difference from the reference is that a decreasing NAT's four-answer step (65534) is read as -2.
 - **Typed errors.** `InternetStartError` wraps PSN, hole-punch, registration (`consoleAnswered` picks stream.md reasons 13
   and 14), session and stream failures, with `userMessage`, `endReason` and `retryClass`. It is a separate type from
   `StreamStartError`, so code that handles the LAN errors doesn't change.

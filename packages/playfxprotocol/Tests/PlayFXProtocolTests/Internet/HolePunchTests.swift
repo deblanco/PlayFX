@@ -564,7 +564,7 @@ final class FakePunchConsole: @unchecked Sendable {
         if case .failure(let error)? = outcome.with({ $0 }) { #expect(error as? PunchError == .hostUnreachable) } else {
             Issue.record("a forged response must not select a pair")
         }
-        let logged = lines.with { $0 }
+        let logged = lines.with { $0.filter { $0.contains("identity mismatch:") } }
         #expect(logged.count == 1)
         #expect(logged.first?.contains("identity mismatch") == true)
         #expect(logged.first?.contains("sender hashed id") == true)
@@ -601,7 +601,7 @@ final class FakePunchConsole: @unchecked Sendable {
         }
         #expect(responses == 4, "every mismatched request was answered")
         #expect(eventually(5) { outcome.with { $0 != nil } })
-        let logged = lines.with { $0 }
+        let logged = lines.with { $0.filter { $0.contains("identity mismatch:") } }
         #expect(logged.count == 1 && logged[0].contains("identity mismatch") && logged[0].contains("accepted"))
     }
 
@@ -658,7 +658,7 @@ final class FakePunchConsole: @unchecked Sendable {
         }, options: finalOptions) { console, _, _, result in
             let hole = try result.get()
             #expect(hole.selected == PunchCandidate(type: .staticAddress, address: "127.0.0.1", port: console.main.localPort))
-            #expect(lines.with { $0.count } <= 1)
+            #expect(lines.with { $0.filter { $0.contains("identity mismatch:") }.count } <= 1)
             hole.socket.close()
         }
         forger.close()

@@ -27,7 +27,9 @@ extension PlayFXEngine {
     /// The options of an internet start: the progress goes to `progress`, the library's log lines to StreamCore's log (at
     /// debug level: they can carry the console's and this network's public addresses), the rest as the reference client
     /// has it. `PLAYFX_PROBE_IDENTITY=logOnly` (development) accepts every hole-punch probe and logs the first mismatch of
-    /// each hole, for a first hardware round (holepunch.md section 10, question 1).
+    /// each hole, for a first hardware round (holepunch.md section 10, question 1). `PLAYFX_FORCE_PORT_GUESSING=1`
+    /// (development) sets `forcePortGuessing`: port guesses and the extra low-TTL sockets even when STUN shows a stable
+    /// mapping (holepunch.md section 4.2, sixth row), to test a network whose NAT the STUN answers don't describe.
     static func internetOptions(
         environment: [String: String], progress: @escaping @Sendable (InternetStage) -> Void
     ) -> InternetOptions {
@@ -35,6 +37,7 @@ extension PlayFXEngine {
         options.progress = progress
         options.log = { line in Log.debug(.session, "Internet play: \(line)") }
         if environment["PLAYFX_PROBE_IDENTITY"] == "logOnly" { options.probeIdentity = .logOnly }
+        if environment["PLAYFX_FORCE_PORT_GUESSING"] == "1" { options.forcePortGuessing = true }
         return options
     }
 

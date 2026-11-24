@@ -191,14 +191,18 @@ public struct StunEnvironment: Sendable {
     public var transactionID: @Sendable () -> [UInt8]
     /// Checked between servers and while waiting.
     public var isCancelled: @Sendable () -> Bool
+    /// One line per server asked: its answer (masked address, port), or why there was none.
+    public var log: @Sendable (String) -> Void
 
     public init(resolve: @escaping @Sendable (String) -> String? = { StunClient.resolveIPv4($0) }, timeout: Double = 5,
                 transactionID: @escaping @Sendable () -> [UInt8] = { (0..<12).map { _ in UInt8.random(in: 0...255) } },
-                isCancelled: @escaping @Sendable () -> Bool = { false }) {
+                isCancelled: @escaping @Sendable () -> Bool = { false },
+                log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.resolve = resolve
         self.timeout = timeout
         self.transactionID = transactionID
         self.isCancelled = isCancelled
+        self.log = log
     }
 }
 
@@ -246,11 +250,19 @@ public enum StunClient {
         var answers: [StunAnswer] = []
         for server in servers where answers.count < wanted {
             if environment.isCancelled() { break }
-            guard let address = environment.resolve(server.host) else { continue }
+            let name = "\(server.host):\(server.port)"
+            guard let address = environment.resolve(server.host) else {
+                environment.log("STUN \(name): did not resolve")
+                continue
+            }
             let transaction = environment.transactionID()
             guard (try? socket.send(bindingRequest(transactionID: transaction), to: address, port: server.port)) != nil
-            else { continue }
+            else {
+                environment.log("STUN \(name): the request could not be sent")
+                continue
+            }
             let deadline = monotonicSeconds() + environment.timeout
+            var answered = false
             while !environment.isCancelled() {
                 let remaining = deadline - monotonicSeconds()
                 if remaining <= 0 { break }
@@ -260,8 +272,14 @@ public enum StunClient {
                 }
                 if let answer = parseBindingResponse(packet.bytes, transactionID: transaction) {
                     answers.append(answer)
+                    answered = true
+                    environment.log("STUN \(name): mapped \(AddressMask.describe(answer.address)):\(answer.port), "
+                        + "sent from local port \(socket.localPort)")
                     break
                 }
+            }
+            if !answered && !environment.isCancelled() {
+                environment.log("STUN \(name): no answer in \(Int(environment.timeout)) s")
             }
         }
         return answers

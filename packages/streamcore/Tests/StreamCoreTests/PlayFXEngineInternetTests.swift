@@ -327,6 +327,20 @@ extension Serial {
             relaxed.log("a line the app logs") // goes to StreamCore's log, not the system's default
         }
 
+        @Test func portGuessingIsForcedOnlyByTheDevelopmentSwitch() {
+            #expect(!PlayFXEngine.internetOptions(environment: [:]) { _ in }.forcePortGuessing)
+            #expect(!PlayFXEngine.internetOptions(environment: ["PLAYFX_FORCE_PORT_GUESSING": "0"]) { _ in }.forcePortGuessing)
+            #expect(!PlayFXEngine.internetOptions(environment: ["PLAYFX_FORCE_PORT_GUESSING": "true"]) { _ in }.forcePortGuessing)
+            #expect(PlayFXEngine.internetOptions(environment: ["PLAYFX_FORCE_PORT_GUESSING": "1"]) { _ in }.forcePortGuessing)
+        }
+
+        @Test func theEngineForcesPortGuessingFromTheEnvironment() async throws {
+            let h = try InternetHarness(rig: try InternetRig(), environment: ["PLAYFX_FORCE_PORT_GUESSING": "1"])
+            #expect(await h.connect())
+            #expect(h.started.withLock { $0?.internet.forcePortGuessing } == true)
+            h.engine.stop()
+        }
+
         @Test func theEngineChoosesLogOnlyFromTheEnvironment() async throws {
             let h = try InternetHarness(rig: try InternetRig(), environment: ["PLAYFX_PROBE_IDENTITY": "logOnly"])
             #expect(await h.connect())
