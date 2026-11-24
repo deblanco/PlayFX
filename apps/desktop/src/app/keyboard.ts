@@ -2,7 +2,7 @@ import { idleController, type ControllerState } from "@/core/schema"
 
 // Keyboard-as-controller, mainly for testing gameplay without a physical pad. Maps
 // KeyboardEvent.code values to a ControllerState. Button bits match StreamCore
-// (sc_session_set_controller / ChiakiControllerButton).
+// (sc_session_set_controller, `ControllerButton` in ControllerInput.swift).
 
 const BUTTON = {
   cross: 1 << 0,

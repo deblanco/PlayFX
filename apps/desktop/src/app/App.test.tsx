@@ -508,7 +508,7 @@ describe("home: paired consoles", () => {
     // A drop reconnects over the internet too: the old session is stopped, then (after the console
     // lets go of it; the wait is covered in actions.test) a new one starts through PSN.
     act(() => {
-      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })
     })
     expect(await screen.findByRole("region", { name: "Connection lost. Reconnecting to Living Room" })).toBeInTheDocument()
     await waitFor(() => {
@@ -539,7 +539,7 @@ describe("home: paired consoles", () => {
     await userEvent.click(await item.findByRole("button", { name: "Play" }))
     expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.anything(), undefined) // locally first
     act(() => {
-      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+      core.emitStream({ type: "quit", reason: "The PS5 didn't answer. Check that it's on and on the same network as this Mac.", error: true, kind: "final" })
     })
     expect(await screen.findByText("Couldn't reach Living Room on this network. Connecting over the internet…")).toBeInTheDocument()
     await waitFor(() => {
@@ -579,9 +579,9 @@ describe("home: paired consoles", () => {
       expect(core.streamListeners()).toBe(1)
     })
     act(() => {
-      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+      core.emitStream({ type: "quit", reason: "The PS5 didn't answer. Check that it's on and on the same network as this Mac.", error: true, kind: "final" })
     })
-    expect(await screen.findByText(/^Couldn't reach the console on this network/)).toBeInTheDocument()
+    expect(await screen.findByText(/^The PS5 didn't answer on this network\. .*or play over the internet\.$/)).toBeInTheDocument()
     expect(core.service.startStream).toHaveBeenCalledTimes(1)
   })
 
@@ -979,9 +979,9 @@ describe("streaming", () => {
     })
     expect(await screen.findByText("Den PS5")).toBeInTheDocument()
     act(() => {
-      core.emitStream({ type: "quit", reason: "Network timeout", error: true })
+      core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true })
     })
-    expect(await screen.findByText("Disconnected: Network timeout")).toBeInTheDocument()
+    expect(await screen.findByText("The connection to the PS5 was lost.")).toBeInTheDocument()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     // The app keeps listening for the next stream.
     expect(core.streamListeners()).toBe(1)
@@ -1009,7 +1009,7 @@ describe("streaming", () => {
     const core = fakeCore()
     vi.mocked(core.service.startStream).mockImplementation(() =>
       Effect.sync(() => {
-        core.emitStream({ type: "quit", reason: "RP_IN_USE", error: true })
+        core.emitStream({ type: "quit", reason: "The PS5 is already streaming to another device. End that session, or wait a few seconds and try again.", error: true })
       }),
     )
     renderApp(core, { accountId, paired: [pairedPs5] })
@@ -1018,7 +1018,7 @@ describe("streaming", () => {
       expect(core.streamListeners()).toBe(1)
     })
     await userEvent.click(item.getByRole("button", { name: "Play" }))
-    expect(await screen.findByText("Disconnected: RP_IN_USE")).toBeInTheDocument()
+    expect(await screen.findByText("The PS5 is already streaming to another device. End that session, or wait a few seconds and try again.")).toBeInTheDocument()
     expect(screen.getByText("Consoles")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument()
   })
@@ -1286,7 +1286,7 @@ describe("streaming", () => {
     })
     vi.mocked(core.service.startStream).mockClear()
     act(() => {
-      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })
     })
     expect(screen.getByRole("banner")).toHaveTextContent("Connection lost. Reconnecting…")
     expect(screen.queryByText(/Disconnected/)).not.toBeInTheDocument()
@@ -1321,7 +1321,7 @@ describe("streaming", () => {
     const { core } = await startStreaming()
     const drop = () => {
       act(() => {
-        core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+        core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })
       })
     }
     act(() => {
@@ -1340,7 +1340,7 @@ describe("streaming", () => {
       })
     }
     drop()
-    expect(await screen.findByText("Disconnected: Stream Connection Unknown")).toBeInTheDocument()
+    expect(await screen.findByText("The connection to the PS5 was lost.")).toBeInTheDocument()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
   })
 
@@ -1351,7 +1351,7 @@ describe("streaming", () => {
     })
     vi.mocked(core.service.startStream).mockClear()
     act(() => {
-      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })
     })
     await waitFor(() => {
       expect(core.service.startStream).toHaveBeenCalledTimes(1)
@@ -1378,7 +1378,7 @@ describe("streaming", () => {
     await startStreaming(core)
     calls.length = 0
     act(() => {
-      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })
       core.emitStream({ type: "network", online: true }) // before the drop's reconnect has shown
     })
     expect(await screen.findByRole("region", { name: "Your network changed. Reconnecting to Living Room" })).toBeInTheDocument()
@@ -1427,7 +1427,7 @@ describe("streaming", () => {
     core.state.psnSignedIn = true
     core.state.psnConsoles = [{ name: "Living Room", duid: "aa", remotePlay: true }]
     act(() => {
-      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+      core.emitStream({ type: "quit", reason: "The PS5 didn't answer. Check that it's on and on the same network as this Mac.", error: true, kind: "final" })
     })
     await waitFor(() => {
       expect(core.service.startStream).toHaveBeenLastCalledWith(credentials, expect.anything(), "aa")
@@ -1437,9 +1437,9 @@ describe("streaming", () => {
   it("ends with advice when the console can't be reached at all", async () => {
     const { core } = await startStreaming(fakeCore(), { connected: false })
     act(() => {
-      core.emitStream({ type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" })
+      core.emitStream({ type: "quit", reason: "The PS5 didn't answer. Check that it's on and on the same network as this Mac.", error: true, kind: "final" })
     })
-    expect(await screen.findByText(/^Couldn't reach the console on this network/)).toBeInTheDocument()
+    expect(await screen.findByText(/^The PS5 didn't answer on this network\. .*or play over the internet\.$/)).toBeInTheDocument()
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
   })
 
@@ -1465,9 +1465,9 @@ describe("streaming", () => {
   it("offers to try again when a stream ends with an error", async () => {
     const { core } = await startStreaming(fakeCore(), { connected: false })
     act(() => {
-      core.emitStream({ type: "quit", reason: "Remote Play on Console has crashed", error: true, kind: "final" })
+      core.emitStream({ type: "quit", reason: "Remote Play on the PS5 stopped working. Restart the PS5 and try again.", error: true, kind: "final" })
     })
-    expect(await screen.findByText("Remote Play stopped on the console. Try again in a moment.")).toBeInTheDocument()
+    expect(await screen.findByText("Remote Play on the PS5 stopped working. Restart the PS5 and try again.")).toBeInTheDocument()
     vi.mocked(core.service.startStream).mockClear()
     fireEvent.click(screen.getByRole("button", { name: "Try again" })) // (the toast's swipe handling needs pointer capture, which jsdom lacks)
     await waitFor(() => {
@@ -1549,9 +1549,9 @@ describe("streaming", () => {
   it("doesn't retry a drop before the stream ever connected", async () => {
     const { core } = await startStreaming(fakeCore(), { connected: false })
     act(() => {
-      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })
     })
-    expect(await screen.findByText("Disconnected: Stream Connection Unknown")).toBeInTheDocument()
+    expect(await screen.findByText("The connection to the PS5 was lost.")).toBeInTheDocument()
     expect(core.service.startStream).toHaveBeenCalledTimes(1)
   })
 

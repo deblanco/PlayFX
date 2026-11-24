@@ -21,6 +21,7 @@ import {
   hudStats,
   interpolationReason,
   quitMessage,
+  unreachableReasons,
   reorderLine,
   samePaired,
   microphoneProblem,
@@ -270,15 +271,24 @@ describe("afterStall", () => {
 
 describe("afterQuit", () => {
   const live = { connected: true, reconnecting: false, autoReconnects: 0 } as const
-  const dropped = { type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" } as const
+  const dropped = { type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" } as const
   it("tries PSN when the local network can't reach the console", () => {
     const starting = { connected: false, reconnecting: false, autoReconnects: 0 } as const
-    const unreachable = { type: "quit", reason: "Unknown Session Request Error", error: true, kind: "final" } as const
+    const unreachable = {
+      type: "quit",
+      reason: "The PS5 didn't answer. Check that it's on and on the same network as this Mac.",
+      error: true,
+      kind: "final",
+    } as const
     expect(afterQuit({ ...starting, psnFallback: "aa" }, unreachable)).toBe("via-internet")
     expect(afterQuit(starting, unreachable)).toBe("via-internet") // PSN is asked then
     expect(afterQuit({ ...starting, psnFallback: "aa", psnDuid: "aa" }, unreachable)).toBe("end") // already via PSN
     expect(afterQuit({ ...live, psnFallback: "aa" }, unreachable)).toBe("end") // it had connected
-    expect(afterQuit({ ...starting, psnFallback: "aa" }, { ...unreachable, reason: "Connection Refused in Session Request" })).toBe("end")
+    const blocked = "Couldn't reach the PS5. Allow PlayFX in System Settings › Privacy & Security › Local Network, and turn off any VPN."
+    expect(afterQuit({ ...starting, psnFallback: "aa" }, { ...unreachable, reason: blocked })).toBe("via-internet")
+    expect(unreachableReasons).toHaveLength(4) // PS5 and PS4, each "didn't answer" and "couldn't reach"
+    const busy = "The PS5 is already streaming to another device. End that session, or wait a few seconds and try again."
+    expect(afterQuit({ ...starting, psnFallback: "aa" }, { ...unreachable, reason: busy })).toBe("end")
   })
 
   it("reconnects a connected stream that lost its connection, a few times", () => {
@@ -304,8 +314,8 @@ describe("afterQuit", () => {
 describe("describeEvent", () => {
   it("turns stream events into log lines, warning on error quits", () => {
     expect(describeEvent({ type: "connected" })).toEqual({ line: "Stream connected", warn: false })
-    expect(describeEvent({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })).toEqual({
-      line: "Stream ended: Stream Connection Unknown (dropped)",
+    expect(describeEvent({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })).toEqual({
+      line: "Stream ended: The connection to the PS5 was lost. (dropped)",
       warn: true,
     })
     expect(describeEvent({ type: "quit", reason: "Stopped", error: false })).toEqual({ line: "Stream ended: Stopped (final)", warn: false })
@@ -321,25 +331,20 @@ describe("describeEvent", () => {
 })
 
 describe("quitMessage", () => {
-  it("only reports errors", () => {
-    expect(quitMessage({ type: "quit", reason: "Timeout", error: true })).toEqual(Option.some("Disconnected: Timeout"))
+  it("only reports errors, in the engine's words", () => {
+    const lost = "The connection to the PS5 was lost."
+    expect(quitMessage({ type: "quit", reason: lost, error: true })).toEqual(Option.some(lost))
     expect(quitMessage({ type: "quit", reason: "Stopped", error: false })).toEqual(Option.none())
   })
 
-  it("says what went wrong and what to do for known reasons", () => {
-    expect(quitMessage({ type: "quit", reason: "Unknown Session Request Error", error: true })).toEqual(
-      Option.some(
-        "Couldn't reach the console on this network. Check that the Mac and the console are on the same network, or play over the internet.",
-      ),
+  it("adds playing over the internet to a PS5 that didn't answer on this network", () => {
+    expect(
+      quitMessage({ type: "quit", reason: "The PS5 didn't answer. Check that it's on and on the same network as this Mac.", error: true }),
+    ).toEqual(
+      Option.some("The PS5 didn't answer on this network. Check that it's on and on the same network as this Mac, or play over the internet."),
     )
-  })
-
-  it("tells a console that never answered the PSN registration from one that refused it", () => {
-    const unanswered = quitMessage({ type: "quit", reason: "The Console didn't answer the Registration using PSN", error: true })
-    expect(Option.getOrThrow(unanswered)).toMatch(/^The console didn't answer through PSN\. .*Remote Play is turned on/)
-    expect(quitMessage({ type: "quit", reason: "The Console Registration using PSN has failed", error: true })).toEqual(
-      Option.some("PSN couldn't set up the connection to the console. Try again, or sign in to PSN again."),
-    )
+    const ps4 = "The PS4 didn't answer. Check that it's on and on the same network as this Mac."
+    expect(quitMessage({ type: "quit", reason: ps4, error: true })).toEqual(Option.some(ps4)) // no internet play for a PS4
   })
 })
 

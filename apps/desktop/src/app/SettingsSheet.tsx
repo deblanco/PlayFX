@@ -665,7 +665,7 @@ const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; read
       </p>
       <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
         <p className="text-xs text-muted-foreground">
-          PlayFX is free software under the GNU AGPL-3.0, built on chiaki-ng. It isn't affiliated with Sony
+          PlayFX is free software under the GNU AGPL-3.0. It isn't affiliated with Sony
           Interactive Entertainment. The licences of the third-party software it includes are in
           THIRD_PARTY_LICENSES, in the app's Contents/Resources folder.
         </p>

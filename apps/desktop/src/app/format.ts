@@ -38,7 +38,7 @@ const statusOf = (console: DiscoveredConsole | undefined): ConsoleStatus =>
   console === undefined || console.state === "unknown" ? "offline" : console.state
 
 /** Whether a console on the PSN account is this paired one: by its PSN device ID when it was paired through
- * PSN, else by name or nickname, as chiaki-ng matches them. */
+ * PSN, else by name or nickname. */
 const isPairedAs = (onPsn: PsnConsole, console: PairedConsole): boolean =>
   console.psnDuid === undefined
     ? onPsn.name === console.name || onPsn.name === console.credentials.nickname
@@ -386,7 +386,7 @@ export const hudStats = (status: RendererStatus, fps: number, mbps: number): str
 export const samePaired = (a: PairedConsoles, b: PairedConsoles): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 /** The PSN device ID of each paired console PSN knows (with Remote Play on), matched by the device ID kept
- * from pairing through PSN, else by name as chiaki-ng does: hostId → duid. */
+ * from pairing through PSN, else by name: hostId → duid. */
 export const psnDeviceIds = (
   paired: PairedConsoles,
   onPsn: readonly PsnConsole[],
@@ -413,8 +413,12 @@ export const afterStall = (session: { readonly autoReconnects: number }): "recon
 
 export const stallMessage = "The picture stopped and reconnecting didn't bring it back. Check your network and try again."
 
-/** libchiaki's reason when the console can't be reached on the local network at all. */
-export const unreachableReason = "Unknown Session Request Error"
+/** The engine's reasons (PlayFXProtocol's `SessionError` messages) when the console can't be reached on the local
+ * network at all: it didn't answer, or the network refused the traffic. */
+export const unreachableReasons: readonly string[] = (["PS5", "PS4"] as const).flatMap((console) => [
+  `The ${console} didn't answer. Check that it's on and on the same network as this Mac.`,
+  `Couldn't reach the ${console}. Allow PlayFX in System Settings › Privacy & Security › Local Network, and turn off any VPN.`,
+])
 
 /** What a quit means for the running stream. */
 export const afterQuit = (
@@ -430,7 +434,7 @@ export const afterQuit = (
   if (session.reconnecting !== false) return "ignore" // the old session ending, or a busy console: the reconnect handles it
   if (!session.connected && event.kind === "busy") return "retry-start" // still busy for a few seconds: wait it out
   // Not reachable on this network: try through PSN (if the console is on the account).
-  if (!session.connected && session.psnDuid === undefined && event.reason === unreachableReason) return "via-internet"
+  if (!session.connected && session.psnDuid === undefined && unreachableReasons.includes(event.reason)) return "via-internet"
   if (session.connected && event.kind === "dropped" && session.autoReconnects < maxAutoReconnects) return "reconnect"
   return "end"
 }
@@ -457,22 +461,16 @@ export const describeEvent = (event: StreamEvent): { readonly line: string; read
   }
 }
 
-/** libchiaki's quit reasons in plain words, with what to do about them. */
+/** Where the app says more than the engine's own words (PlayFXEngine passes PlayFXProtocol's `userMessage` texts, which
+ * already say what to do): a PS5 that didn't answer on this network can also be played over the internet. */
 const quitReasons: Readonly<Record<string, string>> = {
-  "Unknown Session Request Error":
-    "Couldn't reach the console on this network. Check that the Mac and the console are on the same network, or play over the internet.",
-  "Connection Refused in Session Request": "The console refused the connection. Check that Remote Play is turned on in its settings.",
-  "Remote Play on Console has crashed": "Remote Play stopped on the console. Try again in a moment.",
-  "RP-Version mismatch": "The console's Remote Play version isn't supported. Update the console's system software.",
-  "Ctrl failed to connect": "The console stopped answering while connecting. Try again.",
-  "The Console Registration using PSN has failed": "PSN couldn't set up the connection to the console. Try again, or sign in to PSN again.",
-  "The Console didn't answer the Registration using PSN":
-    "The console didn't answer through PSN. Check that it's on, that Remote Play is turned on, and that it's online and signed in to PSN with your account.",
+  "The PS5 didn't answer. Check that it's on and on the same network as this Mac.":
+    "The PS5 didn't answer on this network. Check that it's on and on the same network as this Mac, or play over the internet.",
 }
 
 /** Toast text for a `quit` event, if the stream ended because of an error. */
 export const quitMessage = (event: Extract<StreamEvent, { type: "quit" }>): Option.Option<string> =>
-  event.error ? Option.some(quitReasons[event.reason] ?? `Disconnected: ${event.reason}`) : Option.none()
+  event.error ? Option.some(quitReasons[event.reason] ?? event.reason) : Option.none()
 
 export type SettingKey = keyof Settings
 

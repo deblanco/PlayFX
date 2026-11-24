@@ -112,7 +112,7 @@ export const Settings = Schema.Struct({
   colorRange: since(ColorRange, "auto"),
   chroma: since(ChromaFilter, "bicubic"),
   accurateColor: since(Schema.Boolean, true),
-  /** Debug entries in the log file (native, libchiaki and web UI), for tracking down problems. */
+  /** Debug entries in the log file (native and web UI), for tracking down problems. */
   detailedLogs: since(Schema.Boolean, false),
   connection: since(ConnectionRoute, "auto"),
   /** The console's IP on the home network, asked directly when broadcast discovery can't find it ("" = none). */

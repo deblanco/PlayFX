@@ -281,9 +281,7 @@ Requires an Apple silicon Mac, Xcode, [Bun](https://bun.sh), Rust (stable) and H
 ```sh
 git clone https://github.com/deblanco/PlayFX.git
 cd PlayFX
-git submodule update --init third_party/chiaki-ng
-brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent
-packages/streamcore/scripts/build-chiaki.sh   # once, and after bumping the submodule
+brew install opus                             # libopus, linked statically
 bun install
 bun run desktop                               # run the app (dev)
 bun run desktop:build                         # build the .app

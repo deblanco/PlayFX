@@ -801,11 +801,11 @@ describe("logging", () => {
       yield* actions.play(pairedPs5, { ...defaultSettings, bitrate: 0 }, "aa")
       const fiber = yield* Effect.forkChild(actions.onStreamEvent(() => undefined))
       yield* Effect.yieldNow
-      core.emitStream({ type: "quit", reason: "Stream Connection Unknown", error: true, kind: "dropped" })
+      core.emitStream({ type: "quit", reason: "The connection to the PS5 was lost.", error: true, kind: "dropped" })
       yield* Effect.yieldNow
       yield* Fiber.interrupt(fiber)
       expect(lines).toContain("Info Play Living Room over the internet: 1080p60 HEVC, auto bitrate")
-      expect(lines).toContain("Warn Stream ended: Stream Connection Unknown (dropped)")
+      expect(lines).toContain("Warn Stream ended: The connection to the PS5 was lost. (dropped)")
     }).pipe(Effect.provide(Layer.merge(layer, logged)))
   })
 })

@@ -3,7 +3,11 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **StreamCore on PlayFXProtocol only**: `ChiakiEngine`, the C shim (`Sources/CChiaki`)
+Last updated 2026-11-24, after **the app and CI without libchiaki**: the desktop app's Rust side builds and links
+with only StreamCore, Homebrew's static libopus and system frameworks (no curl, OpenSSL, json-c, miniupnpc,
+libevent, nanopb, Jerasure or GF-Complete); the UI shows the new engine's quit reasons in its own words (adding
+"or play over the internet" for a PS5 that didn't answer) and tries PSN on its "didn't answer"/"couldn't reach"
+texts; CI installs only `opus` and builds no libchiaki (TS 424 tests, Rust 74). Before that, **StreamCore on PlayFXProtocol only**: `ChiakiEngine`, the C shim (`Sources/CChiaki`)
 and `build-chiaki.sh` are gone; every stream, local or through PSN, runs on `PlayFXEngine`, with libopus linked
 statically from Homebrew's opus keg (StreamCore 501 tests, 91.5% lines; 90.1% in VM mode). Before that, **`PlayFXEngine`**: StreamCore can stream on PlayFXProtocol (`Options.engine = "playfx"`,
 `psrp stream --engine playfx`), clean-room against the engine contract; not yet on a console. Before that, **the internet-play spec** (`docs/protocol/psn.md`, `holepunch.md`, `rudp.md`, PIN-less
@@ -124,7 +128,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 501 tests (91.5% lines; 90.1% as CI's VM sees
+- Tests + gates (2026-11-21): TS 424 tests (98% lines, 2026-11-24), Swift 501 tests (91.5% lines; 90.1% as CI's VM sees
   it; 2026-11-24), PlayFXProtocol 574 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -1029,8 +1033,18 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     lost `--engine` (`--psn` is our internet play). StreamCore 501 tests (the shim's and ChiakiEngine's went),
     91.5% lines / 89.8% functions; 90.1% with `STREAMCORE_SIMULATE_VM=1` (both skipping
     `opensAnOutputUnitOnARealDevice`, an environment failure on this Mac that predates this change). Not yet run against a console.
-  - ❌ Next: the app and its build without libchiaki's C libraries, CI, the submodule and third_party/ removed,
-    the licence change; then the parity round in the app on the console.
+  - ✅ The app and CI without libchiaki (2026-11-24): `build.rs` links StreamCore, `libopus.a` from
+    `brew --prefix opus` (by path) and system frameworks only (CoreServices and SystemConfiguration went: only
+    curl used them); `cargo build` links, `otool -L` lists no Homebrew dylib, `nm` shows libopus inside. The UI's
+    quit texts: libchiaki's reason strings are gone from `format.ts`; the engine's own messages (PlayFXProtocol's
+    `userMessage`) are shown as they are (no "Disconnected:" prefix), except a PS5 that didn't answer, which adds
+    "or play over the internet"; PSN is tried after the engine's "didn't answer" or "couldn't reach" texts (PS5
+    and PS4), as it was after libchiaki's "Unknown Session Request Error". Comments in `native.rs`, `keyboard.ts`,
+    `schema.ts` and the Settings text no longer name chiaki. CI: no submodule checkout, no libchiaki build or
+    cache, `brew install opus` only; every gate kept. `release.sh` had no libchiaki step. TS 424 tests (97.9%
+    lines), Rust 74 (91.4% lines), clippy clean. Not yet on a console.
+  - ❌ Next: the submodule and third_party/ removed, the licence change; then the parity round in the app on the
+    console.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
   exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,
@@ -1142,8 +1156,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   the stapled app into tauri's DMG in place of the unstapled one (same name, window and icon layout), then
   signs, notarizes, staples and checks the DMG with Gatekeeper. Each submission is waited on by its id, with
   retries (see Notarization in section 3); `scripts/test-release.sh` tests the wait and the DMG app swap.
-- ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): libchiaki built once
-  per submodule commit + script (cached right after building), Swift tests one at a time + coverage,
+- ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): PlayFXProtocol tests +
+  coverage, `brew install opus` (until 2026-11-24: libchiaki built once per submodule commit + script, cached),
+  Swift tests one at a time + coverage,
   tsc/ESLint/vitest + coverage, clippy `-D warnings`, Rust tests + `cargo llvm-cov --lib` (≥ 80% lines and
   functions). Getting it green found real bugs: `protobuf` missing from the documented dependencies; the
   dev seed import broke every clean checkout; in a VM, VideoToolbox reports frame interpolation and ML
@@ -1151,8 +1166,8 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   first measured here (72% lines): the app's entry point moved to `main.rs` (a thin adapter), every
   command is now exercised through IPC with the UI's argument names and with missing arguments, and the
   safe StreamCore calls are smoke-tested for real.
-- ✅ **Reproducibility**: README lists the Homebrew dependencies and `build-chiaki.sh`; CI regenerates
-  `vendor/` from scratch whenever the submodule or the script changes.
+- ✅ **Reproducibility**: README lists the one Homebrew dependency (`opus`, linked statically); libchiaki,
+  `build-chiaki.sh` and `vendor/` are gone (2026-11-24).
 
 ---
 
@@ -1512,5 +1527,5 @@ requests and a bug report.
    working); ~~the engine seam in StreamCore: libchiaki behind `StreamEngine`~~ (done 2026-11-24, unit tests, behaviour
    unchanged); ~~`PlayFXEngine` on that seam~~ (done 2026-11-24); ~~internet play, the PSN console list and PIN-less
    pairing on PlayFXProtocol~~ (done 2026-11-24); ~~StreamCore on PlayFXProtocol only~~ (done 2026-11-24: no
-   libchiaki in StreamCore or psrp); next, the app's build, CI and the submodule without chiaki-ng, PlayFX
-   proprietary, then the parity round in the app on the console. *(P4)*
+   libchiaki in StreamCore or psrp); ~~the app's build and CI without libchiaki~~ (done 2026-11-24); next, the
+   submodule and third_party/ removed, PlayFX proprietary, then the parity round in the app on the console. *(P4)*
