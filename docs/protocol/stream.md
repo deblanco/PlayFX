@@ -1357,10 +1357,11 @@ The stream layer is the same over the internet; only its transport and two steps
 
 ## Sources
 
-- chiaki-ng (AGPL-3.0), read for facts only, at the submodule commit this repository records; verification
-  through a C harness run against its sources as a black box (§15).
+- chiaki-ng (AGPL-3.0), read for facts only, at commit d8efd673bc93bbc16e9f646c5b24e0dee013abcc (the chiaki-ng
+  submodule commit this repository recorded until 2026-11-24); verification through a C harness run against
+  its sources as a black box (§15).
 - PlayFX's own shim and notes: `packages/streamcore/Sources/CChiaki/include/psrp.h` (events and commands the
-  app needs), `PLAN.md` (hardware observations in §13).
+  app needs; removed 2026-11-24, in this repository's history), `PLAN.md` (hardware observations in §13).
 - Protobuf encoding: https://protobuf.dev/programming-guides/encoding/.
 - secp256k1: SEC 2 v2, https://www.secg.org/sec2-v2.pdf. HMAC: RFC 2104; SHA-256: FIPS 180-4.
 - Opus: RFC 6716.

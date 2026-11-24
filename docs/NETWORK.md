@@ -11,9 +11,10 @@ are in [FRAME_INTERPOLATION.md](FRAME_INTERPOLATION.md).
   90 ms each second. The **Steady Wi-Fi** switch, on Home and in Settings → Stream, pauses them while
   PlayFX is open. PlayFX remembers it's on, and while streaming the HUD warns when AirDrop is stalling,
   or when the stream's frames show the stall.
-- **libchiaki comes from our fork**, [deblanco/chiaki-ng](https://github.com/deblanco/chiaki-ng), branch
-  `playfx`. It carries fixes for false packet loss, a too-small receive buffer, Wi-Fi priority marking and
-  dropped acks. PlayFX also runs libchiaki's receive and input threads at the highest scheduling class.
+- **The protocol is PlayFX's own** ([PlayFXProtocol](../packages/playfxprotocol/DESIGN.md)): the stream is read
+  from a BSD socket on a user-interactive thread, its packets go in Wi-Fi's video queue, and the wait for a
+  missing video packet is measured from the link. Until 2026-11-24 PlayFX used libchiaki from a fork; what that
+  fork changed and measured is kept under "History" below.
 - **The best network is the simple one:** the Mac and the PS5 on the same network (same router, same
   subnet), the PS5 wired, the Mac on 5 or 6 GHz.
 
@@ -177,15 +178,26 @@ sudo ifconfig awdl0 up
 The lasting fix is to set AirDrop to "No One" and turn off Handoff and Universal Control in System
 Settings. Moonlight and Steam Link users on Macs get the same advice.
 
-## libchiaki: our fork
+## Asynchronous decoding
 
-The Remote Play protocol comes from [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng). PlayFX builds it
-from [deblanco/chiaki-ng](https://github.com/deblanco/chiaki-ng), branch `playfx`:
+The engine hands each video frame over on its receive thread, and `VideoDecoder` used to decode there,
+synchronously: for the 2–5 ms a frame takes, no packets were read (they waited in the socket buffer) and no
+acks went out. VideoToolbox now decodes asynchronously on its own threads
+(`kVTDecodeFrame_EnableAsynchronousDecompression`) and the receive thread goes straight back to reading.
 
-- `main` mirrors upstream;
-- `playfx` is upstream plus one commit per fix.
+- Frames still come out in order, now on VideoToolbox's thread; the renderer already takes them from any
+  thread.
+- A frame that fails is reported by the next `decode` call, so the engine asks for a keyframe one frame later
+  than it would decoding synchronously.
+- Before a size change the old session's frames are waited for (they come out first), and stopping a
+  session waits for the frames in flight, so none arrive after it stopped.
 
-The submodule follows `playfx` (`.gitmodules`). The fixes, each meant to be offered upstream:
+## History: libchiaki (until 2026-11-24)
+
+Until 2026-11-24 the Remote Play protocol came from [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng)'s
+libchiaki, built from a fork, [deblanco/chiaki-ng](https://github.com/deblanco/chiaki-ng), branch `playfx`
+(upstream plus one commit per fix). PlayFXProtocol replaced it, and the submodule, the C shim and the build
+script are gone. This section is the record of what the fork changed and what was measured with it. The fixes:
 
 | Fix | Why |
 |---|---|
@@ -220,7 +232,7 @@ upstream, November 2026). Most of it is chiaki-ng's own Qt app: a Metal renderer
 - **Taken:** the control-request retry, and `SO_NOSIGPIPE` plus the marking on the session request socket
   (the table above).
 - **Taken as an idea, in our own code:** decoding off libchiaki's receive thread. See "Asynchronous decoding"
-  below. And from its Takion rewrite, the 256-slot video reorder queue (the table above).
+  above. And from its Takion rewrite, the 256-slot video reorder queue (the table above).
 - **Left out:**
   - the rest of its Takion rewrite (a 2.5 ms reorder timeout, skipping missing packets when FEC can rebuild
     the frame, a packet pool, about 400 lines): tuned for wired links. On Wi-Fi a 2.5 ms wait turns late
@@ -235,22 +247,8 @@ upstream, November 2026). Most of it is chiaki-ng's own Qt app: a Metal renderer
   - crypto and buffer micro-optimisations: negligible on Apple silicon, and the buffer-clearing change risks
     subtle FEC bugs.
 
-### Asynchronous decoding
-
-Not a chiaki change either. libchiaki calls our video callback on its receive thread, and `VideoDecoder`
-used to decode there, synchronously: for the 2–5 ms a frame takes, no packets were read (they waited in the
-socket buffer) and no acks went out. VideoToolbox now decodes asynchronously on its own threads
-(`kVTDecodeFrame_EnableAsynchronousDecompression`) and the receive thread goes straight back to reading.
-
-- Frames still come out in order, now on VideoToolbox's thread; the renderer already takes them from any
-  thread.
-- A frame that fails is reported by the next `decode` call, so libchiaki asks for a keyframe one frame later
-  than before.
-- Before a size change the old session's frames are waited for (they come out first), and stopping a
-  session waits for the frames in flight, so none arrive after it stopped.
-
-**Thread priority** isn't a chiaki change: libchiaki calls a hook as each of its threads starts, and our
-shim (`psrp.c`, `psrp_thread_qos`) sets the QoS class.
+**Thread priority** wasn't a chiaki change: libchiaki called a hook as each of its threads started, and
+PlayFX's C shim set the QoS class.
 
 | Threads | QoS class |
 |---|---|
@@ -271,18 +269,6 @@ each. "Lateness" is how far frames arrive behind the stream clock; each figure i
 | **Fork + thread priority** | **9.5 ms** | **17–42 ms** | **0** | **56** |
 
 These are one or two runs each, on one network; treat them as direction, not precision.
-
-### Updating
-
-```sh
-cd third_party/chiaki-ng
-git fetch upstream && git rebase upstream/main     # on branch playfx
-git push --force-with-lease origin playfx
-cd ../.. && packages/streamcore/scripts/build-chiaki.sh
-```
-
-chiaki's own unit tests are off in our build. To run them, configure a separate build with
-`-DCHIAKI_ENABLE_TESTS=ON` and build the `chiaki-unit` target; it needs the `test/munit` submodule.
 
 ## Network layout
 

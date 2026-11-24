@@ -185,7 +185,7 @@ synthetic HDR frames.
 
 ### Frame pacing and interpolation
 
-- **Frames are shown by a stream clock, not when they arrive.** Each frame gets a time from libchiaki's
+- **Frames are shown by a stream clock, not when they arrive.** Each frame gets a time from the stream's
   frame index and the stream's rate, so network jitter neither drops nor bunches frames. Before this, a
   60 fps stream showed 39–49 of its 60 frames a second on a 60 Hz screen.
 - **Two drawables, not three**, so a decoded frame waits at most one refresh.
@@ -217,36 +217,15 @@ How it works, the research behind it and every measurement:
 
 Not planned: MetalFX temporal upscaling, which needs the game's motion vectors and depth.
 
-## libchiaki: our fork
+## The protocol
 
-The Remote Play protocol comes from [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng). PlayFX builds it
-from a fork, [deblanco/chiaki-ng](https://github.com/deblanco/chiaki-ng), branch `playfx`: upstream plus
-one commit per fix, each meant to be offered upstream. The submodule follows that branch.
-
-| Fix | Why |
-|---|---|
-| **No false packet loss when the sequence number wraps, or for duplicates** (`packetstats.c`, with tests) | The 16-bit difference was read as a negative number. About every 11 minutes one stats window reported ~100% loss, and that figure goes into the congestion report sent to the console. |
-| **4 MB receive buffer** instead of 100 KB (`takion.c`) | One large keyframe is more than 100 KB, so a short stall of the receive thread, or a Wi-Fi burst after one, dropped packets. |
-| **Real-time marking on Apple platforms**, and `TCP_NODELAY` on the control connection (`takion.c`, `ctrl.c`) | `NET_SERVICE_TYPE_RV` sends acks, feedback and controller input with Wi-Fi's video priority (WMM). |
-| **Accept data acks with gap blocks** (`takion.c`) | The size check wanted exactly 12 bytes, so every ack carrying gap blocks was dropped, and its cumulative ack with it. |
-| **Retry the control request when the console resets the connection** (`ctrl.c`) | A reset while the console was still getting ready failed the whole session; now it's resent up to 3 times, 35 ms apart. From [neo773/chiaki-ng](https://github.com/neo773/chiaki-ng). |
-| **The same setup for both TCP connections** (`utils.h`, `session.c`, `ctrl.c`, with a test) | The session request socket gets `TCP_NODELAY` and the real-time marking too, and both get `SO_NOSIGPIPE` (a write after a reset could otherwise kill the process). From neo773's fork. |
-
-Outside the fork, PlayFX's shim (`psrp.c`) raises libchiaki's threads as they start: receive, resend,
-decryption keys and controller feedback to `USER_INTERACTIVE`, and session, control and congestion to
-`USER_INITIATED`. And video decodes asynchronously on VideoToolbox's threads, so libchiaki's receive thread
-no longer waits the few milliseconds each frame takes before reading the next packets.
-
-Measured on a PS5 at 1080p60 over Wi-Fi (60 s each; one network, so take it as a direction):
-
-| libchiaki | Frames late (p90) | Worst | Lost frames | Shown/s |
-|---|---|---|---|---|
-| Upstream | 219–555 ms | 323–1941 ms | 2–15 | 49–55 |
-| Fork | 79 ms | 194 ms | 0 | 54.4 |
-| **Fork + thread priority** | **9.5 ms** | **17–42 ms** | **0** | **56** |
-
-How to rebase the fork on upstream, what we took from neo773's fork and what was left out on purpose:
-[docs/NETWORK.md](docs/NETWORK.md#libchiaki-our-fork).
+PlayFX speaks the Remote Play protocol with its own Swift package,
+[PlayFXProtocol](packages/playfxprotocol). The stream is read from a BSD socket on its own user-interactive
+thread with no allocation per packet; its packets are marked for Wi-Fi's video queue (`NET_SERVICE_TYPE_VI`)
+and stamped by the kernel on arrival, and the wait for a missing video packet is measured from the link (3–20 ms,
+shown in Settings › Diagnostics). Video decodes asynchronously on VideoToolbox's threads, so the receive thread
+never waits for a frame. Design and measurements: [packages/playfxprotocol/DESIGN.md](packages/playfxprotocol/DESIGN.md);
+the protocol itself: [docs/protocol](docs/protocol/README.md).
 
 ## Playing over Wi-Fi
 
@@ -268,10 +247,10 @@ The details and the measurements are in [docs/NETWORK.md](docs/NETWORK.md).
 ```
 apps/desktop            Tauri v2 app: React + Effect + Tailwind/shadcn UI in a transparent webview
                         over a native Metal view; Rust bridge to StreamCore.
-packages/streamcore     Swift package: libchiaki session, VideoToolbox decode, Metal/MetalFX,
+packages/streamcore     Swift package: the stream session, VideoToolbox decode, Metal/MetalFX,
                         audio, controller input. Also the `psrp` CLI for headless debugging.
-third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implementation, from our
-                        fork's `playfx` branch (see "libchiaki: our fork").
+packages/playfxprotocol Swift package: PlayFX's own Remote Play protocol implementation
+                        (discovery, pairing, the stream, internet play through PSN).
 ```
 
 ## Build from source

@@ -1,4 +1,4 @@
-// pfxp: drives PlayFXProtocol against a real console, side by side with `psrp` (libchiaki).
+// pfxp: drives PlayFXProtocol against a real console directly (`psrp` drives it through StreamCore).
 //
 //   pfxp discover [--host IP] [--timeout S]       consoles on the LAN (or one address)
 //   pfxp wake [--host IP] [--new]                  wakes a console paired in ~/.config/psrp/config.json

@@ -1233,9 +1233,9 @@ punching selected. Nothing in the Takion packets changes. The differences are ar
 
 ## Sources
 
-- chiaki-ng (AGPL-3.0), read for facts only, at the submodule commit this repository records
-  (`d8efd673`): its Takion, send buffer, stream cipher, congestion, packet statistics, feedback, probe and
-  reorder sources, the protobuf schema and the unit tests. Its reorder-wait estimator and the 256-slot
+- chiaki-ng (AGPL-3.0), read for facts only, at commit d8efd673bc93bbc16e9f646c5b24e0dee013abcc (the chiaki-ng
+  submodule commit this repository recorded until 2026-11-24): its Takion, send buffer, stream cipher,
+  congestion, packet statistics, feedback, probe and reorder sources, the protobuf schema and the unit tests. Its reorder-wait estimator and the 256-slot
   video queue behaviour (§12.2–§12.3) were written by PlayFX's author (commits `f1da1512`, `7b89a47e`,
   `d8efd673`, November 2026) and are described here as PlayFX's own design.
 - RFC 4960 (SCTP): the model for the chunk format and the handshake. RFC 1982: serial-number arithmetic.

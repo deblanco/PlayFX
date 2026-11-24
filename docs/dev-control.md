@@ -138,7 +138,7 @@ pictures: a 30 fps game on a 60 Hz display (also inside a 60 fps stream), or a 6
 
 `stream.targetBitrateKbps` is what the console's encoder aims for, from its connection quality reports.
 
-`stream.reorderWaitMs` is how long libchiaki waits for a missing video packet before skipping it, measured from
+`stream.reorderWaitMs` is how long the engine (PlayFXProtocol's Takion) waits for a missing video packet before skipping it, measured from
 the link (3–20 ms, 16 until it learns; 0 before the stream connects). The counts are totals for the stream: holes
 that filled while waiting, packets that came after their hole was skipped, skipped holes nothing came for, and holes
 skipped because the reorder queue was full. See [NETWORK.md](NETWORK.md).

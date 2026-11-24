@@ -12,7 +12,7 @@ let package = Package(
         // this package's tests and StreamCore's. Test code only: it imports PlayFXProtocol with `@testable`, so it
         // builds in debug (or with `-enable-testing`), and nothing ships it.
         .library(name: "PlayFXProtocolTestSupport", targets: ["PlayFXProtocolTestSupport"]),
-        // Drives the package against a real console, side by side with psrp (libchiaki).
+        // Drives the package against a real console, without StreamCore (psrp drives it through StreamCore).
         .executable(name: "pfxp", targets: ["pfxp"]),
     ],
     targets: [

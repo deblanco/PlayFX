@@ -564,7 +564,8 @@ Library notes for Swift on macOS:
 
 ## Sources
 
-- chiaki-ng (AGPL-3.0), read for facts only, at the submodule commit this repository records.
+- chiaki-ng (AGPL-3.0), read for facts only, at commit d8efd673bc93bbc16e9f646c5b24e0dee013abcc (the chiaki-ng
+  submodule commit this repository recorded until 2026-11-24).
 - PlayFX's own field notes: `PLAN.md` (console "in use" for ~9 s after a session; PS5 ending the
   stream when the keyboard is enabled) and `docs/NETWORK.md` (console resetting ctrl during start-up;
   pause before ctrl).

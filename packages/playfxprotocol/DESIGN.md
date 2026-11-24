@@ -25,7 +25,7 @@ libchiaki couldn't.
 | Registration, session init (HTTP over TCP) | `NWConnection` (TCP) + our minimal HTTP/1.1 | The requests are hand-built with exact headers, so a URLSession request doesn't fit. |
 | Ctrl channel (TCP) | `NWConnection` + `NWProtocolFramer` for its framing | The framer parses frames off the stream, so the message code never sees partial reads. |
 | Stream (Takion, UDP, ~2,000 packets/s) | **A BSD socket on a dedicated thread** (default); `NWConnection` UDP kept as an alternative | See below. |
-| Wi-Fi QoS (WMM queues) | `serviceClass = .interactiveVideo` (NW) / `SO_NET_SERVICE_TYPE = NET_SERVICE_TYPE_VI` (socket) | Marks packets so the Mac's Wi-Fi sends them in the video access category instead of best effort: lower queuing delay under load. Public API. libchiaki sends best effort. |
+| Wi-Fi QoS (WMM queues) | `serviceClass = .interactiveVideo` (NW) / `SO_NET_SERVICE_TYPE = NET_SERVICE_TYPE_VI` (socket) | Marks packets so the Mac's Wi-Fi sends them in the video access category instead of best effort: lower queuing delay under load. Public API. libchiaki, which PlayFX used before, sent best effort. |
 | Kernel receive timestamps | `calculateReceiveTime` metadata (NW) / `SO_TIMESTAMP` (socket) | Jitter and the reorder wait are measured from when the packet hit the Mac, not when our thread woke up. |
 | Interface changes | `NWPathMonitor` | Wi-Fi ⇄ Ethernet, VPN or link loss shows up as an event: reconnect or warn instead of timing out. It also tells Diagnostics which interface the stream uses. |
 | Send batching | `NWConnection.batch` / one send per buffered burst | Input and feedback packets go out together. |

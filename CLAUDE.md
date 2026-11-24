@@ -3,9 +3,11 @@
 PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). Bun monorepo:
 
 - `apps/desktop` — Tauri v2 app (macOS first). React UI in a transparent webview over a native Metal view.
-- `packages/streamcore` — shared Swift package (macOS + iOS): libchiaki session, VideoToolbox decode,
-  Metal + MetalFX upscaling, audio, controller input. `psrp` CLI for headless debugging.
-- `third_party/chiaki-ng` — git submodule (AGPL-3.0); the Remote Play protocol implementation.
+- `packages/streamcore` — shared Swift package (macOS + iOS): the stream session (`PlayFXEngine`, on
+  PlayFXProtocol), VideoToolbox decode, Metal + MetalFX upscaling, audio, controller input. `psrp` CLI for
+  headless debugging.
+- `packages/playfxprotocol` — PlayFX's own Remote Play protocol implementation in Swift (proprietary), written
+  clean-room from the facts-only spec in `docs/protocol`.
 - Scope: macOS only. No iOS/Expo, Windows/Linux or browser builds are planned.
 
 ## Rules
@@ -47,10 +49,11 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 
 ## Build notes
 - Rust isn't on the default PATH on this machine: `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"`.
-- Build libchiaki once (and after bumping the submodule): `packages/streamcore/scripts/build-chiaki.sh`.
+- StreamCore links Homebrew's static libopus: `brew install opus` once (`OPUS_PREFIX` overrides where it's found).
 - Run the desktop app: `bun run desktop`.
 - Drive a running dev build from scripts (settings, play, button presses, renderer stats) with the dev
   control port: `PLAYFX_DEV_CONTROL=7780 bun run desktop`; see `docs/dev-control.md`. Never in release builds.
-- Headless debugging against a real console: `packages/streamcore/.build/debug/psrp --help`-style
+- Headless debugging against a real console (psrp runs on PlayFXProtocol through StreamCore):
+  `packages/streamcore/.build/debug/psrp --help`-style
   commands (`discover`, `register`, `stream` with a control API on `127.0.0.1:7777`). Pairing keys live in
   `~/.config/psrp/config.json`; never commit or print them.
