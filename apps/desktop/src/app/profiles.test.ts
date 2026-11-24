@@ -38,16 +38,14 @@ describe("profiles", () => {
     expect(Option.getOrUndefined(matchingProfile(defaultSettings, allProfiles([])))?.name).toBe("Recommended")
   })
 
-  it("has a built-in GTA VI profile: Recommended at 30 fps, sending only the touchpad click", () => {
-    expect(gtaVI.settings).toEqual({ ...recommended.settings, fps: 30, touchpadTouches: false })
-    expect(profileSummary(gtaVI)).toBe(
-      "1080p30 · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation · touchpad click only",
-    )
+  it("has a built-in GTA VI profile: Recommended at 30 fps without ML upscaling, sending only the touchpad click", () => {
+    expect(gtaVI.settings).toEqual({ ...recommended.settings, fps: 30, mlUpscale: false, touchpadTouches: false })
+    expect(profileSummary(gtaVI)).toBe("1080p30 · MetalFX · sharpness 0.3 · Frame interpolation · touchpad click only")
     expect(isBuiltIn(gtaVI)).toBe(true)
     expect(isBuiltInName(" GTA VI ")).toBe(true)
     expect(isBuiltInName("GTA VI (saved)")).toBe(false)
     const applied = applyProfile({ ...defaultSettings, showStats: true }, gtaVI)
-    expect(applied).toEqual({ ...defaultSettings, showStats: true, fps: 30, touchpadTouches: false })
+    expect(applied).toEqual({ ...defaultSettings, showStats: true, fps: 30, mlUpscale: false, touchpadTouches: false })
     expect(Option.getOrUndefined(matchingProfile(applied, allProfiles([])))?.name).toBe("GTA VI")
     // A different frame rate: switching to it mid-stream needs a reconnect.
     expect(needsReconnect(defaultSettings, gtaVI, streamOptions(defaultSettings))).toBe(true)

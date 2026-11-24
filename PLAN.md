@@ -15,7 +15,10 @@ then **its first hardware round**: on the user's PS5 it discovered, woke and pai
 the same keys libchiaki holds), after a fix for the PS5's padded `Content-Length`; 92 tests, 96.7% lines. Before
 that, the first step: a facts-only protocol spec in
 `docs/protocol` (discovery, wake, registration, RP crypt, session init, ctrl) with known-answer vectors, and the
-empty proprietary Swift package `packages/playfxprotocol` with its design notes and a CI step. Before that, **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
+empty proprietary Swift package `packages/playfxprotocol` with its design notes and a CI step. Before that (on main), **the GTA VI profile without ML upscaling** (requested): the built-in **GTA VI**
+profile is Recommended at 30 fps with ML upscaling and Touchpad touches off ("1080p30 · MetalFX · sharpness 0.3 ·
+Frame interpolation · touchpad click only"); Recommended is unchanged, and Help's "sharpest picture" setup now says
+to turn ML upscaling on. Unit tests only. Before that, **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
 (8 tests, 17 issues), because `MLSuperResolution` asked VideoToolbox about the model even with stand-in
 processors. Measured on the runner (a temporary diagnostic test on a branch): in its virtual machine VideoToolbox
 names no scale factor for 1280×720 or the 1088×1088 tiles (2× only at 960×544) and an empty output format, so no
@@ -515,8 +518,8 @@ Work items:
   back to): since 2026-11-21 (requested) 1080p60 · HEVC · 20 Mbps · MetalFX · sharpness 0.3 · ML upscaling ·
   Frame interpolation (it was Auto bitrate and interpolation off; stored settings aren't migrated, and settings
   saved before those fields existed still decode as Auto / off). A second built-in **GTA VI** (2026-11-21,
-  requested): Recommended at 30 fps with Touchpad touches off, "1080p30 · MetalFX · sharpness 0.3 · ML
-  upscaling · Frame interpolation · touchpad click only"; built-ins list first (Recommended, GTA VI), can't be
+  requested): Recommended at 30 fps with Touchpad touches off, and since 2026-11-24 (requested) ML upscaling off
+  too, "1080p30 · MetalFX · sharpness 0.3 · Frame interpolation · touchpad click only"; built-ins list first (Recommended, GTA VI), can't be
   deleted, replaced or saved over (`"GTA VI" is built in. Choose another name.`), and the Replace chips
   offer only saved ones. A profile the user saved as "GTA VI" (or "Recommended") before is loaded as "GTA VI
   (saved)" (the next free "(saved 2)"… if taken), so no two options share a name; the stored list keeps the
@@ -525,7 +528,7 @@ Work items:
   selected (and so can be deleted); before, the built-in always won, and a saved "GTA VI" identical to the
   built-in could be picked but not deleted. Verified by unit tests (profiles: both built-ins, order, summaries, the rename; actions:
   built-in names refused, replace and delete by the new name; App: GTA VI mid-stream asks to reconnect,
-  touchpad click only at once, reconnects at 30 fps, and a saved "GTA VI" kept and deleted as "GTA VI
+  ML upscaling off and touchpad click only at once, reconnects at 30 fps, and a saved "GTA VI" kept and deleted as "GTA VI
   (saved)", also when its settings equal the built-in's). Left: GTA VI on the console with that profile. The user saves the current settings under a name,
   switches, deletes. Settings → Profile; stored in
   `psrp.profiles`. "Custom" when the settings match no profile. **Replacing a profile** (2026-11-20,
@@ -1334,9 +1337,9 @@ requests and a bug report.
    touchpad built; **the motion axes in a game are left**. **Touchpad touches off, in GTA VI** (built
    2026-11-21, unit tests only): with it off a resting thumb on the touchpad doesn't open the map and a click
    does; turning it off with a thumb down leaves no touch stuck; back on, swipes work again; switching the pad
-   off mid-press leaves nothing held. Then the built-in **GTA VI** profile (2026-11-21, unit tests only):
-   picked mid-stream, it reconnects at 1080p30 / 20 Mbps with frame interpolation filling toward the screen's
-   rate, and a profile saved as "GTA VI" before shows as "GTA VI (saved)". *(P1)*
+   off mid-press leaves nothing held. Then the built-in **GTA VI** profile (2026-11-21, ML upscaling off in it
+   since 2026-11-24, unit tests only): picked mid-stream, ML upscaling turns off at once and it reconnects at
+   1080p30 / 20 Mbps with frame interpolation filling toward the screen's rate, and a profile saved as "GTA VI" before shows as "GTA VI (saved)". *(P1)*
 5. ~~Keychain credential storage~~ (done). *(P2)*
 6. ~~Packaging + AGPL/licensing + CI, and the first public release~~ (done 2026-11-20: the repo is public and
    [v0.1.0](https://github.com/deblanco/PlayFX/releases/tag/v0.1.0) ships the notarized DMG; v0.2.0 to v0.2.4 followed). `release.sh` now survives a notarytool

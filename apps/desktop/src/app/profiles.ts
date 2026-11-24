@@ -35,8 +35,12 @@ export const profileSettings = (s: Settings): ProfileSettings => ({
  * and Frame interpolation. */
 export const recommended: Profile = { name: "Recommended", settings: profileSettings(defaultSettings) }
 
-/** Recommended at 30 fps with only the touchpad click sent: GTA VI opens its map on a resting thumb. */
-export const gtaVI: Profile = { name: "GTA VI", settings: { ...recommended.settings, fps: 30, touchpadTouches: false } }
+/** Recommended at 30 fps without ML upscaling, with only the touchpad click sent: GTA VI opens its map on a
+ * resting thumb. */
+export const gtaVI: Profile = {
+  name: "GTA VI",
+  settings: { ...recommended.settings, fps: 30, mlUpscale: false, touchpadTouches: false },
+}
 
 const builtInProfiles: readonly Profile[] = [recommended, gtaVI]
 

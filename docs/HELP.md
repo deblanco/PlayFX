@@ -236,14 +236,13 @@ stream as it arrives on the left and with your settings on the right.
 ### GTA VI
 
 GTA VI draws about 30 new pictures a second. Pick the built-in **GTA VI** profile (on the home screen or
-in Settings › Profile): **1080p**, **30 fps**, HEVC, **20 Mbps**, **ML upscaling** on, upscaler
-**MetalFX**, sharpness **0.3**, **frame interpolation** on, and **Touchpad touches** off (see below).
-PlayFX upscales each picture once and fills the screen toward its refresh rate (about 120 on a ProMotion
-display). Moving foliage is softer than still scenery, because the images in between start from the
+in Settings › Profile): **1080p**, **30 fps**, HEVC, **20 Mbps**, upscaler **MetalFX**, sharpness
+**0.3**, **frame interpolation** on, **ML upscaling** off, and **Touchpad touches** off (see below).
+PlayFX fills the screen toward its refresh rate (about 120 on a ProMotion display). Moving foliage is softer than still scenery, because the images in between start from the
 decoded frame. Switching to it while playing asks for a reconnect (the frame rate changes).
 
-- **Sharpest picture.** The same, with frame interpolation **off**: every frame on screen went through
-  ML, and motion steps at 30.
+- **Sharpest picture.** The same, with **ML upscaling** on and frame interpolation **off**: every frame
+  on screen went through ML, and motion steps at 30.
 - **Raise the bitrate** in Settings › Stream if motion looks soft and the network can take it.
 
 Leave **HDR** off for either one. HDR turns ML upscaling off, and frame interpolation makes only one image
@@ -273,7 +272,7 @@ frame interpolation works in HDR too, with one image between two frames.
 - **Profiles** keep a set of stream and picture settings under a name. Two are built in:
   - **Recommended**, what PlayFX starts with: 1080p, 60 fps, HEVC, 20 Mbps, ML upscaling, MetalFX,
     sharpness 0.3 and frame interpolation.
-  - **GTA VI**: the same at 30 fps, with Touchpad touches off (see [GTA VI](#gta-vi)).
+  - **GTA VI**: the same at 30 fps, with ML upscaling and Touchpad touches off (see [GTA VI](#gta-vi)).
 
   **Save as…** saves your own; built-in profiles can't be replaced or deleted. A profile you saved as
   "GTA VI" before it was built in shows as **GTA VI (saved)**. Pick a profile on the home screen or in

@@ -1912,7 +1912,7 @@ describe("settings profiles", () => {
     expect(core.service.startStream).not.toHaveBeenCalled()
   })
 
-  it("switches to the built-in GTA VI profile: 30 fps after a reconnect, touchpad click only at once", async () => {
+  it("switches to the built-in GTA VI profile: 30 fps after a reconnect, ML upscaling off and touchpad click only at once", async () => {
     const core = fakeCore()
     const { runtime } = await startStreaming(core)
     vi.mocked(core.service.startStream).mockClear()
@@ -1928,13 +1928,14 @@ describe("settings profiles", () => {
     await waitFor(() => {
       expect(core.service.setTouchpadTouches).toHaveBeenLastCalledWith(false)
     })
+    expect(core.service.setRenderParams).toHaveBeenLastCalledWith(picture({ mlUpscale: false }))
     // The switch lives in the Misc tab.
     await userEvent.click(sheet.getByRole("tab", { name: "Misc" }))
     expect(sheet.getByRole("switch", { name: /Touchpad touches/ })).not.toBeChecked()
     await userEvent.click(sheet.getByRole("tab", { name: "Stream" }))
-    expect(sheet.getByText("1080p30 · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation · touchpad click only")).toBeInTheDocument()
+    expect(sheet.getByText("1080p30 · MetalFX · sharpness 0.3 · Frame interpolation · touchpad click only")).toBeInTheDocument()
     await waitFor(async () => {
-      expect(await savedSettings(runtime)).toEqual({ ...defaultSettings, fps: 30, touchpadTouches: false })
+      expect(await savedSettings(runtime)).toEqual({ ...defaultSettings, fps: 30, mlUpscale: false, touchpadTouches: false })
     })
     // Built in: no delete, and its name can't be saved over.
     expect(sheet.queryByRole("button", { name: "Delete GTA VI" })).not.toBeInTheDocument()
@@ -1985,7 +1986,7 @@ describe("settings profiles", () => {
   })
 
   it("can select and delete a profile saved as GTA VI with the built-in GTA VI's settings", async () => {
-    const { runtime } = await startStreaming(fakeCore(), { profiles: [profile("GTA VI", { fps: 30, touchpadTouches: false })] })
+    const { runtime } = await startStreaming(fakeCore(), { profiles: [profile("GTA VI", { fps: 30, mlUpscale: false, touchpadTouches: false })] })
     const sheet = await openSettings("Picture")
     const select = sheet.getByRole("combobox", { name: "Profile" })
     await waitFor(() => {

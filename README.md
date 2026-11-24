@@ -164,7 +164,7 @@ or interpolation), **Split** (Original on the left, your settings on the right, 
 
 **Profiles** keep a set of stream and picture settings, and Touchpad touches, under a name. Two are built in, listed first:
 **Recommended** (1080p60 · HEVC · 20 Mbps · MetalFX · sharpness 0.3 · ML upscaling · Frame interpolation) is what a new
-install starts with, and **GTA VI** is the same at 30 fps with Touchpad touches off. **Save as…** also replaces a saved
+install starts with, and **GTA VI** is the same at 30 fps with ML upscaling and Touchpad touches off. **Save as…** also replaces a saved
 profile: pick it, and Save becomes Replace. A profile saved as "GTA VI" before that one was built in shows as "GTA VI
 (saved)".
 
