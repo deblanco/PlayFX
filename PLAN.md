@@ -984,6 +984,16 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     validated. Reviewed against the spec and fixed (a pong deadline that couldn't fire on a real socket, a leave that
     skipped the DELETE when cancelled, leaks, unbounded buffers). 113 tests against a fake PSN and a loopback
     WebSocket server; nothing reached Sony. Not yet against real PSN.
+  - ✅ NAT traversal and reliable UDP from the spec (2026-11-24, clean-room, `Sources/PlayFXProtocol/Internet`): UPnP
+    IGD (SSDP and SOAP, mapping and cleanup), STUN with NAT port prediction, the candidate lists and port guesses,
+    the 88-byte hole-punch probes and selection (with up to 250 low-TTL extra sockets, stopping cleanly at the file
+    limit), and RUDP (handshake, one HTTP exchange, ctrl with retransmission, the switch to the stream, the end).
+    Byte-exact against holepunch.md's and rudp.md's vectors. Reviewed against the spec and fixed, mostly for a
+    hostile LAN: malformed HTTP/XML/ports could trap, a rogue device could redirect the UPnP requests, responses
+    were unbounded; also close() during an exchange, cancellation, an 8 KiB receive buffer. Deliberate deviations:
+    signed port increments for a decreasing NAT, a per-exchange duplicate window for console ctrl data. 106 tests on
+    loopback only (a fake console, gateway and lossy sockets). PlayFXProtocol 793 tests, 98% lines. Not yet over a
+    real NAT.
   - ❌ Next: discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
     in PlayFXProtocol from the new spec, with a hardware round over the internet; the parity round in the app;
     then removing chiaki-ng, third_party/ and libchiaki's C libraries, and the licence change.
