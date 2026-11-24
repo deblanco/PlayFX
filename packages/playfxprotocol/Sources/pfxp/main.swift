@@ -7,6 +7,7 @@
 //   pfxp session [--host IP] [--new] [--seconds N] [--login-pin PIN|-] [--sleep]
 //                                                  session init + ctrl; prints each event with its time, then
 //                                                  ends cleanly (--sleep: puts the console to rest instead)
+//   pfxp stream [...]                              a whole stream (Stream.swift lists the options)
 //
 // `wake --new` from rest mode checks that a pairing made here works. Keys are never printed.
 import Foundation
@@ -232,10 +233,14 @@ do {
     case "wake": try wake(args)
     case "pair": try pair(args)
     case "session": try await session(args)
+    case "stream": try await stream(args, configFile: args.contains("--new") ? ownConfig : psrpConfig)
     case "bench-transport": try benchTransport(args)
     default:
         print("usage: pfxp discover [--host IP] [--timeout S] | wake [--host IP] [--new] | pair --host IP --pin PIN [--ps4]\n"
               + "       | session [--host IP] [--new] [--seconds N] [--login-pin PIN] [--sleep]\n"
+              + "       | stream [--host IP] [--new] [--seconds N] [--resolution 360|540|720|1080] [--fps 30|60]\n"
+              + "                [--codec h264|hevc|hevc-hdr] [--bitrate KBPS] [--transport bsd|nw] [--out FILE]\n"
+              + "                [--audio-out FILE] [--login-pin PIN|-] [--mic-info]\n"
               + "       | bench-transport [--packets N] [--rate R]   (loopback only)")
         exit(2)
     }

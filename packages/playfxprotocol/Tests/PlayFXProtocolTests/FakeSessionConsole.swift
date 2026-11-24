@@ -213,8 +213,13 @@ final class FakeSessionConsole: @unchecked Sendable {
         Thread.detachNewThread { [self] in accept() }
     }
 
+    private let acceptDone = DispatchSemaphore(value: 0)
+
+    /// Stops accepting and closes the listening socket, but only after the accept thread has left its loop: it
+    /// polls the descriptor, and a number closed under it could be reused by another test's socket.
     func stop() {
-        stopping.with { $0 = true }
+        guard !stopping.with({ let was = $0; $0 = true; return was }) else { return }
+        acceptDone.wait()
         close(listenFD)
     }
 
@@ -226,6 +231,7 @@ final class FakeSessionConsole: @unchecked Sendable {
             guard fd >= 0 else { continue }
             Thread.detachNewThread { [self] in serve(fd) }
         }
+        acceptDone.signal()
     }
 
     private func serve(_ fd: Int32) {

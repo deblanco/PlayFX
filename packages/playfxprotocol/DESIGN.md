@@ -58,6 +58,27 @@ Not used: private SPI (`recvmsg_x`/`sendmsg_x`, private socket options). The App
 - **Instrumentation:** `os_signpost` intervals per frame (first packet → complete → decoded → shown), so
   Instruments shows where latency goes.
 
+## StreamSession
+`StreamSession` (Sources/PlayFXProtocol/Session) runs a whole stream: `ControlSession`, the network probe, the
+Takion stream connection and its handshake, the AV layer, controller input and the end. Its API and the exact
+thread of each event are documented on the class.
+
+- **Two threads deliver events.** The Takion receive thread calls the app's handler directly for `connected` (once,
+  before any AV event), `audioHeader`, `videoAccessUnit`, `parameterSets`, `audioPacket` and `haptics`, with no
+  allocation per packet; the handler must be fast and copy what it keeps. Everything else (rumble, trigger effects,
+  pad info, quality, ctrl events, `stats`, `ended`) goes to the session's private serial queue. An `EventGate`
+  guarantees that no handler call is in flight, or starts, once `ended` has been delivered.
+- **One end.** `stop()`, a console Disconnect, a lost Takion connection and a ctrl end all reach one `finish` on the
+  control queue, which sends the Disconnect, closes Takion and ctrl and delivers `ended` exactly once.
+- **`start` throws until the stream is up** (`StreamStartError`, no `ended` event); after that every ending is an
+  `ended` event. The probe is best effort (stream.md section 5): a failure uses the fallbacks and is reported in
+  `connected`.
+- **Feedback numbering lives in `TakionConnection`.** It numbers and repeats the state and history packets itself
+  (takion.md sections 9.3, 9.4), so the session passes it bodies from `FeedbackState.body` and events from
+  `ControllerEvent.events`; `FeedbackStateBuilder` and `FeedbackHistoryBuilder` would number a second time.
+- **Mic frames.** The packets are built and sent (`sendMicrophoneFrame`); there is no Opus encoder yet, so the app
+  encodes. `setMicrophone(on:)` is ctrl signalling only.
+
 ## Deviations from observed clients
 - **Session ID.** If the console's session ID (ctrl `0x33`) is malformed, or none arrives within the start-up
   time, `ControlSession` ends the channel (`.invalidSessionID` / `.startupTimeout`). One existing client
@@ -80,3 +101,8 @@ Not used: private SPI (`recvmsg_x`/`sendmsg_x`, private socket options). The App
 - **Thread safety.** The congestion counters (`takeCongestionCounters`, `AudioReceiver.statistics`) sit behind
   an `OSAllocatedUnfairLock`, so the transport's 200 ms timer can read them while the receive thread
   writes; everything else in the AV layer is receive-thread only. Checked under ThreadSanitizer.
+- **Mic StreamInfo off by default.** stream.md section 6.7 step 3 has existing clients always send the microphone
+  StreamInfo. `StreamSession` sends it only with `StreamSessionOptions.microphone` (`pfxp stream --mic-info`).
+  Whether a console needs it is for the hardware round to compare, with and without.
+- **Ctrl end grace.** A ctrl end during the stream waits up to 200 ms for the console's Takion Disconnect, so the
+  console's reason text isn't lost to the ctrl close that usually arrives a moment before it.

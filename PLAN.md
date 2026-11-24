@@ -3,7 +3,9 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-23, after **our own session start and control channel in Swift** (`PlayFXProtocol`
+Last updated 2026-11-24, after **our own whole stream session in Swift, ready for its first console round**
+(`PlayFXProtocol` milestone 3: `StreamSession` and `pfxp stream`, end to end over loopback against the real
+console's recording; 544 tests, 97.9% lines). Before that, **our own session start and control channel in Swift** (`PlayFXProtocol`
 milestone 2): on the user's PS5 a session opened, kept its heartbeats for 20 s and stopped cleanly, and go to
 bed put the console in rest; 172 tests, 96.4% lines. Before that, **our own discovery, wake and pairing in Swift** (`PlayFXProtocol`, branch
 `deblanco/rewrite-ps-remote-core`, see "Our own Remote Play protocol" under P4), written from the spec alone:
@@ -111,7 +113,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
 - Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), PlayFXProtocol 481 tests (98% lines, 2026-11-23, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+  it), PlayFXProtocol 544 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -849,9 +851,26 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     `NWConnection` (interactive video, kernel receive times) at 27 ms, 18/25 µs, 28 allocations. The BSD path
     is the default unless the console round on Wi-Fi says otherwise. A release test asserts 0 allocations on
     the receive path. 481 tests, 97.7% lines (same with `STREAMCORE_SIMULATE_VM=1` and serially).
-  - ❌ Next: the integration (a `StreamSession`: ctrl, the probe, Takion, the handshake, StreamInfo into the AV
-    layer, heartbeats, feedback, congestion) with a `pfxp stream` command, then Takion and the stream (Network.framework vs a BSD socket thread, measured),
-    a backend switch in StreamCore (libchiaki stays the default until parity on the console), PSN hole-punching.
+  - ✅ The whole stream session from the spec (2026-11-24, `Sources/PlayFXProtocol/Session`): `StreamSession.start`
+    runs ctrl, the network probe (best effort: RTT and MTU by bisection, fallbacks on failure), Takion, the
+    Hello/HelloReply handshake with ECDH, StreamInfo into the AV layer, heartbeats, controller feedback (state and
+    history), congestion reports, IDR and corrupt-frame reports, and ends exactly once (`stop()`, a console
+    Disconnect, a lost connection or a ctrl end; the Disconnect is sent whenever the Hello was). `start` throws
+    until the stream is up, then every ending is one `ended` event. AV events come straight from the receive
+    thread with 0 allocations per packet (asserted in a release test, congestion path included); the rest from a
+    private queue, and nothing reaches the app after `ended`. `pfxp stream` saves the video (Annex-B) and Opus
+    packets to new files only (never overwrites), prints stats every second, takes `--transport bsd|nw` and
+    `--mic-info`, and stops cleanly on Ctrl-C. Tested end to end: a fake console streams the real PS5 capture,
+    encrypted over loopback, and the session reproduces its access units (SHA-256). Reviewed against the spec and
+    fixed: a leak that kept every connection and the ECDH private key alive, a start that could fail after
+    `connected`, no Disconnect when the session was dropped, EMSGSIZE ending the probe instead of shrinking the
+    MTU, a lock held across sends, answers sent after `connected` instead of before, and `pfxp` output files
+    that could overwrite anything. One deliberate deviation: the microphone StreamInfo is only sent with the mic
+    enabled (`--mic-info` compares both on the console). 544 tests, 97.9% lines (same with
+    `STREAMCORE_SIMULATE_VM=1` and serially). Not yet run against a console.
+  - ❌ Next: the first console round with `pfxp stream` (bsd vs nw, side by side with `psrp stream`, the open
+    questions in takion.md, stream.md and av.md), then a backend switch in StreamCore (libchiaki stays the
+    default until parity on the console), PSN hole-punching.
 
 - ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
   exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,
@@ -1324,7 +1343,7 @@ requests and a bug report.
    discovery, wake, registration, session init and ctrl~~ (done 2026-11-23); ~~the Swift discovery, wake and
    registration from the spec~~ (done 2026-11-23); ~~one hardware round: discover, wake and pair the PS5~~ (done 2026-11-23,
    all three work); ~~milestone 2: session init and the ctrl channel~~ (done 2026-11-23, on the PS5: a session with
-   heartbeats, a clean stop, go to bed); next, milestone 3: the stream (Takion, the stream connection, audio and
+   heartbeats, a clean stop, go to bed); ~~milestone 3: the stream (Takion, the stream connection, audio and
    video, FEC, input) specified, then built, with the stream's receive path measured on Network.framework against a
-   BSD socket thread; its hardware round is the first stream on the new code (not before 2026-11-24, the user is
-   playing). *(P4)*
+   BSD socket thread~~ (done 2026-11-24, `StreamSession` and `pfxp stream`, tested over loopback); next, its
+   hardware round: the first stream on the new code, with the user's go-ahead. *(P4)*

@@ -20,7 +20,7 @@ private let mallocLogger: @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32
 }
 
 /// Runs `body` and returns how many allocations the calling thread made, or nil if the hook isn't available.
-private func countAllocations(_ body: () -> Void) -> Int? {
+func countAllocations(_ body: () -> Void) -> Int? {
     guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger") else { return nil }
     let slot = symbol.assumingMemoryBound(to: (@convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void)?.self)
     countedAllocations = 0

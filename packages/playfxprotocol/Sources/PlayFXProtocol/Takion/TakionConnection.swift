@@ -395,8 +395,10 @@ final class TakionConnection: TransportHandler, @unchecked Sendable {
             sendStats.sendErrors += 1
             // A full send queue (ENOBUFS, EAGAIN) loses this datagram as UDP does; any other error means the path
             // is gone (§13: socket errors end the connection).
+            // EMSGSIZE (a datagram over the local MTU with Don't-Fragment set) loses only that datagram too: the
+            // probe's MTU search relies on an oversized size simply going unanswered (stream.md section 5.5).
             let code = Self.errnoValue(of: error)
-            if code != ENOBUFS && code != EAGAIN && fatalSendError == nil { fatalSendError = code }
+            if code != ENOBUFS && code != EAGAIN && code != EMSGSIZE && fatalSendError == nil { fatalSendError = code }
         }
     }
 
@@ -572,6 +574,8 @@ final class TakionConnection: TransportHandler, @unchecked Sendable {
         transport.stop()
         let d = delegate
         delegate = nil
+        // The congestion source is usually the delegate's owner: drop it so the two don't keep each other alive.
+        lock.withLock { congestionSource = nil }
         d?.takionClosed(reason)
     }
 

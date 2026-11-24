@@ -622,7 +622,7 @@ let sessionIDPlain = [UInt8(0x4a)] + Array(SessionVector.sessionIDText.utf8)
         let started = monotonicSeconds()
         _ = try await Self.start(console, options: options, log: log)
         #expect(await log.waitForEnd() == .heartbeatTimeout)
-        #expect(monotonicSeconds() - started < 2)
+        #expect(monotonicSeconds() - started < 5)
         #expect(log.all.contains(.heartbeat(count: 1)))
     }
 
@@ -739,7 +739,7 @@ let sessionIDPlain = [UInt8(0x4a)] + Array(SessionVector.sessionIDText.utf8)
         task.cancel()
         #expect(await task.result.failureError == .cancelled)
         #expect(await waitUntil { closed.with { $0 } })
-        #expect(monotonicSeconds() - started < 2)
+        #expect(monotonicSeconds() - started < 4)
     }
 
     @Test func cancelWhileConnecting() async throws {

@@ -126,6 +126,10 @@ final class FakeTakionConsole: @unchecked Sendable {
     private var downKeyPos: UInt64 = 0
     private var lastClientKeyPos: UInt64 = 0
     private(set) var initCount = 0
+    /// Answer with the tag the client chose in its INIT (the session's connections pick a random one).
+    var adoptsClientTag = false
+    /// Called with every client datagram after the console has handled it (acked, recorded).
+    var onPacket: (([UInt8]) -> Void)?
 
     var packets: [ClientPacket] { lock.lock(); defer { lock.unlock() }; return received }
 
@@ -225,6 +229,7 @@ final class FakeTakionConsole: @unchecked Sendable {
             }
             switch d[13] {
             case 0x01:
+                if adoptsClientTag, d.count >= 21 { expectedClientTag = readBE32(d, 17) }
                 lock.lock(); initCount += 1; let skip = ignoreInits > 0; if skip { ignoreInits -= 1 }; lock.unlock()
                 if replyToHandshake && !skip { emit(initAck()) }
             case 0x0a:
@@ -261,6 +266,7 @@ final class FakeTakionConsole: @unchecked Sendable {
         lock.lock()
         received.append(packet)
         lock.unlock()
+        onPacket?(d)
     }
 }
 
@@ -394,6 +400,7 @@ final class UDPConsoleLink: @unchecked Sendable {
     private let done = DispatchSemaphore(value: 0)
     /// Datagrams to hold back from the client (tests drop by not sending; this just counts what was sent).
     private(set) var emitted = 0
+    private var tasks: [() -> Void] = []
 
     init(console: FakeTakionConsole) throws {
         self.console = console
@@ -435,10 +442,16 @@ final class UDPConsoleLink: @unchecked Sendable {
         lock.lock(); emitted += 1; lock.unlock()
     }
 
+    /// Runs `block` on the link's own thread (where the console's state is otherwise only touched), within 20 ms.
+    func perform(_ block: @escaping () -> Void) {
+        lock.lock(); tasks.append(block); lock.unlock()
+    }
+
     private func loop() {
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
-            lock.lock(); let go = running; lock.unlock()
+            lock.lock(); let go = running; let due = tasks; tasks = []; lock.unlock()
+            for task in due { task() }
             if !go { break }
             var from = sockaddr_in()
             var length = socklen_t(MemoryLayout<sockaddr_in>.size)

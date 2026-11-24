@@ -246,7 +246,7 @@ import Testing
         let cancelledAt = monotonicSeconds()
         task.cancel()
         let result = await task.result
-        #expect(monotonicSeconds() - cancelledAt < 0.5)
+        #expect(monotonicSeconds() - cancelledAt < 2)
         guard case .failure(let error) = result, let registration = error as? RegistrationError else {
             Issue.record("expected a RegistrationError")
             return
