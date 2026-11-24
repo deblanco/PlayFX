@@ -3,7 +3,12 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **PlayFX became proprietary**: `LICENSE` is "All rights reserved", `NOTICE` and
+Last updated 2026-11-24, after **the final check of the libchiaki removal**: every gate green with no libchiaki
+anywhere (StreamCore 501 tests, 91.5% lines / 90.1% in VM mode; PlayFXProtocol 851 tests, 97.9% lines in the
+parallel, VM and serial runs, and its release allocation test; TS 424, 97.9% lines; Rust 74, 91.4% lines; clippy
+clean); a debug `cargo build` links with libopus inside and no Homebrew dylib; `git grep -i chiaki` finds only
+history (PLAN.md, docs/NETWORK.md's "History: libchiaki", FRAME_INTERPOLATION's note on Veyra) and the clean-room
+provenance (docs/protocol, PlayFXProtocol's README, DESIGN and LICENSE). Before that, **PlayFX became proprietary**: `LICENSE` is "All rights reserved", `NOTICE` and
 the Settings › Diagnostics **Source code** button are gone, every manifest says so (`UNLICENSED`,
 `LicenseRef-Proprietary`), `THIRD_PARTY_LICENSES` is regenerated for what ships now (libsecp256k1 and libopus as
 the C libraries), and CLAUDE.md allows only permissive licences (TS 424 tests, Rust 74). Before that, **chiaki-ng's submodule removed**: `third_party/` and `.gitmodules` are gone;
@@ -135,8 +140,9 @@ packages/playfxprotocol Swift package: PlayFX's own Remote Play protocol (propri
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-24): TS 424 tests (98% lines), Swift 501 tests (91.5% lines; 90.1% as CI's VM sees
-  it), PlayFXProtocol 851 tests (97.9% lines, no test leaves loopback), Rust 74 tests (91% lines), strict
+- Tests + gates (2026-11-24): TS 424 tests (97.9% lines), Swift 501 tests (91.5% lines; 90.1% as CI's VM sees
+  it), PlayFXProtocol 851 tests (97.9% lines, the same in VM mode and serially; no test leaves loopback), Rust 74
+  tests (91.4% lines), strict
   `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings` (chiaki-ng's own unit tests went with the submodule on
   2026-11-24). Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -152,7 +158,9 @@ packages/playfxprotocol Swift package: PlayFX's own Remote Play protocol (propri
   PS5s); the console is paired on the home network with its PIN, or through PSN with no code (step 5: built,
   needs a hardware check). libchiaki does PSN sessions, STUN/UPnP, hole punching and
   a fresh PSN-side registration per connection inside `chiaki_session_start`; the app supplies tokens, the
-  console's PSN device ID, and runs the blocking setup (≤30 s per step) off the main thread.
+  console's PSN device ID, and runs the blocking setup (≤30 s per step) off the main thread. Since 2026-11-24
+  all of it runs on PlayFXProtocol instead (see "Our own Remote Play protocol" under P4); the steps below record
+  the libchiaki build, and the new code needs its own run over the internet.
   - ✅ 1. PSN tokens: sign-in carries a fresh `duid`; access + refresh tokens kept in the Keychain (never
     the web UI), refreshed a minute before expiry, cleared on a rejected refresh or sign-out.
   - ✅ 2. Find the console via PSN: `psrp_psn_list_consoles` (libchiaki's device list, PS5) → name, PSN
