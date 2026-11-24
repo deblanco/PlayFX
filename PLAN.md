@@ -1094,6 +1094,11 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     91.5% lines / 89.8% functions, 90.1% / 88.6% with `STREAMCORE_SIMULATE_VM=1` (both skipping
     `opensAnOutputUnitOnARealDevice`); Rust 74 tests, 91.4% lines, clippy clean; TS 424, 97.9% lines. The C
     is compiled without optimisation in debug builds (release builds optimise it); not yet heard on a console.
+  - ✅ Provenance and risk record (2026-11-24, `docs/PROVENANCE.md`): how the protocol code was written (roles, what
+    each read, the clean-room rules, verification, the one known slip), the limits of the clean room (AI training
+    data above all), and the remaining risks with Sony's crypto constants as the largest. Not legal advice; the owner
+    chose not to involve a lawyer. The scratch copies of chiaki-ng sources and the test programs built from them
+    (outside the repository) were deleted.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
