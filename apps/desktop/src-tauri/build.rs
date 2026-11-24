@@ -77,20 +77,10 @@ fn embed_commit() {
 /// Compiles and links the shared Swift core (Metal/MetalFX renderer, the PlayFX protocol engine).
 fn link_streamcore() {
     let pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../packages/streamcore");
-    let opus = opus_prefix();
-    let libopus = opus.join("lib/libopus.a");
-    if !libopus.exists() {
-        panic!("no static libopus at {}: brew install opus (or set OPUS_PREFIX)", libopus.display());
-    }
-    // Package.swift links the same keg's archive into psrp and the tests, and compiles against its headers.
-    // SAFETY: the build script is single-threaded; this is set before `swift build` is spawned.
-    unsafe { std::env::set_var("OPUS_PREFIX", &opus) };
-
     swift_rs::SwiftLinker::new("13.0").with_package("StreamCore", &pkg).link();
 
-    // A static Swift library doesn't carry its link settings; repeat Package.swift's here. libopus goes in by its
-    // path, never `-lopus`, so the keg's dynamic libopus can't be picked instead.
-    println!("cargo:rustc-link-arg={}", libopus.display());
+    // A static Swift library doesn't carry its link settings; repeat Package.swift's here. libopus is compiled into
+    // the StreamCore archive (Sources/CLibopus), so there's nothing of it to link.
     // Swift runtime (libswift_Concurrency etc.) ships with macOS under /usr/lib/swift.
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
     for fw in [
@@ -99,20 +89,4 @@ fn link_streamcore() {
     ] {
         println!("cargo:rustc-link-lib=framework={fw}");
     }
-    println!("cargo:rerun-if-env-changed=OPUS_PREFIX");
-    println!("cargo:rerun-if-changed={}", libopus.display());
-}
-
-/// Homebrew's opus keg: `OPUS_PREFIX` when set, else `brew --prefix opus`.
-fn opus_prefix() -> std::path::PathBuf {
-    if let Some(prefix) = std::env::var_os("OPUS_PREFIX") {
-        return prefix.into();
-    }
-    std::process::Command::new("brew")
-        .args(["--prefix", "opus"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().into())
-        .unwrap_or_else(|| panic!("libopus: brew install opus (or set OPUS_PREFIX to its prefix)"))
 }

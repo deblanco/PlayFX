@@ -52,7 +52,6 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 
 ## Build notes
 - Rust isn't on the default PATH on this machine: `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"`.
-- StreamCore links Homebrew's static libopus: `brew install opus` once (`OPUS_PREFIX` overrides where it's found).
 - Run the desktop app: `bun run desktop`.
 - Drive a running dev build from scripts (settings, play, button presses, renderer stats) with the dev
   control port: `PLAYFX_DEV_CONTROL=7780 bun run desktop`; see `docs/dev-control.md`. Never in release builds.

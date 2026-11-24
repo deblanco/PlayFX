@@ -255,12 +255,11 @@ packages/playfxprotocol Swift package: PlayFX's own Remote Play protocol impleme
 
 ## Build from source
 
-Requires an Apple silicon Mac, Xcode, [Bun](https://bun.sh), Rust (stable) and Homebrew.
+Requires an Apple silicon Mac, Xcode, [Bun](https://bun.sh) and Rust (stable).
 
 ```sh
 git clone https://github.com/deblanco/PlayFX.git
 cd PlayFX
-brew install opus                             # libopus, linked statically
 bun install
 bun run desktop                               # run the app (dev)
 bun run desktop:build                         # build the .app

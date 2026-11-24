@@ -17,8 +17,8 @@ C libraries (statically linked) (2)
 ----------------------------------------------------------------------------------------------------
 libsecp256k1 0.8.0 (commit 6e2c8bc4ecdc), vendored in PlayFXProtocol  MIT [1]
     https://github.com/bitcoin-core/secp256k1
-Opus (libopus) 1.6.1 (Homebrew)  BSD-3-Clause [9]
-    https://opus-codec.org
+Opus (libopus) 1.6.1 (commit 22244de5a79b), vendored in StreamCore  BSD-3-Clause [9]
+    https://github.com/xiph/opus
 
 Code adapted into PlayFX's sources (2)
 ----------------------------------------------------------------------------------------------------
@@ -2255,7 +2255,7 @@ PERFORMANCE OF THIS SOFTWARE.
 [9] BSD-3-Clause, text 2 of 2
 ----------------------------------------------------------------------------------------------------
 
-Used by Opus (libopus) 1.6.1 (Homebrew).
+Used by Opus (libopus) 1.6.1 (commit 22244de5a79b), vendored in StreamCore.
 
 Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
                     Jean-Marc Valin, Timothy B. Terriberry,

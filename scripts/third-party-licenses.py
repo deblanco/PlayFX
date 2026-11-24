@@ -12,10 +12,8 @@ What ships, and where this script reads it from (all on disk; no network):
     component's library workspace, with the in-tree notices of the toolchain's COPYRIGHT-library.html.
   - npm packages in the web UI: the ones whose modules, styles or assets Vite actually puts in the
     bundle (scripts/third-party-licenses-bundle.mjs builds it into a temporary folder to find out).
-  - C libraries: libopus, linked statically from Homebrew's opus keg (`OPUS_PREFIX`, else `brew --prefix
-    opus`, as packages/streamcore/Package.swift and the app's build.rs find it; licence from the keg), and
-    libsecp256k1, vendored in packages/playfxprotocol/Sources/CSecp256k1 and compiled in (its COPYING and
-    README.PlayFX).
+  - C libraries, vendored and compiled in: libopus in packages/streamcore/Sources/CLibopus and libsecp256k1
+    in packages/playfxprotocol/Sources/CSecp256k1 (each one's COPYING and README.PlayFX).
   - Code adapted into PlayFX's own sources (listed by hand below).
 
 Dual-licensed components are listed under one of their licences, preferring one whose text the package
@@ -24,7 +22,7 @@ list of components they cover and each one's copyright notice.
 
 Usage: scripts/third-party-licenses.py [output]     (default: THIRD_PARTY_LICENSES at the repo root)
 Needs cargo (see CLAUDE.md for PATH) with the toolchain's rust-src component (rustup component add
-rust-src), bun with node_modules installed, and Homebrew's opus keg (brew install opus).
+rust-src), and bun with node_modules installed.
 """
 import json
 import os
@@ -37,6 +35,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TAURI = os.path.join(ROOT, "apps", "desktop", "src-tauri")
 APP = os.path.join(ROOT, "apps", "desktop")
 SECP256K1 = os.path.join(ROOT, "packages", "playfxprotocol", "Sources", "CSecp256k1")
+LIBOPUS = os.path.join(ROOT, "packages", "streamcore", "Sources", "CLibopus")
 TARGET = "aarch64-apple-darwin"
 
 # ----------------------------------------------------------------------------------------------- helpers
@@ -489,15 +488,13 @@ def native_libraries():
     comps.append(component(origin, "libsecp256k1", "%s (commit %s), vendored in PlayFXProtocol" % (m.group(1), m.group(3)),
                            m.group(2), "MIT", [notice("MIT", read(os.path.join(SECP256K1, "COPYING")))]))
 
-    # libopus, the static archive from Homebrew's opus keg that StreamCore and the app link by path.
-    prefix = os.environ.get("OPUS_PREFIX") or run(["brew", "--prefix", "opus"]).strip()
-    prefix = os.path.realpath(prefix)
-    if not os.path.isfile(os.path.join(prefix, "lib", "libopus.a")):
-        sys.exit("third-party-licenses: no libopus.a in %s (brew install opus)" % prefix)
-    notices = [notice("BSD-3-Clause", read(os.path.join(prefix, "COPYING")))]
-    extras = [(f, read(os.path.join(prefix, f))) for f in sorted(os.listdir(prefix)) if re.match(r"(?i)^notice", f)]
-    comps.append(component(origin, "Opus (libopus)", os.path.basename(prefix) + " (Homebrew)", "https://opus-codec.org",
-                           "BSD-3-Clause", notices, extras))
+    # libopus, vendored unmodified in StreamCore and compiled into the app. Its COPYING carries the BSD-3-Clause
+    # terms and the pointers to Opus's royalty-free patent licences.
+    m = re.search(r"libopus v([\d.]+) \((https://\S+), tag \S+, commit (\w+)\)", read(os.path.join(LIBOPUS, "README.PlayFX")))
+    if not m:
+        sys.exit("third-party-licenses: no version in %s/README.PlayFX" % LIBOPUS)
+    comps.append(component(origin, "Opus (libopus)", "%s (commit %s), vendored in StreamCore" % (m.group(1), m.group(3)),
+                           m.group(2), "BSD-3-Clause", [notice("BSD-3-Clause", read(os.path.join(LIBOPUS, "COPYING")))]))
     return comps
 
 

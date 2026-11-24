@@ -2,8 +2,8 @@
 #define COPUS_H
 
 // A small C face over libopus, for the PlayFX engine: Swift can't call opus_encoder_ctl (it's variadic). Only copus.c
-// includes libopus's headers, so Swift sees this header alone; libopus itself is the static archive from Homebrew's
-// opus keg that Package.swift links by path (never a dynamic libopus).
+// includes libopus's headers, so Swift sees this header alone; libopus itself is the vendored CLibopus target,
+// compiled into the package (never a dynamic libopus).
 
 #ifdef __cplusplus
 extern "C" {

@@ -1,15 +1,5 @@
 // swift-tools-version:5.9
-import Foundation
 import PackageDescription
-
-// libopus (BSD-3-Clause), linked statically from Homebrew's opus keg (`brew install opus`): the PlayFX engine's game
-// audio decode and microphone encode. `OPUS_PREFIX` names the keg (the desktop app's build.rs sets it from
-// `brew --prefix opus`); otherwise Homebrew's usual prefixes are tried. The archive is linked by its path, never
-// `-lopus`, so a dynamic libopus next to it can't be picked instead.
-let opusPrefix = Context.environment["OPUS_PREFIX"]
-    ?? ["/opt/homebrew/opt/opus", "/usr/local/opt/opus"]
-        .first { FileManager.default.fileExists(atPath: $0 + "/lib/libopus.a") }
-    ?? "/opt/homebrew/opt/opus"
 
 let cltFrameworks = "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
 
@@ -29,11 +19,21 @@ let package = Package(
     targets: [
         // Catches Objective-C exceptions thrown inside framework calls, which Swift can't.
         .target(name: "CObjCCatch"),
-        // The libopus calls the PlayFX engine makes (game audio decode, microphone encode), over the static libopus.
+        // libopus v1.6.1 (BSD-3-Clause, vendored unmodified, float build, generic C on arm64 and x86_64): game audio
+        // decode and microphone encode. Compiled here for the package's deployment targets. The defines are what
+        // upstream's CMake sets by default (VLAs, lrint/lrintf, hardening; no float approximations), with intrinsics
+        // off; PACKAGE_VERSION as its autotools and Meson builds set it (opus_get_version_string).
         .target(
-            name: "COpus",
-            cSettings: [.unsafeFlags(["-I", opusPrefix + "/include/opus"])],
-            linkerSettings: [.unsafeFlags([opusPrefix + "/lib/libopus.a"])]),
+            name: "CLibopus",
+            exclude: ["COPYING", "README.PlayFX"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("celt"), .headerSearchPath("silk"), .headerSearchPath("silk/float"),
+                .define("OPUS_BUILD"), .define("VAR_ARRAYS"), .define("HAVE_LRINT"), .define("HAVE_LRINTF"),
+                .define("ENABLE_HARDENING"), .define("PACKAGE_VERSION", to: "\"1.6.1\""), .unsafeFlags(["-w"]),
+            ]),
+        // The libopus calls the PlayFX engine makes (game audio decode, microphone encode), over CLibopus.
+        .target(name: "COpus", dependencies: ["CLibopus"]),
         .target(
             name: "StreamCore",
             dependencies: ["CObjCCatch", "COpus", .product(name: "PlayFXProtocol", package: "playfxprotocol")]),

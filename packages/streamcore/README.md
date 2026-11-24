@@ -101,11 +101,11 @@ the session already quit, waits up to 5 s each for in-flight sink calls, the qui
 its lock and stops it outside it, so an app handler may call commands or `stop()` while it runs. A start that fails is a `.quit`: busy is `.busy`, anything else `.final` (a connection that was
 never made isn't "dropped").
 
-**Opus.** libopus (BSD-3-Clause) is linked statically from Homebrew's opus keg (`brew install opus`):
-`Package.swift` links `OPUS_PREFIX/lib/libopus.a` by its path (never `-lopus`, so a dynamic libopus can't be picked
-instead) and compiles `Sources/COpus` against the keg's headers. `OPUS_PREFIX` defaults to the first of
-`/opt/homebrew/opt/opus` and `/usr/local/opt/opus` that has the archive; the desktop app's `build.rs` sets it from
-`brew --prefix opus` and links the same archive into the app. `Sources/COpus` wraps the few libopus calls the engine
+**Opus.** libopus 1.6.1 (BSD-3-Clause) is vendored unmodified in `Sources/CLibopus` (the release tarball's float
+build sources and the headers they include; version, checksum and what was left out in its `README.PlayFX`) and
+compiled as a C target for the package's deployment targets, with the configuration as defines in `Package.swift`
+(no `config.h`; the generic C path on arm64 and x86_64, no NEON or SSE files). It ends up inside the static StreamCore
+library, so `psrp`, the tests and the desktop app link nothing else for it. `Sources/COpus` wraps the few libopus calls the engine
 makes (Swift can't call the variadic `opus_encoder_ctl`). The decode path allocates nothing per packet (one PCM buffer per audio header); the
 microphone path allocates one 40-byte array per packet because the library's API takes an array (and its packetiser and
 Takion send allocate the 120-byte payload anyway, so a buffer overload alone wouldn't remove the allocation).

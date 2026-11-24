@@ -3,7 +3,10 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **the final check of the libchiaki removal**: every gate green with no libchiaki
+Last updated 2026-11-24, after **libopus built from source**: libopus 1.6.1 is vendored unmodified in StreamCore
+(`Sources/CLibopus`, float build, generic C) and compiled for the package's deployment targets, so the build needs
+no Homebrew and the "built for newer macOS version" linker warnings are gone (StreamCore 501 tests, 91.5% lines / 90.1%
+in VM mode; Rust 74, 91.4% lines; TS 424). Before that, **the final check of the libchiaki removal**: every gate green with no libchiaki
 anywhere (StreamCore 501 tests, 91.5% lines / 90.1% in VM mode; PlayFXProtocol 851 tests, 97.9% lines in the
 parallel, VM and serial runs, and its release allocation test; TS 424, 97.9% lines; Rust 74, 91.4% lines; clippy
 clean); a debug `cargo build` links with libopus inside and no Homebrew dylib; `git grep -i chiaki` finds only
@@ -112,7 +115,8 @@ apps/desktop            Tauri v2 app: React 19 + Effect + Tailwind + shadcn UI o
   src-tauri             Rust: Tauri commands → StreamCore C ABI (NativeCore trait, ffi/native).
 apps/site               The project's GitHub Pages site (Vite + Tailwind, plain JS).
 packages/streamcore     Swift package (macOS + iOS target):
-  Sources/COpus         the few libopus calls the engine makes (libopus static, from Homebrew).
+  Sources/CLibopus      libopus 1.6.1, vendored unmodified (float build, generic C), compiled in.
+  Sources/COpus         the few libopus calls the engine makes.
   Sources/StreamCore    Console (discover/register/wake), PSNAuth, StreamSession on PlayFXEngine,
                         VideoDecoder (VideoToolbox), AudioPlayer, ControllerInput,
                         StreamRenderer (Metal + MetalFX), MacOSBridge (JSON C ABI).
@@ -1069,6 +1073,27 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     and the libopus build note. Left for the licence change: LICENSE, NOTICE, THIRD_PARTY_LICENSES and its
     script (which still read chiaki-ng's tree), README's licence section.
   - ✅ PlayFX proprietary (2026-11-24): see "Licence: proprietary" below.
+  - ✅ libopus built from source (2026-11-24): Homebrew's `libopus.a` was built for macOS 26 (a linker warning per
+    object against our 13.0 target) and made Homebrew a build dependency. Now `Sources/CLibopus` vendors the
+    official 1.6.1 release, unmodified: the tarball from downloads.xiph.org, checked against Xiph's SHA256SUMS.txt
+    (6ffcb593…a411a1; tag v1.6.1, commit 22244de5a79b; both in its `README.PlayFX`), only the float build's sources
+    from upstream's own lists (celt_sources.mk, silk_sources.mk with SILK_SOURCES_FLOAT, opus_sources.mk with
+    OPUS_SOURCES_FLOAT: 137 files) and the 59 headers they include (found with `clang -MM` on both architectures),
+    plus COPYING (BSD-3-Clause and the pointers to Opus's royalty-free patent licences). No config.h: the defines
+    are CMake's defaults (`OPUS_BUILD`, `VAR_ARRAYS`, `HAVE_LRINT`, `HAVE_LRINTF`, `ENABLE_HARDENING`; no
+    `FLOAT_APPROX`) plus `PACKAGE_VERSION` "1.6.1" (as autotools and Meson set it), `-w`. The NEON intrinsics files
+    were left out: they include `<arm_neon.h>` unconditionally, so they can't build for x86_64, and SwiftPM can't
+    set defines per architecture; both architectures run upstream's generic C path (the SSE files likewise). `COpus`
+    depends on `CLibopus`; `OPUS_PREFIX` and the Homebrew lookups are gone from Package.swift, `build.rs`, CI
+    (`brew install opus`), CLAUDE.md, the READMEs and `scripts/third-party-licenses.py` (which now reads the
+    vendored COPYING and README.PlayFX; `THIRD_PARTY_LICENSES` regenerated, only the Opus entry changed). Verified:
+    `swift build` and `swift build --arch x86_64` build and link `psrp` (the objects say minos 13.0, Homebrew's
+    26.0); `otool -L` on `psrp` and the debug `psrp-desktop` shows no libopus or Homebrew dylib, `nm` shows the
+    `opus_*` symbols inside, `strings` "libopus 1.6.1"; no "built for newer macOS" warnings in the Swift or cargo
+    builds. StreamCore 501 tests (the engine's audio and microphone tests on the vendored libopus included),
+    91.5% lines / 89.8% functions, 90.1% / 88.6% with `STREAMCORE_SIMULATE_VM=1` (both skipping
+    `opensAnOutputUnitOnARealDevice`); Rust 74 tests, 91.4% lines, clippy clean; TS 424, 97.9% lines. The C
+    is compiled without optimisation in debug builds (release builds optimise it); not yet heard on a console.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
@@ -1193,7 +1218,8 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   signs, notarizes, staples and checks the DMG with Gatekeeper. Each submission is waited on by its id, with
   retries (see Notarization in section 3); `scripts/test-release.sh` tests the wait and the DMG app swap.
 - ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): PlayFXProtocol tests +
-  coverage, `brew install opus` (until 2026-11-24: libchiaki built once per submodule commit + script, cached),
+  coverage, no Homebrew dependencies (until 2026-11-24: `brew install opus`, and before that libchiaki built once
+  per submodule commit + script, cached),
   Swift tests one at a time + coverage,
   tsc/ESLint/vitest + coverage, clippy `-D warnings`, Rust tests + `cargo llvm-cov --lib` (≥ 80% lines and
   functions). Getting it green found real bugs: `protobuf` missing from the documented dependencies; the
@@ -1202,8 +1228,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   first measured here (72% lines): the app's entry point moved to `main.rs` (a thin adapter), every
   command is now exercised through IPC with the UI's argument names and with missing arguments, and the
   safe StreamCore calls are smoke-tested for real.
-- ✅ **Reproducibility**: README lists the one Homebrew dependency (`opus`, linked statically); libchiaki,
-  `build-chiaki.sh` and `vendor/` are gone (2026-11-24).
+- ✅ **Reproducibility**: no Homebrew dependencies: libopus is vendored in StreamCore (`Sources/CLibopus`, with
+  the release tarball's checksum) and compiled with the package (2026-11-24); libchiaki, `build-chiaki.sh` and
+  `vendor/` are gone (2026-11-24).
 
 ---
 
@@ -1366,9 +1393,6 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   submit or dropping the `|| true` that keeps a timed-out wait from ending the release makes it fail. The swap was also run on a copy
   of the 0.2.0 DMG and app: layout kept and the app's signature still verifies. Left: the first real run, at
   the next release (`xcrun stapler validate` on the app inside the DMG).
-- 🔶 **Linker warnings**: Homebrew's static `libopus.a` is built for a newer macOS than the 13.0 deployment
-  target (one warning per object when psrp, the tests or the app link). Harmless (plain C, no OS calls);
-  silence by building libopus at the target version.
 - 🔶 **FFI safety**: the Rust↔Swift boundary (CString lifetimes, `sc_free` once, main-thread
   rules) was reviewed and tested, but every new `@_cdecl` needs the same care.
 - ℹ️ **Dev E2E harness** (`src/app/devSeed.ts` + autoplay) is env-gated and inert in production;
@@ -1564,5 +1588,6 @@ requests and a bug report.
    unchanged); ~~`PlayFXEngine` on that seam~~ (done 2026-11-24); ~~internet play, the PSN console list and PIN-less
    pairing on PlayFXProtocol~~ (done 2026-11-24); ~~StreamCore on PlayFXProtocol only~~ (done 2026-11-24: no
    libchiaki in StreamCore or psrp); ~~the app's build and CI without libchiaki~~ (done 2026-11-24); ~~the submodule and
-   third_party/ removed~~ (done 2026-11-24); ~~PlayFX proprietary~~ (done 2026-11-24); next, the parity round in
+   third_party/ removed~~ (done 2026-11-24); ~~PlayFX proprietary~~ (done 2026-11-24); ~~libopus built from source,
+   no Homebrew~~ (done 2026-11-24); next, the parity round in
    the app on the console, and the provenance and risk page. *(P4)*

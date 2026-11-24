@@ -1,6 +1,6 @@
 #include "copus.h"
 
-// libopus's own headers, from the keg Package.swift links (OPUS_PREFIX/include/opus).
+// libopus's own headers, from the vendored CLibopus target (Sources/CLibopus/include).
 #include <opus.h>
 
 copus_decoder *copus_decoder_create(int sampleRate, int channels) {

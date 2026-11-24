@@ -18,13 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Our own Remote Play protocol package (no Homebrew dependencies), so it runs first.
+      # Our own Remote Play protocol package, which StreamCore builds on, so it runs first.
       - name: PlayFXProtocol tests and coverage
         run: packages/playfxprotocol/scripts/coverage.sh --no-parallel
-
-      # StreamCore links Homebrew's static libopus (Package.swift, build.rs).
-      - name: Homebrew dependencies
-        run: brew install opus
 
       # One test at a time: on a runner the log then names the test that fails or crashes.
       - name: Swift tests and coverage
