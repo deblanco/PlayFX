@@ -232,13 +232,16 @@ final class InternetLink: @unchecked Sendable {
             }
         }
         let environment = self.environment
-        let built = await withTaskCancellationHandler {
-            await Result { () async throws -> (ClientCandidates, NATPrediction?) in
-                try await runBlocking { [self] in
+        // An explicit do/catch: `Result`'s async initializer isn't in every toolchain (CI's Swift lacks it).
+        let built: Result<(ClientCandidates, NATPrediction?), any Error> = await withTaskCancellationHandler {
+            do {
+                return .success(try await runBlocking { [self] in
                     try buildCandidates(
                         socket: socket, hole: .ctrl, answersWanted: 4, ctrlPrediction: nil, environment: environment,
                         abort: { abortCandidates.get() })
-                }
+                })
+            } catch {
+                return .failure(error)
             }
         } onCancel: {
             startTask.cancel()
