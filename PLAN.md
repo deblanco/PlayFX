@@ -879,10 +879,18 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     sections of stream.md, av.md, takion.md): the console signs its HelloReply with the handshake key as
     expected, ConnectionQuality's target bitrate is in bit/s, the audio header is 2/16/48000/480, the probe's
     Takion v9 works on a PS5, and the console streams with or without the microphone StreamInfo. Probe RTT
-    0.9 ms (bsd) vs 1.1 ms (nw). **Not yet checked on hardware:** loss, FEC recovery, reorder and congestion
-    under load (the home screen runs at about 0.14 Mbit/s, so neither transport was stressed), controller input,
-    haptics, the HEVC codec byte, the pad-info form.
-  - ❌ Next: a stream with motion (a game running, input from a pad) to load FEC, reorder and both transports;
+    0.9 ms (bsd) vs 1.1 ms (nw). Then in a game (GTA VI unpaused through psrp's control API: PS, then circle
+    three times), 1080p60 HEVC asking 30 Mbit/s: psrp 60 fps at about 4 Mbit/s, nothing lost; `pfxp` on the BSD
+    thread 60 fps at 3.7–4.5 Mbit/s (about 660 packets/s, character standing still), nothing lost, 2,801 haptics
+    frames received. Then, with nobody playing but a busier spot in the game (foliage, traffic), both at the same
+    load: Network.framework 59–60 fps at 11–13 Mbit/s (40,764 packets in 30 s), BSD thread 59–60 fps at
+    11–14 Mbit/s (41,915 packets); each lost nothing, had no GMAC failure or retransmission, ended cleanly and its
+    video decodes in ffmpeg. On this wired-quality LAN the two transports are indistinguishable. One earlier nw run was ended by
+    the console after 6.9 s ("Server shutting down", reported as `streamRemoteShutdown`) when the user picked up
+    the console's own controller. **Not yet checked on hardware:** FEC recovery and reorder (the LAN lost
+    nothing), CPU per packet on the console's traffic, controller input, the HEVC codec byte, the pad-info form.
+  - ❌ Next: input from `pfxp` (a button script), and a stream on a lossier link (Wi-Fi far from the router)
+    to exercise FEC and reorder on both transports;
     then a backend switch in StreamCore (libchiaki stays the default until parity on the console),
     PSN hole-punching.
 
