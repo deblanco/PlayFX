@@ -13,7 +13,7 @@ func benchTransport(_ args: [String]) throws {
     // One discarded warm-up run of each, then A B A B so that neither transport always runs first.
     for name in ["bsd", "nw"] { _ = try TransportBench.run(transport: name, packets: min(packets, 2000), rate: rate) }
     for (n, name) in ["bsd", "nw", "bsd", "nw"].enumerated() {
-        let r = try TransportBench.run(transport: name, packets: packets, rate: rate)
+        let r = try TransportBench.run(transport: name, packets: packets, rate: rate, countAllocations: true)
         let label = "\(name)#\(n / 2 + 1)".padding(toLength: 9, withPad: " ", startingAt: 0)
         let allocations = r.allocationsPerPacket.map { String(format: "%.2f", $0) } ?? "n/a"
         print(label + String(format: " %8d  %7d  %7.0f  %11.2f  %6.1f  %6.1f  %6.1f  ", r.packetsReceived, r.packetsDropped,

@@ -1103,7 +1103,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     crates Tauri brings in: cssparser, cssparser-macros, dtoa-short, selectors, option-ext); GPL/LGPL/AGPL and
     source-available licences stay out (CLAUDE.md).
   - 🔶 First CI run without libchiaki (PR #7, 2026-11-24): failed to compile one test helper (`$0` inside a `defer` in a
-    closure, accepted by the local Swift, rejected by the runner's); fixed.
+    closure, accepted by the local Swift, rejected by the runner's); fixed. The next run's test process died with
+    SIGBUS in the loopback transport benchmark, which installs a libmalloc `malloc_logger` hook to count
+    allocations; the hook is now opt-in (`pfxp bench-transport` only), so tests and the library never write it.
   - ✅ First session in the real app without libchiaki (2026-11-24, the user's PS5 on the LAN, the user: "works
     perfect"): PSN token refresh and console list on our PSN client, wake from rest (ready in 9 s), a 1080p60 HEVC
     stream at 20 Mbit/s connected in about 2 s (2,527 frames, 0 lost, 0 decode errors, RTT 1.25 ms), DualSense

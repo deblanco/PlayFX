@@ -34,11 +34,13 @@ public enum TransportBenchError: Error, CustomStringConvertible {
 
 public enum TransportBench {
     /// Runs one transport (`"bsd"` or `"nw"`) against `packets` packets at `rate` packets per second (0 = as fast
-    /// as the sender can go).
+    /// as the sender can go). `countAllocations` installs a libmalloc `malloc_logger` hook for the second half of
+    /// the run to count allocations on the receive path; it writes a process-wide libmalloc global, so it's for the
+    /// `pfxp bench-transport` tool only (off in tests and the library's other users).
     /// Receive depth for both transports: datagrams drained per wake-up (BSD ring) or receives kept outstanding (NW).
     static let receiveDepth = 32
 
-    public static func run(transport name: String, packets: Int, rate: Int) throws -> TransportBenchResult {
+    public static func run(transport name: String, packets: Int, rate: Int, countAllocations: Bool = false) throws -> TransportBenchResult {
         guard (1...500_000).contains(packets), rate >= 0 else { throw TransportBenchError.failed("packets 1...500000, rate >= 0") }
         let packetSize = 1400
         let secret = [UInt8](repeating: 0x42, count: 32)
@@ -59,7 +61,7 @@ public enum TransportBench {
         guard recorder.waitConnected(seconds: 5) else { throw TransportBenchError.failed("handshake did not finish") }
         connection.enableCrypto(ecdhSecret: secret, handshakeKey: handshakeKey)
 
-        recorder.allocationStart = packets / 2
+        if countAllocations { recorder.allocationStart = packets / 2 }
         let cpuBefore = cpuSeconds(CLOCK_PROCESS_CPUTIME_ID)
         let start = takionNow()
         console.blast()
@@ -148,7 +150,8 @@ private final class BenchRecorder: TakionDelegate, @unchecked Sendable {
     }
 
     func takionAV(_ header: TakionAVHeader, payload: UnsafeMutableRawBufferPointer, receivedAt: UInt64) {
-        let hook = BenchAllocationHook.shared
+        // The hook is only touched when counting was asked for (it writes libmalloc's global).
+        let hook = allocationStart == nil ? nil : BenchAllocationHook.shared
         hook?.registerCurrentThread()
         if let start = allocationStart, written == start, !counting {
             counting = true
