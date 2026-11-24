@@ -90,7 +90,7 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     psnConsoles: [] as readonly PsnConsole[],
     peerWifi: "active" as PeerWifiState,
   }
-  const counts = { discover: 0, psnLogin: 0, stopStream: 0, sleepConsole: 0, openLogsFolder: 0, openSourceCode: 0, openHelp: 0, openLocalNetworkSettings: 0 }
+  const counts = { discover: 0, psnLogin: 0, stopStream: 0, sleepConsole: 0, openLogsFolder: 0, openHelp: 0, openLocalNetworkSettings: 0 }
   const streamHandlers = new Set<(event: StreamEvent) => void>()
   const psnHandlers = new Set<(event: PsnAccountEvent) => void>()
   const devHandlers = new Set<(command: DevCommand) => void>()
@@ -152,9 +152,6 @@ export const fakeCore = (overrides: Partial<CoreService> = {}) => {
     setDetailedLogs: vi.fn<CoreService["setDetailedLogs"]>(() => Effect.void),
     openLogsFolder: Effect.sync(() => {
       counts.openLogsFolder++
-    }),
-    openSourceCode: Effect.sync(() => {
-      counts.openSourceCode++
     }),
     openHelp: Effect.sync(() => {
       counts.openHelp++

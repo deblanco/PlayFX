@@ -30,10 +30,13 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 
 ### UI
 - Tailwind CSS v4 for styling; no hand-written CSS beyond Tailwind's theme layer.
-- Components come from shadcn/ui (MIT) before writing custom ones. Only code under an AGPL-compatible
-  licence goes in (MIT, BSD, ISC, Apache-2.0, …): no shadcn/studio blocks (MIT with a Commons Clause, which an
-  AGPL app can't carry), nor any other "source-available" code. Anything new that ships gets an entry in
-  `THIRD_PARTY_LICENSES` (re-run `scripts/third-party-licenses.py`).
+- Components come from shadcn/ui (MIT) before writing custom ones.
+
+### Licences
+- PlayFX is proprietary (LICENSE). Only permissively licensed code goes in (MIT, BSD, ISC, Apache-2.0,
+  zlib…): no copyleft (GPL/LGPL/AGPL/MPL) and no source-available licences (e.g. shadcn/studio blocks, MIT
+  with a Commons Clause). Anything new that ships gets an entry in `THIRD_PARTY_LICENSES` (re-run
+  `scripts/third-party-licenses.py`).
 
 ### Tests: ≥ 80% coverage, everywhere
 - Every package keeps line, branch and function coverage at or above **80%**; the coverage commands

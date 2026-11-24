@@ -1,7 +1,7 @@
 {
   "name": "playfx",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "UNLICENSED",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "desktop": "bun run --cwd apps/desktop tauri dev",

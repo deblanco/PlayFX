@@ -39,7 +39,6 @@ fn main() {
         "cancel_psn_pair",
         "set_detailed_logs",
         "open_logs_folder",
-        "open_source_code",
         "open_help",
         "open_local_network_settings",
         "diagnostics",

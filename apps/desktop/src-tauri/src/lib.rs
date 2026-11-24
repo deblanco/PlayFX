@@ -390,15 +390,6 @@ fn open(target: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Where PlayFX's source code lives (AGPL-3.0: every build points users to it).
-const SOURCE_URL: &str = "https://github.com/deblanco/PlayFX";
-
-/// Opens the source code in the browser. The URL is fixed here, never taken from the web view.
-#[tauri::command(async)]
-fn open_source_code() -> Result<(), String> {
-    open(SOURCE_URL)
-}
-
 /// The players' help page (docs/HELP.md): requirements, setup, FAQ, the keyboard map.
 const HELP_URL: &str = "https://github.com/deblanco/PlayFX/blob/main/docs/HELP.md";
 
@@ -514,7 +505,6 @@ pub fn with_commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         cancel_psn_pair,
         set_detailed_logs,
         open_logs_folder,
-        open_source_code,
         open_help,
         open_local_network_settings,
         diagnostics,

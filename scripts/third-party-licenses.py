@@ -12,8 +12,10 @@ What ships, and where this script reads it from (all on disk; no network):
     component's library workspace, with the in-tree notices of the toolchain's COPYRIGHT-library.html.
   - npm packages in the web UI: the ones whose modules, styles or assets Vite actually puts in the
     bundle (scripts/third-party-licenses-bundle.mjs builds it into a temporary folder to find out).
-  - C libraries statically linked (packages/streamcore/vendor/macos/lib, staged by build-chiaki.sh):
-    those built from the chiaki-ng tree, and the Homebrew ones (licences from their kegs).
+  - C libraries: libopus, linked statically from Homebrew's opus keg (`OPUS_PREFIX`, else `brew --prefix
+    opus`, as packages/streamcore/Package.swift and the app's build.rs find it; licence from the keg), and
+    libsecp256k1, vendored in packages/playfxprotocol/Sources/CSecp256k1 and compiled in (its COPYING and
+    README.PlayFX).
   - Code adapted into PlayFX's own sources (listed by hand below).
 
 Dual-licensed components are listed under one of their licences, preferring one whose text the package
@@ -22,8 +24,7 @@ list of components they cover and each one's copyright notice.
 
 Usage: scripts/third-party-licenses.py [output]     (default: THIRD_PARTY_LICENSES at the repo root)
 Needs cargo (see CLAUDE.md for PATH) with the toolchain's rust-src component (rustup component add
-rust-src), bun with node_modules installed, Homebrew with the kegs that build-chiaki.sh uses, and the
-chiaki-ng submodule checked out (in this checkout or the main one).
+rust-src), bun with node_modules installed, and Homebrew's opus keg (brew install opus).
 """
 import json
 import os
@@ -35,7 +36,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TAURI = os.path.join(ROOT, "apps", "desktop", "src-tauri")
 APP = os.path.join(ROOT, "apps", "desktop")
-VENDOR = os.path.join(ROOT, "packages", "streamcore", "vendor", "macos", "lib")
+SECP256K1 = os.path.join(ROOT, "packages", "playfxprotocol", "Sources", "CSecp256k1")
 TARGET = "aarch64-apple-darwin"
 
 # ----------------------------------------------------------------------------------------------- helpers
@@ -52,18 +53,6 @@ def read(path):
 
 def warn(msg):
     print("third-party-licenses: " + msg, file=sys.stderr)
-
-
-def chiaki_dir():
-    """The chiaki-ng submodule here, or in the main checkout when this is a worktree without it."""
-    own = os.path.join(ROOT, "third_party", "chiaki-ng")
-    if os.path.exists(os.path.join(own, "COPYING")):
-        return own
-    common = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]).strip()
-    main = os.path.join(os.path.dirname(common), "third_party", "chiaki-ng")
-    if os.path.exists(os.path.join(main, "COPYING")):
-        return main
-    sys.exit("third-party-licenses: third_party/chiaki-ng is not checked out (git submodule update --init)")
 
 
 # Standard MIT text (SPDX "MIT"), for packages that declare MIT but ship no licence file, and for code
@@ -489,72 +478,34 @@ def collect():
 
 
 def native_libraries():
-    chiaki = chiaki_dir()
-    third = os.path.join(chiaki, "third-party")
     origin = "C libraries (statically linked)"
     comps = []
 
-    def submodule_url(path):
-        m = re.search(r'path = %s\s+url = (\S+)' % re.escape(path), read(os.path.join(chiaki, ".gitmodules")))
-        return re.sub(r"\.git$", "", m.group(1)) if m else ""
+    # libsecp256k1, vendored unmodified in PlayFXProtocol and compiled into the app.
+    m = re.search(r"libsecp256k1 v([\d.]+) \((https://\S+), tag \S+, commit (\w+)\)",
+                  read(os.path.join(SECP256K1, "README.PlayFX")))
+    if not m:
+        sys.exit("third-party-licenses: no version in %s/README.PlayFX" % SECP256K1)
+    comps.append(component(origin, "libsecp256k1", "%s (commit %s), vendored in PlayFXProtocol" % (m.group(1), m.group(3)),
+                           m.group(2), "MIT", [notice("MIT", read(os.path.join(SECP256K1, "COPYING")))]))
 
-    def submodule_rev(path):
-        return run(["git", "-C", os.path.join(chiaki, path), "rev-parse", "--short=12", "HEAD"]).strip()
-
-    curl_version = re.search(r'LIBCURL_VERSION "([^"]+)"', read(os.path.join(third, "curl", "include", "curl", "curlver.h"))).group(1)
-    nanopb_version = re.search(r'NANOPB_VERSION "nanopb-([^"]+)"', read(os.path.join(third, "nanopb", "pb.h"))).group(1)
-    from_chiaki = [
-        ("curl", "%s (git %s)" % (curl_version, submodule_rev("third-party/curl")), "https://curl.se",
-         "curl", os.path.join(third, "curl", "COPYING")),
-        ("nanopb", "%s (git %s)" % (nanopb_version, submodule_rev("third-party/nanopb")), submodule_url("third-party/nanopb"),
-         "Zlib", os.path.join(third, "nanopb", "LICENSE.txt")),
-        ("Jerasure", "2.0 (git %s)" % submodule_rev("third-party/jerasure"), submodule_url("third-party/jerasure"),
-         "BSD-3-Clause", os.path.join(third, "jerasure", "COPYING")),
-        ("GF-Complete", "git %s" % submodule_rev("third-party/gf-complete"), submodule_url("third-party/gf-complete"),
-         "BSD-3-Clause", os.path.join(third, "gf-complete", "COPYING")),
-    ]
-    for name, version, url, spdx, path in from_chiaki:
-        comps.append(component(origin, name, version + ", from chiaki-ng's tree", url, spdx, [notice(spdx, read(path))]))
-
-    # Mesa's bitstream reader, copied into libchiaki (lib/src/vl_rbsp.h).
-    header = read(os.path.join(chiaki, "lib", "src", "vl_rbsp.h"))
-    lic = strip_comment(header[:header.index("*/") + 2])
-    comps.append(component(origin, "Mesa (vl_rbsp.h, in libchiaki)", "copied file", "https://gitlab.freedesktop.org/mesa/mesa",
-                           "MIT", [notice("MIT", lic)]))
-
-    homebrew = [
-        ("OpenSSL", "openssl@3", ["libssl.a", "libcrypto.a"], "https://www.openssl.org", "Apache-2.0", "LICENSE.txt"),
-        ("Opus", "opus", ["libopus.a"], "https://opus-codec.org", "BSD-3-Clause", "COPYING"),
-        ("json-c", "json-c", ["libjson-c.a"], "https://github.com/json-c/json-c", "MIT", "COPYING"),
-        ("miniupnpc", "miniupnpc", ["libminiupnpc.a"], "https://github.com/miniupnp/miniupnp", "BSD-3-Clause", "LICENSE"),
-        ("libevent", "libevent", ["libevent.a"], "https://libevent.org", "BSD-3-Clause", "LICENSE"),
-    ]
-    for name, formula, libs, url, spdx, license_file in homebrew:
-        prefix = os.path.realpath(run(["brew", "--prefix", formula]).strip())
-        if not os.path.isdir(prefix):
-            sys.exit("third-party-licenses: Homebrew %s is not installed" % formula)
-        for lib in libs:
-            staged, keg = os.path.join(VENDOR, lib), os.path.join(prefix, "lib", lib)
-            if os.path.exists(staged) and (not os.path.exists(keg) or read_bytes(staged) != read_bytes(keg)):
-                warn("%s differs from Homebrew's %s: the version listed may not be the linked one "
-                     "(re-run build-chiaki.sh)" % (lib, keg))
-        version = os.path.basename(prefix)
-        notices = [notice(spdx, read(os.path.join(prefix, license_file)))]
-        extras = [(f, read(os.path.join(prefix, f))) for f in sorted(os.listdir(prefix)) if re.match(r"(?i)^notice", f)]
-        comps.append(component(origin, name, version + " (Homebrew)", url, spdx, notices, extras))
+    # libopus, the static archive from Homebrew's opus keg that StreamCore and the app link by path.
+    prefix = os.environ.get("OPUS_PREFIX") or run(["brew", "--prefix", "opus"]).strip()
+    prefix = os.path.realpath(prefix)
+    if not os.path.isfile(os.path.join(prefix, "lib", "libopus.a")):
+        sys.exit("third-party-licenses: no libopus.a in %s (brew install opus)" % prefix)
+    notices = [notice("BSD-3-Clause", read(os.path.join(prefix, "COPYING")))]
+    extras = [(f, read(os.path.join(prefix, f))) for f in sorted(os.listdir(prefix)) if re.match(r"(?i)^notice", f)]
+    comps.append(component(origin, "Opus (libopus)", os.path.basename(prefix) + " (Homebrew)", "https://opus-codec.org",
+                           "BSD-3-Clause", notices, extras))
     return comps
-
-
-def read_bytes(path):
-    with open(path, "rb") as f:
-        return f.read()
 
 
 def adapted_code():
     """Third-party code adapted by hand into PlayFX's own sources and the shadcn/ui component sources."""
     # Copyright lines as upstream states them: CAS in ffx-cas/ffx_cas.h (the file ported) and LICENSE.txt
     # of GPUOpen-Effects/FidelityFX-CAS; shadcn/ui in LICENSE.md of shadcn-ui/ui. (No shadcn/studio code: its
-    # blocks are MIT with a Commons Clause, which the AGPL can't carry.)
+    # blocks are MIT with a Commons Clause, a source-available licence PlayFX doesn't take.)
     return [
         component("Code adapted into PlayFX's sources", "AMD FidelityFX CAS (contrast-adaptive sharpening)",
                   "1.20190610 (ffx_cas.h), ported to Metal in packages/streamcore/Sources/StreamCore/Shaders.swift",
@@ -574,14 +525,6 @@ THIN = "-" * 100
 
 
 def render(comps):
-    chiaki = chiaki_dir()
-    chiaki_rev = run(["git", "-C", chiaki, "rev-parse", "--short=12", "HEAD"]).strip()
-    cmake = read(os.path.join(chiaki, "CMakeLists.txt"))
-    chiaki_version = ".".join(re.search(r"set\(CHIAKI_VERSION_%s (\d+)\)" % part, cmake).group(1)
-                              for part in ("MAJOR", "MINOR", "PATCH"))
-    exception = read(os.path.join(chiaki, "LICENSES", "AGPL-3.0-only-OpenSSL.txt"))
-    exception = exception[exception.index("Additional permission under GNU AGPL version 3 section 7"):].strip()
-
     # Group identical texts; a text shared by one component only is printed whole.
     groups = {}
     for c in comps:
@@ -600,12 +543,11 @@ def render(comps):
     w("PlayFX: third-party software licences")
     w(RULE)
     w("")
-    w("PlayFX is free software under the GNU Affero General Public License version 3 (see LICENSE and")
-    w("NOTICE). It includes the third-party software listed below, each under its own licence. For every")
-    w("component this file gives its version, where it comes from, its copyright notices and the full text")
-    w("of its licence. Components under identical licence texts share one copy of the text, printed after")
-    w("the list of those components and their copyright notices. Where a component offers a choice of")
-    w("licences, it is used here under the one named.")
+    w("PlayFX is proprietary software (see LICENSE). It includes the third-party software listed below, each")
+    w("under its own licence. For every component this file gives its version, where it comes from, its")
+    w("copyright notices and the full text of its licence. Components under identical licence texts share")
+    w("one copy of the text, printed after the list of those components and their copyright notices. Where")
+    w("a component offers a choice of licences, it is used here under the one named.")
     w("")
     w("Generated by scripts/third-party-licenses.py from the sources the app is built from. Do not edit.")
     w("")
@@ -614,10 +556,6 @@ def render(comps):
     w(RULE)
     origins = ["C libraries (statically linked)", "Code adapted into PlayFX's sources", "Rust standard library (app binary)",
                "Rust crates (app binary)", "npm packages (web UI)"]
-    w("")
-    w("libchiaki (chiaki-ng)  %s, git %s  AGPL-3.0-only with an OpenSSL linking exception" % (chiaki_version, chiaki_rev))
-    w("    built from the modified fork https://github.com/deblanco/chiaki-ng (branch playfx)")
-    w("    of https://github.com/streetpea/chiaki-ng; see the section after this list")
     for origin in origins:
         members = sorted((c for c in comps if c["origin"] == origin), key=lambda c: (c["name"].lower(), c["version"]))
         w("")
@@ -628,28 +566,6 @@ def render(comps):
             refs = ", ".join("[%d]" % numbers[n["key"]] for n in c["notices"])
             w("%s %s  %s %s" % (c["name"], c["version"], lics, refs))
             w("    %s" % c["url"])
-
-    w("")
-    w(RULE)
-    w("libchiaki (chiaki-ng)")
-    w(RULE)
-    w("")
-    w("The Remote Play protocol library, statically linked into PlayFX. PlayFX builds it from")
-    w("https://github.com/deblanco/chiaki-ng (branch playfx, commit %s), a modified fork of chiaki-ng" % chiaki_rev)
-    w("(https://github.com/streetpea/chiaki-ng), itself a fork of Chiaki by Florian Märkl.")
-    w("")
-    w("Copyright (C) the Chiaki and chiaki-ng authors (including Florian Märkl, Street Pea and contributors)")
-    w("Modifications in the playfx branch: Copyright (C) 2026 Daniel B.")
-    w("")
-    w("Licensed under the GNU Affero General Public License version 3 only, whose full text is in the")
-    w("LICENSE file next to this one, with the following additional permission from chiaki-ng's")
-    w("LICENSES/AGPL-3.0-only-OpenSSL.txt. Its complete source code is published at the address above.")
-    w("")
-    w("Its lib/src/base64.c says its implementation is taken from Wikibooks, Algorithm Implementation/")
-    w("Miscellaneous/Base64 (https://en.wikibooks.org/wiki/Algorithm_Implementation/Miscellaneous/Base64).")
-    w("Its lib/src/vl_rbsp.h is from Mesa; see Mesa in the list above.")
-    w("")
-    w(exception)
 
     w("")
     w(RULE)

@@ -302,10 +302,10 @@ What makes a stream stutter on the network, and what PlayFX does about it:
 
 ## License
 
-PlayFX is free software under the [GNU AGPL-3.0](LICENSE). It links
-[chiaki-ng](https://github.com/streetpea/chiaki-ng) (AGPL-3.0), so every build you distribute must
-come with its complete source. The app links to it under Settings → Diagnostics → Source code.
-[NOTICE](NOTICE) lists the third-party code that is linked in.
+PlayFX is proprietary: Copyright (C) 2026 Daniel B. All rights reserved (see [LICENSE](LICENSE)). The
+third-party software it includes keeps its own licence; [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES) lists
+each component with its copyright notices and full licence text, and the app carries it in its Resources
+folder.
 
 ## Sony and PlayStation Network
 
