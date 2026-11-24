@@ -2,13 +2,13 @@ import AVFoundation
 import CoreAudio
 import os
 
-/// Plays interleaved Int16 PCM pushed from libchiaki's Opus decoder with low latency.
+/// Plays interleaved Int16 PCM pushed from the engine's Opus decoder with low latency.
 public final class AudioPlayer {
     private let engine = AVAudioEngine()
     private var source: AVAudioSourceNode?
     private var lock = os_unfair_lock()
     private var ring = AudioRing()
-    /// Engine changes come from libchiaki's audio thread (`configure`) and the host's command thread
+    /// Engine changes come from the engine's audio thread (`configure`) and the host's command thread
     /// (`apply`); AVAudioEngine can't take them at once. Recursive: `configure` applies the output.
     private let control = NSRecursiveLock()
     /// Which device the output is on, and whether it follows macOS's default.

@@ -6,7 +6,7 @@ import os
 /// Real DualSense haptics. The console drives the DualSense's two voice-coil motors with an audio stream
 /// (stereo, 3 kHz). On USB the pad is also a 4-channel sound device whose channels 3 and 4 are those motors,
 /// so the stream is played there as it is (needs the pad's sound set to 4 channels, "Quadraphonic" in Audio
-/// MIDI Setup, which is how chiaki-ng plays it too). On Bluetooth it goes to the pad in HID reports (see
+/// MIDI Setup). On Bluetooth it goes to the pad in HID reports (see
 /// BluetoothHaptics.swift). Without either, the caller plays it as rumble.
 final class DualSenseHaptics: @unchecked Sendable {
     struct Device: Equatable {
@@ -64,13 +64,13 @@ final class DualSenseHaptics: @unchecked Sendable {
         /// A Bluetooth pad that wouldn't open is said once, not every check.
         var warnedBluetooth = false
     }
-    /// Only `push` uses it, always from libchiaki's one haptics thread.
+    /// Only `push` uses it, always from the engine's one haptics thread.
     private var upsampler = HapticsUpsampler()
     private let state = OSAllocatedUnfairLock(initialState: State())
     let buffer = HapticsBuffer()
     /// The 3 kHz audio as it comes, for a pad on Bluetooth.
     let bluetoothQueue = BluetoothHapticsQueue()
-    /// Looking at the devices and opening one takes milliseconds: not on libchiaki's receive thread.
+    /// Looking at the devices and opening one takes milliseconds: not on the engine's receive thread.
     private let queue = DispatchQueue(label: "streamcore.haptics", qos: .userInitiated)
 
     init() { PadQuiet.register(self) }
@@ -83,7 +83,7 @@ final class DualSenseHaptics: @unchecked Sendable {
     /// Whether the haptics are being played on a pad.
     var isPlaying: Bool { state.withLock { $0.output != nil } }
 
-    /// One frame of the haptics stream (interleaved stereo at 3 kHz), from libchiaki's thread. Returns whether
+    /// One frame of the haptics stream (interleaved stereo at 3 kHz), from the engine's thread. Returns whether
     /// it was played on a pad; if not, the caller makes rumble from it.
     func push(_ samples: UnsafeBufferPointer<Int16>, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
         let (route, due) = state.withLock { state -> (Route?, Bool) in
@@ -201,8 +201,8 @@ struct HapticsUpsampler {
     }
 }
 
-/// The 48 kHz haptics waiting to be played: written from libchiaki's thread, read by the output's render
-/// callback. Kept short so the motors never lag the game after a network stall (as chiaki-ng: 60 ms).
+/// The 48 kHz haptics waiting to be played: written from the engine's thread, read by the output's render
+/// callback. Kept short so the motors never lag the game after a network stall (60 ms).
 final class HapticsBuffer: @unchecked Sendable {
     static let maxFrames = 48_000 * 60 / 1000
     private var lock = os_unfair_lock()

@@ -15,8 +15,8 @@ import StreamCore
 //   psrp psn-consoles                       list the PS5s on the PSN account (after account-id)
 //   psrp wake [--host IP]
 //   psrp stream [--host IP] [--height 1080] [--fps 60] [--h264] [--hdr] [--bitrate KBPS] [--no-audio] [--no-downgrade] [--psn] [--port 7777]
-//               [--frame-log FILE] [--engine chiaki|playfx]
-//        --engine playfx streams on our own PlayFXProtocol instead of libchiaki (LAN only; --psn always uses libchiaki)
+//               [--frame-log FILE]
+//        streams on PlayFX's own engine (PlayFXProtocol), on the local network or, with --psn, over the internet
 //        --psn connects over the internet through PSN (PS5; run `psrp account-id` first)
 //        --frame-log writes a line per frame: "sample INDEX BYTES MS" as it reaches the decoder, then
 //          "frame INDEX REPEAT CHANGE MS" once decoded (REPEAT 1: the same picture as the frame before; CHANGE:
@@ -247,12 +247,8 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
     options.audio = !args.has("no-audio")
     options.autoDowngrade = !args.has("no-downgrade")
     options.hdr = args.has("hdr")
-    if let engine = args["engine"] {
-        guard engine == "chiaki" || engine == "playfx" else { throw fail("--engine is chiaki or playfx") }
-        options.engine = engine
-    }
 
-    log("Connecting to \(console.nickname) at \(console.address) (\(options.height)p\(options.fps), \(options.hevc ? "HEVC" : "H.264"), engine \(options.engine))…")
+    log("Connecting to \(console.nickname) at \(console.address) (\(options.height)p\(options.fps), \(options.hevc ? "HEVC" : "H.264")))…")
     // --psn: reach the console over the internet through PSN (needs `psrp account-id` first).
     var remote: StreamSession.Remote?
     if args.has("psn") {
@@ -284,7 +280,7 @@ func stream(_ console: ConsoleCredentials, _ args: Args) throws {
         }
         log("[event] \(text)")
         ctl.queue.async { ctl.events.append(text) }
-        // On main: this runs on libchiaki's session thread, which /quit's stop() joins from main, so waiting on
+        // On main: this runs on the engine's thread, which /quit's stop() waits for from main, so waiting on
         // main here (PadQuiet's trigger release) would only time out.
         if case .quit = event { DispatchQueue.main.async { PadQuiet.now(); exit(0) } }
     }

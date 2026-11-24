@@ -3,7 +3,7 @@ import Foundation
 // The seam between `StreamSession` and the Remote Play protocol. `StreamSession` keeps everything that isn't the
 // protocol (video decode, audio playback, DualSense haptics on a USB pad, the pointer-as-touchpad merge, microphone
 // capture, stats, event buffering) and talks to the console only through a `StreamEngine`; the engine talks back
-// through the session's `StreamEngineSink`. libchiaki (`ChiakiEngine`) is the only engine for now.
+// through the session's `StreamEngineSink`. `PlayFXEngine` (on PlayFXProtocol) is the engine; tests use stand-ins.
 //
 // Lifetime, in order:
 // 1. `StreamSession.init` builds a `StreamEngineConfig` and calls a `StreamEngineFactory` with it and itself as the
@@ -226,5 +226,5 @@ protocol StreamEngineSink: AnyObject {
 
 extension ControllerState {
     /// The touchpad click in `buttons` (see `StreamEngine.setController` for every bit).
-    static let touchpadButton: UInt32 = 1 << 14
+    static let touchpadButton = ControllerButton.touchpad.rawValue
 }

@@ -1,9 +1,10 @@
 import AVFoundation
-import CChiaki
 
 /// Cuts a stream of interleaved stereo 16-bit samples into the console's 10 ms microphone frames.
 struct MicFramer {
-    static let frameValues = Int(PSRP_MIC_FRAME_SAMPLES) * 2 // stereo
+    /// The console's microphone audio: 48 kHz stereo, in 10 ms frames of 480 samples per channel.
+    static let sampleRate = 48_000, frameSamples = 480
+    static let frameValues = frameSamples * 2 // stereo
     private var pending: [Int16] = []
 
     /// Adds samples and calls `emit` with each complete frame (exactly `frameValues` values).
@@ -35,7 +36,7 @@ public final class Microphone: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private var framer = MicFramer()
     private var converter: AVAudioConverter?
-    private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PSRP_MIC_SAMPLE_RATE),
+    private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(MicFramer.sampleRate),
                                        channels: 2, interleaved: true)!
     private var running = false
     /// Set by `stop()`, for good: a start still waiting for the permission prompt finds it and doesn't

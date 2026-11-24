@@ -1,7 +1,7 @@
 import Foundation
 
 /// PSN sign-in: gives the account ID (to pair with a console) and the tokens that reach it over the
-/// internet (see PSNAccount). Same OAuth client the official Remote Play app (and chiaki-ng) uses: the
+/// internet (see PSNAccount). Same OAuth client the official Remote Play app uses: the
 /// user signs in on Sony's page, which redirects to `redirectURL?code=...`; the host app intercepts that.
 public enum PSNAuth {
     static let clientId = "ba495a24-818c-472b-b12d-ff231c1b5745"

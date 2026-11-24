@@ -14,7 +14,7 @@ public struct AudioOutput: Codable, Equatable, Sendable {
         self.deviceUID = deviceUID
     }
 
-    /// Set from the host's command thread, read by libchiaki's audio thread: behind a lock.
+    /// Set from the host's command thread, read by the engine's audio thread: behind a lock.
     public static var current: AudioOutput {
         get { currentState.withLock { $0 } }
         set { currentState.withLock { $0 = newValue } }

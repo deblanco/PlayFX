@@ -1,8 +1,15 @@
-import CChiaki
 import Foundation
 import GameController
 
-/// PlayStation controller state in libchiaki's terms.
+/// The DualSense/DualShock buttons as bits of `ControllerState.buttons` (1 = held; see `StreamEngine.setController`).
+enum ControllerButton: UInt32 {
+    case cross = 0x1, circle = 0x2, square = 0x4, triangle = 0x8
+    case dpadLeft = 0x10, dpadRight = 0x20, dpadUp = 0x40, dpadDown = 0x80
+    case l1 = 0x100, r1 = 0x200, l3 = 0x400, r3 = 0x800
+    case options = 0x1000, share = 0x2000, touchpad = 0x4000, ps = 0x8000
+}
+
+/// A PlayStation controller's state: buttons, triggers, sticks, touchpad fingers and motion.
 public struct ControllerState: Equatable, Sendable {
     public var buttons: UInt32 = 0
     public var l2: UInt8 = 0
@@ -41,14 +48,14 @@ public struct ControllerState: Equatable, Sendable {
     }
 
     public static let buttonNames: [String: UInt32] = [
-        "cross": UInt32(PSRP_BTN_CROSS.rawValue), "circle": UInt32(PSRP_BTN_CIRCLE.rawValue),
-        "square": UInt32(PSRP_BTN_SQUARE.rawValue), "triangle": UInt32(PSRP_BTN_TRIANGLE.rawValue),
-        "left": UInt32(PSRP_BTN_DPAD_LEFT.rawValue), "right": UInt32(PSRP_BTN_DPAD_RIGHT.rawValue),
-        "up": UInt32(PSRP_BTN_DPAD_UP.rawValue), "down": UInt32(PSRP_BTN_DPAD_DOWN.rawValue),
-        "l1": UInt32(PSRP_BTN_L1.rawValue), "r1": UInt32(PSRP_BTN_R1.rawValue),
-        "l3": UInt32(PSRP_BTN_L3.rawValue), "r3": UInt32(PSRP_BTN_R3.rawValue),
-        "options": UInt32(PSRP_BTN_OPTIONS.rawValue), "share": UInt32(PSRP_BTN_SHARE.rawValue),
-        "touchpad": UInt32(PSRP_BTN_TOUCHPAD.rawValue), "ps": UInt32(PSRP_BTN_PS.rawValue),
+        "cross": ControllerButton.cross.rawValue, "circle": ControllerButton.circle.rawValue,
+        "square": ControllerButton.square.rawValue, "triangle": ControllerButton.triangle.rawValue,
+        "left": ControllerButton.dpadLeft.rawValue, "right": ControllerButton.dpadRight.rawValue,
+        "up": ControllerButton.dpadUp.rawValue, "down": ControllerButton.dpadDown.rawValue,
+        "l1": ControllerButton.l1.rawValue, "r1": ControllerButton.r1.rawValue,
+        "l3": ControllerButton.l3.rawValue, "r3": ControllerButton.r3.rawValue,
+        "options": ControllerButton.options.rawValue, "share": ControllerButton.share.rawValue,
+        "touchpad": ControllerButton.touchpad.rawValue, "ps": ControllerButton.ps.rawValue,
     ]
 }
 
@@ -193,24 +200,24 @@ public final class ControllerInput {
 
     static func state(from pad: GCExtendedGamepad) -> ControllerState {
         var s = ControllerState()
-        func set(_ pressed: Bool, _ button: PsrpButton) { if pressed { s.buttons |= UInt32(button.rawValue) } }
-        set(pad.buttonA.isPressed, PSRP_BTN_CROSS)
-        set(pad.buttonB.isPressed, PSRP_BTN_CIRCLE)
-        set(pad.buttonX.isPressed, PSRP_BTN_SQUARE)
-        set(pad.buttonY.isPressed, PSRP_BTN_TRIANGLE)
-        set(pad.dpad.left.isPressed, PSRP_BTN_DPAD_LEFT)
-        set(pad.dpad.right.isPressed, PSRP_BTN_DPAD_RIGHT)
-        set(pad.dpad.up.isPressed, PSRP_BTN_DPAD_UP)
-        set(pad.dpad.down.isPressed, PSRP_BTN_DPAD_DOWN)
-        set(pad.leftShoulder.isPressed, PSRP_BTN_L1)
-        set(pad.rightShoulder.isPressed, PSRP_BTN_R1)
-        set(pad.leftThumbstickButton?.isPressed ?? false, PSRP_BTN_L3)
-        set(pad.rightThumbstickButton?.isPressed ?? false, PSRP_BTN_R3)
-        set(pad.buttonMenu.isPressed, PSRP_BTN_OPTIONS)
-        set(pad.buttonOptions?.isPressed ?? false, PSRP_BTN_SHARE)
-        set(pad.buttonHome?.isPressed ?? false, PSRP_BTN_PS)
-        if let ds = pad as? GCDualSenseGamepad { set(ds.touchpadButton.isPressed, PSRP_BTN_TOUCHPAD) }
-        if let ds4 = pad as? GCDualShockGamepad { set(ds4.touchpadButton.isPressed, PSRP_BTN_TOUCHPAD) }
+        func set(_ pressed: Bool, _ button: ControllerButton) { if pressed { s.buttons |= button.rawValue } }
+        set(pad.buttonA.isPressed, .cross)
+        set(pad.buttonB.isPressed, .circle)
+        set(pad.buttonX.isPressed, .square)
+        set(pad.buttonY.isPressed, .triangle)
+        set(pad.dpad.left.isPressed, .dpadLeft)
+        set(pad.dpad.right.isPressed, .dpadRight)
+        set(pad.dpad.up.isPressed, .dpadUp)
+        set(pad.dpad.down.isPressed, .dpadDown)
+        set(pad.leftShoulder.isPressed, .l1)
+        set(pad.rightShoulder.isPressed, .r1)
+        set(pad.leftThumbstickButton?.isPressed ?? false, .l3)
+        set(pad.rightThumbstickButton?.isPressed ?? false, .r3)
+        set(pad.buttonMenu.isPressed, .options)
+        set(pad.buttonOptions?.isPressed ?? false, .share)
+        set(pad.buttonHome?.isPressed ?? false, .ps)
+        if let ds = pad as? GCDualSenseGamepad { set(ds.touchpadButton.isPressed, .touchpad) }
+        if let ds4 = pad as? GCDualShockGamepad { set(ds4.touchpadButton.isPressed, .touchpad) }
         s.l2 = UInt8(pad.leftTrigger.value * 255)
         s.r2 = UInt8(pad.rightTrigger.value * 255)
         // GameController: +y is up. PlayStation: +y is down.

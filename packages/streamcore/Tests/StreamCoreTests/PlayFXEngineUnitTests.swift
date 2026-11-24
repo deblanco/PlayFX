@@ -265,52 +265,24 @@ import Testing
         #expect(UnsafeRawBufferPointer(start: nil, count: 0).withMemoryRebound(to: UInt8.self) { Array(state.joinedUnit(UnsafeRawBufferPointer($0))) } == [1, 2, 3])
     }
 
-    // MARK: Choosing the engine
+    // MARK: The engine
 
-    @Test func optionsDecodeTheEngineWithTheChiakiDefault() throws {
-        func decode(_ json: String, environment: [String: String] = [:]) throws -> CoreSession.Options {
-            let decoder = JSONDecoder()
-            decoder.userInfo[CoreSession.Options.environmentKey] = environment
-            return try decoder.decode(CoreSession.Options.self, from: Data(json.utf8))
+    @Test func optionsIgnoreAnOlderHostsEngineChoice() throws {
+        // Older hosts' JSON could name an engine; the key decodes and is ignored.
+        for json in [#"{"engine":"other","fps":30}"#, #"{"engine":"playfx","fps":30}"#, #"{"engine":7,"fps":30}"#] {
+            #expect(try JSONDecoder().decode(CoreSession.Options.self, from: Data(json.utf8)).fps == 30)
         }
-        // PLAYFX_ENGINE (dev only, temporary) is the default for JSON that doesn't name an engine.
-        #expect(try decode("{}", environment: ["PLAYFX_ENGINE": "playfx"]).engine == "playfx")
-        #expect(try decode(#"{"fps":30}"#, environment: ["PLAYFX_ENGINE": "playfx"]).engine == "playfx")
-        #expect(try decode("{}", environment: ["PLAYFX_ENGINE": "chiaki"]).engine == "chiaki")
-        #expect(try decode("{}", environment: ["PLAYFX_ENGINE": "nonsense"]).engine == "chiaki")
-        #expect(try decode(#"{"engine":"chiaki"}"#, environment: ["PLAYFX_ENGINE": "playfx"]).engine == "chiaki")
-        #expect(try decode(#"{"engine":"playfx"}"#, environment: ["PLAYFX_ENGINE": "chiaki"]).engine == "playfx")
-        #expect(CoreSession.Options.defaultEngine(environment: [:]) == "chiaki")
-        // Without an injected environment the process's is read; the choice is one of the two.
-        let real = try JSONDecoder().decode(CoreSession.Options.self, from: Data("{}".utf8))
-        #expect(real.engine == "chiaki" || real.engine == "playfx")
-        #expect(CoreSession.Options().engine == "chiaki")
-        #expect(try decode("{}").engine == "chiaki")
-        #expect(try decode(#"{"height":720}"#).engine == "chiaki")   // an older host's JSON
-        #expect(try decode(#"{"engine":"playfx","fps":30}"#).engine == "playfx")
-        var options = CoreSession.Options()
-        options.engine = "playfx"
-        let again = try JSONDecoder().decode(CoreSession.Options.self, from: JSONEncoder().encode(options))
-        #expect(again.engine == "playfx")
-    }
-
-    @Test func thePlayFXEngineIsChosenByNameForTheLocalNetworkAndTheInternet() {
-        var options = CoreSession.Options()
-        #expect(!CoreSession.usesPlayFX(options))
-        options.engine = "playfx"
-        #expect(CoreSession.usesPlayFX(options))
-        options.engine = "something else"
-        #expect(!CoreSession.usesPlayFX(options))
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(CoreSession.Options())) as? [String: Any]
+        #expect(encoded?["engine"] == nil)
     }
 }
 
 extension Serial {
     @Suite struct PlayFXEngineSelectionTests {
-        /// The public initialiser with `engine: "playfx"` starts the PlayFX engine: on an unused loopback port it is
-        /// refused at once, as PlayFXProtocol reports it (final, an error), and a stop after that adds nothing.
+        /// The public initialiser starts the PlayFX engine: on an unused loopback port it is refused at once, as
+        /// PlayFXProtocol reports it (final, an error), and a stop after that adds nothing.
         @Test func thePublicInitialiserStartsThePlayFXEngine() async throws {
             var options = CoreSession.Options()
-            options.engine = "playfx"
             options.audio = false
             let session = try CoreSession(credentials: fakeCredentials(address: "127.0.0.1"), options: options)
             let seen = LockedLines()

@@ -156,7 +156,7 @@ struct HapticsPacer {
     }
 }
 
-/// The haptics audio waiting for the Bluetooth sender: appended from libchiaki's haptics thread, taken by the
+/// The haptics audio waiting for the Bluetooth sender: appended from the engine's haptics thread, taken by the
 /// sender's thread.
 final class BluetoothHapticsQueue: @unchecked Sendable {
     private struct State {

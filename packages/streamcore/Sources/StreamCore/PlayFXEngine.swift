@@ -5,9 +5,8 @@ import PlayFXProtocol
 /// The library's session, named apart from StreamCore's own `StreamSession`.
 typealias PlayFXLibrarySession = PlayFXProtocol.StreamSession
 
-/// The second `StreamEngine`: PlayFX's own protocol implementation (the PlayFXProtocol package) instead of
-/// libchiaki. See the "PlayFX engine" section of the package README for what it supports and how the contract's
-/// items map onto the library.
+/// The `StreamEngine`: PlayFX's own protocol implementation (the PlayFXProtocol package). See the "PlayFX engine"
+/// section of the package README for what it supports and how the contract's items map onto the library.
 ///
 /// Threads. The library delivers video, game audio, haptics and the connected event on its Takion receive thread and
 /// everything else on its private serial queue; each of those calls goes straight through to the sink (video, audio
@@ -40,7 +39,7 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
             remote: remote, settings: settings, options: options, internet: internet, events: events)
     }
 
-    /// The factory `StreamSession` uses for `Options.engine == "playfx"`.
+    /// The factory `StreamSession` uses.
     static let factory: StreamEngineFactory = { try PlayFXEngine(config: $0, sink: $1) }
 
     /// A factory that starts the library's session with `start`, and an internet one with `startRemote` (tests).

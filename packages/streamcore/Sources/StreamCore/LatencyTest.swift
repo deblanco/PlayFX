@@ -1,4 +1,3 @@
-import CChiaki
 import CoreVideo
 import Foundation
 
@@ -88,7 +87,7 @@ struct LatencyProbe {
     /// The newest decoded frame: its number (frames decoded so far: decoded buffers are reused, so they
     /// can't tell frames apart), and its region.
     var latest: () -> (id: Int, region: [UInt8])?
-    /// Holds `buttons` (PsrpButton bits); 0 releases.
+    /// Holds `buttons` (`ControllerButton` bits); 0 releases.
     var press: (UInt32) -> Void
     var now: () -> Double
     var sleep: (Double) -> Void
@@ -100,12 +99,12 @@ struct LatencyProbe {
     static let closeTries = 3, closed = 10.0
 
     func run(trials: Int) -> Summary {
-        tap(UInt32(PSRP_BTN_PS.rawValue))
+        tap(ControllerButton.ps.rawValue)
         sleep(Self.open)
         var times: [Double] = []
         for k in 0..<max(0, trials) {
-            let button = k % 2 == 0 ? PSRP_BTN_DPAD_RIGHT : PSRP_BTN_DPAD_LEFT
-            if let ms = trial(button: UInt32(button.rawValue)) { times.append(ms) }
+            let button: ControllerButton = k % 2 == 0 ? .dpadRight : .dpadLeft
+            if let ms = trial(button: button.rawValue) { times.append(ms) }
             sleep(Self.settle)
         }
         close()
@@ -117,7 +116,7 @@ struct LatencyProbe {
     private func close() {
         for _ in 0..<Self.closeTries {
             let before = latest()?.region
-            tap(UInt32(PSRP_BTN_CIRCLE.rawValue))
+            tap(ControllerButton.circle.rawValue)
             sleep(Self.settle)
             guard let before, let after = latest()?.region else { return }
             if LatencyDetector.difference(before, after) > Self.closed { return }

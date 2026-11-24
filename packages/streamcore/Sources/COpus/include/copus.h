@@ -1,10 +1,9 @@
 #ifndef COPUS_H
 #define COPUS_H
 
-// A small C face over libopus, for the PlayFX engine: Swift can't call opus_encoder_ctl (it's variadic), and the
-// libopus that's linked into StreamCore (the static one libchiaki brings) is all the engine needs, so this target
-// declares the handful of libopus functions it calls itself (copus.c) instead of depending on the library's headers
-// and a pkg-config lookup that could pick a second, dynamic libopus.
+// A small C face over libopus, for the PlayFX engine: Swift can't call opus_encoder_ctl (it's variadic). Only copus.c
+// includes libopus's headers, so Swift sees this header alone; libopus itself is the static archive from Homebrew's
+// opus keg that Package.swift links by path (never a dynamic libopus).
 
 #ifdef __cplusplus
 extern "C" {

@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// Watches the Mac's network while a stream runs. libchiaki's sockets stay bound to the network they
+/// Watches the Mac's network while a stream runs. The stream's sockets stay bound to the network they
 /// started on, so when the Mac moves to another one (Wi-Fi ↔ Ethernet, another Wi-Fi, back online after
 /// a drop) the stream is dead even before it times out; the host reconnects right away instead.
 final class NetworkWatch: @unchecked Sendable {

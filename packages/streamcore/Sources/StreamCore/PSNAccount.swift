@@ -9,7 +9,7 @@ public struct PSNTokens: Codable, Equatable, Sendable {
     public var refreshToken: String
     public var expiresAt: Date
 
-    /// Refresh a minute before expiry, like chiaki-ng.
+    /// Refresh a minute before expiry.
     func needsRefresh(at now: Date) -> Bool { now.addingTimeInterval(60) >= expiresAt }
 
     /// From a token endpoint reply (`access_token`, `refresh_token`, `expires_in` seconds).

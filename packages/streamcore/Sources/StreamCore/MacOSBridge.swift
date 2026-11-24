@@ -67,7 +67,7 @@ public func sc_set_event_callback(_ cb: (@convention(c) (UnsafePointer<CChar>) -
 }
 
 /// Log entries for the host (its log file): level (0 debug … 3 error), area, scrubbed message. Called
-/// from any thread. `detailed` adds debug entries, including libchiaki's verbose ones.
+/// from any thread. `detailed` adds debug entries.
 @_cdecl("sc_set_log_callback")
 public func sc_set_log_callback(_ cb: (@convention(c) (Int32, UnsafePointer<CChar>, UnsafePointer<CChar>) -> Void)?,
                                 _ detailed: Bool) {

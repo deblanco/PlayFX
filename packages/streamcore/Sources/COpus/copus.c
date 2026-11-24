@@ -1,49 +1,29 @@
 #include "copus.h"
 
-// The libopus entry points used here, declared as libopus's public API documents them (opus.h, opus_defines.h).
-typedef struct OpusDecoder OpusDecoder;
-typedef struct OpusEncoder OpusEncoder;
-extern OpusDecoder *opus_decoder_create(int Fs, int channels, int *error);
-extern int opus_decode(OpusDecoder *st, const unsigned char *data, int len, short *pcm, int frame_size, int decode_fec);
-extern int opus_decoder_ctl(OpusDecoder *st, int request, ...);
-extern void opus_decoder_destroy(OpusDecoder *st);
-extern OpusEncoder *opus_encoder_create(int Fs, int channels, int application, int *error);
-extern int opus_encode(OpusEncoder *st, const short *pcm, int frame_size, unsigned char *data, int max_data_bytes);
-extern int opus_encoder_ctl(OpusEncoder *st, int request, ...);
-extern void opus_encoder_destroy(OpusEncoder *st);
-
-enum {
-    kOK = 0,
-    kApplicationRestrictedLowDelay = 2051,
-    kSignalMusic = 3002,
-    kSetBitrate = 4002,
-    kSetVBR = 4006,
-    kSetSignal = 4024,
-    kResetState = 4028,
-    kSetPhaseInversionDisabled = 4046,
-};
+// libopus's own headers, from the keg Package.swift links (OPUS_PREFIX/include/opus).
+#include <opus.h>
 
 copus_decoder *copus_decoder_create(int sampleRate, int channels) {
-    int error = kOK;
+    int error = OPUS_OK;
     OpusDecoder *decoder = opus_decoder_create(sampleRate, channels, &error);
-    return error == kOK ? (copus_decoder *)decoder : (copus_decoder *)0;
+    return error == OPUS_OK ? (copus_decoder *)decoder : (copus_decoder *)0;
 }
 
 int copus_decode(copus_decoder *decoder, const unsigned char *data, int length, short *pcm, int capacityFrames) {
     return opus_decode((OpusDecoder *)decoder, data, data ? length : 0, pcm, capacityFrames, 0);
 }
 
-void copus_decoder_reset(copus_decoder *decoder) { opus_decoder_ctl((OpusDecoder *)decoder, kResetState); }
+void copus_decoder_reset(copus_decoder *decoder) { opus_decoder_ctl((OpusDecoder *)decoder, OPUS_RESET_STATE); }
 
 void copus_decoder_destroy(copus_decoder *decoder) { opus_decoder_destroy((OpusDecoder *)decoder); }
 
 copus_encoder *copus_encoder_create(int sampleRate, int channels, int bitrate) {
-    int error = kOK;
-    OpusEncoder *encoder = opus_encoder_create(sampleRate, channels, kApplicationRestrictedLowDelay, &error);
-    if (error != kOK || !encoder) return (copus_encoder *)0;
-    if (opus_encoder_ctl(encoder, kSetBitrate, (int)bitrate) != kOK || opus_encoder_ctl(encoder, kSetVBR, 0) != kOK
-        || opus_encoder_ctl(encoder, kSetSignal, kSignalMusic) != kOK
-        || opus_encoder_ctl(encoder, kSetPhaseInversionDisabled, 1) != kOK) {
+    int error = OPUS_OK;
+    OpusEncoder *encoder = opus_encoder_create(sampleRate, channels, OPUS_APPLICATION_RESTRICTED_LOWDELAY, &error);
+    if (error != OPUS_OK || !encoder) return (copus_encoder *)0;
+    if (opus_encoder_ctl(encoder, OPUS_SET_BITRATE(bitrate)) != OPUS_OK || opus_encoder_ctl(encoder, OPUS_SET_VBR(0)) != OPUS_OK
+        || opus_encoder_ctl(encoder, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC)) != OPUS_OK
+        || opus_encoder_ctl(encoder, OPUS_SET_PHASE_INVERSION_DISABLED(1)) != OPUS_OK) {
         opus_encoder_destroy(encoder);
         return (copus_encoder *)0;
     }

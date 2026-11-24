@@ -2,7 +2,7 @@ import CoreVideo
 import Foundation
 import os
 
-/// One Remote Play streaming session: the protocol engine (`StreamEngine`, libchiaki for now) → VideoToolbox
+/// One Remote Play streaming session: the protocol engine (`StreamEngine`: `PlayFXEngine`) → VideoToolbox
 /// decode → frames, PCM → AudioPlayer, ControllerState → console.
 public final class StreamSession: StreamEngineSink {
     public struct Options: Codable, Sendable {
@@ -15,21 +15,10 @@ public final class StreamSession: StreamEngineSink {
         public var autoDowngrade: Bool = true
         /// HDR10 (HEVC Main10, PQ, BT.2020) when the game and the console's HDR setting allow it. PS5 + HEVC only.
         public var hdr: Bool = false
-        /// The protocol engine: "chiaki" (libchiaki, the default) or "playfx" (PlayFXProtocol, on the local network and
-        /// over the internet through PSN). Anything else is "chiaki".
-        public var engine: String = "chiaki"
         public init() {}
 
-        /// Tests put an environment (`[String: String]`) in a decoder's `userInfo` under this key instead of the process's.
-        static let environmentKey = CodingUserInfoKey(rawValue: "playfx.environment")!
-
-        /// DEV ONLY, TEMPORARY (libchiaki is being removed): the engine for JSON that doesn't name one, from the
-        /// `PLAYFX_ENGINE` variable ("playfx" or "chiaki"; anything else, or unset, is "chiaki").
-        static func defaultEngine(environment: [String: String]) -> String {
-            environment["PLAYFX_ENGINE"] == "playfx" ? "playfx" : "chiaki"
-        }
-
-        /// Missing keys keep their defaults, so older hosts' JSON still decodes.
+        /// Missing keys keep their defaults, so older hosts' JSON still decodes; keys no longer used (an older
+        /// host's `engine`) are ignored.
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = Options()
@@ -40,9 +29,6 @@ public final class StreamSession: StreamEngineSink {
             audio = try c.decodeIfPresent(Bool.self, forKey: .audio) ?? d.audio
             autoDowngrade = try c.decodeIfPresent(Bool.self, forKey: .autoDowngrade) ?? d.autoDowngrade
             hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
-            engine = try c.decodeIfPresent(String.self, forKey: .engine) ??
-                Self.defaultEngine(environment: decoder.userInfo[Self.environmentKey] as? [String: String]
-                                    ?? ProcessInfo.processInfo.environment)
         }
     }
 
@@ -119,7 +105,7 @@ public final class StreamSession: StreamEngineSink {
         /// VideoToolbox decode time per frame, smoothed.
         public var decodeMs = 0.0
         /// How long a missing video packet is waited for before it's skipped, measured from the link (0 until
-        /// the stream connects), and what libchiaki learned it from: holes that filled while waiting, packets
+        /// the stream connects), and what the engine learned it from: holes that filled while waiting, packets
         /// that came after their hole was skipped, skipped holes nothing came for, and holes skipped because
         /// the reorder queue was full. Totals for the stream.
         public var reorderWaitMs = 0.0
@@ -235,19 +221,10 @@ public final class StreamSession: StreamEngineSink {
     private var _stats = Stats()
     private var _latestFrame: CVPixelBuffer?
 
-    /// Starts connecting to the console on the engine `options.engine` names (libchiaki unless it's "playfx");
-    /// progress and the outcome arrive as events.
+    /// Starts connecting to the console on PlayFX's engine (`PlayFXEngine`), on the local network or, with `remote`,
+    /// over the internet through PSN; progress and the outcome arrive as events.
     public convenience init(credentials: ConsoleCredentials, options: Options = Options(), remote: Remote? = nil) throws {
-        try self.init(credentials: credentials, options: options, remote: remote, engine: Self.engineFactory(for: options))
-    }
-
-    /// PlayFX's own engine runs the "playfx" choice, on the local network and over the internet.
-    static func usesPlayFX(_ options: Options) -> Bool { options.engine == "playfx" }
-
-    /// The factory for the engine `options.engine` names.
-    static func engineFactory(for options: Options) -> StreamEngineFactory {
-        if usesPlayFX(options) { return PlayFXEngine.factory }
-        return { try ChiakiEngine(config: $0, sink: $1) }
+        try self.init(credentials: credentials, options: options, remote: remote, engine: PlayFXEngine.factory)
     }
 
     /// Starts connecting through the engine `makeEngine` starts (tests: a stand-in).

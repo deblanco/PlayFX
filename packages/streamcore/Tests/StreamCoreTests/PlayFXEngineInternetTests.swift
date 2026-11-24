@@ -310,7 +310,6 @@ extension Serial {
 
         @Test func thePublicInitialiserRefusesInternetPlayOnAPS4() {
             var options = CoreSession.Options()
-            options.engine = "playfx"
             options.audio = false
             var credentials = fakeCredentials()
             credentials.ps5 = false

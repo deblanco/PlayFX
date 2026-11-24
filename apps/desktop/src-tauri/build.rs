@@ -75,32 +75,45 @@ fn embed_commit() {
     }
 }
 
-/// Compiles and links the shared Swift core (Metal/MetalFX renderer + libchiaki session).
+/// Compiles and links the shared Swift core (Metal/MetalFX renderer, the PlayFX protocol engine).
 fn link_streamcore() {
     let pkg = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../packages/streamcore");
-    let vendor = pkg.join("vendor/macos/lib");
-    if !vendor.join("libchiaki.a").exists() {
-        panic!("libchiaki not built: run packages/streamcore/scripts/build-chiaki.sh");
+    let opus = opus_prefix();
+    let libopus = opus.join("lib/libopus.a");
+    if !libopus.exists() {
+        panic!("no static libopus at {}: brew install opus (or set OPUS_PREFIX)", libopus.display());
     }
+    // Package.swift links the same keg's archive into psrp and the tests, and compiles against its headers.
+    // SAFETY: the build script is single-threaded; this is set before `swift build` is spawned.
+    unsafe { std::env::set_var("OPUS_PREFIX", &opus) };
 
     swift_rs::SwiftLinker::new("13.0").with_package("StreamCore", &pkg).link();
 
-    // A static Swift library doesn't carry its link settings; repeat Package.swift's here.
-    println!("cargo:rustc-link-search=native={}", vendor.display());
-    for lib in [
-        "chiaki", "protobuf-nanopb", "jerasure", "gf_complete", "curl", "ssl", "crypto", "opus", "json-c",
-        "miniupnpc", "event",
-    ] {
-        println!("cargo:rustc-link-lib=static={lib}");
-    }
-    println!("cargo:rustc-link-lib=z");
+    // A static Swift library doesn't carry its link settings; repeat Package.swift's here. libopus goes in by its
+    // path, never `-lopus`, so the keg's dynamic libopus can't be picked instead.
+    println!("cargo:rustc-link-arg={}", libopus.display());
     // Swift runtime (libswift_Concurrency etc.) ships with macOS under /usr/lib/swift.
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
     for fw in [
-        "CoreServices", "SystemConfiguration", "Security", "Metal", "MetalKit", "MetalFX", "QuartzCore",
-        "VideoToolbox", "CoreMedia", "CoreVideo", "AVFoundation", "GameController", "CoreImage", "IOKit",
+        "Security", "Metal", "MetalKit", "MetalFX", "QuartzCore", "VideoToolbox", "CoreMedia", "CoreVideo",
+        "AVFoundation", "GameController", "CoreImage", "IOKit",
     ] {
         println!("cargo:rustc-link-lib=framework={fw}");
     }
-    println!("cargo:rerun-if-changed={}", vendor.display());
+    println!("cargo:rerun-if-env-changed=OPUS_PREFIX");
+    println!("cargo:rerun-if-changed={}", libopus.display());
+}
+
+/// Homebrew's opus keg: `OPUS_PREFIX` when set, else `brew --prefix opus`.
+fn opus_prefix() -> std::path::PathBuf {
+    if let Some(prefix) = std::env::var_os("OPUS_PREFIX") {
+        return prefix.into();
+    }
+    std::process::Command::new("brew")
+        .args(["--prefix", "opus"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().into())
+        .unwrap_or_else(|| panic!("libopus: brew install opus (or set OPUS_PREFIX to its prefix)"))
 }

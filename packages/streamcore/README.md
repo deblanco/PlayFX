@@ -13,27 +13,19 @@ whole contract (formats, units, threads, lifetimes, how each ending maps to a `Q
 everything else: the decoder, the audio player, DualSense haptics on a USB pad, the pointer-as-touchpad merge,
 microphone capture, stats and event buffering.
 
-There are two engines: `ChiakiEngine` (`Sources/StreamCore/ChiakiEngine.swift`), over libchiaki through the C shim
-in `Sources/CChiaki`, the default; and `PlayFXEngine`, on PlayFX's own `packages/playfxprotocol` (below).
-`StreamSession.Options.engine` (`"chiaki"` by default, `"playfx"`; JSON without it decodes as `"chiaki"`, unless `PLAYFX_ENGINE` is set, below) picks one in
-the public initialiser, for the local network and for internet play (`remote`) alike. `StreamSession`'s internal initialiser
-takes a `StreamEngineFactory`, which is how tests run it on `FakeStreamEngine`
-(`Tests/StreamCoreTests/FakeStreamEngine.swift`) or on `PlayFXEngine` against a fake console.
+The engine is `PlayFXEngine`, on PlayFX's own `packages/playfxprotocol` (below), for the local network and for
+internet play (`remote`) alike: the public initialiser always starts it. `StreamSession`'s internal initialiser takes a
+`StreamEngineFactory`, which is how tests run it on `FakeStreamEngine` (`Tests/StreamCoreTests/FakeStreamEngine.swift`)
+or on `PlayFXEngine` against a fake console. `StreamSession.Options` no longer names an engine; an `engine` key in an
+older host's JSON is ignored.
 
-**`PLAYFX_ENGINE` (dev only, temporary).** When the options JSON doesn't name an engine, the environment variable
-`PLAYFX_ENGINE` (`playfx` or `chiaki`; anything else, or unset, is `chiaki`) chooses, so a dev build can be run on
-either engine without the app passing `engine`, e.g. `PLAYFX_ENGINE=playfx bun run desktop`. An `engine` in the JSON
-always wins, and `StreamSession.Options()` built in code keeps `"chiaki"`. The switch goes away with libchiaki.
-
-LAN discovery, wake-up and PIN pairing (`Console`) no longer go through libchiaki: they use PlayFXProtocol's
-`Discovery` and `Registration` whichever engine streams. So do the PSN console list (`PSNAccount.consoles()`, on
-`PSNClient`) and pairing through PSN (`PSNPairing`, on `Registration.registerThroughPSN`). Internet play is
-libchiaki's only with `engine: "chiaki"`.
+LAN discovery, wake-up and PIN pairing (`Console`) use PlayFXProtocol's `Discovery` and `Registration`; the PSN console
+list (`PSNAccount.consoles()`) is on `PSNClient`, and pairing through PSN (`PSNPairing`) on
+`Registration.registerThroughPSN`.
 
 ## PlayFX engine
 
 `PlayFXEngine` (`Sources/StreamCore/PlayFXEngine*.swift`) implements `StreamEngine` on PlayFXProtocol's `StreamSession`.
-It's opted into with `options.engine = "playfx"`; nothing else about a session changes.
 
 **Supported:** everything in the contract on the local network and over the internet (below): video (with the parameter sets in front of each key
 frame, and a key frame asked for once when the decoder refuses a unit), game audio decoded with libopus (lost frames
@@ -109,9 +101,12 @@ the session already quit, waits up to 5 s each for in-flight sink calls, the qui
 its lock and stops it outside it, so an app handler may call commands or `stop()` while it runs. A start that fails is a `.quit`: busy is `.busy`, anything else `.final` (a connection that was
 never made isn't "dropped").
 
-**Opus.** libopus is the static one libchiaki brings. `Sources/COpus` declares the few libopus calls the engine makes
-(Swift can't call the variadic `opus_encoder_ctl`) and links nothing of its own, so the build needs no pkg-config and can't
-pick up a second, dynamic libopus. The decode path allocates nothing per packet (one PCM buffer per audio header); the
+**Opus.** libopus (BSD-3-Clause) is linked statically from Homebrew's opus keg (`brew install opus`):
+`Package.swift` links `OPUS_PREFIX/lib/libopus.a` by its path (never `-lopus`, so a dynamic libopus can't be picked
+instead) and compiles `Sources/COpus` against the keg's headers. `OPUS_PREFIX` defaults to the first of
+`/opt/homebrew/opt/opus` and `/usr/local/opt/opus` that has the archive; the desktop app's `build.rs` sets it from
+`brew --prefix opus` and links the same archive into the app. `Sources/COpus` wraps the few libopus calls the engine
+makes (Swift can't call the variadic `opus_encoder_ctl`). The decode path allocates nothing per packet (one PCM buffer per audio header); the
 microphone path allocates one 40-byte array per packet because the library's API takes an array (and its packetiser and
 Takion send allocate the 120-byte payload anyway, so a buffer overload alone wouldn't remove the allocation).
 

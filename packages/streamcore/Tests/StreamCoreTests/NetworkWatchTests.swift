@@ -1,4 +1,3 @@
-import CChiaki
 import Testing
 @testable import StreamCore
 
@@ -35,12 +34,12 @@ import Testing
 
     @Test func mergesThePointerFingerAndPressIntoThePadState() {
         var pad = ControllerState()
-        pad.buttons = UInt32(PSRP_BTN_CROSS.rawValue)
+        pad.buttons = ControllerButton.cross.rawValue
         pad.touches = [T(id: 3, x: 0.2, y: 0.2), T(id: 4, x: 0.8, y: 0.8)]
         let pointer = StreamSession.PointerTouch(touch: T(id: 101, x: 0.5, y: 0.5), pressed: true)
         let out = StreamSession.merged(pad, pointer)
         #expect(out.touches == [T(id: 101, x: 0.5, y: 0.5), T(id: 3, x: 0.2, y: 0.2)]) // two fingers at most
-        #expect(out.buttons == UInt32(PSRP_BTN_CROSS.rawValue) | UInt32(PSRP_BTN_TOUCHPAD.rawValue))
+        #expect(out.buttons == ControllerButton.cross.rawValue | ControllerButton.touchpad.rawValue)
         #expect(StreamSession.merged(pad, .none) == pad) // no pointer: the pad's state as is
     }
 }
