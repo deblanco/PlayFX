@@ -976,6 +976,14 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     `BridgeTests.discover` no longer broadcasts on the LAN (loopback responder). `PLAYFX_ENGINE=playfx` picks the
     stream engine when the options don't (dev only, temporary). StreamCore 490 tests, 91% lines. Not yet on a
     console through the app.
+  - ✅ PSN web client from the spec (2026-11-24, clean-room, `Sources/PlayFXProtocol/PSN`): the console list, the
+    push WebSocket (URLSessionWebSocketTask, pings with a pong deadline), the remote-play session (create, inspect,
+    PS5 start, PS4 wake, customData1), the OFFER/RESULT/ACCEPT/TERMINATE exchange per hole (with a background
+    responder for the console's retransmitted OFFERs), and leaving the session even from a cancelled task. Byte-exact
+    against psn.md's vectors; the token is redacted from descriptions and only sent over HTTPS; values from PSN are
+    validated. Reviewed against the spec and fixed (a pong deadline that couldn't fire on a real socket, a leave that
+    skipped the DELETE when cancelled, leaks, unbounded buffers). 113 tests against a fake PSN and a loopback
+    WebSocket server; nothing reached Sony. Not yet against real PSN.
   - ❌ Next: discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
     in PlayFXProtocol from the new spec, with a hardware round over the internet; the parity round in the app;
     then removing chiaki-ng, third_party/ and libchiaki's C libraries, and the licence change.
