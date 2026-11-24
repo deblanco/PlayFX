@@ -28,6 +28,8 @@ final class FakeMapper: PortMapper, @unchecked Sendable {
 final class FakeSTUNServer: @unchecked Sendable {
     let socket: LoopbackGuardedPunchSocket
     let requests = Locked<Int>(0)
+    /// Added to the port of the n-th answer (a NAT that maps each destination to its own port); none after the list.
+    let shifts = Locked<[Int]>([])
     private let stopped = Locked(false)
 
     init() throws {
@@ -35,9 +37,12 @@ final class FakeSTUNServer: @unchecked Sendable {
         Thread { [self] in
             while !stopped.with({ $0 }) {
                 guard let packet = try? socket.receive(timeout: 0.05), packet.bytes.count == 20 else { continue }
-                requests.with { $0 += 1 }
+                let shift = requests.with { count -> Int in
+                    defer { count += 1 }
+                    return shifts.with { count < $0.count ? $0[count] : 0 }
+                }
                 let cookie = StunClient.cookie
-                let port = packet.port ^ 0x2112
+                let port = UInt16(truncatingIfNeeded: Int(packet.port) + shift) ^ 0x2112
                 let octets = packet.host.split(separator: ".").compactMap { UInt8($0) }
                 let address = zip(octets, cookie).map { $0 ^ $1 }
                 let attribute: [UInt8] = [0x00, 0x20, 0x00, 0x08, 0x00, 0x01, UInt8(port >> 8), UInt8(port & 0xff)] + address

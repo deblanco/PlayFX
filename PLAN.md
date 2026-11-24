@@ -1164,8 +1164,13 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     network where libchiaki couldn't connect): with `PLAYFX_FORCE_PORT_GUESSING=1`, ctrl hole in 0.1 s, PIN-less
     registration, session init, ctrl over RUDP (no retransmissions, nothing malformed), the session ID 6.2 s after ctrl
     came up (after the data hole had started: the earlier failures were the deadlock now fixed), data hole in 0.6 s,
-    switch acknowledged, stream connected: 1080p30 HEVC, 0 frames lost, RTT 45 ms. Next: detect a per-destination NAT
-    (STUN ports that differ with no step) so port guessing starts by itself.
+    switch acknowledged, stream connected: 1080p30 HEVC, 0 frames lost, RTT 45 ms; the user played ~3.5 min and found the
+    mobile latency too high to enjoy. Then: a per-destination NAT (STUN ports that differ, no step) now starts port
+    guessing by itself for both holes (a client choice beyond holepunch.md §3.3, in DESIGN.md); the doubled heartbeat
+    reply is gone (the unrequested reply is timed from the last reply); retransmissions are labelled in the trace (66
+    in that session, cause not yet known); messages the frame check drops are always logged with their data (the
+    console sent a 4-byte `0x20` and a 20-byte `0x36` the spec can't place: spec requests). Left: a confirmation run
+    without the dev switch from a non-home network.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 

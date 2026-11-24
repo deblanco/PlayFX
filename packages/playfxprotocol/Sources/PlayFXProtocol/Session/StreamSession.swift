@@ -47,6 +47,7 @@ public final class StreamSession: @unchecked Sendable {
         var pinAccepted = false
         var ctrlUpAt: Double?
         var heartbeatSeen = false
+        var unknownTypesLogged = Set<UInt16>()
         /// `ended` has been delivered (or a failed start has been torn down): nothing more will happen.
         var over = false
         /// Kept past `finish`, so the `ended` handler can still read what was negotiated.
@@ -479,7 +480,12 @@ public final class StreamSession: @unchecked Sendable {
             let first = lock.withLock { () -> Bool in defer { shared.heartbeatSeen = true }; return !shared.heartbeatSeen }
             if first { internet?.note("ctrl: first heartbeat request \(sinceCtrlUp())") }
         case .notice(let type, let payload):
-            internet?.note(String(format: "ctrl: message of unknown type 0x%04x, %d byte(s) \(sinceCtrlUp())", type, payload.count))
+            // 0x0034 is the switch acknowledgement (logged by the switch itself); any other type is logged once.
+            let first = lock.withLock { type != CtrlType.switchToStreamAck && shared.unknownTypesLogged.insert(type).inserted }
+            if first {
+                internet?.note(String(format: "ctrl: message of unknown type 0x%04x, %d byte(s) \(sinceCtrlUp()) "
+                    + "(further messages of this type are not logged)", type, payload.count))
+            }
         case .displayNotice: break
         }
     }

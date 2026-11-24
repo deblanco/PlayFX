@@ -94,6 +94,9 @@ public struct RUDPStatistics: Sendable, Equatable {
     public var datagramsOut = 0
     public var datagramsIn = 0
     public var unknownTypes = 0
+    /// Retransmissions by what was resent (`ctrl frame 0x01fe`, `switch message`), to see which kinds the console
+    /// doesn't acknowledge, or acknowledges late.
+    public var retransmissionsByKind: [String: Int] = [:]
 }
 
 /// One datagram as a line of the RUDP trace (`PLAYFX_RUDP_TRACE`): each message in it with its type, `seq` and `ack`
@@ -102,6 +105,8 @@ public struct RUDPStatistics: Sendable, Equatable {
 /// frames are encrypted.
 enum RUDPTrace {
     static let dataLimit = 24
+    /// A message the frame check dropped is logged with up to this many bytes of data (it is ctrl-encrypted or tiny).
+    static let droppedLimit = 64
 
     static func name(_ flags: UInt8) -> String? {
         switch flags {
@@ -150,13 +155,18 @@ public final class RUDPConnection: @unchecked Sendable {
         var bytes: [UInt8]
         var lastSent: Double
         var retransmissions: Int
+        /// What it is, for the trace and the statistics.
+        var label: String
     }
 
     private let socket: any UDPPunchSocket
     private let timings: RUDPTimings
     private let tag: UInt32
     private let random: @Sendable (Int) -> [UInt8]
-    private let trace: (@Sendable (String) -> Void)?
+    private let traceSink: (@Sendable (String) -> Void)?
+    private let log: (@Sendable (String) -> Void)?
+    private let created = monotonicSeconds()
+    private var droppedLogged = 0
     private let lock = NSLock()
     private var localSeq: UInt16
     private var kept: [Kept] = []
@@ -182,12 +192,14 @@ public final class RUDPConnection: @unchecked Sendable {
     ///   - initialSeq: the first sequence value; random in `0x01FF...0x5FFE` by default (rudp.md section 4.1).
     ///   - tag: the 32-bit tag; random plus `0x8000` by default (section 4.2).
     ///   - random: secure random bytes for the switch message.
+    ///   - log: lines that are always wanted, few: a console message the frame check dropped, with its data.
     ///   - trace: one line per datagram in and out, per ctrl frame and per message the frame check drops (`RUDPTrace`).
     public init(socket: any UDPPunchSocket, timings: RUDPTimings = RUDPTimings(), initialSeq: UInt16? = nil,
                 tag: UInt32? = nil,
                 random: @escaping @Sendable (Int) -> [UInt8] = { n in (0..<n).map { _ in UInt8.random(in: 0...255) } },
-                trace: (@Sendable (String) -> Void)? = nil) {
-        self.trace = trace
+                trace: (@Sendable (String) -> Void)? = nil, log: (@Sendable (String) -> Void)? = nil) {
+        self.traceSink = trace
+        self.log = log
         self.socket = socket
         self.timings = timings
         self.random = random
@@ -196,6 +208,12 @@ public final class RUDPConnection: @unchecked Sendable {
     }
 
     deinit { socket.close() }
+
+    /// A trace line, with the seconds since this connection was made.
+    private func trace(_ line: @autoclosure () -> String) {
+        guard let traceSink else { return }
+        traceSink(String(format: "[+%.3f] ", monotonicSeconds() - created) + line())
+    }
 
     /// Whether the ctrl receive thread is running (false before `startCtrl` and after it has ended).
     var isReceiveThreadRunning: Bool { lock.withLock { ctrlRunning && !receiveThreadExited } }
@@ -346,7 +364,8 @@ public final class RUDPConnection: @unchecked Sendable {
     /// after it, so two threads could put two frames on the wire in the other order.
     public func sendCtrlFrame(_ frame: [UInt8]) throws {
         guard frame.count + 2 <= RUDPFraming.maxDataLength else { throw RUDPError.messageTooLarge }
-        try sendKept { RUDPFraming.dataMessage(seq: $0, payload: frame) }
+        let label = frame.count >= 6 ? String(format: "ctrl frame 0x%02x%02x", frame[4], frame[5]) : "ctrl frame"
+        try sendKept(label: label) { RUDPFraming.dataMessage(seq: $0, payload: frame) }
     }
 
     /// Sends the switch-to-stream message (rudp.md section 8) with 16 random bytes (or `random`). The console's ctrl
@@ -355,7 +374,7 @@ public final class RUDPConnection: @unchecked Sendable {
         let payload = bytes ?? random(16)
         guard payload.count == 16 else { throw RUDPError.invalidArgument }
         lock.withLock { awaitingSwitch = true }
-        try sendKept { RUDPFraming.switchMessage(seq: $0, random: payload) ?? [] }
+        try sendKept(label: "switch message") { RUDPFraming.switchMessage(seq: $0, random: payload) ?? [] }
     }
 
     /// Waits for the console's ctrl frame of type `0x0034` after `sendSwitch` (5 s by default); false on timeout.
@@ -383,14 +402,14 @@ public final class RUDPConnection: @unchecked Sendable {
         switchSignal.signal()
     }
 
-    private func sendKept(_ build: (UInt16) -> [UInt8]) throws {
+    private func sendKept(label: String, _ build: (UInt16) -> [UInt8]) throws {
         let bytes: [UInt8] = try lock.withLock {
             guard !closed, !finished else { throw RUDPError.closed }
             let seq = localSeq
             localSeq &+= 1
             let bytes = build(seq)
             if kept.count < timings.maxKept {
-                kept.append(Kept(key: seq &+ 1, bytes: bytes, lastSent: monotonicSeconds(), retransmissions: 0))
+                kept.append(Kept(key: seq &+ 1, bytes: bytes, lastSent: monotonicSeconds(), retransmissions: 0, label: label))
             } else {
                 counters.unkept += 1
             }
@@ -445,26 +464,32 @@ public final class RUDPConnection: @unchecked Sendable {
 
     /// Rudp.md section 7.2: resend what is older than 400 ms, drop what has been resent 25 times.
     private func retransmit(now: Double) {
-        let due: [[UInt8]] = lock.withLock {
-            var resend: [[UInt8]] = []
+        let due: [(bytes: [UInt8], note: String)] = lock.withLock {
+            var resend: [(bytes: [UInt8], note: String)] = []
             var remaining: [Kept] = []
             for var item in kept {
                 if now - item.lastSent > timings.retransmitAfter {
                     if item.retransmissions >= timings.maxRetransmissions {
                         counters.abandoned += 1
+                        resend.append(([], "gave up on \(item.label), key 0x\(String(item.key, radix: 16)), after \(item.retransmissions) retransmission(s)"))
                         continue
                     }
                     item.retransmissions += 1
-                    item.lastSent = now
                     counters.retransmissions += 1
-                    resend.append(item.bytes)
+                    counters.retransmissionsByKind[item.label, default: 0] += 1
+                    resend.append((item.bytes, String(format: "retransmitting %@ (key 0x%04x), attempt %d, %.2f s since it was last sent",
+                                                    item.label, item.key, item.retransmissions, now - item.lastSent)))
+                    item.lastSent = now
                 }
                 remaining.append(item)
             }
             kept = remaining
             return resend
         }
-        for bytes in due { send(bytes) }
+        for item in due {
+            trace("rudp: " + item.note)
+            if !item.bytes.isEmpty { send(item.bytes) }
+        }
     }
 
     /// One received message (rudp.md section 7.3). False when ctrl has ended.
@@ -501,15 +526,23 @@ public final class RUDPConnection: @unchecked Sendable {
         send(ack)
         guard markSeen(peerSeq) else {
             lock.withLock { counters.duplicates += 1 }
-            trace?(String(format: "rudp: duplicate data message seq=0x%04x ignored (acknowledged again)", peerSeq))
+            trace(String(format: "rudp: duplicate data message seq=0x%04x ignored (acknowledged again)", peerSeq))
             return true
         }
         guard data.count >= offset + 8,
               Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
                   == data.count - offset - 8 else {
             lock.withLock { counters.malformed += 1 }
-            trace?(String(format: "rudp: DATA message 0x%02x seq=0x%04x dropped by the frame check (data %d bytes, frame offset %d)",
-                          flags, peerSeq, data.count, offset))
+            let line = String(format: "rudp: message 0x%02x seq=0x%04x dropped by the frame check (data %d bytes, frame offset %d): ",
+                              flags, peerSeq, data.count, offset) + RUDPTrace.hex(data.prefix(RUDPTrace.droppedLimit))
+                + (data.count > RUDPTrace.droppedLimit ? "... (+\(data.count - RUDPTrace.droppedLimit) bytes)" : "")
+            trace(line)
+            // Always logged (a few times): the layouts of these messages are unknown, and the next run should capture them.
+            let first = lock.withLock { () -> Bool in
+                droppedLogged += 1
+                return droppedLogged <= 20
+            }
+            if first { log?(line) }
             return true
         }
         let frame = Array(data[offset...])
@@ -522,7 +555,7 @@ public final class RUDPConnection: @unchecked Sendable {
             }
             return answer
         }
-        trace?(String(format: "rudp: ctrl frame type 0x%02x%02x, payload %d bytes", frame[4], frame[5], frame.count - 8))
+        trace(String(format: "rudp: ctrl frame type 0x%02x%02x, payload %d bytes", frame[4], frame[5], frame.count - 8))
         emit(.ctrlFrame(frame))
         if isSwitchAnswer { switchSignal.signal() }
         return true
@@ -535,9 +568,16 @@ public final class RUDPConnection: @unchecked Sendable {
 
     /// Releases kept messages whose key is at or below `ack` (16-bit serial-number comparison, RFC 1982).
     private func release(upTo ack: UInt16) {
-        lock.withLock {
-            kept.removeAll { $0.key == ack || (1...32767).contains(ack &- $0.key) }
+        let released = lock.withLock { () -> [String] in
+            var names: [String] = []
+            kept.removeAll { item in
+                let credited = item.key == ack || (1...32767).contains(ack &- item.key)
+                if credited { names.append(String(format: "%@ (key 0x%04x, %d retransmission(s))", item.label, item.key, item.retransmissions)) }
+                return credited
+            }
+            return names
         }
+        if !released.isEmpty { trace(String(format: "rudp: ack 0x%04x credits ", ack) + released.joined(separator: ", ")) }
     }
 
     /// Records a console `seq`; false if it was already taken (the last 256 are remembered).
@@ -560,7 +600,7 @@ public final class RUDPConnection: @unchecked Sendable {
 
     private func send(_ bytes: [UInt8]) {
         lock.withLock { counters.datagramsOut += 1 }
-        trace?("rudp out: " + RUDPTrace.describe(bytes))
+        trace("rudp out: " + RUDPTrace.describe(bytes))
         try? socket.send(bytes, to: "", port: 0)
     }
 
@@ -571,7 +611,7 @@ public final class RUDPConnection: @unchecked Sendable {
             counters.datagramsIn += 1
             counters.unknownTypes += unknown
         }
-        trace?("rudp in: " + RUDPTrace.describe(bytes))
+        trace("rudp in: " + RUDPTrace.describe(bytes))
     }
 
     /// Stops the receive thread and closes the socket; an `exchange` in progress ends with `.closed`. There is no RUDP

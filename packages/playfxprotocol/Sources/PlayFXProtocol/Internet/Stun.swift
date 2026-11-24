@@ -41,6 +41,13 @@ public struct StunServer: Sendable, Equatable {
 
 /// What the STUN answers say about the NAT (holepunch.md section 3.3).
 public struct NATPrediction: Sendable, Equatable {
+    /// Equal when the spec's result is equal (address, port, step, random allocation); `portsDiffer` is a fact about the
+    /// answers the client's own choice uses, not part of the section 3.3 result.
+    public static func == (a: NATPrediction, b: NATPrediction) -> Bool {
+        a.publicAddress == b.publicAddress && a.basePort == b.basePort && a.increment == b.increment
+            && a.randomAllocation == b.randomAllocation
+    }
+
     /// The public address: the last answer's.
     public var publicAddress: String
     /// The port the console is expected to see: the base of the STUN candidates.
@@ -50,19 +57,26 @@ public struct NATPrediction: Sendable, Equatable {
     public var increment: Int
     /// The NAT allocates ports unpredictably, so the client guesses (holepunch.md section 4.3).
     public var randomAllocation: Bool
+    /// The answers showed more than one mapped port (a NAT that maps per destination). With a step of 0 and no random
+    /// allocation, the spec rule calls that stable; `CandidateBuilder` treats it as unpredictable (a client choice, DESIGN.md).
+    public var portsDiffer: Bool
 
-    public init(publicAddress: String, basePort: UInt16, increment: Int, randomAllocation: Bool) {
+    public init(publicAddress: String, basePort: UInt16, increment: Int, randomAllocation: Bool, portsDiffer: Bool = false) {
         self.publicAddress = publicAddress
         self.basePort = basePort
         self.increment = increment
         self.randomAllocation = randomAllocation
+        self.portsDiffer = portsDiffer
     }
+
+    /// The spec rule found no step and no random allocation, but the answers' ports aren't all the same.
+    public var isPerDestination: Bool { portsDiffer && increment == 0 && !randomAllocation }
 
     /// The data hole asks one server only: its answer is the base port, and the ctrl hole's `increment` and
     /// random-allocation flag are reused (none when the ctrl hole used UPnP).
     public static func forDataHole(answer: StunAnswer, ctrl: NATPrediction?) -> NATPrediction {
         NATPrediction(publicAddress: answer.address, basePort: answer.port, increment: ctrl?.increment ?? 0,
-                      randomAllocation: ctrl?.randomAllocation ?? false)
+                      randomAllocation: ctrl?.randomAllocation ?? false, portsDiffer: ctrl?.portsDiffer ?? false)
     }
 
     /// Derives the prediction from up to four answers in the order they were obtained (holepunch.md section 3.3);
@@ -107,7 +121,7 @@ public struct NATPrediction: Sendable, Equatable {
         }
         // The port is kept as a 16-bit value (holepunch.md section 3.3); only guesses and steps are range-mapped.
         return NATPrediction(publicAddress: last.address, basePort: UInt16(truncatingIfNeeded: port),
-                             increment: increment, randomAllocation: random)
+                             increment: increment, randomAllocation: random, portsDiffer: Set(p).count > 1)
     }
 
     /// The exact rules of holepunch.md section 3.3 for three or four answers whose addresses differ, row by row,

@@ -160,6 +160,23 @@ sockets and the switch (11 to 14).
   `InternetOptions.probeIdentity = .logOnly` accepts them like the reference and only logs, for the first hardware round.
 - **The data hole starts when ctrl has the session ID,** not in parallel after at most 10 s (holepunch.md section 8, last
   note). Ctrl's own 10 s start-up limit still applies; the extra 5 s the reference waits is not used.
+- **Per-destination NATs are guessed (client choice, on by default).** holepunch.md section 3.3 calls four STUN answers
+  with different first ports and then equal ones stable (step 0, not random); a phone hotspot's NAT answered
+  `[9623, 9565, 9565, 9565]` and `[64455, 64461, 64461, 64461]`, maps each destination to its own port, and the console saw
+  neither. So when the spec's result is step 0 and not random but the answers show more than one port
+  (`NATPrediction.isPerDestination`), the client uses the 75 port guesses around the last answer and the 250 extra low-TTL
+  sockets, as for random allocation (`forcePortGuessing` stays the override for stable-looking NATs). The data hole inherits
+  the decision from the ctrl hole. Identical ports, a step, and the spec's random-allocation cases are unchanged
+  (`NATPredictionRulesTests` compares `predict` itself with the spec's tables).
+- **The unrequested heartbeat reply is timed from the last reply** (ctrl.md section 10 says every 4.95 s once the first request
+  has arrived). A console asking every 5 s met our 4.95 s timer and got two replies at once; the timer now restarts at each
+  reply, so it fires only when the console's request is late or lost, which is what it is for.
+- **The session ID wait follows the spec's order** (holepunch.md section 8, last note): the data hole starts after 10 s of ctrl
+  without the ID (or the PIN exchange being over), then 5 s more are waited. A PS5 sent the ID 6 s after ctrl came up, after
+  the data hole had started.
+- **Retransmissions are named.** Each kept RUDP message has a label (`ctrl frame 0x01fe`, `switch message`); the statistics
+  count retransmissions by label, and the trace says which seq was resent and which acknowledgement credited what, with
+  seconds since the connection. A message the frame check drops is always logged with its data (up to 64 bytes, 20 times).
 - **No third-party STUN list.** The built-in servers are used (shuffled as holepunch.md section 3.2 says); the GitHub host list
   isn't fetched.
 - **The login PIN reply never reuses a counter (ctrl.md section 10).** Over the internet the reference encrypts it with

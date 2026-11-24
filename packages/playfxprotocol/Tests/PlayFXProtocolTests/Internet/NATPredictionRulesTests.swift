@@ -139,4 +139,60 @@ import Testing
         let steps: [(label: Character, port: Int)] = [("A", 40006), ("A", 40004), ("A", 40002), ("A", 40000)]
         #expect(Self.model(steps)?.increment == 65534)
     }
+
+    // MARK: Per-destination NATs (a client choice on top of the spec rule)
+
+    static func built(_ ports: [Int], local: UInt16 = 50123, force: Bool = false) throws -> ClientCandidates {
+        let prediction = try #require(NATPrediction.predict(Self.answers(ports.map { ("A", $0) })))
+        return try CandidateBuilder.build(CandidateInputs(
+            localPort: local, interfaceAddress: "192.168.1.20", stun: prediction, forcePortGuessing: force))
+    }
+
+    /// The iPhone hotspot's answers: the spec rule says step 0, not random; the ports differ, so they are guessed.
+    @Test(arguments: [[9623, 9565, 9565, 9565], [64455, 64461, 64461, 64461], [9597, 9598, 9598, 9598]])
+    func portsThatDifferWithoutAStepAreGuessed(ports: [Int]) throws {
+        let prediction = try #require(NATPrediction.predict(Self.answers(ports.map { ("A", $0) })))
+        #expect(prediction.increment == 0 && !prediction.randomAllocation && prediction.portsDiffer && prediction.isPerDestination)
+        let built = try Self.built(ports)
+        #expect(built.randomAllocation)
+        let guesses = built.candidates.filter { $0.type == .stun }.map(\.port)
+        #expect(guesses.count == 75 && guesses.first == UInt16(ports[3]))  // around the last answer's port
+    }
+
+    @Test func identicalPortsAreNotGuessed() throws {
+        let prediction = try #require(NATPrediction.predict(Self.answers([40000, 40000, 40000, 40000].map { ("A", $0) })))
+        #expect(!prediction.portsDiffer && !prediction.isPerDestination)
+        let built = try Self.built([40000, 40000, 40000, 40000])
+        #expect(!built.randomAllocation)
+        #expect(built.candidates.filter { $0.type == .stun }.map(\.port) == [40000])  // the one translated port
+        #expect(try !Self.built([50123, 50123, 50123, 50123], local: 50123).randomAllocation)
+    }
+
+    @Test func theOtherCasesAreUnchanged() throws {
+        // A step: eight predicted ports, no extra sockets.
+        let step = try Self.built([40000, 40002, 40004, 40006])
+        #expect(!step.randomAllocation && step.candidates.filter { $0.type == .stun }.count == 8)
+        // The spec's random allocation: guesses, as before.
+        #expect(try Self.built([40000, 40007, 39990, 40100]).randomAllocation)
+        // One answer, and two answers with a step.
+        #expect(try !Self.built([40000]).randomAllocation)
+        #expect(try !Self.built([40000, 40003]).randomAllocation)
+        // Forcing still works for a stable NAT.
+        #expect(try Self.built([61000, 61000, 61000, 61000], local: 50500, force: true).randomAllocation)
+    }
+
+    /// The data hole asks one server: it takes the ctrl hole's decision with it.
+    @Test func theDataHoleInheritsThePerDestinationDecision() throws {
+        let ctrl = try #require(NATPrediction.predict(Self.answers([9623, 9565, 9565, 9565].map { ("A", $0) })))
+        let data = NATPrediction.forDataHole(answer: StunAnswer(address: "203.0.113.1", port: 9570), ctrl: ctrl)
+        #expect(data.isPerDestination && data.basePort == 9570)
+        let built = try CandidateBuilder.build(CandidateInputs(localPort: 50124, interfaceAddress: "192.168.1.20", stun: data))
+        #expect(built.randomAllocation && built.candidates.filter { $0.type == .stun }.count == 75)
+        // From a stable ctrl hole it stays plain.
+        let stable = NATPrediction.forDataHole(
+            answer: StunAnswer(address: "203.0.113.1", port: 9570),
+            ctrl: NATPrediction.predict(Self.answers([40000, 40000, 40000, 40000].map { ("A", $0) })))
+        #expect(!stable.isPerDestination)
+        #expect(try !CandidateBuilder.build(CandidateInputs(localPort: 50124, interfaceAddress: "x", stun: stable)).randomAllocation)
+    }
 }

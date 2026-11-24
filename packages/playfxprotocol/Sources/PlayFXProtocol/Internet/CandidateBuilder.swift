@@ -70,7 +70,10 @@ public enum CandidateBuilder {
                 PunchCandidate(type: .stun, address: stun.publicAddress, port: port)
             }
             let keepsPort = stun.basePort == inputs.localPort
-            random = stun.randomAllocation || (stun.increment == 0 && !keepsPort && inputs.forcePortGuessing)
+            // A NAT whose answers differ in port, yet show no step, maps per destination: the console will see yet another
+            // port, so the ports are guessed (a client choice; the spec's rule alone says "stable").
+            random = stun.randomAllocation || stun.isPerDestination
+                || (stun.increment == 0 && !keepsPort && inputs.forcePortGuessing)
             if random {
                 stunCandidates = PortGuess.guesses(around: stun.basePort, count: inputs.guessCount).map(stunCandidate)
             } else if stun.increment != 0 {

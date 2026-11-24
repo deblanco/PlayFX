@@ -263,7 +263,7 @@ extension StreamSessionSuites {
             #expect(lines.contains { $0.hasPrefix("rudp stats: ") && !$0.hasSuffix("(final)") })
             #expect(lines.contains { $0.hasPrefix("rudp stats: ") && $0.hasSuffix("(final)") })
             // Never more than 24 bytes of data in a trace line.
-            for line in lines where line.hasPrefix("rudp out: ") || line.hasPrefix("rudp in: ") {
+            for line in lines where line.contains("rudp out: ") || line.contains("rudp in: ") {
                 for part in line.components(separatedBy: " | ") {
                     guard let range = part.range(of: " bytes: ", options: .backwards) else { continue }
                     let hexPart = part[range.upperBound...].replacingOccurrences(of: "...", with: "")
@@ -293,7 +293,7 @@ extension StreamSessionSuites {
             _ = await recorder.waitForEnd()
             _ = session
             let lines = rig.logs.with { $0 }
-            #expect(!lines.contains { $0.hasPrefix("rudp out: ") || $0.hasPrefix("rudp in: ") })
+            #expect(!lines.contains { $0.contains("rudp out: ") || $0.contains("rudp in: ") })
             #expect(lines.contains { $0.hasPrefix("ctrl: session ID arrived ") && $0.hasSuffix(" s after ctrl came up") })
             // The exact reason ctrl ended, which the user message ("the connection was lost") doesn't say.
             #expect(lines.contains("ctrl ended: console closed the connection"))
@@ -381,6 +381,78 @@ extension StreamSessionSuites {
             let accepted = try #require(lines.firstIndex(of: "ctrl: login PIN accepted"))
             let hole = try #require(lines.firstIndex(of: "stage dataHole"))
             #expect(accepted < hole)
+        }
+
+        /// STUN answers that differ in port without a step (a per-destination NAT): both holes use port guesses and the
+        /// extra sockets, the log says so, and the session still connects.
+        @Test func aPerDestinationNATUsesGuessesOnBothHoles() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.mapper.failsMapping = true
+            rig.stun.shifts.with { $0 = [5, 0, 0, 0, 3] }  // ctrl: the first answer differs; data: its one answer too
+            rig.environment.punch.extraSocketCount = 3
+            let recorder = EventRecorder()
+            let session = try await rig.start(recorder: recorder)
+            defer { session.stop() }
+            let lines = rig.logs.with { $0 }
+            let said = lines.filter { $0.contains("per-destination NAT: ports differ between servers; using port guesses and 3 extra sockets") }
+            #expect(said.count == 2 && said[0].hasPrefix("ctrl hole: ") && said[1].hasPrefix("data hole: "))
+            #expect(lines.filter { $0.contains("port guesses: 75, extra low-TTL sockets: 3") }.count == 2)
+            #expect(await recorder.wait { _ in recorder.videoFrames.count >= 2 })
+        }
+
+        /// 0x0034 is the switch's own acknowledgement; another unknown type is logged once per session.
+        @Test func ctrlMessagesAreLoggedOnceAndTheSwitchAcknowledgementNotAsUnknown() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.console.rudp.ctrlScript = { peer in
+                peer.sendHead()
+                peer.send(0x33, sessionIDPlain)
+                peer.send(0x41, [UInt8](repeating: 1, count: 8))
+                peer.send(0x41, [UInt8](repeating: 2, count: 8))
+                peer.pump(limit: 30)
+            }
+            let session = try await rig.start()
+            defer { session.stop() }
+            sleepSeconds(0.3)
+            let lines = rig.logs.with { $0 }
+            #expect(lines.filter { $0.contains("unknown type 0x0041") }.count == 1)
+            #expect(lines.first { $0.contains("unknown type 0x0041") }?.contains("8 byte(s)") == true)
+            #expect(!lines.contains { $0.contains("unknown type 0x0034") })
+            #expect(lines.contains("switch acknowledged (ctrl 0x0034)"))
+        }
+
+        /// The unrequested reply is timed from the last reply: with requests coming more often than the interval, no extra
+        /// reply goes out next to the answers (a real console's 5 s requests met our 4.95 s timer and got two replies).
+        @Test func theUnrequestedHeartbeatReplyIsTimedFromTheLastReply() async throws {
+            let rig = try InternetRig()  // the unrequested interval is 0.1 s here
+            defer { rig.stop() }
+            // Counted by the console itself, at the end of its burst of requests (the start goes on meanwhile).
+            let repliesAfterBurst = Locked<Int?>(nil)
+            rig.console.rudp.ctrlScript = { peer in
+                peer.sendHead()
+                peer.send(0x33, sessionIDPlain)
+                // Reads what the client sends for `seconds` (the console must read to see its replies).
+                func listen(_ seconds: Double) {
+                    let end = monotonicSeconds() + seconds
+                    while monotonicSeconds() < end { _ = peer.receive(timeout: max(0.001, end - monotonicSeconds())) }
+                }
+                for _ in 0..<8 {
+                    peer.send(0xfe)
+                    listen(0.06)
+                }
+                // The last request was 0.06 s ago, the last reply a little less: no unrequested reply is due yet.
+                listen(0.02)
+                repliesAfterBurst.with { $0 = peer.received.with { $0.filter { $0.type == 0x1fe }.count } }
+                peer.pump(limit: 30)
+            }
+            let session = try await rig.start()
+            defer { session.stop() }
+            #expect(await waitUntil { repliesAfterBurst.with { $0 } != nil })
+            #expect(repliesAfterBurst.with { $0 } == 8)
+            // Left alone it still sends its own, every interval.
+            let peer = try #require(rig.console.rudp.peers.with { $0.first })
+            #expect(await waitUntil { peer.received.with { $0.filter { $0.type == 0x1fe }.count } >= 10 })
         }
 
         @Test func aSwitchThatIsNeverAcknowledgedEndsTheStart() async throws {

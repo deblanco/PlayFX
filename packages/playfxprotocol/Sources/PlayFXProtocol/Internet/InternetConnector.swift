@@ -181,6 +181,8 @@ final class InternetLink: @unchecked Sendable {
         "rudp stats: \(s.datagramsOut) datagram(s) out, \(s.datagramsIn) in, \(s.frames) ctrl frame(s), "
             + "\(s.retransmissions) retransmission(s), \(s.abandoned) abandoned, \(s.unkept) unkept, "
             + "\(s.duplicates) duplicate(s), \(s.malformed) malformed, \(s.unknownTypes) unknown type(s)"
+            + (s.retransmissionsByKind.isEmpty ? "" : "; retransmitted: "
+                + s.retransmissionsByKind.sorted { $0.key < $1.key }.map { "\($0.key) x\($0.value)" }.joined(separator: ", "))
     }
 
     var cancelCheck: @Sendable () -> Bool { { [token] in token.isCancelled } }
@@ -241,7 +243,7 @@ final class InternetLink: @unchecked Sendable {
 
         // 8. RUDP on it, and the registration through PSN, whose keys this whole session then uses.
         let trace: (@Sendable (String) -> Void)? = options.rudpTrace ? options.log : nil
-        let channelRUDP = RUDPConnection(socket: hole.socket, timings: environment.rudp, trace: trace)
+        let channelRUDP = RUDPConnection(socket: hole.socket, timings: environment.rudp, trace: trace, log: options.log)
         rudp = channelRUDP
         startStatisticsTimer(for: channelRUDP)
         held.withLock { heldState.rudp = channelRUDP }
@@ -350,6 +352,10 @@ final class InternetLink: @unchecked Sendable {
             } else {
                 plan = "no STUN candidates (the NAT keeps the port or UPnP mapped it), no extra sockets"
             }
+            if let prediction, prediction.isPerDestination {
+                note("\(hole.rawValue) hole: per-destination NAT: ports differ between servers; using port guesses and "
+                    + "\(environment.punch.extraSocketCount) extra sockets")
+            }
             note("\(hole.rawValue) hole: local port \(port), offering \(AddressMask.describe(built.candidates)); \(plan)")
             return (built, prediction)
         } catch {
@@ -454,7 +460,7 @@ final class InternetLink: @unchecked Sendable {
         case .consoleFinished: result = .ctrlEnded
         case .closed: result = .aborted
         }
-        note("switch: \(result)")
+        note(result == .acknowledged ? "switch acknowledged (ctrl 0x0034)" : "switch failed: \(result)")
         return result
     }
 

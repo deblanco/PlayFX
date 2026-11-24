@@ -663,7 +663,9 @@ public final class ControlSession: @unchecked Sendable {
                 self?.finish(.heartbeatTimeout)
             }
             emit(.heartbeat(count: heartbeats))
-            startUnsolicitedHeartbeats()
+            // The unrequested reply is timed from the last reply of any kind, so it doesn't land next to an answer (a console
+            // asking every 5 s and our 4.95 s met twice as often as not); it still covers a request that never came.
+            if unsolicitedStarted { scheduleUnsolicitedHeartbeat() } else { startUnsolicitedHeartbeats() }
         case .displayNoticeA(let set):
             emit(.displayNotice(.a(set: set)))
         case .displayNoticeB(let bytes, let clears):

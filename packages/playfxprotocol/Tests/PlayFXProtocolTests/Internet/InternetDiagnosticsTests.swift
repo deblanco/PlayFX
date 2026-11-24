@@ -335,8 +335,52 @@ final class SendFailingSocket: UDPPunchSocket, @unchecked Sendable {
         #expect(eventually { client.statistics.unknownTypes == 1 })
         let stats = client.statistics
         #expect(stats.datagramsOut >= 1 && stats.datagramsIn == 1)
-        #expect(lines.with { $0 }.contains { $0.hasPrefix("rudp out: ") && $0.contains("DATA seq=0x1234") })
-        #expect(lines.with { $0 }.contains { $0.hasPrefix("rudp in: ") && $0.contains("unknown 0x7730") })
+        #expect(lines.with { $0 }.contains { $0.contains("rudp out: ") && $0.contains("DATA seq=0x1234") })
+        #expect(lines.with { $0 }.contains { $0.contains("rudp in: ") && $0.contains("unknown 0x7730") })
         #expect(InternetLink.describe(stats).hasPrefix("rudp stats: "))
+    }
+
+    /// The frame check's drops are always logged with their data, so the layouts nobody has documented get captured.
+    @Test func droppedMessagesAreLoggedWithTheirData() throws {
+        let (a, b) = try loopbackPair()
+        defer { b.close() }
+        let always = Locked<[String]>([])
+        let client = RUDPConnection(socket: a, timings: RUDPConnectionTests.timings, initialSeq: 0x1234, tag: 1,
+                                    log: { line in always.with { $0.append(line) } })
+        defer { client.close() }
+        try client.startCtrl { _ in }
+        // A 0x20 message with 4 data bytes (seq, then two more), twice, and a 0x36 with 20.
+        let tiny = hex("c00c 244f244f 2030 6dea 1234")
+        try b.send(tiny, to: "", port: 0)
+        try b.send(tiny, to: "", port: 0)
+        try b.send(hex("c01c 244f244f 3630 6de8 0001 0102030405060708090a0b0c0d0e0f10"), to: "", port: 0)
+        #expect(eventually { client.statistics.malformed >= 2 })
+        let lines = always.with { $0 }
+        #expect(lines.contains("rudp: message 0x20 seq=0x6dea dropped by the frame check (data 4 bytes, frame offset 4): 6dea1234"))
+        #expect(lines.contains("rudp: message 0x36 seq=0x6de8 dropped by the frame check (data 20 bytes, frame offset 2): "
+            + "6de800010102030405060708090a0b0c0d0e0f10"))
+        // The duplicate of the 0x20 message is acknowledged, not counted as another drop.
+        #expect(client.statistics.duplicates == 1)
+    }
+
+    @Test func retransmissionsAreNamedAndTheCreditIsTraced() throws {
+        let (a, b) = try loopbackPair()
+        defer { b.close() }
+        let lines = Locked<[String]>([])
+        var timings = RUDPConnectionTests.timings
+        timings.retransmitAfter = 0.05
+        timings.retransmitCheck = 0.02
+        let client = RUDPConnection(socket: a, timings: timings, initialSeq: 0x1234, tag: 1,
+                                    trace: { line in lines.with { $0.append(line) } })
+        defer { client.close() }
+        try client.startCtrl { _ in }
+        try client.sendCtrlFrame(hex("00000000 01fe 0000"))
+        #expect(eventually { client.statistics.retransmissionsByKind["ctrl frame 0x01fe", default: 0] >= 2 })
+        try b.send(hex("c00e 244f244f 2430 5678 1235 0092"), to: "", port: 0)
+        #expect(eventually { lines.with { $0 }.contains { $0.contains("rudp: ack 0x1235 credits ctrl frame 0x01fe (key 0x1235, ") } })
+        let trace = lines.with { $0 }
+        #expect(trace.contains { $0.contains("rudp: retransmitting ctrl frame 0x01fe (key 0x1235), attempt 1, ") })
+        #expect(trace.allSatisfy { $0.hasPrefix("[+") })
+        #expect(InternetLink.describe(client.statistics).contains("; retransmitted: ctrl frame 0x01fe x"))
     }
 }
