@@ -89,6 +89,58 @@ public struct RUDPStatistics: Sendable, Equatable {
     public var malformed = 0
     /// Ctrl frames delivered.
     public var frames = 0
+    /// Datagrams sent and received on the socket, and console messages of a type this client has no meaning for
+    /// (rudp.md section 2), for the trace.
+    public var datagramsOut = 0
+    public var datagramsIn = 0
+    public var unknownTypes = 0
+}
+
+/// One datagram as a line of the RUDP trace (`PLAYFX_RUDP_TRACE`): each message in it with its type, `seq` and `ack`
+/// where the type has them, its length, and the first 24 bytes of its data in hex, and nothing past that. Nothing here
+/// reads a key: the data of a request or response starts with `seq` and the first characters of an HTTP line, and
+/// frames are encrypted.
+enum RUDPTrace {
+    static let dataLimit = 24
+
+    static func name(_ flags: UInt8) -> String? {
+        switch flags {
+        case 0x80: "INIT"
+        case 0xD0: "INIT_ACK"
+        case 0x90: "COOKIE"
+        case 0xA0: "COOKIE_ACK"
+        case 0x20: "REQUEST"
+        case 0x02: "DATA"
+        case 0x24: "ACK"
+        case 0x12: "DATA/12"
+        case 0x26: "DATA/26"
+        case 0x36: "DATA/36"
+        case 0xC0: "FINISH"
+        default: nil
+        }
+    }
+
+    static func hex(_ bytes: ArraySlice<UInt8>) -> String { bytes.map { String(format: "%02x", $0) }.joined() }
+
+    static func describe(_ datagram: [UInt8]) -> String {
+        let messages = RUDPFraming.parse(datagram)
+        guard !messages.isEmpty else {
+            return "\(datagram.count) bytes, not RUDP: \(hex(datagram.prefix(8)))"
+        }
+        let parts = messages.map { message -> String in
+            let flags = message.flags
+            var text = name(flags) ?? String(format: "unknown 0x%04x", message.type)
+            if let seq = message.peerSeq { text += String(format: " seq=0x%04x", seq) }
+            if message.data.count >= 4, [0x20, 0x24, 0x12, 0x26, 0x36].contains(flags) || name(flags) == nil {
+                text += String(format: " ack=0x%04x", UInt16(message.data[2]) << 8 | UInt16(message.data[3]))
+            }
+            let data = message.data
+            text += " data \(data.count) bytes"
+            if !data.isEmpty { text += ": " + hex(data.prefix(dataLimit)) + (data.count > dataLimit ? "..." : "") }
+            return text
+        }
+        return "\(datagram.count) bytes, \(messages.count) message(s): " + parts.joined(separator: " | ")
+    }
 }
 
 /// RUDP over one connected UDP socket.
@@ -104,6 +156,7 @@ public final class RUDPConnection: @unchecked Sendable {
     private let timings: RUDPTimings
     private let tag: UInt32
     private let random: @Sendable (Int) -> [UInt8]
+    private let trace: (@Sendable (String) -> Void)?
     private let lock = NSLock()
     private var localSeq: UInt16
     private var kept: [Kept] = []
@@ -129,9 +182,12 @@ public final class RUDPConnection: @unchecked Sendable {
     ///   - initialSeq: the first sequence value; random in `0x01FF...0x5FFE` by default (rudp.md section 4.1).
     ///   - tag: the 32-bit tag; random plus `0x8000` by default (section 4.2).
     ///   - random: secure random bytes for the switch message.
+    ///   - trace: one line per datagram in and out, per ctrl frame and per message the frame check drops (`RUDPTrace`).
     public init(socket: any UDPPunchSocket, timings: RUDPTimings = RUDPTimings(), initialSeq: UInt16? = nil,
                 tag: UInt32? = nil,
-                random: @escaping @Sendable (Int) -> [UInt8] = { n in (0..<n).map { _ in UInt8.random(in: 0...255) } }) {
+                random: @escaping @Sendable (Int) -> [UInt8] = { n in (0..<n).map { _ in UInt8.random(in: 0...255) } },
+                trace: (@Sendable (String) -> Void)? = nil) {
+        self.trace = trace
         self.socket = socket
         self.timings = timings
         self.random = random
@@ -247,6 +303,7 @@ public final class RUDPConnection: @unchecked Sendable {
                     pending = []
                     continue
                 }
+                received(packet.bytes)
                 pending = RUDPFraming.parse(packet.bytes)
             } catch {
                 pending = []
@@ -363,6 +420,7 @@ public final class RUDPConnection: @unchecked Sendable {
         }
         do {
             if let packet = try socket.receive(timeout: 0.05) {
+                received(packet.bytes)
                 for message in RUDPFraming.parse(packet.bytes) where !handle(message) { return false }
             }
             state.failingSince = nil
@@ -443,12 +501,15 @@ public final class RUDPConnection: @unchecked Sendable {
         send(ack)
         guard markSeen(peerSeq) else {
             lock.withLock { counters.duplicates += 1 }
+            trace?(String(format: "rudp: duplicate data message seq=0x%04x ignored (acknowledged again)", peerSeq))
             return true
         }
         guard data.count >= offset + 8,
               Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
                   == data.count - offset - 8 else {
             lock.withLock { counters.malformed += 1 }
+            trace?(String(format: "rudp: DATA message 0x%02x seq=0x%04x dropped by the frame check (data %d bytes, frame offset %d)",
+                          flags, peerSeq, data.count, offset))
             return true
         }
         let frame = Array(data[offset...])
@@ -461,6 +522,7 @@ public final class RUDPConnection: @unchecked Sendable {
             }
             return answer
         }
+        trace?(String(format: "rudp: ctrl frame type 0x%02x%02x, payload %d bytes", frame[4], frame[5], frame.count - 8))
         emit(.ctrlFrame(frame))
         if isSwitchAnswer { switchSignal.signal() }
         return true
@@ -497,7 +559,19 @@ public final class RUDPConnection: @unchecked Sendable {
     }
 
     private func send(_ bytes: [UInt8]) {
+        lock.withLock { counters.datagramsOut += 1 }
+        trace?("rudp out: " + RUDPTrace.describe(bytes))
         try? socket.send(bytes, to: "", port: 0)
+    }
+
+    /// A datagram came in: counted, traced, and its messages of a type we don't know counted.
+    private func received(_ bytes: [UInt8]) {
+        let unknown = RUDPFraming.parse(bytes).filter { RUDPTrace.name($0.flags) == nil }.count
+        lock.withLock {
+            counters.datagramsIn += 1
+            counters.unknownTypes += unknown
+        }
+        trace?("rudp in: " + RUDPTrace.describe(bytes))
     }
 
     /// Stops the receive thread and closes the socket; an `exchange` in progress ends with `.closed`. There is no RUDP

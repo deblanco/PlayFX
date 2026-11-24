@@ -42,6 +42,11 @@ public final class StreamSession: @unchecked Sendable {
         var goToBedRequested = false
         var microphoneConnected = false
         var endReason: StreamEndReason?
+        /// Ctrl asked for a login PIN that hasn't been accepted yet, and whether one was (internet start order).
+        var pinPending = false
+        var pinAccepted = false
+        var ctrlUpAt: Double?
+        var heartbeatSeen = false
         /// `ended` has been delivered (or a failed start has been torn down): nothing more will happen.
         var over = false
         /// Kept past `finish`, so the `ended` handler can still read what was negotiated.
@@ -158,6 +163,9 @@ public final class StreamSession: @unchecked Sendable {
         var control = options.control
         control.streamingType = settings.codec.streamingType
         internet?.report(.sessionInit)
+        // Over the internet the wait for the session ID is this class's (the data hole may have to start before it comes):
+        // ctrl's own start-up limit is only a backstop.
+        if internet != nil { control.startupTimeout = max(control.startupTimeout, 120) }
         let ctrl: ControlSession
         do {
             ctrl = try await ControlSession.start(
@@ -170,7 +178,9 @@ public final class StreamSession: @unchecked Sendable {
             throw StreamStartError.session(error, stage: stage)
         }
         adopt(ctrl)
-        let handoff = try await waitForHandoff(ctrl)
+        lock.withLock { shared.ctrlUpAt = monotonicSeconds() }
+        let handoff: StreamHandoff
+        if let internet { handoff = try await internetHandoff(ctrl, internet) } else { handoff = try await waitForHandoff(ctrl) }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let thread = Thread { [self] in
                 continuation.resume(with: Result { try connectStream(handoff) })
@@ -194,6 +204,48 @@ public final class StreamSession: @unchecked Sendable {
             if let handoff = control.handoff { return handoff }
             if let ended = control.endReason {
                 throw StreamStartError.stream(StreamEndReason(code: .ctrlFailed), detail: "ctrl ended: \(ended)")
+            }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// The internet order of holepunch.md section 8, last note: the data hole starts once ctrl has delivered the session ID,
+    /// the login PIN exchange is over, or `sessionIDWait` seconds have passed (the clock stops while a PIN waits for the
+    /// user), and the session ID is then waited for `sessionIDWaitAfterHole` seconds more. A console may hold the session
+    /// ID back until the second hole is under way.
+    private func internetHandoff(_ control: ControlSession, _ internet: InternetLink) async throws -> StreamHandoff {
+        func checkState() throws {
+            if let abort = startAbort { throw abort }
+            if Task.isCancelled { throw StreamStartError.cancelled }
+            if let ended = control.endReason {
+                throw StreamStartError.stream(StreamEndReason(code: .ctrlFailed), detail: "ctrl ended: \(ended)")
+            }
+        }
+        var waited = 0.0
+        var last = monotonicSeconds()
+        while control.handoff == nil {
+            try checkState()
+            let now = monotonicSeconds()
+            let (pending, accepted) = lock.withLock { (shared.pinPending, shared.pinAccepted) }
+            if !pending { waited += now - last }
+            last = now
+            if accepted || waited >= internet.environment.sessionIDWait { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        if let handoff = control.handoff { return handoff }
+        internet.note("no session ID after \(String(format: "%.1f", waited)) s of ctrl: starting the data hole without it")
+        do {
+            try await runBlocking { try internet.punchDataHole() }
+        } catch {
+            throw internetFailure(error, internet)
+        }
+        let deadline = monotonicSeconds() + internet.environment.sessionIDWaitAfterHole
+        while true {
+            try checkState()
+            if let handoff = control.handoff { return handoff }
+            if monotonicSeconds() >= deadline {
+                internet.record(.stream(StreamEndReason(code: .ctrlFailed), detail: "no session ID after the data hole"))
+                throw StreamStartError.stream(StreamEndReason(code: .ctrlFailed), detail: "no session ID \(Int(internet.environment.sessionIDWaitAfterHole)) s after the data hole")
             }
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
@@ -228,7 +280,7 @@ public final class StreamSession: @unchecked Sendable {
         if let internet {
             // Steps 11 and 12: the data hole, then the probe on its socket (takion.md section 18).
             do {
-                try internet.punchDataHole()
+                if !internet.hasDataHole { try internet.punchDataHole() }
                 probeTransport = try internet.probeTransport()
             } catch {
                 throw internetFailure(error, internet)
@@ -404,14 +456,37 @@ public final class StreamSession: @unchecked Sendable {
         case .sessionInitialized:
             lock.withLock { shared.initDone = true }
             internet?.report(.ctrl)
-        case .loginPINRequested: postControl(.loginPINRequested)
-        case .loginPINResult(let accepted): postControl(.loginPINResult(accepted: accepted))
+        case .loginPINRequested:
+            lock.withLock { shared.pinPending = true }
+            internet?.note("ctrl: the console asked for a login PIN")
+            postControl(.loginPINRequested)
+        case .loginPINResult(let accepted):
+            lock.withLock { if accepted { shared.pinPending = false; shared.pinAccepted = true } }
+            internet?.note("ctrl: login PIN \(accepted ? "accepted" : "refused")")
+            postControl(.loginPINResult(accepted: accepted))
         case .keyboardOpened(let text): postControl(.keyboardOpened(text: text))
         case .keyboardTextChanged(let sequence, let text): postControl(.keyboardTextChanged(sequence: sequence, text: text))
         case .keyboardClosed: postControl(.keyboardClosed)
-        case .ended(let reason): controlEnded(reason)
-        case .connected, .sessionID, .heartbeat, .displayNotice, .notice: break
+        case .ended(let reason):
+            internet?.note("ctrl ended: \(reason)")
+            controlEnded(reason)
+        case .connected:
+            lock.withLock { shared.ctrlUpAt = monotonicSeconds() }
+            internet?.note("ctrl: the console accepted the ctrl request")
+        case .sessionID:
+            internet?.note("ctrl: session ID arrived \(sinceCtrlUp())")
+        case .heartbeat:
+            let first = lock.withLock { () -> Bool in defer { shared.heartbeatSeen = true }; return !shared.heartbeatSeen }
+            if first { internet?.note("ctrl: first heartbeat request \(sinceCtrlUp())") }
+        case .notice(let type, let payload):
+            internet?.note(String(format: "ctrl: message of unknown type 0x%04x, %d byte(s) \(sinceCtrlUp())", type, payload.count))
+        case .displayNotice: break
         }
+    }
+
+    private func sinceCtrlUp() -> String {
+        guard let up = lock.withLock({ shared.ctrlUpAt }) else { return "(ctrl not up)" }
+        return String(format: "%.1f s after ctrl came up", monotonicSeconds() - up)
     }
 
     /// Ctrl ending is the end of the stream (the console drops the session without ctrl heartbeats), unless it

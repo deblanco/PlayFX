@@ -70,6 +70,11 @@ session init and the stream (about 30 s on a real PS5), in the background, as fo
   probe sockets are used even when STUN shows a stable mapping (holepunch.md section 4.2, sixth row), for a network
   whose NAT the STUN answers don't describe (a carrier NAT, a phone hotspot). Anything but `1`, or unset, leaves it off.
   Dev-only. The library's debug log lines say what STUN answered, which candidates went out and what the probing saw.
+- *Development switch.* `PLAYFX_RUDP_TRACE=1` traces the ctrl hole's RUDP channel after the punch: one debug log line per
+  datagram in and out (message types, `seq`/`ack`, lengths, at most the first 24 bytes of each message's data in hex,
+  which is HTTP text or ciphertext, never a key), each ctrl frame decoded, and the RUDP counters every 2 s. Dev-only. Without
+  it the log still has the ctrl stage's events (the console accepting the request, the session ID and when, the first
+  heartbeat, why ctrl ended) and, on a failure, the exact error and the stage it happened in.
 
 The same library registration is what `PSNPairing` uses (PIN-less pairing, with stages `linking` and `registering`),
 and `PSNAccount.consoles()` lists the account's PS5s with `PSNClient.consoles()` (one refresh and retry when PSN

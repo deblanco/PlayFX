@@ -22,6 +22,7 @@ extension StreamSession {
             return session
         } catch {
             let failure = Self.internetError(error, link: link)
+            if failure != .cancelled { link.logFailure(failure) }
             if failure == .cancelled { link.shutdown() } else { await link.shutdownAndWait() }
             throw failure
         }

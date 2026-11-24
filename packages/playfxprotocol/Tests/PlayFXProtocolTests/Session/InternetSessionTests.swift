@@ -240,6 +240,149 @@ extension StreamSessionSuites {
             await rig.expectGivenBack()
         }
 
+        // MARK: Diagnostics of the ctrl stage
+
+        /// With the trace on: every datagram, ctrl frame and counter line, nothing past 24 bytes of data, no key.
+        @Test func theRUDPTraceShowsTheCtrlHoleAndLeaksNothing() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.options.rudpTrace = true
+            let recorder = EventRecorder()
+            let session = try await rig.start(recorder: recorder)
+            #expect(await waitUntil { rig.logs.with { $0.contains { $0.hasPrefix("rudp stats: ") } } })
+            await session.stopAndWait()
+            let lines = rig.logs.with { $0 }
+            let text = lines.joined(separator: "\n")
+            func has(_ part: String) -> Bool { lines.contains { $0.contains(part) } }
+            // The handshake, the three requests, the data, in both directions.
+            #expect(has("rudp out: 22 bytes, 1 message(s): INIT seq=0x"))
+            #expect(has("rudp in: ") && has("INIT_ACK") && has("COOKIE_ACK") && has("REQUEST seq=0x") && has("ACK seq=0x") && has("FINISH"))
+            #expect(has("DATA seq=0x") && has("rudp: ctrl frame type 0x0033, payload "))
+            // Ctrl stage events, in order, and the counters (every 2 s, and at the end).
+            #expect(has("ctrl: the console accepted the ctrl request") && has("ctrl: session ID arrived "))
+            #expect(lines.contains { $0.hasPrefix("rudp stats: ") && !$0.hasSuffix("(final)") })
+            #expect(lines.contains { $0.hasPrefix("rudp stats: ") && $0.hasSuffix("(final)") })
+            // Never more than 24 bytes of data in a trace line.
+            for line in lines where line.hasPrefix("rudp out: ") || line.hasPrefix("rudp in: ") {
+                for part in line.components(separatedBy: " | ") {
+                    guard let range = part.range(of: " bytes: ", options: .backwards) else { continue }
+                    let hexPart = part[range.upperBound...].replacingOccurrences(of: "...", with: "")
+                    #expect(hexPart.count <= 48, "\(part)")
+                }
+            }
+            // No key, nonce or token: the registration key and RP key of the session, the nonce, the account.
+            for secret in ["3031323361626364", "a0a1a2a3a4a5a6a7", "AAECAwQFBgcICQoLDA0ODw", PSNVector.token,
+                           Data(rig.console.rudp.secrets.accountID).base64EncodedString()] {
+                #expect(!text.contains(secret), "\(secret)")
+            }
+        }
+
+        @Test func withoutTheTraceOnlyTheCtrlStageEventsAreLogged() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.console.rudp.ctrlScript = { peer in
+                peer.sendHead()
+                peer.send(0x33, sessionIDPlain)
+                peer.send(0xfe)
+                peer.pump(limit: 30)
+            }
+            let recorder = EventRecorder()
+            let session = try await rig.start(recorder: recorder)
+            #expect(await waitUntil { rig.logs.with { $0.contains { $0.hasPrefix("ctrl: first heartbeat request ") } } })
+            rig.console.rudp.finishCtrl()
+            _ = await recorder.waitForEnd()
+            _ = session
+            let lines = rig.logs.with { $0 }
+            #expect(!lines.contains { $0.hasPrefix("rudp out: ") || $0.hasPrefix("rudp in: ") })
+            #expect(lines.contains { $0.hasPrefix("ctrl: session ID arrived ") && $0.hasSuffix(" s after ctrl came up") })
+            // The exact reason ctrl ended, which the user message ("the connection was lost") doesn't say.
+            #expect(lines.contains("ctrl ended: console closed the connection"))
+        }
+
+        /// Whatever the app shows, the log has the exact error and the stage.
+        @Test func aFailureLogsItsExactCaseAndStage() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.console.rudp.initReplies = { _ in .refuse(status: "403 Forbidden", reason: "80108b10") }
+            let error = await rig.startFailure()
+            #expect(error == .session(.consoleBusy, stage: .sessionInit))
+            let line = rig.logs.with { $0.first { $0.hasPrefix("start failed during stage ") } }
+            #expect(line == "start failed during stage sessionInit: session(PlayFXProtocol.SessionError.consoleBusy, stage: PlayFXProtocol.StreamStartError.Stage.sessionInit)")
+            await rig.expectGivenBack()
+        }
+
+        // MARK: Session ID and data hole order (holepunch.md section 8, last note)
+
+        /// A console that holds the session ID back until it sees the second hole: the data hole starts after the wait.
+        @Test func theDataHoleStartsWithoutTheSessionIDAfterTheWait() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.environment.sessionIDWait = 0.3
+            let data = rig.console.dataEndpoint
+            rig.console.rudp.ctrlScript = { peer in
+                peer.sendHead()
+                let deadline = monotonicSeconds() + 8
+                while data.clientRequests.with({ $0.isEmpty }) && monotonicSeconds() < deadline { sleepSeconds(0.01) }
+                peer.send(0x33, sessionIDPlain)
+                peer.pump(limit: 30)
+            }
+            let recorder = EventRecorder()
+            let session = try await rig.start(recorder: recorder)
+            defer { session.stop() }
+            #expect(rig.logs.with { $0.contains { $0.hasPrefix("no session ID after ") && $0.hasSuffix("s of ctrl: starting the data hole without it") } })
+            #expect(rig.stages.with { $0 } == Self.stageOrder)
+            #expect(await recorder.wait { _ in recorder.videoFrames.count >= 2 })
+        }
+
+        @Test func aSessionIDThatNeverComesEndsAfterTheWaitAfterTheHole() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.environment.sessionIDWait = 0.2
+            rig.environment.sessionIDWaitAfterHole = 0.4
+            rig.console.rudp.ctrlScript = { peer in
+                peer.sendHead()
+                peer.pump(limit: 30)
+            }
+            let error = await rig.startFailure()
+            guard case .stream(let reason, let detail)? = error else {
+                Issue.record("expected a ctrl failure, got \(String(describing: error))")
+                return
+            }
+            #expect(reason.code == .ctrlFailed && detail.contains("after the data hole"))
+            #expect(rig.stages.with { $0 }.contains(.dataHole))
+            await rig.expectGivenBack()
+        }
+
+        /// The clock of the wait stops while a login PIN waits for the user: the data hole doesn't start meanwhile.
+        @Test func aPendingLoginPINHoldsTheDataHoleBack() async throws {
+            let rig = try InternetRig()
+            defer { rig.stop() }
+            rig.environment.sessionIDWait = 0.2
+            rig.console.rudp.ctrlScript = { peer in
+                peer.sendHead()
+                peer.send(0x04)
+                guard peer.receive(timeout: 8) != nil else { return }
+                peer.send(0x05, [0])
+                peer.send(0x33, sessionIDPlain)
+                peer.pump(limit: 30)
+            }
+            let recorder = EventRecorder()
+            recorder.onEvent = { event, session in
+                if case .loginPINRequested = event {
+                    Thread {
+                        sleepSeconds(0.8)  // the user types: much longer than the wait
+                        try? session.sendLoginPIN("1234")
+                    }.start()
+                }
+            }
+            let session = try await rig.start(recorder: recorder)
+            defer { session.stop() }
+            let lines = rig.logs.with { $0 }
+            let accepted = try #require(lines.firstIndex(of: "ctrl: login PIN accepted"))
+            let hole = try #require(lines.firstIndex(of: "stage dataHole"))
+            #expect(accepted < hole)
+        }
+
         @Test func aSwitchThatIsNeverAcknowledgedEndsTheStart() async throws {
             let rig = try InternetRig()
             defer { rig.stop() }

@@ -291,3 +291,52 @@ final class SendFailingSocket: UDPPunchSocket, @unchecked Sendable {
     func setTimeToLive(_ ttl: Int) throws { try inner.setTimeToLive(ttl) }
     func close() { inner.close() }
 }
+
+/// The RUDP trace's lines (`PLAYFX_RUDP_TRACE`): what each datagram shows, and never more than 24 bytes of data.
+@Suite struct RUDPTraceTests {
+    @Test func theSpecsDatagramsAreDescribedMessageByMessage() {
+        // R1: INIT.
+        #expect(RUDPTrace.describe(hex("c016 244f244f 8030 1234 0b0101000100 89abcdef 0582"))
+            == "22 bytes, 1 message(s): INIT seq=0x1234 data 14 bytes: 12340b010100010089abcdef0582")
+        // R4: ACK with its ack field.
+        #expect(RUDPTrace.describe(hex("c00e 244f244f 2430 1237 567a 0092"))
+            == "14 bytes, 1 message(s): ACK seq=0x1237 ack=0x567a data 6 bytes: 1237567a0092")
+        // R7: a console datagram of two messages (an ACK, then a ctrl heartbeat request).
+        let r7 = RUDPTrace.describe(hex("c00e244f244f2430 567812390092 c012244f244f0230 56790000000000fe0000"))
+        #expect(r7 == "32 bytes, 2 message(s): ACK seq=0x5678 ack=0x1239 data 6 bytes: 567812390092 | "
+            + "DATA seq=0x5679 data 10 bytes: 56790000000000fe0000")
+        // The console's variants and FINISH, and a type nobody knows (with its ack field read).
+        #expect(RUDPTrace.describe(hex("c00c 244f244f 1230 5678 1234")).contains("DATA/12 seq=0x5678 ack=0x1234"))
+        #expect(RUDPTrace.describe(hex("c008 244f244f c000")) == "8 bytes, 1 message(s): FINISH data 0 bytes")
+        #expect(RUDPTrace.describe(hex("c00c 244f244f 7730 5678 1234")).contains("unknown 0x7730 seq=0x5678 ack=0x1234"))
+        // Not RUDP at all (a late hole-punch probe).
+        #expect(RUDPTrace.describe([UInt8](repeating: 7, count: 88)) == "88 bytes, not RUDP: 0707070707070707")
+    }
+
+    @Test func dataIsCutAt24BytesAndMarked() {
+        let long = RUDPFraming.dataMessage(seq: 0x1236, payload: Array("GET /sie/ps5/rp/sess/init HTTP/1.1\r\nHost: x".utf8))
+        let line = RUDPTrace.describe(long)
+        // seq (2 bytes) and the first 22 characters of the request: no header after the request line's start.
+        #expect(line.hasSuffix("data 45 bytes: 1236474554202f7369652f7073352f72702f736573732f696e697420...") || line.contains("..."))
+        let hexPart = line.components(separatedBy: ": ").last!.replacingOccurrences(of: "...", with: "")
+        #expect(hexPart.count == 48)
+    }
+
+    @Test func countersAreCounted() throws {
+        let (a, b) = try loopbackPair()
+        defer { b.close() }
+        let lines = Locked<[String]>([])
+        let client = RUDPConnection(socket: a, timings: RUDPConnectionTests.timings, initialSeq: 0x1234, tag: 1,
+                                    trace: { line in lines.with { $0.append(line) } })
+        defer { client.close() }
+        try client.sendCtrlFrame(hex("00000000 01fe 0000"))
+        try client.startCtrl { _ in }
+        try b.send(hex("c00c 244f244f 7730 5678 1234"), to: "", port: 0)
+        #expect(eventually { client.statistics.unknownTypes == 1 })
+        let stats = client.statistics
+        #expect(stats.datagramsOut >= 1 && stats.datagramsIn == 1)
+        #expect(lines.with { $0 }.contains { $0.hasPrefix("rudp out: ") && $0.contains("DATA seq=0x1234") })
+        #expect(lines.with { $0 }.contains { $0.hasPrefix("rudp in: ") && $0.contains("unknown 0x7730") })
+        #expect(InternetLink.describe(stats).hasPrefix("rudp stats: "))
+    }
+}

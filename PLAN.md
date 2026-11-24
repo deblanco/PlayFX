@@ -1153,8 +1153,13 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     the same step (250 extra probe sockets, no answer from any candidate): the carrier's NAT blocks it. Added for the
     next run: a full hole-punch diagnosis in the log (each STUN answer, the NAT prediction, both sides' candidates
     with masked addresses, probes sent and received by source, the exact failure), a check that our prediction
-    matches holepunch.md §3.3 (20,000 random cases agree), and `PLAYFX_FORCE_PORT_GUESSING=1` (dev). Left: a run from
-    a network that allows it.
+    matches holepunch.md §3.3 (20,000 random cases agree), and `PLAYFX_FORCE_PORT_GUESSING=1` (dev). Second round,
+    same hotspot: with forced port guessing the ctrl hole opened reproducibly (the console answered one of the 250 extra
+    sockets in 1.6 s), the PIN-less PSN registration and session init worked, and ctrl ended after ~11 s. Likely cause
+    (fixed per holepunch.md §8): we waited for the session ID before starting the data hole; the spec starts it after at
+    most 10 s and waits 5 s more for the ID. Added `PLAYFX_RUDP_TRACE=1` (every RUDP datagram and decoded ctrl frame,
+    no secrets) and always-on logs of the ctrl-stage events and the exact failure case. Left: the next hotspot run;
+    detecting a per-destination NAT (different STUN ports, increment 0) so port guessing starts without the switch.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 

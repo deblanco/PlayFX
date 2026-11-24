@@ -82,6 +82,10 @@ public struct InternetOptions: Sendable {
     /// them like the reference and logs the first mismatch of each hole, so a first hardware round can tell a wrong
     /// assumption about the console's probe fields from a forgery (holepunch.md section 10 question 1).
     public var probeIdentity = ProbeIdentityCheck.strict
+    /// Development: one log line per datagram in and out on the ctrl hole once it is punched (the RUDP message types, `seq`
+    /// and `ack`, lengths and the first 24 bytes of each message's data in hex, never more), per ctrl frame decoded, per
+    /// message the frame check drops, and the RUDP counters every 2 s. For finding why a console drops the ctrl stage.
+    public var rudpTrace = false
     /// The limits of the PSN calls and waits (psn.md section 10).
     public var psnTimeouts = PSNTimeouts()
 

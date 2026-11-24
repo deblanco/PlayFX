@@ -52,6 +52,10 @@ struct InternetEnvironment: Sendable {
     var drainLimit = 1.0
     /// Ctrl's response header wait: longer than the RUDP handshake and request tries add up to.
     var ctrlHeaderTimeout = 15.0
+    /// How long ctrl is waited on for the session ID before the data hole starts without it (holepunch.md section 8), and
+    /// how much longer after the hole.
+    var sessionIDWait = 10.0
+    var sessionIDWaitAfterHole = 5.0
     /// Called with each link as it is made (tests keep it to look at what was given back).
     var linkCreated: @Sendable (InternetLink) -> Void = { _ in }
     /// The unrequested heartbeat reply over RUDP (ctrl.md section 10).
@@ -86,6 +90,7 @@ enum InternetConnector {
         } catch {
             // Classified first: giving everything back cancels the token, which would make every error "cancelled".
             let failure = link.classify(error)
+            if failure != .cancelled { link.logFailure(failure) }
             // A cancel returns at once: the leaving (up to 13 s on a bad network) goes on in the background.
             if failure == .cancelled { link.shutdown() } else { await link.shutdownAndWait() }
             throw failure
@@ -107,6 +112,7 @@ final class InternetLink: @unchecked Sendable {
         var descriptor: Int32?
         var shut = false
         var finished: Task<Void, Never>?
+        var statistics: (any DispatchSourceTimer)?
     }
 
     let remote: PSNRemote
@@ -141,12 +147,41 @@ final class InternetLink: @unchecked Sendable {
         failureLock.withLock { if recordedFailure == nil { recordedFailure = error } }
     }
 
+    /// The stage most recently reported, for the line a failure logs.
+    private(set) var stage: InternetStage?
+
     func report(_ stage: InternetStage) {
+        self.stage = stage
         note("stage \(stage.rawValue)")
         options.progress(stage)
     }
 
     func note(_ line: String) { options.log(line) }
+
+    /// The exact error a start failed with and the stage it was in (always logged: the app shows only a message).
+    func logFailure(_ error: InternetStartError) {
+        note("start failed during stage \(stage?.rawValue ?? "none"): \(error)")
+    }
+
+    /// With the trace on, the RUDP counters every 2 s; the last ones are logged by `shutdown` either way.
+    private func startStatisticsTimer(for rudp: RUDPConnection) {
+        guard options.rudpTrace else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 2, repeating: 2)
+        let log = options.log
+        timer.setEventHandler { [weak rudp] in
+            guard let rudp else { return }
+            log(Self.describe(rudp.statistics))
+        }
+        timer.resume()
+        held.withLock { heldState.statistics = timer }
+    }
+
+    static func describe(_ s: RUDPStatistics) -> String {
+        "rudp stats: \(s.datagramsOut) datagram(s) out, \(s.datagramsIn) in, \(s.frames) ctrl frame(s), "
+            + "\(s.retransmissions) retransmission(s), \(s.abandoned) abandoned, \(s.unkept) unkept, "
+            + "\(s.duplicates) duplicate(s), \(s.malformed) malformed, \(s.unknownTypes) unknown type(s)"
+    }
 
     var cancelCheck: @Sendable () -> Bool { { [token] in token.isCancelled } }
 
@@ -205,8 +240,10 @@ final class InternetLink: @unchecked Sendable {
         note("ctrl hole open: \(Self.describe(hole.selected))")
 
         // 8. RUDP on it, and the registration through PSN, whose keys this whole session then uses.
-        let channelRUDP = RUDPConnection(socket: hole.socket, timings: environment.rudp)
+        let trace: (@Sendable (String) -> Void)? = options.rudpTrace ? options.log : nil
+        let channelRUDP = RUDPConnection(socket: hole.socket, timings: environment.rudp, trace: trace)
         rudp = channelRUDP
+        startStatisticsTimer(for: channelRUDP)
         held.withLock { heldState.rudp = channelRUDP }
         token.onCancel { channelRUDP.close() }
         report(.registering)
@@ -376,6 +413,9 @@ final class InternetLink: @unchecked Sendable {
         }
     }
 
+    /// Whether the data hole is open (and not yet handed to a transport).
+    var hasDataHole: Bool { held.withLock { heldState.descriptor != nil } }
+
     /// The probe's transport (step 12): the data socket drained, then a `dup` of it, so the probe's end leaves the
     /// socket open for the stream connection (takion.md section 18).
     func probeTransport() throws -> DatagramTransport {
@@ -495,6 +535,8 @@ final class InternetLink: @unchecked Sendable {
             return (items, task)
         }
         guard let items else { return task }
+        items.statistics?.cancel()
+        if let rudp = items.rudp { options.log(Self.describe(rudp.statistics) + " (final)") }
         token.cancel()
         for socket in items.sockets { socket.close() }
         items.rudp?.close()

@@ -334,6 +334,19 @@ extension Serial {
             #expect(PlayFXEngine.internetOptions(environment: ["PLAYFX_FORCE_PORT_GUESSING": "1"]) { _ in }.forcePortGuessing)
         }
 
+        @Test func theRUDPTraceIsOnlyForTheDevelopmentSwitch() {
+            #expect(!PlayFXEngine.internetOptions(environment: [:]) { _ in }.rudpTrace)
+            #expect(!PlayFXEngine.internetOptions(environment: ["PLAYFX_RUDP_TRACE": "0"]) { _ in }.rudpTrace)
+            #expect(PlayFXEngine.internetOptions(environment: ["PLAYFX_RUDP_TRACE": "1"]) { _ in }.rudpTrace)
+        }
+
+        @Test func theEngineTurnsTheRUDPTraceOnFromTheEnvironment() async throws {
+            let h = try InternetHarness(rig: try InternetRig(), environment: ["PLAYFX_RUDP_TRACE": "1"])
+            #expect(await h.connect())
+            #expect(h.started.withLock { $0?.internet.rudpTrace } == true)
+            h.engine.stop()
+        }
+
         @Test func theEngineForcesPortGuessingFromTheEnvironment() async throws {
             let h = try InternetHarness(rig: try InternetRig(), environment: ["PLAYFX_FORCE_PORT_GUESSING": "1"])
             #expect(await h.connect())

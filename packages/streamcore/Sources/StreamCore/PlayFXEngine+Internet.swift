@@ -30,6 +30,9 @@ extension PlayFXEngine {
     /// each hole, for a first hardware round (holepunch.md section 10, question 1). `PLAYFX_FORCE_PORT_GUESSING=1`
     /// (development) sets `forcePortGuessing`: port guesses and the extra low-TTL sockets even when STUN shows a stable
     /// mapping (holepunch.md section 4.2, sixth row), to test a network whose NAT the STUN answers don't describe.
+    /// `PLAYFX_RUDP_TRACE=1` (development) logs every datagram on the ctrl hole after the punch (RUDP message types, `seq` and
+    /// `ack`, lengths, the first 24 bytes of each message's data in hex), each ctrl frame decoded and the RUDP counters
+    /// every 2 s, to find why a console ends the ctrl stage.
     static func internetOptions(
         environment: [String: String], progress: @escaping @Sendable (InternetStage) -> Void
     ) -> InternetOptions {
@@ -38,6 +41,7 @@ extension PlayFXEngine {
         options.log = { line in Log.debug(.session, "Internet play: \(line)") }
         if environment["PLAYFX_PROBE_IDENTITY"] == "logOnly" { options.probeIdentity = .logOnly }
         if environment["PLAYFX_FORCE_PORT_GUESSING"] == "1" { options.forcePortGuessing = true }
+        if environment["PLAYFX_RUDP_TRACE"] == "1" { options.rudpTrace = true }
         return options
     }
 
