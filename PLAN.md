@@ -851,7 +851,7 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     warm-up): a BSD socket thread (poll + `recvmsg` into a preallocated ring, `NET_SERVICE_TYPE_VI`,
     `SO_TIMESTAMP_MONOTONIC`) at 8.2 ms CPU per 1000 packets, p50/p99 8/13 µs, 0 allocations per packet;
     `NWConnection` (interactive video, kernel receive times) at 27 ms, 18/25 µs, 28 allocations. The BSD path
-    is the default unless the console round on Wi-Fi says otherwise. A release test asserts 0 allocations on
+    is the default (decided 2026-11-24, `.nw` kept as a tested fallback, e.g. for iOS). A release test asserts 0 allocations on
     the receive path. 481 tests, 97.7% lines (same with `STREAMCORE_SIMULATE_VM=1` and serially).
   - ✅ The whole stream session from the spec (2026-11-24, `Sources/PlayFXProtocol/Session`): `StreamSession.start`
     runs ctrl, the network probe (best effort: RTT and MTU by bisection, fallbacks on failure), Takion, the
@@ -885,7 +885,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     frames received. Then, with nobody playing but a busier spot in the game (foliage, traffic), both at the same
     load: Network.framework 59–60 fps at 11–13 Mbit/s (40,764 packets in 30 s), BSD thread 59–60 fps at
     11–14 Mbit/s (41,915 packets); each lost nothing, had no GMAC failure or retransmission, ended cleanly and its
-    video decodes in ffmpeg. On this wired-quality LAN the two transports are indistinguishable. One earlier nw run was ended by
+    video decodes in ffmpeg. On this wired-quality LAN the two transports are indistinguishable. Decided with the
+    user: the BSD thread stays the default (cheaper per packet, which matters more on a phone, and fine on iOS),
+    and Network.framework stays built and tested as a fallback (DESIGN.md "Stream transport"). One earlier nw run was ended by
     the console after 6.9 s ("Server shutting down", reported as `streamRemoteShutdown`) when the user picked up
     the console's own controller. **Not yet checked on hardware:** FEC recovery and reorder (the LAN lost
     nothing), CPU per packet on the console's traffic, controller input, the HEVC codec byte, the pad-info form.
