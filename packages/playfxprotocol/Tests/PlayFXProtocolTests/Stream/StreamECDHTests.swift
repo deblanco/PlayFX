@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct StreamECDHTests {
     @Test func publicKeysAndSignaturesMatchV_ST1() throws {

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite("AV: GF(2^8) and the erasure code")
 struct FECTests {

@@ -2,6 +2,7 @@ import Darwin
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct DiscoveryTests {
     static let ps5Answer =

@@ -23,3 +23,8 @@ header's `codec` byte and the pad-info form (17 or 25 bytes) when it first sees 
 - `scripts/test.sh` runs the tests (swift-testing); no console or network needed (recorded bytes in
   `Tests/PlayFXProtocolTests/Fixtures`).
 - `scripts/coverage.sh` gates line and function coverage at 80%.
+- `PlayFXProtocolTestSupport` (`Sources/PlayFXProtocolTestSupport`) is a test-only library product: the fake console
+  (session init, ctrl, probe and stream over loopback), the Takion fakes, the spec vectors and `Fixtures`. This package's
+  tests and StreamCore's (the PlayFX engine) both use it. It imports PlayFXProtocol with `@testable`, so it builds in
+  debug or with `-Xswiftc -enable-testing` (a plain `swift build -c release` of every target fails on it; build the
+  products, e.g. `--product PlayFXProtocol`).

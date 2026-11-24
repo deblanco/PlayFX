@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// Ownership, the start contract, the ending paths and their races.
 extension StreamSessionSuites {

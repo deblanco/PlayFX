@@ -28,17 +28,31 @@ let package = Package(
         // Headless debugging tool: discover / register / stream with snapshots and remote input.
         .executable(name: "psrp", targets: ["psrp"]),
     ],
+    dependencies: [
+        // PlayFX's own protocol implementation, the second engine (PlayFXEngine).
+        .package(path: "../playfxprotocol"),
+    ],
     targets: [
         // Thin C API over libchiaki (PS Remote Play protocol).
         .target(name: "CChiaki", cSettings: cCoverage, linkerSettings: chiakiLinkerSettings),
         // Catches Objective-C exceptions thrown inside framework calls, which Swift can't.
         .target(name: "CObjCCatch"),
-        .target(name: "StreamCore", dependencies: ["CChiaki", "CObjCCatch"]),
+        // The libopus calls the PlayFX engine makes (game audio decode, microphone encode); libopus itself is the
+        // static one linked through CChiaki.
+        .target(name: "COpus"),
+        .target(
+            name: "StreamCore",
+            dependencies: ["CChiaki", "CObjCCatch", "COpus", .product(name: "PlayFXProtocol", package: "playfxprotocol")]),
         .executableTarget(name: "psrp", dependencies: ["StreamCore"]),
         // swift-testing ships with the Command Line Tools as a framework outside the default search
         // paths, and its Foundation cross-import overlay has no module there, so overlays are off.
         .testTarget(
-            name: "StreamCoreTests", dependencies: ["StreamCore", "CChiaki", "CObjCCatch"],
+            name: "StreamCoreTests",
+            dependencies: [
+                "StreamCore", "CChiaki", "CObjCCatch", "COpus",
+                .product(name: "PlayFXProtocol", package: "playfxprotocol"),
+                .product(name: "PlayFXProtocolTestSupport", package: "playfxprotocol"),
+            ],
             swiftSettings: [.unsafeFlags(["-F", cltFrameworks, "-Xfrontend", "-disable-cross-import-overlays"])],
             linkerSettings: [.unsafeFlags(["-F", cltFrameworks, "-Xlinker", "-rpath", "-Xlinker", cltFrameworks])]),
     ]

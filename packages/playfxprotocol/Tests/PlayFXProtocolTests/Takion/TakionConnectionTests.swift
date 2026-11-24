@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// Handshake, reliable data, fragmentation and the crypto switch, over the in-memory link and the fake console.
 @Suite struct TakionConnectionTests {

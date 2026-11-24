@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 // In TakionAllocationTests' suite (serialized) because the malloc hook it uses is process-wide.
 extension TakionAllocationTests {

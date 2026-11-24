@@ -2,27 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
-
-/// The made-up inputs of session.md section 14 and ctrl.md section 12.
-enum SessionVector {
-    static let host = "192.0.2.10"
-    static let registKey = hex("30313233616263640000000000000000")
-    static let rpKey = hex("a0a1a2a3a4a5a6a7a8a9aaabacadaeaf")
-    static let nonce = hex("000102030405060708090a0b0c0d0e0f")
-    static let deviceID = hex("00180000000700400080 202122232425262728292a2b2c2d2e2f 000000000000")
-    static let sessionIDText = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL"
-
-    static func context(_ target: RPTarget) throws -> RPCryptContext {
-        try RPCryptContext.session(target: target, nonce: nonce, rpKey: rpKey)
-    }
-
-    /// `(sessionAesKey, sessionIvSeed)` from V-S3.
-    static let keys: [(RPTarget, String, String)] = [
-        (.ps5v1, "598fa9a031d01820db25cab6e90bb19b", "ac7d50f394ea6588f0488f76e4170c8a"),
-        (.ps4v10, "f7e760687cea0ce70c1c129f67c087c8", "e978b89a1098296fb32415b9b5713be0"),
-        (.ps4v9, "35394aed0d6cda5620d3c3a748eb1adf", "d8905e42bce052e092e354911ad33688"),
-    ]
-}
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct SessionInitVectorTests {
     @Test func requestBytesPS5() {

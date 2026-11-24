@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 enum TransportKind: String, CaseIterable, CustomTestStringConvertible, Sendable {
     case bsd, nw

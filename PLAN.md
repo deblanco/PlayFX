@@ -3,7 +3,8 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **the internet-play spec** (`docs/protocol/psn.md`, `holepunch.md`, `rudp.md`, PIN-less
+Last updated 2026-11-24, after **`PlayFXEngine`**: StreamCore can stream on PlayFXProtocol (`Options.engine = "playfx"`,
+`psrp stream --engine playfx`), clean-room against the engine contract; not yet on a console. Before that, **the internet-play spec** (`docs/protocol/psn.md`, `holepunch.md`, `rudp.md`, PIN-less
 pairing through PSN; facts only, vectors checked against the reference's byte layouts). Before that, **the StreamCore engine seam**: `StreamSession` now drives the protocol through a
 small Swift interface (`StreamEngine` / `StreamEngineSink`), with libchiaki as its only engine and behaviour
 unchanged, so `PlayFXEngine` can be written against that contract alone (Swift 428 tests, 90.4% lines; 88.8% as CI's
@@ -121,7 +122,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 428 tests (90% lines; 89% as CI's VM sees
+- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 483 tests (91% lines; 89.5% as CI's VM sees
   it; 2026-11-24), PlayFXProtocol 574 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -956,7 +957,21 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     and notification behaviour.
   - Scope decided by the user (2026-11-24): this PR ends with third_party/ and chiaki-ng gone, PSN play rebuilt
     clean-room (not dropped), and PlayFX proprietary.
-  - ❌ Next: `PlayFXEngine` review and commit; discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
+  - ✅ `PlayFXEngine` (2026-11-24, clean-room against StreamEngine.swift alone): StreamCore's second engine, on
+    PlayFXProtocol. Video units with parameter sets in front of key frames (and after a refusal or a profile
+    switch), game audio decoded with libopus (packet-loss concealment for lost frames, a reset after a long gap),
+    the microphone encoded as av.md §8.2 says (CELT 10 ms, 40-byte packets), haptics to a USB pad or turned into
+    rumble (its own curve: 255·√RMS, 64 levels, repeated every 50 ms), trigger effects, light bar, player index,
+    login PIN, keyboard, go to bed, key-frame requests, stats, and the contract's stop guarantees. Chosen with
+    `StreamSession.Options.engine = "playfx"` (default "chiaki"; internet play always libchiaki until PSN lands);
+    `psrp stream --engine playfx`. `COpus` declares the few libopus calls it needs (linked through the static
+    libopus already in the binary). PlayFXProtocol's fake console moved to a `PlayFXProtocolTestSupport` product
+    so StreamCore's tests stream end to end over loopback. Reviewed against the contract and fixed: the sink kept
+    alive past `stop()`, a deadlock when the app's handler calls back during `stop()` (StreamSession now stops the
+    engine outside its lock), per-gate nesting, a nested stop's quit, microphone ordering. Not honoured: a PS5 may
+    always lower the resolution (the spec has no "don't resize"). StreamCore 483 tests, 91% lines (89.5% in VM
+    mode). Not yet run against a console.
+  - ❌ Next: discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
     in PlayFXProtocol from the new spec, with a hardware round over the internet; the parity round in the app;
     then removing chiaki-ng, third_party/ and libchiaki's C libraries, and the licence change.
 

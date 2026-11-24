@@ -1,6 +1,7 @@
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct StreamMessageTests {
     // MARK: V-ST7 small client messages

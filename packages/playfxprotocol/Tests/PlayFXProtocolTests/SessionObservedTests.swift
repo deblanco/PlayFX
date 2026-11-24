@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// The start-up races, cancellation, redaction and the sequences seen on a real PS5 (ctrl.md, "Observed on a
 /// real console"), against the spec-built fake console.

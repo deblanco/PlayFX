@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// A small deterministic generator, so a failure can be replayed.
 struct LCG: RandomNumberGenerator {

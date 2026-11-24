@@ -15,6 +15,9 @@ public final class StreamSession: StreamEngineSink {
         public var autoDowngrade: Bool = true
         /// HDR10 (HEVC Main10, PQ, BT.2020) when the game and the console's HDR setting allow it. PS5 + HEVC only.
         public var hdr: Bool = false
+        /// The protocol engine: "chiaki" (libchiaki, the default) or "playfx" (PlayFXProtocol, local network only:
+        /// internet play always uses libchiaki). Anything else is "chiaki".
+        public var engine: String = "chiaki"
         public init() {}
 
         /// Missing keys keep their defaults, so older hosts' JSON still decodes.
@@ -28,6 +31,7 @@ public final class StreamSession: StreamEngineSink {
             audio = try c.decodeIfPresent(Bool.self, forKey: .audio) ?? d.audio
             autoDowngrade = try c.decodeIfPresent(Bool.self, forKey: .autoDowngrade) ?? d.autoDowngrade
             hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
+            engine = try c.decodeIfPresent(String.self, forKey: .engine) ?? d.engine
         }
     }
 
@@ -202,7 +206,7 @@ public final class StreamSession: StreamEngineSink {
     func waitForDecodedFrames() { decoder.flush() }
 
     private var engine: (any StreamEngine)?
-    /// Held while the engine is used, and by `stop()` while it stops it: callers off the main thread (the
+    /// Held while the engine is used, and by `stop()` while it takes the engine out: callers off the main thread (the
     /// latency test's presses, a stats poll) can't use a session being stopped.
     private let engineLock = NSRecursiveLock()
 
@@ -220,11 +224,19 @@ public final class StreamSession: StreamEngineSink {
     private var _stats = Stats()
     private var _latestFrame: CVPixelBuffer?
 
-    /// Starts connecting to the console on libchiaki; progress and the outcome arrive as events.
+    /// Starts connecting to the console on the engine `options.engine` names (libchiaki unless it's "playfx", and
+    /// always libchiaki over the internet); progress and the outcome arrive as events.
     public convenience init(credentials: ConsoleCredentials, options: Options = Options(), remote: Remote? = nil) throws {
-        try self.init(credentials: credentials, options: options, remote: remote) {
-            try ChiakiEngine(config: $0, sink: $1)
-        }
+        try self.init(credentials: credentials, options: options, remote: remote, engine: Self.engineFactory(for: options, remote: remote))
+    }
+
+    /// PlayFX's own engine runs only the "playfx" choice, on the local network (the internet is libchiaki's).
+    static func usesPlayFX(_ options: Options, remote: Remote?) -> Bool { options.engine == "playfx" && remote == nil }
+
+    /// The factory for the engine `options.engine` names.
+    static func engineFactory(for options: Options, remote: Remote?) -> StreamEngineFactory {
+        if usesPlayFX(options, remote: remote) { return PlayFXEngine.factory }
+        return { try ChiakiEngine(config: $0, sink: $1) }
     }
 
     /// Starts connecting through the engine `makeEngine` starts (tests: a stand-in).
@@ -325,13 +337,16 @@ public final class StreamSession: StreamEngineSink {
 
     /// Stops the stream and waits for the engine's threads to finish.
     public func stop() {
+        // The engine comes out under the lock and is stopped outside it: stopping waits for the engine's sink calls,
+        // and the app's handler may be inside one, calling a command (which takes this lock) or `stop()` itself.
+        // Commands after this see no engine and do nothing.
         engineLock.lock()
         guard let engine else { engineLock.unlock(); return }
         microphone?.stop() // no more frames into the session we're about to stop
         microphone = nil
         self.engine = nil
-        engine.stop()
         engineLock.unlock()
+        engine.stop()
         decoder.flush() // no frame comes out after the session stopped
         audio?.stop()
         padHaptics.stop()

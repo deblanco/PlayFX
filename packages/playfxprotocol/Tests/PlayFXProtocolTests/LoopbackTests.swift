@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// End to end on 127.0.0.1 with ephemeral ports: the real BSD UDP socket and the real `NWConnection` talk
 /// to a fake console written from the spec.

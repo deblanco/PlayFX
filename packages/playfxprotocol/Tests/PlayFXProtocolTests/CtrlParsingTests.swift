@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct CtrlParsingTests {
     static let head = Array("HTTP/1.1 200 OK\r\nContent-Length:        0\r\n\r\n".utf8)

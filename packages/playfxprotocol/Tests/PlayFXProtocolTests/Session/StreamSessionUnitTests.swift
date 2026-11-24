@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// The small pieces of the session layer on their own: error mapping, the mailbox, the event gate.
 @Suite struct StreamSessionUnitTests {

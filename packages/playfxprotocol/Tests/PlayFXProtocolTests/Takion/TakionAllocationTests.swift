@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 // Allocation counting through libmalloc's `malloc_logger` hook: it is called for every malloc, calloc, realloc
 // and free on every thread, so the hook filters on the calling thread and counts allocation events only.

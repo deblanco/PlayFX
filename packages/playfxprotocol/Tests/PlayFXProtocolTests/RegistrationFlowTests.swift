@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// A scripted `BlockingTCPConnection`.
 final class FakeConnection: BlockingTCPConnection, @unchecked Sendable {

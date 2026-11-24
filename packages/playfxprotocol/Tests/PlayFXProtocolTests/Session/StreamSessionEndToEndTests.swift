@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// The whole flow against the fake console of SessionSupport, over real loopback sockets, on both transports.
 extension StreamSessionSuites {

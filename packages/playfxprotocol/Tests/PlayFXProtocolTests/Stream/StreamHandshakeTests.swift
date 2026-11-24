@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct StreamHandshakeTests {
     func ps5Handshake() throws -> StreamHandshake {

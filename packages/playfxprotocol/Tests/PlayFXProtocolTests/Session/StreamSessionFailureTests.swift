@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// Everything that goes wrong before the stream is up, and stopping or cancelling in each phase.
 extension StreamSessionSuites {

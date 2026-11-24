@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// Prints how long a recovery takes with each region-multiply method. The numbers only mean something in
 /// a release build:

@@ -3,6 +3,7 @@ import Network
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct FailureTests {
     static func message(_ kind: FailureKind, reason: UInt32? = nil, answered: Bool, ps5: Bool) -> String {

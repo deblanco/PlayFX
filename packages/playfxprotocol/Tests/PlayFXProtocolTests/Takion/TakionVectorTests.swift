@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 /// The known-answer vectors T1...T16 of takion.md section 15 (T13's protobuf bytes belong to the stream layer;
 /// its ping datagram is here).

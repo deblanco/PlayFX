@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite("AV: clarifications and the real capture")
 struct CaptureTests {
@@ -17,7 +18,7 @@ struct CaptureTests {
     }
 
     func capture() throws -> [CapturedUnit] {
-        let url = try #require(Bundle.module.url(forResource: "av-capture-h264", withExtension: "txt", subdirectory: "Fixtures"))
+        let url = try #require(fixtureURL("av-capture-h264", "txt"))
         return try String(contentsOf: url, encoding: .utf8).split(separator: "\n").filter { !$0.hasPrefix("#") }.map { line in
             let f = line.split(separator: " ")
             return CapturedUnit(

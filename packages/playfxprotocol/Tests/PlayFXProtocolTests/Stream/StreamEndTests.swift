@@ -1,6 +1,7 @@
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct StreamEndTests {
     @Test func messagesForEachKind() {

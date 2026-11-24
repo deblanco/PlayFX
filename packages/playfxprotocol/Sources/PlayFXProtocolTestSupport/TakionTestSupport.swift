@@ -2,7 +2,6 @@ import CommonCrypto
 import CryptoKit
 import Darwin
 import Foundation
-import Testing
 
 @testable import PlayFXProtocol
 
@@ -377,7 +376,7 @@ final class MemoryHarness {
     func handshake(secure: Bool = false) throws {
         try connection.connect()
         pump()
-        #expect(delegate.connected)
+        guard delegate.connected else { throw SupportError("the Takion handshake didn't complete") }
         if secure {
             console.secure()
         }
@@ -433,8 +432,7 @@ final class UDPConsoleLink: @unchecked Sendable {
         var to = target
         // Loopback only: the peer is whoever sent to our 127.0.0.1 socket.
         guard to.sin_addr.s_addr == inet_addr("127.0.0.1") else {
-            Issue.record("fake console would send to a non-loopback address")
-            return
+            loopbackViolation("fake console would send to a non-loopback address")
         }
         _ = withUnsafePointer(to: &to) { p in
             p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sendto(fd, bytes, bytes.count, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }

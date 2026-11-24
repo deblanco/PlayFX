@@ -2,33 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
-
-extension ControlEnvironment {
-    /// Real sockets, but only to loopback (a test that reaches anything else fails).
-    static func loopback(initPort: UInt16, ctrlPort: UInt16? = nil) -> ControlEnvironment {
-        var environment = ControlEnvironment()
-        environment.initPort = initPort
-        environment.ctrlPort = ctrlPort ?? initPort
-        environment.connectTimeout = 2
-        environment.initHeaderTimeout = 1
-        environment.ctrlHeaderTimeout = 1
-        environment.makeInitConnection = { host, port in
-            guard isLoopback(host) else {
-                Issue.record("test tried to connect to non-loopback address \(host)")
-                throw FailureKind.networkUnreachable
-            }
-            return try NWBlockingTCPConnection(host: host, port: port)
-        }
-        environment.makeCtrlConnection = { host, port in
-            guard isLoopback(host) else {
-                Issue.record("test tried to connect to non-loopback address \(host)")
-                throw FailureKind.networkUnreachable
-            }
-            return try CtrlFramer.makeConnection(host: host, port: port)
-        }
-        return environment
-    }
-}
+@testable import PlayFXProtocolTestSupport
 
 /// Collects the events of a session, in order.
 final class EventLog: @unchecked Sendable {
@@ -63,17 +37,6 @@ final class EventLog: @unchecked Sendable {
         return nil
     }
 }
-
-func waitUntil(timeout: Double = 5, _ condition: () -> Bool) async -> Bool {
-    let deadline = monotonicSeconds() + timeout
-    while monotonicSeconds() < deadline {
-        if condition() { return true }
-        try? await Task.sleep(nanoseconds: 5_000_000)
-    }
-    return condition()
-}
-
-let sessionIDPlain = [UInt8(0x4a)] + Array(SessionVector.sessionIDText.utf8)
 
 @Suite struct SessionLoopbackTests {
     static func start(

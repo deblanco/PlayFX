@@ -1,6 +1,7 @@
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct RPCryptTests {
     // docs/protocol/rpcrypt.md section 3.

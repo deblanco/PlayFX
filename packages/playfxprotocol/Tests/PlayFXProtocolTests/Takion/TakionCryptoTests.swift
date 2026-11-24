@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct TakionCryptoTests {
     static let layouts: [GMACLayout] = [.control, .feedback, .av, .congestion]

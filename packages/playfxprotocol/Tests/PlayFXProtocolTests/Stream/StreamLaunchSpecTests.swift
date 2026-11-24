@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 
 @Suite struct StreamLaunchSpecTests {
     // MARK: V-ST2 and V-ST3
