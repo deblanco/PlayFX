@@ -1160,6 +1160,12 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     most 10 s and waits 5 s more for the ID. Added `PLAYFX_RUDP_TRACE=1` (every RUDP datagram and decoded ctrl frame,
     no secrets) and always-on logs of the ctrl-stage events and the exact failure case. Left: the next hotspot run;
     detecting a per-destination NAT (different STUN ports, increment 0) so port guessing starts without the switch.
+  - ✅ **First internet stream on our own code** (2026-11-24, Mac on an iPhone hotspot with no VPN, PS5 at home, from a
+    network where libchiaki couldn't connect): with `PLAYFX_FORCE_PORT_GUESSING=1`, ctrl hole in 0.1 s, PIN-less
+    registration, session init, ctrl over RUDP (no retransmissions, nothing malformed), the session ID 6.2 s after ctrl
+    came up (after the data hole had started: the earlier failures were the deadlock now fixed), data hole in 0.6 s,
+    switch acknowledged, stream connected: 1080p30 HEVC, 0 frames lost, RTT 45 ms. Next: detect a per-destination NAT
+    (STUN ports that differ with no step) so port guessing starts by itself.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
