@@ -352,6 +352,7 @@ export const StreamView = ({
         {...(stats.interpolationReason === undefined ? {} : { interpolationReason: stats.interpolationReason })}
         onChange={onSettingsChange}
         reconnect={reconnect}
+        ps4={!ps5}
       />
       {Option.isSome(keyboard) && (
         <ConsoleKeyboard consoleName={title} text={keyboard.value} onDone={onKeyboardDone} />

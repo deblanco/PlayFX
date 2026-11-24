@@ -651,7 +651,8 @@ const savedSettings = (runtime: ReturnType<typeof renderApp>["runtime"]) =>
 describe("settings", () => {
   it("summarizes the stream settings and edits them in the sheet", async () => {
     const core = fakeCore()
-    const { runtime } = renderApp(core, { settings: { ...defaultSettings, height: 720 } })
+    const ps4 = { ...pairedPs5, credentials: { ...pairedPs5.credentials, ps5: false } }
+    const { runtime } = renderApp(core, { paired: [ps4], settings: { ...defaultSettings, height: 720 } })
     expect(await screen.findByText("720p · 60 fps · HEVC · 20 Mbps")).toBeInTheDocument()
     const sheet = await openSettings("Stream")
     expect(sheet.getByText("Changes apply the next time you connect.")).toBeInTheDocument()
@@ -1077,6 +1078,27 @@ describe("streaming", () => {
     await userEvent.click(dialog.getByRole("button", { name: "Stop" }))
     expect(await screen.findByText("Consoles")).toBeInTheDocument()
     expect(core.counts.stopStream).toBe(1)
+  })
+
+  it("hides Lower resolution unless a PS4 is involved: a PS5 adjusts the resolution itself", async () => {
+    renderApp(fakeCore(), { paired: [pairedPs5] })
+    const home = await openSettings("Stream")
+    expect(home.getByRole("switch", { name: "Sound" })).toBeInTheDocument()
+    expect(home.queryByRole("switch", { name: /Lower resolution/ })).not.toBeInTheDocument()
+  })
+
+  it("hides Lower resolution while streaming a PS5", async () => {
+    await startStreaming(fakeCore())
+    const sheet = await openSettings("Stream")
+    expect(sheet.queryByRole("switch", { name: /Lower resolution/ })).not.toBeInTheDocument()
+  })
+
+  it("shows Lower resolution while streaming a PS4", async () => {
+    const ps4 = { ...pairedPs5, credentials: { ...pairedPs5.credentials, ps5: false } }
+    await startStreaming(fakeCore(), { paired: ps4 })
+    const sheet = await openSettings("Stream")
+    expect(sheet.getByRole("switch", { name: /Lower resolution/ })).toBeInTheDocument()
+    expect(sheet.getByText(/PS4 only/)).toBeInTheDocument()
   })
 
   it("names a PS4 in the passcode prompt when streaming one", async () => {

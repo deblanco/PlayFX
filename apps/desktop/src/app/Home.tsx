@@ -37,6 +37,7 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Unknown until the console list has loaded the pairings, so the guide never flashes for set-up users.
   const [hasPaired, setHasPaired] = useState<boolean | undefined>(undefined)
+  const [hasPS4, setHasPS4] = useState(false)
   // The guide shows while nothing is paired, and stays after pairing so its last step, Play, shows. Play
   // leaves Home, so it's gone on the way back.
   const [guide, setGuide] = useState(false)
@@ -74,6 +75,7 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
             connection={settings.connection}
             onPlay={onPlay}
             onPairedChange={pairedChanged}
+            onPS4PairedChange={setHasPS4}
             consoleAddress={settings.consoleAddress}
             onConsoleAddressChange={(consoleAddress) => { onSettingsChange({ ...settings, consoleAddress }) }}
           />
@@ -113,6 +115,7 @@ export const Home = ({ settings, capabilities, onSettingsChange, onPlay }: HomeP
         settings={settings}
         capabilities={capabilities}
         onChange={onSettingsChange}
+        ps4={hasPS4}
       />
     </main>
   )

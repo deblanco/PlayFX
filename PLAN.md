@@ -14,14 +14,14 @@ history (PLAN.md, docs/NETWORK.md's "History: libchiaki", FRAME_INTERPOLATION's 
 provenance (docs/protocol, PlayFXProtocol's README, DESIGN and LICENSE). Before that, **PlayFX became proprietary**: `LICENSE` is "All rights reserved", `NOTICE` and
 the Settings › Diagnostics **Source code** button are gone, every manifest says so (`UNLICENSED`,
 `LicenseRef-Proprietary`), `THIRD_PARTY_LICENSES` is regenerated for what ships now (libsecp256k1 and libopus as
-the C libraries), and CLAUDE.md allows only permissive licences (TS 424 tests, Rust 74). Before that, **chiaki-ng's submodule removed**: `third_party/` and `.gitmodules` are gone;
+the C libraries), and CLAUDE.md allows only permissive licences (TS 427 tests, Rust 74). Before that, **chiaki-ng's submodule removed**: `third_party/` and `.gitmodules` are gone;
 docs name chiaki-ng only as history (docs/NETWORK.md's "History: libchiaki") and as the clean-room spec's
 provenance (docs/protocol, now naming commit d8efd673bc93bbc16e9f646c5b24e0dee013abcc, the one the submodule
 recorded). Before that, **the app and CI without libchiaki**: the desktop app's Rust side builds and links
 with only StreamCore, Homebrew's static libopus and system frameworks (no curl, OpenSSL, json-c, miniupnpc,
 libevent, nanopb, Jerasure or GF-Complete); the UI shows the new engine's quit reasons in its own words (adding
 "or play over the internet" for a PS5 that didn't answer) and tries PSN on its "didn't answer"/"couldn't reach"
-texts; CI installs only `opus` and builds no libchiaki (TS 424 tests, Rust 74). Before that, **StreamCore on PlayFXProtocol only**: `ChiakiEngine`, the C shim (`Sources/CChiaki`)
+texts; CI installs only `opus` and builds no libchiaki (TS 427 tests, Rust 74). Before that, **StreamCore on PlayFXProtocol only**: `ChiakiEngine`, the C shim (`Sources/CChiaki`)
 and `build-chiaki.sh` are gone; every stream, local or through PSN, runs on `PlayFXEngine`, with libopus linked
 statically from Homebrew's opus keg (StreamCore 501 tests, 91.5% lines; 90.1% in VM mode). Before that, **`PlayFXEngine`**: StreamCore can stream on PlayFXProtocol (`Options.engine = "playfx"`,
 `psrp stream --engine playfx`), clean-room against the engine contract; not yet on a console. Before that, **the internet-play spec** (`docs/protocol/psn.md`, `holepunch.md`, `rudp.md`, PIN-less
@@ -144,7 +144,7 @@ packages/playfxprotocol Swift package: PlayFX's own Remote Play protocol (propri
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-24): TS 424 tests (97.9% lines), Swift 501 tests (91.5% lines; 90.1% as CI's VM sees
+- Tests + gates (2026-11-24): TS 427 tests (97.9% lines), Swift 501 tests (91.5% lines; 90.1% as CI's VM sees
   it), PlayFXProtocol 851 tests (97.9% lines, the same in VM mode and serially; no test leaves loopback), Rust 74
   tests (91.4% lines), strict
   `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings` (chiaki-ng's own unit tests went with the submodule on
@@ -1061,7 +1061,7 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     "or play over the internet"; PSN is tried after the engine's "didn't answer" or "couldn't reach" texts (PS5
     and PS4), as it was after libchiaki's "Unknown Session Request Error". Comments in `native.rs`, `keyboard.ts`,
     `schema.ts` and the Settings text no longer name chiaki. CI: no submodule checkout, no libchiaki build or
-    cache, `brew install opus` only; every gate kept. `release.sh` had no libchiaki step. TS 424 tests (97.9%
+    cache, `brew install opus` only; every gate kept. `release.sh` had no libchiaki step. TS 427 tests (97.9%
     lines), Rust 74 (91.4% lines), clippy clean. Not yet on a console.
   - ✅ chiaki-ng's submodule removed (2026-11-24): `git rm third_party/chiaki-ng`, `.gitmodules` deleted,
     `third_party/` gone (this worktree never checked it out; the main checkout's `.git/modules` copy was left
@@ -1111,6 +1111,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     stream at 20 Mbit/s connected in about 2 s (2,527 frames, 0 lost, 0 decode errors, RTT 1.25 ms), DualSense
     haptics over Bluetooth, the GTA VI profile, a clean quit. Left: haptics on USB, mic, PIN, pairing from the app,
     go to bed from the app; internet play; PS4.
+  - ✅ "Lower resolution when the network is slow" only where it acts (2026-11-24, requested): it only ever affected a
+    PS4 (a PS5 always may resize, with libchiaki too: the launch spec has no "don't resize"), so Settings → Stream
+    shows it only when a PS4 is paired, or while streaming a PS4, labelled "PS4 only". TS 427 tests.
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
