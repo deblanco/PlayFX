@@ -34,8 +34,9 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 
 ### Licences
 - PlayFX is proprietary (LICENSE). Only permissively licensed code goes in (MIT, BSD, ISC, Apache-2.0,
-  zlib…): no copyleft (GPL/LGPL/AGPL/MPL) and no source-available licences (e.g. shadcn/studio blocks, MIT
-  with a Commons Clause). Anything new that ships gets an entry in `THIRD_PARTY_LICENSES` (re-run
+  zlib…): no copyleft (GPL/LGPL/AGPL) and no source-available licences (e.g. shadcn/studio blocks, MIT
+  with a Commons Clause). MPL-2.0 (file-level copyleft) only as an unmodified dependency, e.g. the crates
+  Tauri brings in; never copy or change MPL files. Anything new that ships gets an entry in `THIRD_PARTY_LICENSES` (re-run
   `scripts/third-party-licenses.py`).
 
 ### Tests: ≥ 80% coverage, everywhere

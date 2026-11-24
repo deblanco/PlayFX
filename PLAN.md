@@ -1099,6 +1099,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     data above all), and the remaining risks with Sony's crypto constants as the largest. Not legal advice; the owner
     chose not to involve a lawyer. The scratch copies of chiaki-ng sources and the test programs built from them
     (outside the repository) were deleted.
+  - ✅ Licence rule settled (2026-11-24, the owner): MPL-2.0 is allowed only as an unmodified dependency (the five
+    crates Tauri brings in: cssparser, cssparser-macros, dtoa-short, selectors, option-ext); GPL/LGPL/AGPL and
+    source-available licences stay out (CLAUDE.md).
   - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
     release), and the provenance and risk page owed at the end of this PR.
 
