@@ -3,7 +3,11 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **USB haptics felt**: on macOS a DualSense on USB ignores the haptics audio on its
+Last updated 2026-11-24, after **the input lane (PR #6) merged into this branch**: pad readings reach the console off the
+main thread, read by a loop of their own (`streamcore.input`, user-interactive) paced by `InputPacer` (500 Hz while
+readings change, 125 Hz after a second of quiet), motion readings identical to the last one dropped, states handed
+on under the lock they're merged in; with `PlayFXEngine` behind `StreamSession` unchanged. Unit tests only; the
+latency test before and after on the console is left. Before that, **USB haptics felt**: on macOS a DualSense on USB ignores the haptics audio on its
 sound device's channels 3 and 4 until it gets one all-zero HID output report 0x02 (found on the user's pad with a test
 tone); StreamCore now sends it when haptics start on a USB pad, about once a second while they play and shortly after
 the app's own rumble, trigger or light bar output, and logs what it found when no pad plays them (StreamCore 509
@@ -138,7 +142,10 @@ packages/playfxprotocol Swift package: PlayFX's own Remote Play protocol (propri
   labels) in the desktop HUD/settings; `psrp` `/render.png?mode=…&w=…&h=…` renders the latest frame
   offscreen at any size (used for the 720p → 4K comparison screenshots).
 - Audio: Opus decode → low-latency `AVAudioEngine` with a jitter buffer.
-- Input: DualSense/DualShock/Xbox/MFi via the GameController framework.
+- Input: DualSense/DualShock/Xbox/MFi via the GameController framework — its callbacks on the main thread,
+  plus an **input loop** of its own (user-interactive) that reads the pads off it, paced adaptively by
+  `InputPacer` (fast while readings change, a heartbeat when they don't), so a reading doesn't wait behind
+  rendering and UI.
 - **Keyboard-as-controller** (testing without a pad): the web UI captures keys and forwards a
   controller state through `sc_session_set_controller`, which StreamCore merges with the pad's
   (`ControllerInput.setKeys`); mapping is a pure, tested function (`src/app/keyboard.ts`), with an in-HUD
@@ -663,6 +670,17 @@ Work items:
   frames back for nothing). Measured on the PS5: 44 ms (3 drawables, Smooth motion wrongly on) → 33 ms
   (2 drawables; not a strict A/B). Not done: audio jitter-buffer tuning (no audio/video sync complaints
   so far).
+- ✅ **Input lane off the main thread** (2026-11-21): an input loop (user-interactive) reads every connected pad
+  between GameController's main-queue callbacks — `InputPacer` paces it, 500 Hz while readings change (learning
+  half the pad's reporting interval from the gaps between distinct readings) and 125 Hz after a second of quiet —
+  so a press or a stick move doesn't queue behind a frame's render or a UI update. Motion readings whose sensors
+  read exactly as the last are dropped (a timestamp alone would re-integrate the same stillness). Unit tests only
+  (pacer policy, the loop's read through `pollPads`, the motion dedupe): not yet on the pad — the off-main reads
+  of GameController's elements want a look with one, then the dev latency test before and after. Review fixes
+  (unit-tested): states reach `onChange` one at a time and in the order merged (the test fails against the old
+  hand-off); each pad's unchanged reading and motion are dropped, so two connected pads don't take turns on every
+  pass, and an idle pad's first reading doesn't take over; reads of a disconnected pad are dropped; the loop
+  starts when `onChange` is set; `StreamSession` sends the pad's and pointer's states under its lock.
 - ✅ **Settings tabs** (2026-11-21, asked for: Picture vs Stream read alike): Picture · Stream · **Misc** ·
   Diagnostics, each with an icon (lucide Image, Radio, SlidersHorizontal, Activity) and a plain line at the
   top saying what it controls ("How this Mac cleans up, sharpens and smooths the picture.", "What the console
@@ -1634,6 +1652,14 @@ requests and a bug report.
    "waiting for IDR" with the earlier logs (5 holes in 50 min; no "queue full" skips dropping a frame); then over
    the internet, where the wait should stay higher, and in a loss burst not fall below what late packets showed.
    Detailed logs show each "queue full" and "reorder timeout" skip. *(P1)*
+7d. **On the console: the adaptive input lane** (new 2026-11-21, unit tests only). With a pad in hand, that
+   presses, sticks, touchpad and motion aim feel no worse than before (the loop's off-main reads of
+   GameController's elements are the unverified part), also with a second pad connected and idle, and pulling a
+   pad's battery or Bluetooth mid-press; the stream stays clean in the stats (motion no longer
+   floods while a pad lies still); and the dev latency test (`POST /latency-test`) before and after, with the
+   main thread busy and idle, shows what the lane bought — or doesn't, in which case the input leg wasn't the
+   bottleneck and raw HID input (bypassing GameController entirely, the way the USB haptics output does) isn't
+   worth its cost. *(P1)*
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
    itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
    quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a

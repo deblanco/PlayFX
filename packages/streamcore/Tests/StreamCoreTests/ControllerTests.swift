@@ -1,5 +1,6 @@
 import GameController
 import Testing
+import os
 @testable import StreamCore
 
 @Suite struct ControllerMappingTests {
@@ -94,7 +95,9 @@ import Testing
     }
 }
 
-@Suite struct ControllerInputTests {
+/// Serialized: a connect notification reaches every live `ControllerInput`, and the last to attach a controller
+/// takes its callback, so another test's instance running alongside could take this suite's.
+@Suite(.serialized) struct ControllerInputTests {
     @Test @MainActor func emitsMergedStateWhenAttachedPadChanges() async throws {
         let input = ControllerInput()
         var states: [ControllerState] = []
@@ -181,6 +184,131 @@ import Testing
         let standIn = GCController.withExtendedGamepad()
         #expect(standIn.isSnapshot && ControllerInput.reads(standIn) && ControllerInput.reads(standIn, allowed: true))
         #expect(PadHardware.controllers().isEmpty) // no real pad is attached at start
+    }
+
+    @Test @MainActor func theLoopReadsPadsWithoutWaitingForTheMainQueue() throws {
+        // The input loop's own read, off the main queue: given a stand-in pad it reads the same state the
+        // callbacks would, and what it reads reaches the console through the same path.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let controller = GCController.withExtendedGamepad()
+        input.attach(controller)
+        let pad = try #require(controller.extendedGamepad)
+        pad.buttonA.setValue(1)
+        input.pollPads([controller])
+        #expect(sent.last?.buttons == ControllerButton.cross.rawValue)
+        // Nothing changed between reads: nothing is sent again.
+        let count = sent.count
+        input.pollPads([controller])
+        #expect(sent.count == count)
+        pad.leftThumbstick.setValueForXAxis(1, yAxis: 0)
+        input.pollPads([controller])
+        #expect(sent.last?.leftX == Int16.max && sent.last?.leftY == 0)
+        // What the loop read is the pad's, so its disconnect still releases it.
+        input.disconnected(ObjectIdentifier(controller))
+        #expect(sent.last == ControllerState())
+        // A read the loop started before the disconnect lands after it: dropped, or the pad's last reading
+        // would hold its stick again with nothing left to release it.
+        let released = sent.count
+        input.pollPads([controller])
+        #expect(sent.count == released && sent.last == ControllerState())
+        // Connected again, it's read again.
+        input.attach(controller)
+        input.pollPads([controller])
+        #expect(sent.last?.leftX == Int16.max)
+    }
+
+    @Test @MainActor func twoPadsDontTakeTurnsOnEveryRead() throws {
+        // The loop reads every connected pad on each pass. A pad whose reading hasn't changed is no news, so the
+        // one in use keeps its trigger held, and an idle second pad's first reading doesn't take over from it.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let (inUse, idle) = (GCController.withExtendedGamepad(), GCController.withExtendedGamepad())
+        input.attach(inUse)
+        input.attach(idle)
+        try #require(inUse.extendedGamepad).rightTrigger.setValue(1)
+        input.pollPads([inUse, idle])
+        // The pad in use: its buttons and its motion; the idle one's readings don't replace either.
+        #expect(sent.count == 2 && sent.last?.r2 == 255)
+        let motion = sent.last?.motion
+        input.pollPads([inUse, idle])
+        input.pollPads([idle, inUse])
+        #expect(sent.count == 2 && sent.last?.motion == motion)
+        // The other pad pressed: it's the one in use now, as with GameController's own callbacks.
+        try #require(idle.extendedGamepad).buttonB.setValue(1)
+        input.pollPads([inUse, idle])
+        #expect(sent.last?.buttons == ControllerButton.circle.rawValue && sent.last?.r2 == 0)
+        input.pollPads([inUse, idle])
+        #expect(sent.count == 3)
+    }
+
+    @Test func eachPadsStillMotionIsDroppedOnItsOwn() {
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let pads = (GCController.withExtendedGamepad(), GCController.withExtendedGamepad()) // kept alive: distinct ids
+        let (a, b) = (ObjectIdentifier(pads.0), ObjectIdentifier(pads.1))
+        let still = ControllerState.Motion(gyro: [0, 0, 0], accel: [0, -1, 0], timestampMicros: 1)
+        input.motionChanged(still, from: a)
+        // The same sensors later: only the timestamp differs, nothing is sent.
+        input.motionChanged(.init(gyro: still.gyro, accel: still.accel, timestampMicros: 2), from: a)
+        #expect(sent.count == 1)
+        // Another pad's first reading doesn't take over; its next one, a change, does.
+        input.motionChanged(.init(gyro: [1, 0, 0], accel: [0, -1, 0], timestampMicros: 3), from: b)
+        #expect(sent.count == 1)
+        let tilted = ControllerState.Motion(gyro: [2, 0, 0], accel: [0, -1, 0], timestampMicros: 4)
+        input.motionChanged(tilted, from: b)
+        // A's stillness again is still no news, even after B's reading.
+        input.motionChanged(.init(gyro: still.gyro, accel: still.accel, timestampMicros: 5), from: a)
+        #expect(sent.count == 2 && sent.last?.motion == tilted)
+    }
+
+    @Test func aStateMergedBeforeAnyoneListensIsStillSent() {
+        // The bridge sets `sendsTouches` before `onChange`; a reading merged then wasn't taken as sent, so it
+        // goes out with the next change instead of being lost.
+        let input = ControllerInput()
+        var held = ControllerState()
+        held.buttons = ControllerButton.r1.rawValue
+        input.padChanged(held, fingers: [])
+        input.sendsTouches = false
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        input.setKeys(ControllerState())
+        #expect(sent == [held])
+    }
+
+    @Test func statesFromTwoThreadsArriveOneAtATimeInTheOrderTheyWereMerged() async {
+        // The loop and the main thread both merge states. Handed on after the lock, a state merged on one thread
+        // could reach the console after a newer one from the other, leaving a released button held. So while one
+        // is being handed on, a state merged on another thread waits for it.
+        let input = ControllerInput()
+        struct Seen { var inside = false, overlapped = false, sent: [ControllerState] = [] }
+        let seen = OSAllocatedUnfairLock(initialState: Seen())
+        var keys = ControllerState()
+        keys.buttons = ControllerButton.cross.rawValue
+        input.onChange = { s in
+            let first = seen.withLock { seen -> Bool in
+                if seen.inside { seen.overlapped = true }
+                seen.inside = true
+                seen.sent.append(s)
+                return seen.sent.count == 1
+            }
+            if first {
+                // Another thread merges a newer state while this one is still on its way.
+                Thread.detachNewThread { input.setKeys(keys) }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            seen.withLock { $0.inside = false }
+        }
+        var pad = ControllerState()
+        pad.leftX = 100
+        input.padChanged(pad, fingers: [])
+        let both = await waitUntil(timeout: 2) { seen.withLock { $0.sent.count } == 2 }
+        var newest = pad
+        newest.buttons = keys.buttons
+        #expect(both && !seen.withLock { $0.overlapped } && seen.withLock { $0.sent.last } == newest)
     }
 }
 

@@ -134,7 +134,8 @@ struct YCbCrConversion: Equatable {
     static func range(full: Bool, tenBit: Bool) -> SIMD4<Float> {
         guard tenBit else {
             let mid: Float = 128.0 / 255, black: Float = 16.0 / 255
-            return full ? [0, 1, mid, 1] : [black, 255.0 / 219, mid, 255.0 / 224]
+            if full { return [0, 1, mid, 1] }
+            return [black, 255.0 / 219, mid, 255.0 / 224]
         }
         let unit: Float = 64.0 / 65535 // one 10-bit code step
         let codes: (black: Float, luma: Float, mid: Float, chroma: Float, max: Float) = (64, 876, 512, 896, 1023)
