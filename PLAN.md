@@ -122,7 +122,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 490 tests (91% lines; 89.8% as CI's VM sees
+- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 519 tests (91% lines; 90% as CI's VM sees
   it; 2026-11-24), PlayFXProtocol 574 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
@@ -1005,6 +1005,16 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     slow cancel, home addresses in the system log, the console's sid width). End to end on loopback against a fake
     PSN and a fake console that punches, speaks RUDP and streams. PlayFXProtocol 843 tests, 98% lines. Not yet over
     the internet.
+  - ✅ No ctrl counter is ever used twice (2026-11-24, from a security review): over the internet a PS5's first PIN
+    reply takes the counter skipped after the request (ctrl.md §10); a second PIN reply, and a PS4's, take a fresh one,
+    and a guard refuses any repeat (a reused keystream could reveal the PIN to an observer).
+  - ✅ StreamCore's internet play, PSN console list and PIN-less pairing on PlayFXProtocol (2026-11-24, clean-room):
+    `PlayFXEngine` starts internet sessions (progress linking → data → connected, start failures as final or busy,
+    stop leaves PSN with an 8 s bound; `PLAYFX_PROBE_IDENTITY=logOnly` for the first round), `PSNAccount` lists the
+    consoles with our PSN client (one token refresh on 401/403), `PSNPairing` pairs through `registerThroughPSN`.
+    PSN sign-in already meets psn.md §2 (scopes, a fresh device ID per sign-in; now tested). The PSN and internet
+    fakes moved to `PlayFXProtocolTestSupport`. StreamCore 519 tests, 91.4% lines (90.0% in VM mode). What still
+    imports the C shim: `ChiakiEngine`, and constants in Log, ControllerInput, Microphone, LatencyTest.
   - ❌ Next: discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
     in PlayFXProtocol from the new spec, with a hardware round over the internet; the parity round in the app;
     then removing chiaki-ng, third_party/ and libchiaki's C libraries, and the licence change.

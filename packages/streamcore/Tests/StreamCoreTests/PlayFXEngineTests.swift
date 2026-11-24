@@ -330,13 +330,5 @@ extension Serial {
             h.engine.locked { $0.stopCalled = false }
             h.engine.stop()
         }
-
-        @Test func internetPlayIsRefused() throws {
-            var config = PlayFXHarness.config()
-            config.remote = CoreSession.Remote(token: "t", duid: String(repeating: "ab", count: 32))
-            #expect(throws: ConsoleError.message("Internet play isn't available with the PlayFX engine yet")) {
-                try PlayFXEngine(config: config, sink: RecordingSink())
-            }
-        }
     }
 }

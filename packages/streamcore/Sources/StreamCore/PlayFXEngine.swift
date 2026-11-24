@@ -29,12 +29,25 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
             events: events)
     }
 
+    /// Starts the library's internet session through PSN (tests start it against fakes of PSN, the router and the console).
+    typealias RemoteStarter = @Sendable (
+        _ remote: PSNRemote, _ settings: StreamSettings, _ options: StreamSessionOptions, _ internet: InternetOptions,
+        _ events: @escaping Events
+    ) async throws -> PlayFXLibrarySession
+
+    static let defaultRemoteStarter: RemoteStarter = { remote, settings, options, internet, events in
+        try await PlayFXLibrarySession.start(
+            remote: remote, settings: settings, options: options, internet: internet, events: events)
+    }
+
     /// The factory `StreamSession` uses for `Options.engine == "playfx"`.
     static let factory: StreamEngineFactory = { try PlayFXEngine(config: $0, sink: $1) }
 
-    /// A factory that starts the library's session with `start` (tests).
-    static func factory(start: @escaping Starter) -> StreamEngineFactory {
-        { try PlayFXEngine(config: $0, sink: $1, start: start) }
+    /// A factory that starts the library's session with `start`, and an internet one with `startRemote` (tests).
+    static func factory(
+        start: @escaping Starter, startRemote: @escaping RemoteStarter = PlayFXEngine.defaultRemoteStarter
+    ) -> StreamEngineFactory {
+        { try PlayFXEngine(config: $0, sink: $1, start: start, startRemote: startRemote) }
     }
 
     // MARK: State
@@ -43,6 +56,8 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
     unowned(unsafe) let sink: any StreamEngineSink
     let gate = PlayFXSinkGate()
     let console: StreamConsoleName
+    /// Reaching the console through PSN (`config.remote`): stopping then also leaves the PSN session.
+    let isInternet: Bool
     /// The receive thread's state; only that thread touches it.
     let av = PlayFXReceiveState()
 
@@ -55,6 +70,8 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
         /// The library delivered `ended` (or the start failed: no session to wait for).
         var libraryEnded = false
         var startTask: Task<Void, Never>?
+        /// Internet play: the latest `RemoteStage` reported (its position in `RemoteStage.order`), so each goes out once.
+        var remoteStage = -1
         var stats = StreamEngineStats()
         /// The console refused the last PIN: the next request is a retry.
         var pinWrong = false
@@ -107,30 +124,54 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
             autoDowngrade: config.autoDowngrade)
     }
 
-    /// Starts connecting in the background and returns. Throws only for internet play, which this engine doesn't do.
+    /// Starts connecting in the background and returns. Throws only for internet play on a PS4 or without a 64-hex-character
+    /// PSN device ID (a PS5's); the rest of an internet start (PSN, the holes, registration) runs in the background and
+    /// reports as `.remoteProgress` events and, when it fails, `.quit`.
     ///
     /// The target is a PS5, or a PS4 on Remote Play version 10 (the config doesn't carry the PS4's version). The
     /// microphone is announced to the console at the start (`StreamSessionOptions.microphone`), so voice chat can be
-    /// turned on later. The account ID isn't needed (the stream's keys are the registration and RP keys).
-    init(config: StreamEngineConfig, sink: any StreamEngineSink, start: @escaping Starter = PlayFXEngine.defaultStarter) throws {
-        guard config.remote == nil else {
-            throw ConsoleError.message("Internet play isn't available with the PlayFX engine yet")
+    /// turned on later. The account ID isn't needed (the stream's keys are the registration and RP keys; over the
+    /// internet the library registers first and uses the keys that registration returns).
+    init(
+        config: StreamEngineConfig, sink: any StreamEngineSink, start: @escaping Starter = PlayFXEngine.defaultStarter,
+        startRemote: @escaping RemoteStarter = PlayFXEngine.defaultRemoteStarter,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws {
+        if let remote = config.remote {
+            guard config.ps5, Self.isDeviceID(remote.duid) else {
+                throw ConsoleError.message("Internet play needs a PS5 and its PSN device ID")
+            }
         }
         self.sink = sink
         console = config.ps5 ? .ps5 : .ps4
+        isInternet = config.remote != nil
         var options = StreamSessionOptions()
         options.microphone = true
         let settings = Self.settings(for: config)
-        let target: RPTarget = config.ps5 ? .ps5v1 : .ps4v10
-        let (address, regist, rp) = (config.host, [UInt8](config.registKey), [UInt8](config.rpKey))
         // Both closures hold the engine weakly: the library keeps the handler until the session ends.
         let events: Events = { [weak self] event, session in self?.handle(event, session) }
-        let task = Task { [weak self] in
-            do {
-                let session = try await start(address, target, regist, rp, settings, options, events)
-                if let self { self.startSucceeded(session) } else { session.stop() }
-            } catch {
-                self?.startFailed(error)
+        let task: Task<Void, Never>
+        if let remote = config.remote {
+            let psn = PSNRemote(accessToken: remote.token, consoleDUID: remote.duid, platform: .ps5)
+            let internet = Self.internetOptions(environment: environment) { [weak self] stage in self?.remoteProgress(stage) }
+            task = Task { [weak self] in
+                do {
+                    let session = try await startRemote(psn, settings, options, internet, events)
+                    if let self { self.startSucceeded(session) } else { session.stop() }
+                } catch {
+                    self?.startFailed(error)
+                }
+            }
+        } else {
+            let target: RPTarget = config.ps5 ? .ps5v1 : .ps4v10
+            let (address, regist, rp) = (config.host, [UInt8](config.registKey), [UInt8](config.rpKey))
+            task = Task { [weak self] in
+                do {
+                    let session = try await start(address, target, regist, rp, settings, options, events)
+                    if let self { self.startSucceeded(session) } else { session.stop() }
+                } catch {
+                    self?.startFailed(error)
+                }
             }
         }
         locked { $0.startTask = task }
@@ -194,15 +235,23 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
     /// A start that failed: the console being busy is retried, anything else is final (a connection that was never
     /// made isn't "dropped").
     static func quit(forStartFailure error: Error, console: StreamConsoleName) -> Quit {
+        if let failure = error as? InternetStartError {
+            if case .cancelled = failure { return stopped }
+            return Quit(
+                reason: failure.userMessage(console: console), error: true,
+                kind: failure.retryClass == .busy ? .busy : .final)
+        }
         guard let failure = error as? StreamStartError else {
             return Quit(reason: "Couldn't start the stream: \(error.localizedDescription)", error: true, kind: .final)
         }
-        if case .cancelled = failure { return Quit(reason: "Stopped", error: false, kind: .stopped) }
+        if case .cancelled = failure { return stopped }
         let end = failure.endReason
         return Quit(
             reason: failure.userMessage(console: console), error: end?.isError ?? true,
             kind: end?.code == .consoleBusy ? .busy : .final)
     }
+
+    private static let stopped = Quit(reason: "Stopped", error: false, kind: .stopped)
 
     // MARK: Commands
 
@@ -288,6 +337,11 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
 
     /// Waits this long for the start to wind down and for the library's `ended` (they're prompt; this is a cap).
     static let stopTimeout = 5.0
+    /// Waits this long for an internet session to leave PSN and remove its router mappings (the library bounds each of
+    /// those by PSN's limits and the router's answers; this is the cap for all of it).
+    static let internetStopTimeout = 8.0
+    /// What `stop()` waits for the PSN session to be left (tests shorten it).
+    var internetLeaveWait = PlayFXEngine.internetStopTimeout
 
     func stop() {
         let nested = gate.isInsideCall
@@ -299,7 +353,18 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
         guard first else { return }
         gate.close()
         task?.cancel()
-        session?.stop()
+        // An internet session also leaves PSN and removes its mappings; that is waited for below, once the quit is out.
+        var left: DispatchSemaphore?
+        if isInternet, let session {
+            let done = DispatchSemaphore(value: 0)
+            left = done
+            Task.detached {
+                await session.stopAndWait()
+                done.signal()
+            }
+        } else {
+            session?.stop()
+        }
         if !gate.waitForOtherCalls(timeout: Self.stopTimeout) {
             Log.warning(.session, "PlayFX engine: a sink call was still running after \(Self.stopTimeout) s; stopping anyway")
         }
@@ -314,6 +379,9 @@ final class PlayFXEngine: StreamEngine, @unchecked Sendable {
         guard !nested else { return }
         if !waitUntil({ $0.startFinished && ($0.libraryEnded || !$0.sessionStarted) }) {
             Log.warning(.session, "PlayFX engine: the library's session didn't end within \(Self.stopTimeout) s")
+        }
+        if let left, left.wait(timeout: .now() + internetLeaveWait) == .timedOut {
+            Log.warning(.session, "PlayFX engine: the PSN session wasn't left within \(internetLeaveWait) s; it ends in the background")
         }
     }
 

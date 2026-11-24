@@ -16,7 +16,7 @@ microphone capture, stats and event buffering.
 There are two engines: `ChiakiEngine` (`Sources/StreamCore/ChiakiEngine.swift`), over libchiaki through the C shim
 in `Sources/CChiaki`, the default; and `PlayFXEngine`, on PlayFX's own `packages/playfxprotocol` (below).
 `StreamSession.Options.engine` (`"chiaki"` by default, `"playfx"`; JSON without it decodes as `"chiaki"`, unless `PLAYFX_ENGINE` is set, below) picks one in
-the public initialiser, and internet play (`remote`) always uses libchiaki. `StreamSession`'s internal initialiser
+the public initialiser, for the local network and for internet play (`remote`) alike. `StreamSession`'s internal initialiser
 takes a `StreamEngineFactory`, which is how tests run it on `FakeStreamEngine`
 (`Tests/StreamCoreTests/FakeStreamEngine.swift`) or on `PlayFXEngine` against a fake console.
 
@@ -26,24 +26,23 @@ either engine without the app passing `engine`, e.g. `PLAYFX_ENGINE=playfx bun r
 always wins, and `StreamSession.Options()` built in code keeps `"chiaki"`. The switch goes away with libchiaki.
 
 LAN discovery, wake-up and PIN pairing (`Console`) no longer go through libchiaki: they use PlayFXProtocol's
-`Discovery` and `Registration` whichever engine streams. Pairing through PSN (`PSNPairing`) and internet play still
-use libchiaki.
+`Discovery` and `Registration` whichever engine streams. So do the PSN console list (`PSNAccount.consoles()`, on
+`PSNClient`) and pairing through PSN (`PSNPairing`, on `Registration.registerThroughPSN`). Internet play is
+libchiaki's only with `engine: "chiaki"`.
 
 ## PlayFX engine
 
 `PlayFXEngine` (`Sources/StreamCore/PlayFXEngine*.swift`) implements `StreamEngine` on PlayFXProtocol's `StreamSession`.
 It's opted into with `options.engine = "playfx"`; nothing else about a session changes.
 
-**Supported:** everything in the contract on the local network: video (with the parameter sets in front of each key
+**Supported:** everything in the contract on the local network and over the internet (below): video (with the parameter sets in front of each key
 frame, and a key frame asked for once when the decoder refuses a unit), game audio decoded with libopus (lost frames
 concealed with libopus's packet-loss concealment, a gap too long to conceal resets the decoder), haptics, adaptive-trigger
 effects, rumble, light bar, player index, the login PIN (with the "incorrect" flag), the text keyboard's events and
 commands, microphone voice chat, rest mode, stats, and the quit kinds (busy, dropped, stopped, final).
 
 **Not supported:**
-- Internet play: the factory throws "Internet play isn't available with the PlayFX engine yet" (`StreamSession` never
-  asks for it: it uses libchiaki whenever `remote` is set).
-- PIN-less pairing and registration: pairing stays with `Console` / libchiaki; the engine only streams.
+- Registration itself: the engine only streams; PIN pairing is `Console.register`, PIN-less pairing is `PSNPairing`.
 - The console's nickname: PlayFXProtocol doesn't carry it, so `.nickname` is never sent.
 - The text keyboard's enabling handshake: a PS5 ends the stream when it gets it (ctrl.md section 6.5), so the engine
   doesn't send it and keyboard events may not come until the right handshake is known; `setKeyboardText` and
@@ -54,6 +53,32 @@ commands, microphone voice chat, rest mode, stats, and the quit kinds (busy, dro
   the launch spec says for "don't resize".
 - The account ID in the config isn't used (the stream's keys are the registration and RP keys). A PS4 is streamed as
   Remote Play version 10 (the config doesn't say which one it is).
+
+**Internet play (through PSN).** With `config.remote` (a PSN token and a PS5's 64-hex device ID; a PS4 or another
+ID makes the factory throw "Internet play needs a PS5 and its PSN device ID") the engine starts
+`PlayFXProtocol.StreamSession.start(remote:...)`, which does PSN, the UPnP/STUN holes, the registration through PSN,
+session init and the stream (about 30 s on a real PS5), in the background, as for the local network.
+- *Progress.* The library's ten stages become the contract's three `.remoteProgress` events, each once and in order:
+  `.linking` at `linkingPSN`, `.data` at `dataHole`, `.connected` at `probing` (the data hole is open), all before the
+  stream's own `.connected`. The library's last stage, `connected`, comes after the stream's and isn't reported.
+- *Failures* are `.quit(error: true)` with the library's message (`InternetStartError.userMessage`): `.busy` when the
+  console is busy with another session (the app retries), `.final` for everything else, including holes that
+  couldn't be punched (the library calls those `.dropped`; nothing was ever connected, so there's nothing to
+  reconnect). A `stop()` during the start is `.quit(kind: .stopped)`.
+- *Stopping.* `stop()` ends the stream, then waits (up to 8 s, `PlayFXEngine.internetStopTimeout`) for the library to leave
+  PSN and remove the router mappings (`stopAndWait`); after that wait the engine stops waiting and the rest finishes in
+  the background. A `stop()` during the start doesn't wait for the PSN leave: the library cancels without it, and
+  finishes it in the background.
+- *Logs.* The library's step-by-step lines go to `Log` at debug level (area `session`; "Detailed logging" in the app):
+  they can carry the console's and this network's public addresses, so they are in the app's log file, never the default
+  system log.
+- *Development switch.* `PLAYFX_PROBE_IDENTITY=logOnly` accepts every hole-punch probe and logs the first mismatch of
+  each hole (holepunch.md section 10, question 1), for a first run on real hardware; unset is the strict default.
+
+The same library registration is what `PSNPairing` uses (PIN-less pairing, with stages `linking` and `registering`),
+and `PSNAccount.consoles()` lists the account's PS5s with `PSNClient.consoles()` (one refresh and retry when PSN
+rejects the token; the result is still `[{name, duid, remotePlay}]`). Tokens need the four scopes of psn.md section 2 and
+a client device ID in the sign-in; `PSNAuth` makes both, a new device ID for each sign-in.
 
 **Defaults chosen.** Resolution is the largest of 360/540/720/1080 at or below `height`; 60 fps from 60 up, else 30;
 `bitrate` 0 is the library's preset for the resolution (2000, 6000, 10000, 15000 kbit/s at 360, 540, 720, 1080 p, at

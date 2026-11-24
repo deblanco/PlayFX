@@ -14,6 +14,26 @@ extension Serial {
             #expect(q["scope"] == PSNAuth.scope)
         }
 
+        /// docs/protocol/psn.md section 2: the scopes internet play needs, and a client device ID (section 3.1) in the
+        /// sign-in; the token requests ask for the same scopes.
+        @Test func tokensMeetThePSNSpecsRequirements() throws {
+            let spec: Set<String> = [
+                "psn:clientapp", "referenceDataService:countryConfig.read", "pushNotification:webSocket.desktop.connect",
+                "sessionManager:remotePlaySession.system.update",
+            ]
+            #expect(Set(PSNAuth.scope.split(separator: " ").map(String.init)) == spec)
+            let items = try #require(URLComponents(url: PSNAuth.loginURL, resolvingAgainstBaseURL: false)?.queryItems)
+            let duid = try #require(items.first { $0.name == "duid" }?.value)
+            // 48 lowercase hex characters: the fixed prefix and 16 random bytes.
+            #expect(duid.count == 48 && duid.hasPrefix("0000000700410080"))
+            #expect(duid.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) })
+            for request in [PSNAuth.tokenRequest(code: "c"), PSNAuth.refreshRequest(refreshToken: "r")] {
+                let body = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+                let form = URLComponents(string: "?" + body)?.queryItems ?? []
+                #expect(Set((form.first { $0.name == "scope" }?.value ?? "").split(separator: " ").map(String.init)) == spec)
+            }
+        }
+
         @Test func extractsTheCode() {
             #expect(PSNAuth.code(fromRedirect: "https://remoteplay.dl.playstation.net/remoteplay/redirect?code=v3.ABC&cid=1") == "v3.ABC")
             #expect(PSNAuth.code(fromRedirect: "  v3.XYZ \n") == "v3.XYZ")

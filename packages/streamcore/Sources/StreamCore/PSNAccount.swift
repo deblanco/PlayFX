@@ -1,6 +1,6 @@
 import os
-import CChiaki
 import Foundation
+import PlayFXProtocol
 import Security
 
 /// PSN OAuth tokens, needed to reach the console over the internet (PSN hole punching).
@@ -195,32 +195,56 @@ public final class PSNAccount {
         Log.info(.psn, "Signed out of PSN")
     }
 
-    /// The PS5s on this PSN account (blocking network call, up to ~5 s; run off the main thread).
+    /// The PS5s on this PSN account (a network call of up to ~5 s; run off the main thread).
     /// PSN can revoke an access token before it expires; then this refreshes it once and retries.
     public func consoles() async throws -> [PSNConsole] {
         let consoles: [PSNConsole]
+        let token = try await validAccessToken()
         do {
-            consoles = try listConsoles(try await validAccessToken())
-        } catch let error as ConsoleError {
-            Log.warning(.psn, "\(error.localizedDescription); retrying with a refreshed token")
-            consoles = try listConsoles(try await validAccessToken(forceRefresh: true), retryOf: error)
+            consoles = try await listConsoles(token)
+        } catch let error as PlayFXProtocol.PSNError where Self.isUnauthorized(error) {
+            Log.warning(.psn, "PSN refused the token for the console list (\(error)); retrying with a refreshed token")
+            let fresh = try await validAccessToken(forceRefresh: true)
+            do { consoles = try await listConsoles(fresh) } catch { throw Self.listFailure(error) }
+        } catch {
+            throw Self.listFailure(error)
         }
         Log.info(.psn, "PSN lists \(consoles.count) PS5(s): "
             + consoles.map { "\($0.name)\($0.remotePlay ? "" : " (Remote Play off)")" }.joined(separator: ", "))
         return consoles
     }
 
-    private func listConsoles(_ token: String, retryOf first: ConsoleError) throws -> [PSNConsole] {
-        do { return try listConsoles(token) } catch { throw first }
+    /// How PSN is reached: tests put a fake here.
+    var transport: any PSNTransport = URLSessionPSNTransport()
+
+    /// The account's device list from PlayFXProtocol (psn.md section 4), with `token`.
+    func listConsoles(_ token: String) async throws -> [PSNConsole] {
+        try await PSNClient(accessToken: token, transport: transport).consoles().map(PSNConsole.init)
     }
 
-    /// The shim's device list (tests replace it).
-    var listConsoles: (String) throws -> [PSNConsole] = { token in
-        var out = [PsrpPsnConsole](repeating: PsrpPsnConsole(), count: 16)
-        var error = [CChar](repeating: 0, count: 256)
-        let n = psrp_psn_list_consoles(token, &out, Int32(out.count), &error, error.count)
-        guard n >= 0 else { throw ConsoleError.message("Couldn't list your PSN consoles: \(String(cString: error))") }
-        return out.prefix(Int(n)).map(PSNConsole.init)
+    static func isUnauthorized(_ error: PlayFXProtocol.PSNError) -> Bool {
+        if case .unauthorized = error { return true }
+        return false
+    }
+
+    /// A failed list as the app shows it: what happened and what to do, after "Couldn't list your PSN consoles:".
+    /// A cancelled call stays cancelled.
+    static func listFailure(_ error: Error) -> Error {
+        if error is CancellationError { return error }
+        let reason: String
+        switch error as? PlayFXProtocol.PSNError {
+        case .unauthorized?:
+            reason = "PlayStation Network refused the sign-in. Sign in with your PlayStation account again."
+        case .timedOut?, .transport?:
+            reason = "PlayStation Network didn't answer. Check the internet connection and try again."
+        case .httpStatus(_, let status)?:
+            reason = "PlayStation Network answered with an error (HTTP \(status)). Try again in a moment."
+        case .some:
+            reason = "PlayStation Network sent an answer PlayFX couldn't use. Try again; if it keeps happening, sign in again."
+        case nil:
+            reason = error.localizedDescription
+        }
+        return ConsoleError.message("Couldn't list your PSN consoles: \(reason)")
     }
 }
 
@@ -237,11 +261,8 @@ public struct PSNConsole: Codable, Equatable, Sendable {
         self.remotePlay = remotePlay
     }
 
-    init(_ c: PsrpPsnConsole) {
-        var c = c
-        name = withUnsafeBytes(of: &c.name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
-        duid = withUnsafeBytes(of: &c.duid) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
-        remotePlay = c.remote_play
+    init(_ c: PlayFXProtocol.PSNConsole) {
+        self.init(name: c.name, duid: c.duid, remotePlay: c.remotePlayEnabled)
     }
 }
 

@@ -294,15 +294,13 @@ import Testing
         #expect(again.engine == "playfx")
     }
 
-    @Test func onlyPlayFXOnTheLocalNetworkUsesThePlayFXEngine() {
+    @Test func thePlayFXEngineIsChosenByNameForTheLocalNetworkAndTheInternet() {
         var options = CoreSession.Options()
-        let remote = CoreSession.Remote(token: "t", duid: String(repeating: "ab", count: 32))
-        #expect(!CoreSession.usesPlayFX(options, remote: nil) && !CoreSession.usesPlayFX(options, remote: remote))
+        #expect(!CoreSession.usesPlayFX(options))
         options.engine = "playfx"
-        #expect(CoreSession.usesPlayFX(options, remote: nil))
-        #expect(!CoreSession.usesPlayFX(options, remote: remote))   // the internet is libchiaki's
+        #expect(CoreSession.usesPlayFX(options))
         options.engine = "something else"
-        #expect(!CoreSession.usesPlayFX(options, remote: nil))
+        #expect(!CoreSession.usesPlayFX(options))
     }
 }
 

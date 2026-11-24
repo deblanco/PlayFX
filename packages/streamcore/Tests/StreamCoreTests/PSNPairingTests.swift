@@ -1,36 +1,55 @@
-import CChiaki
 import Foundation
 import os
 import Testing
+@testable import PlayFXProtocol
+@testable import PlayFXProtocolTestSupport
 @testable import StreamCore
 
-/// Pairing through PSN with a stand-in for the session: nothing here reaches PSN or a console.
+/// Pairing through PSN with a stand-in for the library's registration, and once against PlayFXProtocol's fake PSN and
+/// console on loopback: nothing here reaches PSN, a router or a console.
 @Suite struct PSNPairingTests {
     private let account = "AQEBAQEBAQE="
-    private let paired = ConsoleCredentials(address: "", ps5: true, nickname: "PS5-454", mac: "00:1a:2b:c3:d4:ff",
-                                            registKey: "AAAAAAAAAAAAAAAAAAAAAA==", rpKey: "AAAAAAAAAAAAAAAAAAAAAA==",
-                                            accountId: "AQEBAQEBAQE=")
+    private static let result = PairingResult(
+        registKey: hex("30313233616263640000000000000000"), rpKey: hex("a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"),
+        nickname: "PS5-454", mac: hex("001a2bc3d4ff"), target: .ps5v1, keyType: 2, apSSID: nil, apBSSID: nil,
+        apKey: nil, apName: nil)
 
-    /// A session that reports `reports` from a thread of its own, as libchiaki does, and records its stop. Not
-    /// from `DispatchQueue.global()`: `run` blocks a test thread for up to its timeout, and in a full parallel run
-    /// the CPU-bound suites keep GCD's pool of default-QoS workers full, so a block queued there could wait longer
-    /// than that (seen: 6 s).
-    private final class FakeSession: @unchecked Sendable {
-        let reports: [PSNPairing.Report]
-        let started = OSAllocatedUnfairLock<PSNPairing.Request?>(initialState: nil)
-        let stops = OSAllocatedUnfairLock(initialState: 0)
-        init(_ reports: [PSNPairing.Report]) { self.reports = reports }
+    /// A registration that reports `stages` from its own task and then returns `outcome`, recording what it was started with.
+    private final class FakeRegistration: @unchecked Sendable {
+        let stages: [InternetStage]
+        let outcome: @Sendable () async throws -> PairingResult
+        let started = OSAllocatedUnfairLock<(remote: PSNRemote, internet: InternetOptions)?>(initialState: nil)
+        /// The registration saw its task cancelled.
+        let cancelled: OSAllocatedUnfairLock<Bool>
+        init(stages: [InternetStage] = [], cancelled: OSAllocatedUnfairLock<Bool> = OSAllocatedUnfairLock(initialState: false),
+             outcome: @escaping @Sendable () async throws -> PairingResult) {
+            self.stages = stages
+            self.cancelled = cancelled
+            self.outcome = outcome
+        }
 
-        func start(_ request: PSNPairing.Request, _ report: @escaping @Sendable (PSNPairing.Report) -> Void) -> () -> Void {
-            started.withLock { $0 = request }
-            let reports = reports
-            Thread { reports.forEach(report) }.start()
-            return { self.stops.withLock { $0 += 1 } }
+        var register: PSNPairing.Register {
+            { remote, internet in
+                self.started.withLock { $0 = (remote, internet) }
+                self.stages.forEach(internet.progress)
+                return try await self.outcome()
+            }
+        }
+
+        /// Runs until cancelled, then fails as the library does.
+        static func waitingToBeCancelled(stages: [InternetStage] = [.linkingPSN]) -> FakeRegistration {
+            let cancelled = OSAllocatedUnfairLock(initialState: false)
+            return FakeRegistration(stages: stages, cancelled: cancelled) {
+                do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { cancelled.withLock { $0 = true } }
+                throw InternetStartError.cancelled
+            }
         }
     }
 
-    private func pairing(_ session: FakeSession, accountId: String? = nil, timeout: TimeInterval = 5) -> PSNPairing {
-        PSNPairing(token: { "tok" }, duid: "aa", accountId: accountId ?? account, timeout: timeout, start: session.start)
+    private func pairing(_ fake: FakeRegistration, accountId: String? = nil, duid: String = PSNVector.duid,
+                         timeout: TimeInterval = 60, cleanupWait: TimeInterval = 60) -> PSNPairing {
+        PSNPairing(token: { "tok" }, duid: duid, accountId: accountId ?? account, timeout: timeout,
+                   cleanupWait: cleanupWait, register: fake.register)
     }
 
     private final class Stages: @unchecked Sendable {
@@ -38,151 +57,209 @@ import Testing
         func add(_ stage: PSNPairing.Stage) { seen.withLock { $0.append(stage) } }
     }
 
-    @Test func returnsTheKeysTheConsoleGaveAndStopsTheSession() throws {
-        let session = FakeSession([.progress(.linking), .progress(.registering), .registered(paired),
-                                   .quit(reason: "Stopped", error: false)])
+    // MARK: Success
+
+    @Test func returnsTheSameCredentialsAPINPairingGives() throws {
+        let fake = FakeRegistration(stages: [.linkingPSN, .wakingConsole, .ctrlHole, .registering]) { Self.result }
         let stages = Stages()
-        let result = try pairing(session).run { stages.add($0) }
-        #expect(result.nickname == "PS5-454" && result.address.isEmpty && result.ps5)
+        let paired = try pairing(fake).run { stages.add($0) }
         #expect(stages.seen.withLock { $0 } == [.linking, .registering])
-        #expect(session.started.withLock { $0?.duid } == "aa")
-        #expect(session.started.withLock { $0?.token } == "tok")
-        #expect(session.stops.withLock { $0 } == 1)
+        // The credentials a PIN pairing of the same result makes, but for the console's address (not learned over PSN).
+        let viaPIN = Console.credentials(from: Self.result, address: "192.168.0.40", ps5: true, accountId: account)
+        #expect(paired.address.isEmpty && paired.ps5 && paired.nickname == "PS5-454" && paired.accountId == account)
+        #expect(paired.mac == "00:1a:2b:c3:d4:ff" && paired.mac == viaPIN.mac)
+        #expect(paired.registKey == viaPIN.registKey && paired.rpKey == viaPIN.rpKey)
+        #expect(Data(base64Encoded: paired.registKey) == Data("0123abcd".utf8) + Data(repeating: 0, count: 8))
+        let started = try #require(fake.started.withLock { $0 })
+        #expect(started.remote.accessToken == "tok" && started.remote.consoleDUID == PSNVector.duid)
+        #expect(started.remote.platform == .ps5)
+        // The JSON shape the desktop app stores and sends back.
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(paired)) as? [String: Any]
+        #expect(Set(json.map { Array($0.keys) } ?? []) == ["address", "ps5", "nickname", "mac", "registKey", "rpKey", "accountId"])
     }
 
-    @Test func aQuitWithoutTheKeysIsAFailureSayingWhy() {
-        let session = FakeSession([.progress(.linking), .quit(reason: PSNPairing.psnRegistFailed, error: true)])
-        #expect(throws: ConsoleError.self) { try pairing(session).run { _ in } }
-        do {
-            _ = try pairing(FakeSession([.quit(reason: PSNPairing.psnRegistFailed, error: true)])).run { _ in }
-        } catch {
-            #expect(error.localizedDescription.hasPrefix("The PS5 didn't accept pairing through PSN."))
-        }
-        #expect(session.stops.withLock { $0 } == 1)
+    @Test func mapsTheLibrarysStepsToTheTwoStages() {
+        let mapped = InternetStage.allCases.map { PSNPairing.stage(for: $0)?.rawValue ?? "-" }
+        #expect(mapped == ["linking", "-", "-", "registering", "-", "-", "-", "-", "-", "-"])
     }
 
-    /// libchiaki (fork: "Session: keep a failed PSN registration's quit reason", "Regist: end a PSN registration
-    /// at once on a stop, and say when the console never answered") ends a refused registration with its reason,
-    /// one the console never answered with another, and one it gave up waiting for as a plain stop: the user is
-    /// told which.
-    @Test func aRefusalIsToldApartFromNoAnswer() {
-        func failure(_ quit: PSNPairing.Report) -> String {
+    @Test func progressAfterTheEndIsDropped() throws {
+        let fake = FakeRegistration(stages: []) { Self.result }
+        let p = pairing(fake)
+        let stages = Stages()
+        _ = try p.run { stages.add($0) }
+        let internet = try #require(fake.started.withLock { $0?.internet })
+        internet.progress(.registering)
+        #expect(stages.seen.withLock { $0 }.isEmpty)
+    }
+
+    // MARK: Failure
+
+    @Test func eachWayItEndsWithoutTheKeysSaysWhatToDo() {
+        func failure(_ error: InternetStartError) -> String? {
             do {
-                _ = try pairing(FakeSession([.progress(.linking), .progress(.registering), quit])).run { _ in }
-                return "paired"
+                _ = try pairing(FakeRegistration(stages: [.linkingPSN, .registering]) { throw error }).run { _ in }
+                return nil
             } catch { return error.localizedDescription }
         }
-        #expect(failure(.quit(reason: PSNPairing.psnRegistFailed, error: true))
-            .hasPrefix("The PS5 didn't accept pairing through PSN."))
-        #expect(failure(.quit(reason: PSNPairing.psnRegistUnanswered, error: true))
-            .hasPrefix("The PS5 didn't answer pairing through PSN."))
-        #expect(failure(.quit(reason: "Stopped", error: false)).hasPrefix("The PS5 didn't answer through PSN."))
+        let refused = failure(.registration(RegistrationError(
+            kind: .httpNotOK(status: 403), reasonCode: RPReason.invalidPSNID, consoleAnswered: true)))
+        #expect(refused?.hasPrefix("The PS5 refused the pairing step") == true && refused?.contains("0x80108b02") == true)
+        #expect(failure(.registration(RegistrationError(kind: .timeout, consoleAnswered: false)))
+            == InternetStartError.registration(RegistrationError(kind: .timeout, consoleAnswered: false)).userMessage(console: .ps5))
+        #expect(failure(.psn(.consoleUnreachable))?.contains("Remote Play is turned on") == true)
+        #expect(failure(.psn(.unauthorized(step: .createSession, status: 401)))?.contains("Sign in to PlayFX") == true)
+        #expect(failure(.holePunch(hole: .ctrl, .hostUnreachable))?.contains("direct connection") == true)
+        #expect(failure(.noPublicAddress)?.contains("address on the internet") == true)
     }
 
-    @Test func explainsEachWayItCanEnd() {
-        #expect(PSNPairing.failureMessage(reason: "Stopped", error: false).hasPrefix("The PS5 didn't answer through PSN."))
-        #expect(PSNPairing.failureMessage(reason: PSNPairing.psnRegistFailed + ": details", error: true)
-            .contains("signed in with the PS5 user's account"))
-        let unanswered = PSNPairing.failureMessage(reason: PSNPairing.psnRegistUnanswered, error: true)
-        for advice in ["it's on", "Remote Play is turned on", "online", "signed in to PSN with the account"] {
-            #expect(unanswered.contains(advice))
+    @Test func anErrorTheLibraryDoesNotType() {
+        let error = PSNPairing.failure(for: URLError(.cancelled)) as? ConsoleError
+        guard case .message(let text)? = error else { Issue.record("expected a message"); return }
+        #expect(text.hasPrefix("Couldn't pair through PSN: "))
+        #expect(PSNPairing.failure(for: InternetStartError.cancelled) as? PSNPairingError == .cancelled)
+    }
+
+    @Test func givesUpWhenNothingComesAndEndsTheRegistration() async {
+        let fake = FakeRegistration.waitingToBeCancelled()
+        do {
+            _ = try pairing(fake, timeout: 0.05).run { _ in }
+            Issue.record("expected a timeout")
+        } catch {
+            #expect(error.localizedDescription == "PSN didn't finish pairing in time. Check that the PS5 is on, and try again.")
         }
-        #expect(!unanswered.contains("didn't accept"))
-        let shim = "PSN couldn't reach your PS5. Check that it's on. (Host is down)"
-        #expect(PSNPairing.failureMessage(reason: shim, error: true) == shim) // already says what to do
+        // The registration was started and cancelled, and `run` waited for it (the library leaves PSN before it returns).
+        // On a loaded machine the task may only get going after `run` gave up.
+        #expect(await waitUntil { fake.started.withLock { $0 } != nil && fake.cancelled.withLock { $0 } })
     }
 
-    @Test func cancelStopsIt() throws {
-        let session = FakeSession([.progress(.linking)]) // never finishes on its own
-        let p = pairing(session)
-        Thread { // not on GCD's pool, for the same reason as FakeSession's reports
-            Thread.sleep(forTimeInterval: 0.05)
+    @Test func doesNotWaitForeverForTheLibraryToLeavePSN() {
+        // A registration that ignores its cancel for a while: `run` returns at its bound with the outcome it had.
+        let fake = FakeRegistration {
+            await withCheckedContinuation { done in DispatchQueue.global().asyncAfter(deadline: .now() + 2) { done.resume() } }
+            throw InternetStartError.cancelled
+        }
+        let p = pairing(fake, timeout: 0.05, cleanupWait: 0.05)
+        let began = Date()
+        #expect(throws: ConsoleError.self) { try p.run { _ in } }
+        #expect(Date().timeIntervalSince(began) < 1.5)
+    }
+
+    // MARK: Cancelling
+
+    @Test func cancelStopsItAndTheRegistrationEnds() async throws {
+        let fake = FakeRegistration.waitingToBeCancelled()
+        let p = pairing(fake)
+        Thread { // not on GCD's pool: `run` blocks a thread for its whole length
+            Thread.sleep(forTimeInterval: 0.1)
             p.cancel()
         }.start()
+        let began = Date()
         #expect(throws: PSNPairingError.cancelled) { try p.run { _ in } }
-        #expect(session.stops.withLock { $0 } == 1)
+        #expect(Date().timeIntervalSince(began) < 30)
+        #expect(await waitUntil { fake.cancelled.withLock { $0 } })
         #expect(PSNPairingError.cancelled.localizedDescription == "Pairing cancelled.")
     }
 
-    @Test func cancelledBeforeItStartsNeverStartsTheSession() {
-        let session = FakeSession([.registered(paired)])
-        let p = pairing(session)
+    @Test func cancelledBeforeItStartsNeverStartsTheRegistration() {
+        let fake = FakeRegistration { Self.result }
+        let p = pairing(fake)
         p.cancel()
         #expect(throws: PSNPairingError.cancelled) { try p.run { _ in } }
-        #expect(session.started.withLock { $0 } == nil)
+        #expect(fake.started.withLock { $0 } == nil)
     }
 
     /// The pairing, for a token fetch that cancels it.
     private final class Ref: @unchecked Sendable { var pairing: PSNPairing? }
 
     @Test func aCancelWhileTheTokenIsFetchedIsKept() {
-        let session = FakeSession([.registered(paired)])
+        let fake = FakeRegistration { Self.result }
         let ref = Ref()
-        ref.pairing = PSNPairing(token: { ref.pairing?.cancel(); return "tok" }, duid: "aa", accountId: account,
-                                 start: session.start)
+        ref.pairing = PSNPairing(token: { ref.pairing?.cancel(); return "tok" }, duid: PSNVector.duid, accountId: account,
+                                 register: fake.register)
         #expect(throws: PSNPairingError.cancelled) { try ref.pairing?.run { _ in } }
-        #expect(session.started.withLock { $0 } == nil)
+        #expect(fake.started.withLock { $0 } == nil)
+    }
+
+    @Test func aCancelRightAfterTheRegistrationStartedStillEndsIt() {
+        let fake = FakeRegistration.waitingToBeCancelled()
+        let ref = Ref()
+        // Cancels from inside the library's first progress report: before `run` has stored anything but the start.
+        let cancelling = FakeRegistration(stages: [.linkingPSN]) {
+            ref.pairing?.cancel()
+            return try await fake.outcome()
+        }
+        ref.pairing = pairing(cancelling)
+        #expect(throws: PSNPairingError.cancelled) { try ref.pairing?.run { _ in } }
     }
 
     @Test func aFailedTokenFetchIsTheFailure() {
-        let session = FakeSession([.registered(paired)])
-        let p = PSNPairing(token: { throw ConsoleError.message("PSN didn't answer") }, duid: "aa", accountId: account,
-                           start: session.start)
+        let fake = FakeRegistration { Self.result }
+        let p = PSNPairing(token: { throw ConsoleError.message("PSN didn't answer") }, duid: PSNVector.duid,
+                           accountId: account, register: fake.register)
         #expect(throws: ConsoleError.message("PSN didn't answer")) { try p.run { _ in } }
-        #expect(session.started.withLock { $0 } == nil)
+        #expect(fake.started.withLock { $0 } == nil)
     }
 
-    @Test func givesUpWhenNothingComes() {
-        let session = FakeSession([])
-        do {
-            _ = try pairing(session, timeout: 0.05).run { _ in }
-            Issue.record("expected a timeout")
-        } catch {
-            #expect(error.localizedDescription.hasPrefix("PSN didn't finish pairing in time."))
+    // MARK: What it won't start without
+
+    @Test func needsTheAccountIDAndAPS5DeviceID() {
+        let fake = FakeRegistration { Self.result }
+        #expect(throws: ConsoleError.message("Sign in to PlayStation first")) { try pairing(fake, accountId: "AQID").run { _ in } }
+        for duid in ["", "not hex", String(repeating: "z", count: 64), "aa"] {
+            #expect(throws: ConsoleError.message("Pairing through PSN needs a PS5 and its PSN device ID")) {
+                try pairing(fake, duid: duid).run { _ in }
+            }
         }
-        #expect(session.stops.withLock { $0 } == 1)
+        #expect(fake.started.withLock { $0 } == nil)
     }
 
-    @Test func needsTheAccountID() {
-        let session = FakeSession([.registered(paired)])
-        #expect(throws: ConsoleError.self) { try pairing(session, accountId: "AQID").run { _ in } }
-        #expect(session.started.withLock { $0 } == nil)
+    @Test func thePublicInitialiserRefusesWithoutAnAccountIDBeforeAnyNetwork() {
+        // Refused before any network: no account ID.
+        let p = PSNPairing(token: { "tok" }, duid: PSNVector.duid, accountId: "")
+        #expect(throws: ConsoleError.message("Sign in to PlayStation first")) { try p.run { _ in } }
     }
 
-    @Test func progressAfterTheEndIsDropped() throws {
-        let session = FakeSession([.registered(paired), .progress(.registering)])
+    // MARK: Through PlayFXProtocol, on loopback
+
+    @Test func theRealRegistrationPairsWithTheFakeConsoleOverLoopback() throws {
+        let rig = try InternetRig()
+        defer { rig.stop() }
+        let register: PSNPairing.Register = { remote, internet in
+            var merged = rig.options
+            merged.progress = internet.progress
+            return try await Registration.registerThroughPSN(remote: remote, internet: merged, environment: rig.environment)
+        }
         let stages = Stages()
-        _ = try pairing(session).run { stages.add($0) }
-        Thread.sleep(forTimeInterval: 0.05)
-        #expect(stages.seen.withLock { $0 }.isEmpty)
+        let p = PSNPairing(token: { PSNVector.token }, duid: PSNVector.duid, accountId: account, register: register)
+        let paired = try p.run { stages.add($0) }
+        #expect(stages.seen.withLock { $0 } == [.linking, .registering])
+        #expect(paired.nickname == "PS5-TEST" && paired.address.isEmpty && paired.ps5)
+        #expect(paired.mac == "0a:1b:2c:3d:4e:5f" && paired.accountId == account)
+        #expect(Data(base64Encoded: paired.registKey) == Data(SessionVector.registKey))
+        #expect(Data(base64Encoded: paired.rpKey) == Data(SessionVector.rpKey))
+        // It left PSN and removed its mappings before `run` returned, and stayed on loopback.
+        #expect(rig.leftPSN && Set(rig.mapper.removedPorts) == Set(rig.mapper.mapped.with { $0 }))
+        #expect(rig.psn.hosts.isSubset(of: ["web.np.playstation.com", "mobile-pushcl.np.communication.playstation.net"]))
+        #expect(rig.psn.unexpected.withLock { $0 }.isEmpty && LoopbackViolations.recorded.with { $0 }.isEmpty)
     }
 
-    @Test func mapsTheShimsEvents() {
-        let progress = Int32(PSRP_EVENT_REMOTE_PROGRESS.rawValue), quit = Int32(PSRP_EVENT_QUIT.rawValue)
-        guard case .progress(.linking) = PSNPairing.report(type: progress, a: Int32(PSRP_REMOTE_LINKING.rawValue), message: "")
-        else { Issue.record("linking"); return }
-        guard case .progress(.registering) = PSNPairing.report(type: progress, a: Int32(PSRP_REMOTE_REGISTERING.rawValue), message: "")
-        else { Issue.record("registering"); return }
-        #expect(PSNPairing.report(type: progress, a: Int32(PSRP_REMOTE_DATA.rawValue), message: "") == nil)
-        guard case .quit(let reason, let error) = PSNPairing.report(type: quit, a: 1, message: "Bye") else {
-            Issue.record("quit"); return
+    @Test func aConsoleThatRefusesIsReportedAndPSNIsLeft() throws {
+        let rig = try InternetRig()
+        defer { rig.stop() }
+        rig.console.rudp.registrationReply = .refuse(reason: "80108b02")
+        let register: PSNPairing.Register = { remote, internet in
+            var merged = rig.options
+            merged.progress = internet.progress
+            return try await Registration.registerThroughPSN(remote: remote, internet: merged, environment: rig.environment)
         }
-        #expect(reason == "Bye" && error)
-        #expect(PSNPairing.report(type: Int32(PSRP_EVENT_CONNECTED.rawValue), a: 0, message: "") == nil)
-    }
-
-    /// The real session refuses at once, before any network, without a PS5 device ID or a PSN token.
-    @Test func theShimRefusesWithoutADeviceID() throws {
-        let request = PSNPairing.Request(token: "tok", duid: "not hex", accountId: account)
-        #expect(throws: ConsoleError.self) { _ = try PSNPairing.startSession(request) { _ in } }
-        do { _ = try PSNPairing.startSession(request) { _ in } } catch {
-            #expect(error.localizedDescription == "Pairing through PSN needs a PS5 and its PSN device ID")
+        let p = PSNPairing(token: { PSNVector.token }, duid: PSNVector.duid, accountId: account, register: register)
+        do {
+            _ = try p.run { _ in }
+            Issue.record("expected a refusal")
+        } catch {
+            #expect(error.localizedDescription.hasPrefix("The PS5 refused the pairing step"))
         }
-        var config = PsrpSessionConfig()
-        config.register_only = true
-        var callbacks = PsrpCallbacks()
-        var message = [CChar](repeating: 0, count: 128)
-        #expect(psrp_session_start(&config, &callbacks, &message, message.count) == nil)
-        #expect(String(cString: message) == "Pairing through PSN needs a PSN sign-in")
+        #expect(rig.leftPSN && Set(rig.mapper.removedPorts) == Set(rig.mapper.mapped.with { $0 }))
     }
 }

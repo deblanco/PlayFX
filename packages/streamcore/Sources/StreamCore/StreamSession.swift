@@ -15,8 +15,8 @@ public final class StreamSession: StreamEngineSink {
         public var autoDowngrade: Bool = true
         /// HDR10 (HEVC Main10, PQ, BT.2020) when the game and the console's HDR setting allow it. PS5 + HEVC only.
         public var hdr: Bool = false
-        /// The protocol engine: "chiaki" (libchiaki, the default) or "playfx" (PlayFXProtocol, local network only:
-        /// internet play always uses libchiaki). Anything else is "chiaki".
+        /// The protocol engine: "chiaki" (libchiaki, the default) or "playfx" (PlayFXProtocol, on the local network and
+        /// over the internet through PSN). Anything else is "chiaki".
         public var engine: String = "chiaki"
         public init() {}
 
@@ -235,18 +235,18 @@ public final class StreamSession: StreamEngineSink {
     private var _stats = Stats()
     private var _latestFrame: CVPixelBuffer?
 
-    /// Starts connecting to the console on the engine `options.engine` names (libchiaki unless it's "playfx", and
-    /// always libchiaki over the internet); progress and the outcome arrive as events.
+    /// Starts connecting to the console on the engine `options.engine` names (libchiaki unless it's "playfx");
+    /// progress and the outcome arrive as events.
     public convenience init(credentials: ConsoleCredentials, options: Options = Options(), remote: Remote? = nil) throws {
-        try self.init(credentials: credentials, options: options, remote: remote, engine: Self.engineFactory(for: options, remote: remote))
+        try self.init(credentials: credentials, options: options, remote: remote, engine: Self.engineFactory(for: options))
     }
 
-    /// PlayFX's own engine runs only the "playfx" choice, on the local network (the internet is libchiaki's).
-    static func usesPlayFX(_ options: Options, remote: Remote?) -> Bool { options.engine == "playfx" && remote == nil }
+    /// PlayFX's own engine runs the "playfx" choice, on the local network and over the internet.
+    static func usesPlayFX(_ options: Options) -> Bool { options.engine == "playfx" }
 
     /// The factory for the engine `options.engine` names.
-    static func engineFactory(for options: Options, remote: Remote?) -> StreamEngineFactory {
-        if usesPlayFX(options, remote: remote) { return PlayFXEngine.factory }
+    static func engineFactory(for options: Options) -> StreamEngineFactory {
+        if usesPlayFX(options) { return PlayFXEngine.factory }
         return { try ChiakiEngine(config: $0, sink: $1) }
     }
 

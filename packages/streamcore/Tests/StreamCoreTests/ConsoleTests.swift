@@ -1,13 +1,8 @@
-import CChiaki
 import Foundation
 import Testing
 @testable import PlayFXProtocol
 @testable import PlayFXProtocolTestSupport
 @testable import StreamCore
-
-private func fill<T>(_ field: inout T, _ s: String) {
-    withUnsafeMutableBytes(of: &field) { $0.copyBytes(from: Array(s.utf8)) }
-}
 
 extension Serial {
     @Suite struct ConsoleTests {
@@ -73,12 +68,11 @@ extension Serial {
             }.isEmpty)
         }
 
-        @Test func mapsRegistrationToCredentials() throws {
-            var r = PsrpRegistration()
-            fill(&r.regist_key, "0123abcd")
-            withUnsafeMutableBytes(of: &r.rp_key) { $0.copyBytes(from: (0..<16).map(UInt8.init)) }
-            withUnsafeMutableBytes(of: &r.mac) { $0.copyBytes(from: [0x00, 0x1a, 0x2b, 0xc3, 0xd4, 0xff]) }
-            fill(&r.nickname, "PS5-454")
+        @Test func mapsAPairingToCredentials() throws {
+            let r = PairingResult(
+                registKey: Array("0123abcd".utf8) + [UInt8](repeating: 0, count: 8), rpKey: (0..<16).map(UInt8.init),
+                nickname: "PS5-454", mac: [0x00, 0x1a, 0x2b, 0xc3, 0xd4, 0xff], target: .ps5v1, keyType: nil,
+                apSSID: nil, apBSSID: nil, apKey: nil, apName: nil)
             let c = Console.credentials(from: r, address: "192.168.0.40", ps5: true, accountId: "AQEBAQEBAQE=")
             #expect(c.address == "192.168.0.40" && c.ps5 && c.nickname == "PS5-454" && c.accountId == "AQEBAQEBAQE=")
             #expect(c.mac == "00:1a:2b:c3:d4:ff")
