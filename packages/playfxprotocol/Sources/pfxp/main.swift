@@ -7,7 +7,8 @@
 //   pfxp session [--host IP] [--new] [--seconds N] [--login-pin PIN|-] [--sleep]
 //                                                  session init + ctrl; prints each event with its time, then
 //                                                  ends cleanly (--sleep: puts the console to rest instead)
-//   pfxp stream [...]                              a whole stream (Stream.swift lists the options)
+//   pfxp stream [...]                              a whole stream (Stream.swift lists the options, among them
+//                                                  --press for scripted input and --drop for simulated loss)
 //
 // `wake --new` from rest mode checks that a pairing made here works. Keys are never printed.
 import Foundation
@@ -241,6 +242,14 @@ do {
               + "       | stream [--host IP] [--new] [--seconds N] [--resolution 360|540|720|1080] [--fps 30|60]\n"
               + "                [--codec h264|hevc|hevc-hdr] [--bitrate KBPS] [--transport bsd|nw] [--out FILE]\n"
               + "                [--audio-out FILE] [--login-pin PIN|-] [--mic-info]\n"
+              + "                [--press SCRIPT] [--trace-input] [--drop PERCENT [--drop-burst N]]\n"
+              + "                  SCRIPT: BUTTONS@SECONDS[:HOLD_MS] or AXIS=VALUE@SECONDS[:HOLD_MS], comma-separated, from\n"
+              + "                  `connected`, e.g. ps@2,circle@4,cross+up@7:300,ly=-1@9:2000 (hold 150 ms by default;\n"
+              + "                  buttons: cross circle square triangle l1 r1 l2 r2 l3 r3 options share create ps touchpad\n"
+              + "                  up down left right; axes: lx ly rx ry -1...1, l2 r2 0...1)\n"
+              + "                  --drop: TESTING ONLY, drops that % (above 0, at most 50) of received datagrams; --drop-burst\n"
+              + "                  N (1 to 1000) drops N in a row each time\n"
+              + "                  --trace-input: print each controller state handed to the session when it changes\n"
               + "       | bench-transport [--packets N] [--rate R]   (loopback only)")
         exit(2)
     }

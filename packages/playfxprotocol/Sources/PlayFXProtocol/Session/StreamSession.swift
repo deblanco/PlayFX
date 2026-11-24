@@ -211,7 +211,10 @@ public final class StreamSession: @unchecked Sendable {
         let codec: VideoCodec = request.codec == .h264 ? .h264 : .hevc
         let takionVersion = Int(StreamHandshake.takionVersion(for: handoff.negotiatedVersion))
         let streamPort = environment.streamPort ?? handoff.streamPort
-        let transport = environment.makeTransport(transportKind, handoff.consoleAddress, streamPort, probeSucceeded)
+        let rawTransport = environment.makeTransport(transportKind, handoff.consoleAddress, streamPort, probeSucceeded)
+        let transport: DatagramTransport = options.simulatedReceiveLoss.map {
+            LossyDatagramTransport(rawTransport, filter: LossFilter($0))
+        } ?? rawTransport
         let template = StreamConnectedInfo(
             target: handoff.negotiatedVersion, consoleModel: handoff.consoleModel, probe: probe,
             probeSucceeded: probeSucceeded, probeFailure: probeFailure, requested: request, videoCodec: codec,
@@ -278,12 +281,15 @@ public final class StreamSession: @unchecked Sendable {
     /// This is the commit point of `start`: once it returns true, `start` returns the session and every later
     /// failure is an `ended` event.
     func markRunning(_ info: StreamConnectedInfo) -> Bool {
-        lock.withLock {
-            guard shared.phase == .starting, shared.startAbort == nil else { return false }
+        let (committed, transport) = lock.withLock { () -> (Bool, DatagramTransport?) in
+            guard shared.phase == .starting, shared.startAbort == nil else { return (false, nil) }
             shared.phase = .running
             shared.negotiated = info
-            return true
+            return (true, shared.transport)
         }
+        // The simulated loss (testing only) starts here, so the handshake itself is left alone.
+        (transport as? LossyDatagramTransport)?.filter.arm()
+        return committed
     }
 
     /// Closes what a start that failed (or was cancelled) left open. No `ended` event.
@@ -449,12 +455,16 @@ public final class StreamSession: @unchecked Sendable {
         stats.datagramsReceived = takion.datagramsReceived
         stats.droppedBadGMAC = takion.droppedBadGMAC
         stats.retransmissions = takion.retransmissions
+        stats.simulatedDrops = (transport as? LossyDatagramTransport)?.filter.dropped ?? 0
+        stats.videoCodecByte = counters.videoCodecByte
+        stats.padInfoBodyLength = counters.padInfoLength
         return stats
     }
 
     /// Where the receive times come from: the socket's own setting for BSD; for Network.framework the
     /// `receiveTime` metadata, or the callback time when the packets carried none.
     static func timestampSource(of transport: DatagramTransport, _ takion: TakionStats) -> String {
+        if let lossy = transport as? LossyDatagramTransport { return timestampSource(of: lossy.inner, takion) }
         if let bsd = transport as? BSDDatagramTransport { return bsd.timestampSource }
         guard takion.datagramsReceived > 0 else { return "none yet" }
         return takion.softwareTimestamps < takion.datagramsReceived ? "receiveTime metadata" : "callback time"
@@ -470,6 +480,7 @@ public final class StreamSession: @unchecked Sendable {
 
     var link: StreamLink? { lock.withLock { shared.link } }
     var connection: TakionConnection? { lock.withLock { shared.connection } }
+    var streamTransport: DatagramTransport? { lock.withLock { shared.transport } }
     /// For tests: which command latches are set.
     var commandFlags: (goToBed: Bool, microphoneConnected: Bool) {
         lock.withLock { (shared.goToBedRequested, shared.microphoneConnected) }

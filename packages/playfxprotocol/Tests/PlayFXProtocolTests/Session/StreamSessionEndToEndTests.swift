@@ -114,6 +114,8 @@ extension StreamSessionSuites {
             #expect(stats.transport == transport.name && !stats.timestampSource.isEmpty)
             #expect(stats.mtuIn == 1400 && stats.mtuOut == 1300 && stats.probeSucceeded && stats.rttMicroseconds >= 0)
             #expect(stats.seconds > 0 && stats.datagramsReceived > 20 && stats.droppedBadGMAC == 0)
+            // The diagnostics: the video header's codec byte as sent (3 in the fake), no pad info, nothing dropped.
+            #expect(stats.videoCodecByte == 3 && stats.padInfoBodyLength == nil && stats.simulatedDrops == 0)
             #expect((stats.lastCongestion?.count ?? 0) >= 1)
 
             // Audio: the source units of frames 100 ... 105 come out in order; haptics PCM comes out little-endian.
@@ -251,6 +253,8 @@ extension StreamSessionSuites {
             console.send(hex("08 10 8a 01 03 08 e8 07"))  // ConnectionQuality {targetBitrate 1000}
             console.send(hex("08 03"))  // a Heartbeat from the console: nothing to do
             #expect(await recorder.wait { $0.contains(.quality) && $0.contains(.playerIndex(2)) })
+            // The last pad info was the 17-byte form.
+            #expect(await recorder.wait { _ in recorder.stats.last?.padInfoBodyLength == 17 })
             let control = recorder.all.filter {
                 switch $0 {
                 case .rumble, .triggers, .led, .playerIndex, .motionReset, .quality: true
@@ -262,6 +266,77 @@ extension StreamSessionSuites {
                 .rumble(left: 128, right: 64), .triggers(left: 0x25, right: 0x26), .led(0xff, 0x74, 0xa6), .playerIndex(1),
                 .motionReset, .motionReset, .led(0, 0, 0xff), .playerIndex(2), .quality,
             ])
+        }
+
+        @Test func thePadInfoFormIsReportedWhenItChanges() async throws {
+            let console = try StreamConsole()
+            defer { console.stop() }
+            let recorder = EventRecorder()
+            let session = try await startSession(console, recorder: recorder)
+            defer { session.stop() }
+            #expect(await recorder.wait { _ in recorder.stats.last != nil })
+            #expect(recorder.stats.last?.padInfoBodyLength == nil)
+            console.send(dataType: 9, SessionBytes.pad25)
+            #expect(await recorder.wait { _ in recorder.stats.last?.padInfoBodyLength == 25 })
+            console.send(dataType: 9, SessionBytes.pad17)
+            #expect(await recorder.wait { _ in recorder.stats.last?.padInfoBodyLength == 17 })
+        }
+
+        // MARK: Simulated receive loss (testing only)
+
+        /// With loss on, the session drops datagrams after the stream is up, FEC rebuilds the frames that lost a
+        /// source unit, no frame is lost for good (five parity units cover any five of seven), and it still ends
+        /// cleanly. Over both transports.
+        @Test(arguments: [StreamTransport.bsd, .nw])
+        func simulatedLossIsRecoveredByFECAndTheSessionEndsCleanly(transport: StreamTransport) async throws {
+            let console = try StreamConsole()
+            console.streams = false
+            defer { console.stop() }
+            let recorder = EventRecorder()
+            var options = StreamSessionOptions()
+            options.simulatedReceiveLoss = SimulatedLoss(percent: 5, burst: 1, seed: 7)
+            let session = try await startSession(console, recorder: recorder, transport: transport, options: options)
+            defer { session.stop() }
+            #expect(session.connectedInfo?.transport == transport.name)
+            #expect(session.streamTransport is LossyDatagramTransport)
+            let frames = 300
+            console.sendFECFrames(first: 1, count: frames, parity: 5)
+            // The last frames can wait behind a hole until its reorder wait ends.
+            #expect(await recorder.wait(timeout: 10) { _ in (recorder.stats.last?.videoFramesTotal ?? 0) >= frames - 4 })
+            try await Task.sleep(nanoseconds: 400_000_000)
+            let stats = try #require(recorder.stats.last)
+            // About 5 % of 2,100 datagrams (and the audio and acks that came meanwhile). Which datagrams drop
+            // depends on how the acks interleave with the frames, so the seed doesn't fix the pattern: a frame is
+            // lost for good only when 6 of its 7 units drop (about 1 in 10^7 at 5 %), and one such frame is
+            // tolerated rather than letting the test flake.
+            #expect(stats.simulatedDrops > 30, "\(stats.simulatedDrops) dropped")
+            #expect(stats.fecRecoveries > 0 && stats.fecFailures <= 1 && stats.videoFramesTotal >= frames - 4)
+            #expect(stats.datagramsReceived > 0 && stats.droppedBadGMAC == 0)
+            // Every frame handed over is the one that was sent, the rebuilt ones included.
+            let handed = recorder.videoFrames
+            #expect(handed.allSatisfy { $0.bytes == StreamConsole.fecAccessUnit })
+            #expect(handed.contains { $0.info.fecRecovered })
+            #expect(handed.map(\.info.frameIndex) == handed.map(\.info.frameIndex).sorted())
+
+            session.stop()
+            let reason = try #require(await recorder.waitForEnd())
+            #expect(reason.code == .stoppedByClient && !reason.isError)
+            #expect(await waitUntil { console.count(SessionBytes.clientDisconnect) == 1 })
+            #expect(recorder.ended == [reason])
+        }
+
+        @Test func theLossIsOffByDefaultAndTheStatisticsSayZero() async throws {
+            let console = try StreamConsole()
+            console.streams = false
+            defer { console.stop() }
+            let recorder = EventRecorder()
+            let session = try await startSession(console, recorder: recorder)
+            defer { session.stop() }
+            console.sendFECFrames(first: 1, count: 50)
+            #expect(await recorder.wait { _ in (recorder.stats.last?.videoFramesTotal ?? 0) >= 50 })
+            #expect(recorder.stats.last?.simulatedDrops == 0 && recorder.stats.last?.fecRecoveries == 0)
+            #expect(StreamSessionOptions().simulatedReceiveLoss == nil)
+            #expect(session.streamTransport != nil && !(session.streamTransport is LossyDatagramTransport))
         }
 
         @Test func aConsoleDisconnectEndsTheSessionOnceAndTheClientAnswersWithItsOwn() async throws {

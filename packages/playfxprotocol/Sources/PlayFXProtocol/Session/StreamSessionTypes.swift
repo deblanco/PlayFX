@@ -21,6 +21,9 @@ public struct StreamSessionOptions: Sendable, Equatable {
     /// Whether to announce the microphone (stream.md section 6.7 step 3). Off: the mic StreamInfo isn't sent.
     /// Sending the mic audio itself isn't implemented yet (it needs an Opus encoder); see `setMicrophone`.
     public var microphone = false
+    /// TESTING ONLY, off by default: drops a share of the datagrams the stream connection receives, from the
+    /// moment the stream is up (see `SimulatedLoss`). `pfxp stream --drop`.
+    public var simulatedReceiveLoss: SimulatedLoss?
 
     public init() {}
 }
@@ -36,7 +39,8 @@ public struct StreamConnectedInfo: Sendable, Equatable {
     public var probeFailure: String?
     /// What the launch spec asked for, after the console-kind rules (stream.md section 7.2).
     public var requested: StreamLaunchRequest
-    /// The codec the AV layer was told (from the launch spec; the video `codec` byte isn't read).
+    /// The codec the AV layer was told (from the launch spec; the video header's `codec` byte is not used, but
+    /// `StreamStats.videoCodecByte` shows what the console sent).
     public var videoCodec: VideoCodec
     /// The resolutions the console may stream, in list order (index 0, 1, ...), with their parameter sets.
     public var profiles: [VideoProfile]
@@ -117,6 +121,14 @@ public struct StreamStats: Sendable, Equatable {
     public var datagramsReceived = 0
     public var droppedBadGMAC = 0
     public var retransmissions = 0
+    /// Datagrams dropped on purpose by `StreamSessionOptions.simulatedReceiveLoss` (0 when it is off).
+    public var simulatedDrops = 0
+    /// The `codec` byte of the video packet header as the console sent it (the last value seen), nil before the
+    /// first video packet (takion.md section 7, av.md open question 2).
+    public var videoCodecByte: UInt8?
+    /// The body length of the last pad-info message, 17 or 25 (stream.md section 9.8, open question 7), nil if
+    /// none has arrived.
+    public var padInfoBodyLength: Int?
 }
 
 /// Everything `StreamSession` delivers. Not `Sendable`: the video, audio and haptics cases carry views into

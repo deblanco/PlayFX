@@ -84,6 +84,22 @@ thread of each event are documented on the class.
 - **Feedback numbering lives in `TakionConnection`.** It numbers and repeats the state and history packets itself
   (takion.md sections 9.3, 9.4), so the session passes it bodies from `FeedbackState.body` and events from
   `ControllerEvent.events`; `FeedbackStateBuilder` and `FeedbackHistoryBuilder` would number a second time.
+- **Simulated receive loss (testing only).** `StreamSessionOptions.simulatedReceiveLoss` (`SimulatedLoss`: percent,
+  burst, seed; off by default) wraps the stream connection's `DatagramTransport` in `LossyDatagramTransport`, which
+  drops datagrams before Takion sees them, so FEC, the reorder queue, Takion retransmission and corrupt-frame reports
+  run on real console traffic. It is armed when the stream is up (the handshake is left alone) and never touches the
+  probe. The gate is splitmix64 plus integer maths, behind an `UnfairLock` for the counter (`StreamStats.simulatedDrops`):
+  no allocation per packet, asserted by the release allocation test with loss on. `percent` is the long-run share of
+  datagrams dropped whatever the burst; a burst starts with probability `p / (n (1 - p) + p)`. A lost frame still sends a
+  corrupt-frame report, which allocates: that is per lost frame, not per packet.
+- **Controller script.** `ControllerScript` (`pfxp stream --press`) turns `BUTTONS@SECONDS[:HOLD_MS]` and
+  `AXIS=VALUE@SECONDS[:HOLD_MS]` entries into the `ControllerState` at any time `t` (`state(at:)`) and the next moment
+  it changes (`nextChange(after:)`); overlapping entries combine. `pfxp` sends that state at least every 100 ms and
+  wakes at each change to send it at once.
+- **Two receive-side diagnostics.** `StreamStats.videoCodecByte` (the last `codec` byte of a video header) and
+  `padInfoBodyLength` (17 or 25) record what the console actually sends: the codec byte is otherwise unused (the AV layer
+  is told the codec from the launch spec), and both forms of pad info parse. They are set on the receive thread only
+  when the value changes, so the per-packet cost is one comparison.
 - **Mic frames.** The packets are built and sent (`sendMicrophoneFrame`); there is no Opus encoder yet, so the app
   encodes. `setMicrophone(on:)` is ctrl signalling only.
 

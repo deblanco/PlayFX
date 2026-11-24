@@ -7,10 +7,23 @@ import PlayFXProtocol
 //   pfxp stream [--host IP] [--new] [--seconds N] [--resolution 360|540|720|1080] [--fps 30|60]
 //               [--codec h264|hevc|hevc-hdr] [--bitrate KBPS] [--transport bsd|nw]
 //               [--out FILE] [--audio-out FILE] [--login-pin PIN|-] [--mic-info]
+//               [--press SCRIPT] [--trace-input] [--drop PERCENT [--drop-burst N]]
 //
 // It prints the connected info, one statistics line per second, the end reason and a summary. It sends a neutral
-// controller state (no input) every 100 ms; the transport repeats the state packet every 200 ms by itself.
-// Never printed: keys, the session ID, the nonce, the ECDH secret.
+// controller state (no input) every 100 ms, or the --press script's state; the transport repeats the state packet
+// every 200 ms by itself. Never printed: keys, the session ID, the nonce, the ECDH secret.
+//
+// --press SCRIPT    Timed inputs, from the moment of `connected`: comma-separated `BUTTONS@SECONDS[:HOLD_MS]`
+//                   (buttons joined with `+`) or `AXIS=VALUE@SECONDS[:HOLD_MS]` (lx ly rx ry -1...1, l2 r2 0...1),
+//                   hold 150 ms by default, e.g. `ps@2,circle@4,cross+up@7:300,ly=-1@9:2000`. See ControllerScript.
+//                   Each press is printed as it happens.
+// --trace-input     Prints every controller state actually handed to the session when it changes (time since
+//                   connected, buttons, the four sticks, l2/r2), so what the console did can be matched to what was sent.
+// --drop PERCENT    TESTING ONLY: drops that share (above 0, at most 50) of the datagrams received on the stream
+//                   connection once it is up, so FEC, reordering, retransmission and corrupt-frame reports run on real
+//                   traffic. --drop-burst N drops N in a row each time a drop starts (default 1). The statistics line
+//                   shows `simDrop` (datagrams dropped).
+// The first video packet's `codec` byte and the pad-info form the console sends (17 or 25 bytes) are printed when seen.
 //
 // --out FILE        The Annex-B elementary stream: the parameter sets of the profile first (and again whenever
 //                   the console switches resolution), then every access unit as the receiver hands it over.
@@ -72,6 +85,9 @@ private final class FileSink: @unchecked Sendable {
     }
 }
 
+/// Seconds on a monotonic clock (the script timeline and the input loop don't follow the wall clock).
+private func monotonicNow() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000 }
+
 /// A stricter `option`: a missing value, or a value that starts with `--`, is an error rather than "not given".
 private func strictOption(_ name: String, in args: [String]) throws -> String? {
     guard let i = args.firstIndex(of: "--\(name)") else { return nil }
@@ -99,19 +115,29 @@ private struct Summary {
 private func be16(_ value: Int) -> [UInt8] { [UInt8(value >> 8 & 0xff), UInt8(value & 0xff)] }
 private func be32(_ value: Int) -> [UInt8] { be16(value >> 16 & 0xffff) + be16(value & 0xffff) }
 
-private func describe(_ stats: StreamStats) -> String {
+private func describe(_ stats: StreamStats, simulatedLoss: Bool) -> String {
     let congestion = stats.lastCongestion.map { "\($0.received)/\($0.lost)" } ?? "-"
     return String(
         format: "%5.1f s  video %2ld fps %6.2f Mbit/s (%ld frames, lost %ld, rec %ld, fec %ld, fecFail %ld, drop %ld, reject %ld, idr %ld, corrupt %ld)"
             + "  audio %ld (concealed %ld, skipped %ld)"
             + "  reorder wait %ld us, filled %ld, late %ld, lost %ld, full %ld, timeout %ld"
-            + "  cong %@  rtt %ld us  mtu %ld/%ld  %@/%@  rx %ld, badGMAC %ld, retx %ld",
+            + "  cong %@  rtt %ld us  mtu %ld/%ld  %@/%@  rx %ld, badGMAC %ld, retx %ld%@",
         stats.seconds, stats.videoFrames, stats.videoMbps, stats.videoFramesTotal, stats.framesLost, stats.framesRecovered,
         stats.fecRecoveries, stats.fecFailures, stats.framesDropped, stats.decoderRejects, stats.idrRequestsSent,
         stats.corruptFrameReportsSent, stats.audioPackets, stats.audioConcealed, stats.audioSkipped, stats.reorder.waitMicros,
         stats.reorder.holesFilled, stats.reorder.latePackets, stats.reorder.holesLost, stats.reorder.queueFullSkips,
         stats.reorder.timeoutSkips, congestion, stats.rttMicroseconds, stats.mtuIn, stats.mtuOut, stats.transport,
-        stats.timestampSource, stats.datagramsReceived, stats.droppedBadGMAC, stats.retransmissions)
+        stats.timestampSource, stats.datagramsReceived, stats.droppedBadGMAC, stats.retransmissions,
+        simulatedLoss ? ", simDrop \(stats.simulatedDrops)" : "")
+}
+
+/// What the console sent that earlier rounds couldn't see (takion.md section 7, stream.md section 9.8).
+private func describeCodecByte(_ byte: UInt8, asked: StreamCodec) -> String {
+    "video codec byte 0x\(String(format: "%02x", byte)) (asked for \(asked))"
+}
+
+private func describePadInfo(_ length: Int) -> String {
+    "pad info form: \(length)-byte body (\(length == 25 ? "with sequence and time stamp" : "short form"))"
 }
 
 private func describe(_ info: StreamConnectedInfo) -> [String] {
@@ -139,6 +165,32 @@ private func describe(_ info: StreamConnectedInfo) -> [String] {
 }
 
 func stream(_ args: [String], configFile: URL) async throws {
+    // The options that don't need the pairing are checked first, so a typo fails before anything else happens.
+    var script: ControllerScript?
+    if let text = try strictOption("press", in: args) {
+        do { script = try ControllerScript(parsing: text) } catch { throw fail("--press: \(error)") }
+    }
+    var simulatedLoss: SimulatedLoss?
+    let burstText = try strictOption("drop-burst", in: args)
+    if let text = try strictOption("drop", in: args) {
+        guard let percent = Double(text), percent.isFinite, percent > 0, percent <= 50 else {
+            throw fail("--drop is a percentage above 0 and at most 50 (got \(text))")
+        }
+        var burst = 1
+        if let burstText {
+            guard let n = Int(burstText), (1...SimulatedLoss.maxBurst).contains(n) else {
+                throw fail("--drop-burst is a whole number from 1 to \(SimulatedLoss.maxBurst) (got \(burstText))")
+            }
+            burst = n
+        }
+        guard let loss = SimulatedLoss(percent: percent, burst: burst) else {
+            throw fail("--drop \(text) with --drop-burst \(burst) is too small to ever drop a datagram")
+        }
+        simulatedLoss = loss
+    } else if burstText != nil {
+        throw fail("--drop-burst needs --drop")
+    }
+
     let config = Config.load(configFile)
     let host = try strictOption("host", in: args)
     guard let console = host.map({ h in config.consoles.first { $0.address == h } }) ?? config.consoles.first else {
@@ -194,6 +246,7 @@ func stream(_ args: [String], configFile: URL) async throws {
     if let videoPath, videoPath == audioPath { throw fail("--out and --audio-out must be different files") }
     var options = StreamSessionOptions()
     options.microphone = args.contains("--mic-info")
+    options.simulatedReceiveLoss = simulatedLoss
     let videoSink = try videoPath.map { try FileSink(path: $0) }
     let audioSink: FileSink?
     do { audioSink = try audioPath.map { try FileSink(path: $0) } } catch {
@@ -213,10 +266,14 @@ func stream(_ args: [String], configFile: URL) async throws {
     let startTask = Locked<Task<StreamSession, Error>?>(nil)
     let interrupts = Locked(0)
     let givenPIN = pin
+    let connectedAt = Locked<Double?>(nil)
+    let shownDiagnostics = Locked((codec: UInt8?.none, pad: Int?.none))
+    let showsSimulatedLoss = simulatedLoss != nil
 
     let handler: @Sendable (StreamEvent, StreamSession) -> Void = { event, session in
         switch event {
         case .connected(let info):
+            connectedAt.with { $0 = monotonicNow() }
             say("\(stamp())  connected")
             for line in describe(info) { say("            \(line)") }
         case .audioHeader:
@@ -279,7 +336,14 @@ func stream(_ args: [String], configFile: URL) async throws {
             say("\(stamp())  keyboard closed by console")
         case .stats(let stats):
             summary.with { $0.lastStats = stats }
-            say(describe(stats))
+            let fresh = shownDiagnostics.with { shown -> (codec: UInt8?, pad: Int?) in
+                defer { shown = (stats.videoCodecByte ?? shown.codec, stats.padInfoBodyLength ?? shown.pad) }
+                return (stats.videoCodecByte != shown.codec ? stats.videoCodecByte : nil,
+                        stats.padInfoBodyLength != shown.pad ? stats.padInfoBodyLength : nil)
+            }
+            if let byte = fresh.codec { say("\(stamp())  \(describeCodecByte(byte, asked: codec))") }
+            if let length = fresh.pad { say("\(stamp())  \(describePadInfo(length))") }
+            say(describe(stats, simulatedLoss: showsSimulatedLoss))
         case .ended(let reason):
             summary.with { $0.ended = reason }
             say("\(stamp())  ended: code \(reason.code.rawValue) (\(reason.code)), \(reason.isError ? "error" : "not an error"), "
@@ -289,7 +353,14 @@ func stream(_ args: [String], configFile: URL) async throws {
     }
 
     say("Starting a \(transport.name) stream with \(console.nickname) at \(console.address): \(resolution.rawValue)p, "
-        + "\(frameRate.rawValue) fps, \(codec), \(seconds) s")
+        + "\(frameRate.rawValue) fps, \(codec), \(seconds) s"
+        + (simulatedLoss.map { ", simulated loss \(String(format: "%g", $0.percent)) % in bursts of \($0.burst)" } ?? ""))
+    if let script {
+        say("Input script: \(script.entries.count) entries, the last one ends \(String(format: "%.2f", script.duration)) s after connected")
+        if script.duration > seconds {
+            say("Warning: --seconds \(seconds) ends before the script does; the entries after that never run")
+        }
+    }
     // Ctrl-C: stop the stream cleanly (or cancel the start) and wait for `ended`; a second one exits at once.
     signal(SIGINT, SIG_IGN)
     let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
@@ -326,11 +397,40 @@ func stream(_ args: [String], configFile: URL) async throws {
         throw fail("Stream failed to start (\(detail)): \(error.userMessage(console: console.ps5 ? .ps5 : .ps4))")
     }
 
-    // Neutral input until the time is up, or the stream ends.
+    // Neutral input (or the script's state) until the time is up, or the stream ends: sent at least every 100 ms,
+    // and at once, by waking at the script's next change, whenever the state changes. The script's `Player` walks
+    // every start and end since the last wake-up in order, so a short press or a late wake-up still sends both
+    // the press and the release.
     let deadline = Date().addingTimeInterval(seconds)
+    let traces = args.contains("--trace-input")
+    var player = script.map { ControllerScript.Player($0) }
+    var lastSent: ControllerState?
+    var lastSentAt = 0.0
+    let loopStart = monotonicNow()
+    func hand(_ state: ControllerState, at now: Double) {
+        let sent = session.setControllerState(state)
+        if traces && state != lastSent {
+            let t = now - (connectedAt.with { $0 } ?? loopStart)
+            say(String(format: "%6.2f s  sent ", t) + state.traceDescription + (sent ? "" : " (held until the stream is ready)"))
+        }
+        lastSent = state
+        lastSentAt = now
+    }
     while Date() < deadline && summary.with({ $0.ended == nil }) && interrupts.with({ $0 }) == 0 {
-        session.setControllerState(.idle)
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        let now = monotonicNow()
+        var state = ControllerState.idle
+        var wait = 0.1
+        if player != nil, let origin = connectedAt.with({ $0 }) {
+            let step = player!.step(to: now - origin)
+            for send in step.sends {
+                hand(send.state, at: now)
+                for label in send.announcements { say(String(format: "%6.2f s  ", now - origin) + label) }
+            }
+            state = step.current
+            if let next = step.nextWake { wait = min(wait, max(next - (now - origin), 0.001)) }
+        }
+        if state != lastSent || now - lastSentAt >= 0.1 { hand(state, at: now) }
+        try? await Task.sleep(nanoseconds: UInt64(wait * 1e9))
     }
     if summary.with({ $0.ended == nil }) {
         if interrupts.with({ $0 }) == 0 { say("\(stamp())  stopping") }
@@ -348,7 +448,12 @@ func stream(_ args: [String], configFile: URL) async throws {
         + "haptics frames \(final.hapticsFrames); rumble \(final.rumbleEvents); trigger effects \(final.triggerEvents)")
     if let sink = videoSink { say("  wrote \(sink.bytesWritten) bytes to \(sink.path)") }
     if let sink = audioSink { say("  wrote \(sink.bytesWritten) bytes to \(sink.path)") }
-    if let last = final.lastStats { say("  last statistics: " + describe(last)) }
+    if let last = final.lastStats {
+        say("  last statistics: " + describe(last, simulatedLoss: showsSimulatedLoss))
+        say("  from the console: "
+            + (last.videoCodecByte.map { describeCodecByte($0, asked: codec) } ?? "no video packet seen") + "; "
+            + (last.padInfoBodyLength.map(describePadInfo) ?? "no pad info seen"))
+    }
     guard let reason = final.ended else { throw fail("The stream did not report its end") }
     if reason.isError { throw fail("The stream ended with an error: \(reason.userMessage(console: console.ps5 ? .ps5 : .ps4))") }
 }

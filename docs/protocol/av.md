@@ -621,14 +621,20 @@ PS5 (system 14230000), home screen, by PlayFX's own client:
   §5 rewrite (Annex-B) decoded in ffmpeg with no errors: H.264 Main 1280×720; HEVC Main 1920×1080 BT.709;
   HEVC Main 10 1920×1080, `yuv420p10le`, SMPTE 2084 transfer, BT.2020 primaries (open question 13, for these
   three).
-- The `codec` byte of HEVC streams (open question 2) wasn't logged; still open.
+- The `codec` byte of HEVC streams (open question 2): `0x06` for 1080p60 HEVC (SDR), seen in every HEVC session
+  of a second round the same day; HEVC HDR's byte is still unseen.
+- **Under loss** (a second round, in a game at 11–14 Mbit/s, the client dropping 5% of received datagrams in pairs on
+  purpose): FEC rebuilt 490–612 frames per 30 s; 26–32 frames per 30 s had more units missing than FEC could
+  restore, and each was followed by about 6 frames dropped while waiting for the requested key frame (§4.3). The
+  console answered with a key frame each time (31–38 key frames per 30 s, about 100 ms after the request). Audio
+  lost nothing at that rate.
 - The static home screen ran at about 0.14 Mbit/s, so no FEC unit was ever needed: recovery is still only
   checked against recordings.
 
 ## 10. Open questions
 
 1. The audio header values real consoles send (expected 2 / 16 / 48000 / 480 / 1).
-2. The video `codec` byte for HEVC and HEVC HDR streams (3 seen for H.264 only).
+2. The video `codec` byte for HEVC and HEVC HDR streams (3 seen for H.264; *observed: 6 for HEVC SDR*; HDR unseen).
 3. The haptics PCM byte order (assumed little-endian: existing clients use the bytes as native 16-bit values
    on little-endian machines and the result drives the actuators correctly).
 4. Whether the console checks the upstream audio header: it says 1 channel, while the Opus packets sent are

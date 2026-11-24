@@ -377,6 +377,31 @@ final class StreamConsole: @unchecked Sendable {
         }
     }
 
+    /// The two source units of a frame sent by `sendFECFrames` (each starts with its two pad bytes) and the
+    /// access unit they make.
+    static let fecSourceUnits: [[UInt8]] = [[0, 0, 0, 0, 0, 1, 0x41, 9, 9, 9, 9], [0, 0, 9, 9, 9, 9, 9, 9, 9, 9, 9]]
+    static let fecAccessUnit = Array(fecSourceUnits[0].dropFirst(2)) + Array(fecSourceUnits[1].dropFirst(2))
+
+    /// Sends `count` video frames numbered from `first` from the link's thread, each of two source units and
+    /// `parity` parity units made with the package's erasure code (`ReferenceFEC`, written separately from the
+    /// decoder), after the capture. Packet indices continue from one call to the next.
+    func sendFECFrames(first: Int, count: Int, parity: Int = 4) {
+        let units = Self.fecSourceUnits + ReferenceFEC.encode(source: Self.fecSourceUnits, m: parity)
+        streamLink.perform { [self] in
+            for n in 0..<count {
+                for (u, payload) in units.enumerated() {
+                    streamLink.send(streamConsole.av(
+                        video: true, packetIndex: nextFECPacket, frameIndex: UInt16(first + n),
+                        word: videoWord(index: u, total: units.count, fec: parity), field18: 0x0367, byte20: 0,
+                        payload: payload))
+                    nextFECPacket &+= 1
+                }
+            }
+        }
+    }
+
+    private var nextFECPacket: UInt16 = 0
+
     // MARK: Looking at what arrived
 
     /// The feedback-history packets, each sequence number once (the transport repeats the last one at 20, 50, 100

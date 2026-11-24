@@ -30,6 +30,9 @@ final class StreamLink: TakionDelegate, CongestionSource, @unchecked Sendable {
         var video = VideoStatistics()
         var lastCongestion: StreamCongestionReport?
         var congestionReports = 0
+        /// The video header's codec byte as last seen, and the body length of the last pad info.
+        var videoCodecByte: UInt8?
+        var padInfoLength: Int?
     }
 
     let startEvents = Mailbox<StartEvent>()
@@ -66,6 +69,8 @@ final class StreamLink: TakionDelegate, CongestionSource, @unchecked Sendable {
     private var rejectRequested = false
     private var lastColor: [UInt8]?
     private var lastPlayer: UInt8?
+    private var seenVideoCodec: UInt8?
+    private var seenPadLength: Int?
 
     // Shared (statsLock).
     private let statsLock = UnfairLock()
@@ -309,6 +314,10 @@ final class StreamLink: TakionDelegate, CongestionSource, @unchecked Sendable {
         let word: UInt32
         var streamByte: UInt8?
         if header.isVideo {
+            if header.codec != seenVideoCodec {
+                seenVideoCodec = header.codec
+                statsLock.withLock { counters.videoCodecByte = header.codec }
+            }
             word = UInt32(truncatingIfNeeded: header.unitIndex) << 21
                 | UInt32(truncatingIfNeeded: header.totalUnits - 1) << 10 | UInt32(truncatingIfNeeded: header.fecUnits)
         } else {
@@ -419,6 +428,12 @@ final class StreamLink: TakionDelegate, CongestionSource, @unchecked Sendable {
         case .triggerEffects(let effects):
             post(.triggerEffects(effects))
         case .padInfo(let info):
+            // Which of the two forms (stream.md section 9.8) the console sends: only the 25-byte one has a sequence.
+            let length = info.sequence == nil ? 17 : 25
+            if length != seenPadLength {
+                seenPadLength = length
+                statsLock.withLock { counters.padInfoLength = length }
+            }
             let color = [info.red, info.green, info.blue]
             if lastColor != color {
                 lastColor = color

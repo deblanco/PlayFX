@@ -1081,6 +1081,8 @@ HDR, each 15–30 s; two receive transports), next to a reference-client stream 
 - On the home screen, a light-bar colour (all zero), player index 0, a motion reset and one trigger-effect
   message (mode 5 on both triggers) arrived right after StreamInfo; no rumble or haptics.
 - The probe (§5) succeeded every time: RTT 0.9–1.1 ms, MTU 1454 both ways on this LAN.
+- Pad info arrived in the 17-byte form at the start of every session of a second round (open question 7).
+- Controller input (§9, feedback state and history) drove a game and the system UI: buttons, both sticks, PS.
 
 ## 14. Open questions
 
@@ -1097,7 +1099,7 @@ HDR, each 15–30 s; two receive transports), next to a reference-client stream 
    maybe for newer PS4 versions).
 6. Unit of ConnectionQuality `targetBitrate` (kbit/s or bit/s; *observed: bit/s*) and `rtt`; the meaning of
    `disableUpstreamAudio`.
-7. Pad-info: when the 17-byte vs 25-byte form is sent; the unknown bytes; the time stamp's unit.
+7. Pad-info: when the 17-byte vs 25-byte form is sent (*observed: 17-byte at session start on a PS5*); the unknown bytes; the time stamp's unit.
 8. Rumble byte 0 and trigger-effect bytes 0, 3 and 4.
 9. Microphone: the header says 1 channel while PlayFX encodes 2-channel Opus; whether the console prefers mono.
    Also the exact meaning of the unit word and the frame-order `[N, N−2, N−1]` (taken as is from existing

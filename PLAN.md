@@ -115,7 +115,7 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
 - Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), PlayFXProtocol 544 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
+  it), PlayFXProtocol 574 tests (98% lines, 2026-11-24, no test leaves loopback), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
   own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
@@ -891,8 +891,23 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     the console after 6.9 s ("Server shutting down", reported as `streamRemoteShutdown`) when the user picked up
     the console's own controller. **Not yet checked on hardware:** FEC recovery and reorder (the LAN lost
     nothing), CPU per packet on the console's traffic, controller input, the HEVC codec byte, the pad-info form.
-  - ❌ Next: input from `pfxp` (a button script), and a stream on a lossier link (Wi-Fi far from the router)
-    to exercise FEC and reorder on both transports;
+  - ✅ Input and loss on the console (2026-11-24): `pfxp stream --press SCRIPT` (timed buttons and sticks,
+    `ControllerScript` in the library; every boundary is sent even after a late wake-up, a repeated button gets a
+    release), `--trace-input` (each state sent), and `--drop PERCENT [--drop-burst N]` (testing only, off by
+    default: drops received stream datagrams once the stream is up, allocation-free, asserted in the release
+    test). It also prints the video codec byte and the pad-info form. On the PS5 in GTA VI: our input closed the
+    PS overlay, walked the character and turned the camera (the first time our own pad drove the console); with
+    5% of datagrams dropped in pairs at about 11 Mbit/s, FEC rebuilt 490–612 frames per 30 s, 26–32 frames per
+    30 s were beyond repair and each cost about 6 frames (≈100 ms) until the key frame the console always sent,
+    audio lost nothing, BSD and Network.framework alike. Answered: HEVC's codec byte is 0x06, the PS5 sends the
+    17-byte pad info. Unexplained: once, 4.5 s after the script's last input, the PS5 showed its "Adjust Display
+    Area" screen (the state sent after a script is byte-identical to idle; `--trace-input` is for the next round).
+    Reviewed against the spec and fixed (short presses announced but not sent, merged presses, wall clock, a
+    wrapper left after a failed start, a flaky test). An implementer test accidentally made four refused
+    session-init attempts to the console (in rest, nothing exchanged); it now runs pfxp only against 127.0.0.1.
+    574 tests, 98% lines.
+  - ❌ Next: a heavier load (spin the camera, `rx=1`) with `--trace-input`; compare libchiaki under the same loss
+    (whether it also drops ≈100 ms per unrepairable frame, or a smarter HEVC recovery is worth it);
     then a backend switch in StreamCore (libchiaki stays the default until parity on the console),
     PSN hole-punching.
 
@@ -1371,4 +1386,5 @@ requests and a bug report.
    video, FEC, input) specified, then built, with the stream's receive path measured on Network.framework against a
    BSD socket thread~~ (done 2026-11-24, `StreamSession` and `pfxp stream`, tested over loopback); ~~its first
    hardware round~~ (done 2026-11-24: H.264, HEVC and HDR streams on the PS5 with nothing lost, both transports);
-   next, a stream under load (a game, a pad) with the user's go-ahead, then the backend switch in StreamCore. *(P4)*
+   ~~a stream under load (a game, a pad)~~ (done 2026-11-24: in GTA VI with our own input and 5% simulated loss, FEC
+   working); next, the backend switch in StreamCore (milestone 4). *(P4)*
