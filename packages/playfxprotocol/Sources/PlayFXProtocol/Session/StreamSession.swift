@@ -42,6 +42,8 @@ public final class StreamSession: @unchecked Sendable {
         var goToBedRequested = false
         var microphoneConnected = false
         var endReason: StreamEndReason?
+        /// `ended` has been delivered (or a failed start has been torn down): nothing more will happen.
+        var over = false
         /// Kept past `finish`, so the `ended` handler can still read what was negotiated.
         var negotiated: StreamConnectedInfo?
     }
@@ -55,6 +57,8 @@ public final class StreamSession: @unchecked Sendable {
     private let transportKind: StreamTransport
     private let options: StreamSessionOptions
     private let environment: StreamEnvironment
+    /// Internet play: the PSN session, the RUDP channel and the data hole this stream runs on; nil on the LAN.
+    private let internet: InternetLink?
     let gate: EventGate
     private let queue = DispatchQueue(label: "PlayFXProtocol.StreamSession")
 
@@ -73,8 +77,9 @@ public final class StreamSession: @unchecked Sendable {
     init(
         address: String, target: RPTarget, registKey: [UInt8], rpKey: [UInt8], settings: StreamSettings,
         transport: StreamTransport, options: StreamSessionOptions, environment: StreamEnvironment,
-        events: @escaping @Sendable (StreamEvent, StreamSession) -> Void
+        internet: InternetLink? = nil, events: @escaping @Sendable (StreamEvent, StreamSession) -> Void
     ) {
+        self.internet = internet
         self.address = address
         self.target = target
         self.registKey = registKey
@@ -107,11 +112,11 @@ public final class StreamSession: @unchecked Sendable {
     static func start(
         environment: StreamEnvironment, address: String, target: RPTarget, registKey: [UInt8], rpKey: [UInt8],
         settings: StreamSettings, transport: StreamTransport, options: StreamSessionOptions,
-        events: @escaping @Sendable (StreamEvent, StreamSession) -> Void
+        internet: InternetLink? = nil, events: @escaping @Sendable (StreamEvent, StreamSession) -> Void
     ) async throws -> StreamSession {
         let session = StreamSession(
             address: address, target: target, registKey: registKey, rpKey: rpKey, settings: settings,
-            transport: transport, options: options, environment: environment, events: events)
+            transport: transport, options: options, environment: environment, internet: internet, events: events)
         do {
             try await withTaskCancellationHandler {
                 try await session.bootstrap()
@@ -125,9 +130,34 @@ public final class StreamSession: @unchecked Sendable {
         return session
     }
 
+    /// Starts a stream with a console reached through PSN, from the access token and the console's device ID alone:
+    /// no pairing record is needed, because every internet session registers first (registration.md section 8) and
+    /// uses the keys that registration returns.
+    ///
+    /// It takes about 30 s on a real PS5. `internet.progress` reports each stage; `internet.log` has one line per step
+    /// for diagnosing a first run. Everything after the stream is up is as for the LAN start: the same events, the
+    /// same commands, the same end. Over the internet the stream runs on the BSD socket transport.
+    ///
+    /// Cancelling the task, or `stop()`, before the stream is up ends the start promptly and throws
+    /// `InternetStartError.cancelled`. Whatever way it ends (a failure, a cancel, `stop()`, the console ending the
+    /// stream), the PSN session is left and the UPnP mappings are removed. After a throw, wait about 10 s before the
+    /// next start: the console can refuse a new session as busy for a few seconds (psn.md section 8).
+    ///
+    /// - Throws: `InternetStartError`.
+    public static func start(
+        remote: PSNRemote, settings: StreamSettings, options: StreamSessionOptions = StreamSessionOptions(),
+        internet: InternetOptions = InternetOptions(),
+        events: @escaping @Sendable (StreamEvent, StreamSession) -> Void
+    ) async throws -> StreamSession {
+        try await start(
+            remote: remote, settings: settings, options: options, internet: internet,
+            internetEnvironment: InternetEnvironment(), streamEnvironment: StreamEnvironment(), events: events)
+    }
+
     private func bootstrap() async throws {
         var control = options.control
         control.streamingType = settings.codec.streamingType
+        internet?.report(.sessionInit)
         let ctrl: ControlSession
         do {
             ctrl = try await ControlSession.start(
@@ -173,7 +203,13 @@ public final class StreamSession: @unchecked Sendable {
 
     /// Records why the start must stop (the first reason wins). Only while the stream isn't up yet.
     private func abortStart(_ error: StreamStartError) {
-        lock.withLock { if shared.phase == .starting && shared.startAbort == nil { shared.startAbort = error } }
+        let aborted = lock.withLock { () -> Bool in
+            guard shared.phase == .starting, shared.startAbort == nil else { return false }
+            shared.startAbort = error
+            return true
+        }
+        // An internet start may be inside the data hole's probes or a PSN wait: wake it.
+        if aborted { internet?.cancel() }
     }
 
     /// The blocking part of the start, on its own thread: probe, Takion, Hello, HelloReply, StreamInfo.
@@ -188,14 +224,44 @@ public final class StreamSession: @unchecked Sendable {
         var probe = StreamProbeResult.fallback
         var probeSucceeded = false
         var probeFailure: String?
-        let probePort = environment.probePort ?? handoff.probePort
-        let probeTransport = environment.makeTransport(transportKind, handoff.consoleAddress, probePort, true)
+        let probeTransport: DatagramTransport
+        if let internet {
+            // Steps 11 and 12: the data hole, then the probe on its socket (takion.md section 18).
+            do {
+                try internet.punchDataHole()
+                probeTransport = try internet.probeTransport()
+            } catch {
+                throw internetFailure(error, internet)
+            }
+        } else {
+            let probePort = environment.probePort ?? handoff.probePort
+            probeTransport = environment.makeTransport(transportKind, handoff.consoleAddress, probePort, true)
+        }
         switch NetworkProbe.run(transport: probeTransport, timing: environment.probe, abort: abort) {
         case .success(let result):
             probe = result
             probeSucceeded = true
         case .failure(let reason):
             probeFailure = reason.description
+        }
+        try checkAbort()
+        if let internet {
+            switch internet.switchToStream() {
+            case .acknowledged:
+                break
+            case .aborted:
+                // Cancelled (or the connection closed under the wait): the start's own abort says why.
+                try checkAbort()
+                throw StreamStartError.cancelled
+            case .ctrlEnded:
+                try checkAbort()
+                internet.record(.stream(StreamEndReason(code: .ctrlFailed), detail: "ctrl ended while waiting for 0x0034"))
+                throw StreamStartError.stream(StreamEndReason(code: .ctrlFailed), detail: "ctrl ended during the switch")
+            case .timedOut:
+                try checkAbort()
+                internet.record(.switchNotAcknowledged)
+                throw failure("no ctrl 0x0034 within 5 s of the RUDP switch message")
+            }
         }
         try checkAbort()
 
@@ -210,8 +276,15 @@ public final class StreamSession: @unchecked Sendable {
         let request = settings.launchRequest(target: handoff.negotiatedVersion, model: handoff.consoleModel)
         let codec: VideoCodec = request.codec == .h264 ? .h264 : .hevc
         let takionVersion = Int(StreamHandshake.takionVersion(for: handoff.negotiatedVersion))
-        let streamPort = environment.streamPort ?? handoff.streamPort
-        let rawTransport = environment.makeTransport(transportKind, handoff.consoleAddress, streamPort, probeSucceeded)
+        let rawTransport: DatagramTransport
+        if let internet {
+            do { rawTransport = try internet.streamTransport(dontFragment: probeSucceeded) } catch {
+                throw internetFailure(error, internet)
+            }
+        } else {
+            let streamPort = environment.streamPort ?? handoff.streamPort
+            rawTransport = environment.makeTransport(transportKind, handoff.consoleAddress, streamPort, probeSucceeded)
+        }
         let transport: DatagramTransport = options.simulatedReceiveLoss.map {
             LossyDatagramTransport(rawTransport, filter: LossFilter($0))
         } ?? rawTransport
@@ -277,6 +350,16 @@ public final class StreamSession: @unchecked Sendable {
         queue.sync { startTimers() }
     }
 
+    /// What a failed internet step becomes inside the start: the typed error is kept on the link (so `start(remote:)`
+    /// can throw it), and the start fails as a stream failure, or as cancelled.
+    private func internetFailure(_ error: any Error, _ internet: InternetLink) -> StreamStartError {
+        if let abort = startAbort { return abort }
+        let typed = (error as? InternetStartError) ?? .stream(StreamEndReason(code: .streamFailed), detail: "\(error)")
+        internet.record(typed)
+        if typed == .cancelled { return .cancelled }
+        return .stream(StreamEndReason(code: .streamFailed), detail: "internet: \(typed)")
+    }
+
     /// Called by the link on the receive thread when the StreamInfo is in: false if the start was abandoned.
     /// This is the commit point of `start`: once it returns true, `start` returns the session and every later
     /// failure is an `ended` event.
@@ -303,7 +386,14 @@ public final class StreamSession: @unchecked Sendable {
         link?.detach()
         control?.stop()
         gate.close()
-        lock.withLock { shared.link = nil; shared.connection = nil; shared.transport = nil; shared.control = nil }
+        internet?.shutdown()
+        lock.withLock {
+            shared.link = nil
+            shared.connection = nil
+            shared.transport = nil
+            shared.control = nil
+            shared.over = true
+        }
     }
 
     // MARK: Ctrl
@@ -313,6 +403,7 @@ public final class StreamSession: @unchecked Sendable {
         switch event {
         case .sessionInitialized:
             lock.withLock { shared.initDone = true }
+            internet?.report(.ctrl)
         case .loginPINRequested: postControl(.loginPINRequested)
         case .loginPINResult(let accepted): postControl(.loginPINResult(accepted: accepted))
         case .keyboardOpened(let text): postControl(.keyboardOpened(text: text))
@@ -372,8 +463,10 @@ public final class StreamSession: @unchecked Sendable {
         link?.detach()
         control?.stop()
         let handler = gate.close()
+        internet?.shutdown()
         lock.withLock { shared.link = nil; shared.connection = nil; shared.control = nil }
         handler?(.ended(reason), self)
+        lock.withLock { shared.over = true }
     }
 
     /// Without events: the session was dropped.
@@ -385,6 +478,7 @@ public final class StreamSession: @unchecked Sendable {
         link?.detach()
         control?.stop()
         gate.close()
+        internet?.shutdown()
     }
 
     // MARK: Timers
@@ -537,6 +631,19 @@ public final class StreamSession: @unchecked Sendable {
     private func runningControl() throws -> ControlSession {
         guard let control = lock.withLock({ shared.control }) else { throw ControlCommandError.notRunning }
         return control
+    }
+
+    /// `stop()`, then waits until the session has ended and, for an internet session, until the PSN session is left (the
+    /// DELETE and the wait for its notification) and the UPnP mappings are removed. Use it where the process may exit
+    /// right after (an app quitting): `stop()` alone leaves that to a background task that dies with the process. The
+    /// wait is bounded by the PSN limits (psn.md section 10) and the router's answers, 13 s on a bad network.
+    public func stopAndWait() async {
+        stop()
+        let deadline = monotonicSeconds() + 5
+        while !lock.withLock({ shared.over }) && monotonicSeconds() < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        await internet?.shutdownAndWait()
     }
 
     /// Ends the stream: the Disconnect, everything closed, then `ended(stoppedByClient)`. Safe at any time and

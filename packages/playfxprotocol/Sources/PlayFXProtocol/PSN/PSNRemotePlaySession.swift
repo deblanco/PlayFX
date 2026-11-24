@@ -91,7 +91,10 @@ public actor PSNRemotePlaySession {
     static let maxBackgroundResults = 32
     private let client: PSNClient
     private let channel: PSNPushChannel
+    /// The console's sid, its low 16 bits only (psn.md section 7.3).
     private var consoleSid = 0
+    /// The console's sid as it was before the current hole's OFFER: the `peerSid` of the client's OFFER.
+    private var pendingPeerSid = 0
     private var holesStarted = 0
     private var lastOfferReqID = 0
     /// True from the first console OFFER of a hole until it's established, and for good after the data hole's.
@@ -214,31 +217,50 @@ public actor PSNRemotePlaySession {
     /// `reqId`s follow the reference's numbering (2, 3 for the ctrl hole's OFFER and ACCEPT, 5, 6 for the data
     /// hole's).
     public func exchangeOffers(candidates: [PSNCandidate]) async throws -> PSNReceivedMessage {
+        let received = try await receiveOffer()
+        try await sendOffer(candidates: candidates)
+        return received
+    }
+
+    /// The first half of `exchangeOffers`: waits for the console's OFFER for this hole and answers it with a
+    /// RESULT. The caller then builds its candidates (they need the socket's own address) and calls `sendOffer`.
+    public func receiveOffer() async throws -> PSNReceivedMessage {
         await stopResponder()
         defer { startResponderIfNeeded() }
-        let peerSid = consoleSid
+        pendingPeerSid = consoleSid
         let offer = try await awaitMessage(.waitOffer) { $0.action == .offer }
         guard let request = offer.connRequest else {
             throw PSNError.invalidMessage(reason: "OFFER without connRequest")
         }
         offerSeen = true
-        consoleSid = request.sid
+        consoleSid = request.sid & 0xffff
         try await send(PSNMessage(action: .result, reqID: offer.reqID, connRequest: nil))
+        return PSNReceivedMessage(reqID: offer.reqID, request: request)
+    }
 
+    /// The second half: sends the client's OFFER and waits for the console's RESULT for its `reqId`.
+    public func sendOffer(candidates: [PSNCandidate]) async throws {
+        await stopResponder()
+        defer { startResponderIfNeeded() }
         lastOfferReqID = 2 + 3 * holesStarted
         holesStarted += 1
         let mine = PSNConnRequest(
-            sid: Int(parameters.localSid), peerSid: peerSid, natType: 2, candidates: candidates,
+            sid: Int(parameters.localSid), peerSid: pendingPeerSid, natType: 2, candidates: candidates,
             localPeerAddress: localPeerAddress(), localHashedID: parameters.localHashedID)
         try await send(PSNMessage(action: .offer, reqID: lastOfferReqID, connRequest: mine))
         let expected = lastOfferReqID
         _ = try await awaitMessage(.waitResult) { $0.action == .result && $0.reqID == expected }
-        return PSNReceivedMessage(reqID: offer.reqID, request: request)
     }
 
     /// Ends a hole's exchange: sends the ACCEPT carrying `selected` (see `PSNCandidate.accepting`), waits for the
     /// console's ACCEPT and answers it with a RESULT. Returns the console's ACCEPT.
     public func accept(selected: PSNCandidate) async throws -> PSNReceivedMessage {
+        try await sendAccept(selected: selected)
+        return try await receiveAccept()
+    }
+
+    /// The first half of `accept`: sends the client's ACCEPT. The hole punch sends it as soon as a pair is selected.
+    public func sendAccept(selected: PSNCandidate) async throws {
         await stopResponder()
         defer { startResponderIfNeeded() }
         guard lastOfferReqID > 0 else { throw PSNError.invalidState(reason: "accept before exchangeOffers") }
@@ -246,11 +268,17 @@ public actor PSNRemotePlaySession {
             sid: Int(parameters.localSid), peerSid: consoleSid, natType: 0, candidates: [selected],
             localPeerAddress: localPeerAddress(), localHashedID: [])
         try await send(PSNMessage(action: .accept, reqID: lastOfferReqID + 1, connRequest: mine))
+    }
+
+    /// The second half: waits for the console's ACCEPT and answers it with a RESULT.
+    public func receiveAccept() async throws -> PSNReceivedMessage {
+        await stopResponder()
+        defer { startResponderIfNeeded() }
         let theirs = try await awaitMessage(.waitAccept) { $0.action == .accept }
         guard let request = theirs.connRequest else {
             throw PSNError.invalidMessage(reason: "ACCEPT without connRequest")
         }
-        consoleSid = request.sid
+        consoleSid = request.sid & 0xffff
         try await send(PSNMessage(action: .result, reqID: theirs.reqID, connRequest: nil))
         // The first hole is done; the next console OFFER is the data hole's. After the data hole's, retransmitted
         // OFFERs are answered for the rest of the session.

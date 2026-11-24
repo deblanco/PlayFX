@@ -15,6 +15,8 @@ final class BSDDatagramTransport: DatagramTransport, @unchecked Sendable {
     private let port: UInt16
     private let dontFragment: Bool
     private let ringSlots: Int
+    /// A descriptor that is already a connected, bound UDP socket (internet play: the punched data hole).
+    private let adopted: Int32?
     private var fd: Int32 = -1
     private var wakePipe: (read: Int32, write: Int32) = (-1, -1)
     private var thread: Thread?
@@ -44,6 +46,20 @@ final class BSDDatagramTransport: DatagramTransport, @unchecked Sendable {
         self.port = port
         self.dontFragment = dontFragment
         self.ringSlots = ringSlots
+        adopted = nil
+    }
+
+    /// Reads and sends on `descriptor`, which is already connected to the console (the data hole of internet play,
+    /// takion.md section 18). The transport owns it from here: it closes it when it stops. Pass a `dup` of the
+    /// descriptor to a transport that must not end the socket (the network probe's, which leaves it to the stream
+    /// connection); both read the same socket queue.
+    init(adopting descriptor: Int32, dontFragment: Bool = false, ringSlots: Int = 32) {
+        host = ""
+        port = 0
+        self.dontFragment = dontFragment
+        self.ringSlots = ringSlots
+        adopted = descriptor
+        fd = descriptor
     }
 
     deinit {
@@ -81,9 +97,10 @@ final class BSDDatagramTransport: DatagramTransport, @unchecked Sendable {
     }
 
     func start(handler: TransportHandler) throws {
-        guard let address = SocketAddress(host: host, port: port) else { throw FailureKind.badAddress }
-        let ipv6 = SocketAddress.isIPv6(host)
-        fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM, 0)
+        let address = adopted == nil ? SocketAddress(host: host, port: port) : nil
+        if adopted == nil && address == nil { throw FailureKind.badAddress }
+        let ipv6 = adopted == nil && SocketAddress.isIPv6(host)
+        if adopted == nil { fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM, 0) }
         guard fd >= 0 else { throw FailureKind(errno: errno) }
         do {
             _ = setOption(SOL_SOCKET, SO_NOSIGPIPE, 1)
@@ -106,10 +123,15 @@ final class BSDDatagramTransport: DatagramTransport, @unchecked Sendable {
             }
             if dontFragment {
                 _ = ipv6 ? setOption(IPPROTO_IPV6, 62 /* IPV6_DONTFRAG */, 1) : setOption(IPPROTO_IP, IP_DONTFRAG, 1)
+            } else if adopted != nil {
+                // The socket carried the probe, which sets Don't-Fragment; the stream may not want it.
+                _ = setOption(IPPROTO_IP, IP_DONTFRAG, 0)
             }
-            let any = SocketAddress(host: ipv6 ? "::" : "0.0.0.0", port: 0)!
-            guard any.withSockaddr({ Darwin.bind(fd, $0, $1) }) == 0 else { throw FailureKind(errno: errno) }
-            guard address.withSockaddr({ connect(fd, $0, $1) }) == 0 else { throw FailureKind(errno: errno) }
+            if let address {
+                let any = SocketAddress(host: ipv6 ? "::" : "0.0.0.0", port: 0)!
+                guard any.withSockaddr({ Darwin.bind(fd, $0, $1) }) == 0 else { throw FailureKind(errno: errno) }
+                guard address.withSockaddr({ connect(fd, $0, $1) }) == 0 else { throw FailureKind(errno: errno) }
+            }
             var bound = sockaddr_storage()
             var boundLength = socklen_t(MemoryLayout<sockaddr_storage>.size)
             _ = withUnsafeMutablePointer(to: &bound) {
@@ -284,5 +306,35 @@ final class BSDDatagramTransport: DatagramTransport, @unchecked Sendable {
             offset += (length + 3) & ~3
         }
         return nil
+    }
+}
+
+/// What internet play does to the punched data socket around the two Takion connections (takion.md section 18).
+enum PunchedSocket {
+    /// Reads and discards whatever is queued (late hole-punch probes, packets of the previous connection) before a
+    /// Takion handshake: waits up to `step` seconds for more each time, `limit` seconds in all. Returns how many
+    /// datagrams it threw away.
+    @discardableResult
+    static func drain(descriptor: Int32, step: Double = 0.2, limit: Double = 1) -> Int {
+        let deadline = monotonicSeconds() + limit
+        var buffer = [UInt8](repeating: 0, count: 2048)
+        var discarded = 0
+        while true {
+            let remaining = deadline - monotonicSeconds()
+            guard remaining > 0 else { return discarded }
+            var pfd = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&pfd, 1, Int32((min(step, remaining) * 1000).rounded(.up)))
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return discarded
+            }
+            guard ready > 0, pfd.revents & Int16(POLLIN) != 0 else { return discarded }
+            let count = buffer.withUnsafeMutableBytes { recv(descriptor, $0.baseAddress, $0.count, 0) }
+            if count < 0 {
+                if errno == EINTR || errno == EAGAIN { continue }
+                return discarded
+            }
+            discarded += 1
+        }
     }
 }

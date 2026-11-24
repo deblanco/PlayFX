@@ -41,6 +41,7 @@ final class LoopbackGuardedPunchSocket: UDPPunchSocket, @unchecked Sendable {
         try inner.setTimeToLive(ttl)
     }
     func close() { inner.close() }
+    func releaseDescriptor() -> Int32? { inner.releaseDescriptor() }
 }
 
 /// A loopback-only HTTP client: refuses non-loopback hosts.

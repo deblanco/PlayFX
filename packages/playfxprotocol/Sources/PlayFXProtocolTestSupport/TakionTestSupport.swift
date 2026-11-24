@@ -400,8 +400,20 @@ final class UDPConsoleLink: @unchecked Sendable {
     /// Datagrams to hold back from the client (tests drop by not sending; this just counts what was sent).
     private(set) var emitted = 0
     private var tasks: [() -> Void] = []
+    /// Internet play: the punched socket this link shares with the other console of the pair (see `PunchedUDPEndpoint`).
+    private let endpoint: PunchedUDPEndpoint?
+
+    /// A link that talks through `endpoint`'s socket instead of one of its own; the endpoint's thread feeds it.
+    init(console: FakeTakionConsole, endpoint: PunchedUDPEndpoint) {
+        self.console = console
+        self.endpoint = endpoint
+        fd = -1
+        port = endpoint.port
+        console.emit = { [unowned self] in send($0) }
+    }
 
     init(console: FakeTakionConsole) throws {
+        endpoint = nil
         self.console = console
         let s = socket(AF_INET, SOCK_DGRAM, 0)
         guard s >= 0 else { throw FailureKind(errno: errno) }
@@ -424,6 +436,11 @@ final class UDPConsoleLink: @unchecked Sendable {
     }
 
     func send(_ bytes: [UInt8]) {
+        if let endpoint {
+            endpoint.send(bytes)
+            lock.lock(); emitted += 1; lock.unlock()
+            return
+        }
         lock.lock()
         let target = peer
         let ok = havePeer
@@ -442,6 +459,7 @@ final class UDPConsoleLink: @unchecked Sendable {
 
     /// Runs `block` on the link's own thread (where the console's state is otherwise only touched), within 20 ms.
     func perform(_ block: @escaping () -> Void) {
+        if let endpoint { endpoint.perform(block); return }
         lock.lock(); tasks.append(block); lock.unlock()
     }
 
@@ -464,6 +482,7 @@ final class UDPConsoleLink: @unchecked Sendable {
     }
 
     func stop() {
+        if endpoint != nil { return }
         lock.lock(); running = false; lock.unlock()
         done.wait()
         close(fd)

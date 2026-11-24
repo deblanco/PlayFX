@@ -152,9 +152,14 @@ struct ControlEnvironment: Sendable {
     var makeInitConnection: @Sendable (_ host: String, _ port: UInt16) throws -> BlockingTCPConnection = { host, port in
         try NWBlockingTCPConnection(host: host, port: port)
     }
-    var makeCtrlConnection: @Sendable (_ host: String, _ port: UInt16) throws -> NWConnection = { host, port in
-        try CtrlFramer.makeConnection(host: host, port: port)
+    var makeCtrlConnection: @Sendable (_ host: String, _ port: UInt16) throws -> CtrlLink = { host, port in
+        NWCtrlLink(try CtrlFramer.makeConnection(host: host, port: port))
     }
+    /// Internet play (ctrl.md section 10): the ctrl hole's RUDP channel carries ctrl, so a failure before the response
+    /// header is final (no reset or timeout retries), PS5 skips one counter after the request, the login PIN reply
+    /// uses counter `localCounter - 1`, and the client sends an unrequested heartbeat reply every 4.95 s.
+    var internet = false
+    var unsolicitedHeartbeatInterval = 4.95
     var randomBytes: @Sendable (_ count: Int) -> [UInt8] = secureRandomBytes
 }
 
@@ -216,7 +221,7 @@ public final class ControlSession: @unchecked Sendable {
     private var phase = Phase.idle
     private var context: RPCryptContext?
     private var request: CtrlRequest?
-    private var link: NWConnection?
+    private var link: CtrlLink?
     private var generation = 0
     private var resets = 0
     private var timeoutRetried = false
@@ -231,6 +236,8 @@ public final class ControlSession: @unchecked Sendable {
     private let retryTimer = Deadline()
     private let startupTimer = Deadline()
     private let heartbeatTimer = Deadline()
+    private let unsolicitedTimer = Deadline()
+    private var unsolicitedStarted = false
 
     private init(
         address: String, target: RPTarget, registKey: [UInt8], options: ControlOptions,
@@ -312,7 +319,8 @@ public final class ControlSession: @unchecked Sendable {
         queue.async {
             self.context = result.context
             self.request = request
-            self.localCounter = request.nextLocalCounter
+            // Over the internet a PS5 skips one counter after the request (ctrl.md section 10).
+            self.localCounter = request.nextLocalCounter + (self.environment.internet && result.target.isPS5 ? 1 : 0)
             self.update { $0.negotiated = result.target }
             self.emit(.sessionInitialized(version: result.target, attempts: result.attempts))
         }
@@ -365,7 +373,7 @@ public final class ControlSession: @unchecked Sendable {
             shared.pinPending = false
         }
         queue.async {
-            if self.write(message), !self.sessionIDReceived { self.armStartupTimer() }
+            if self.write(message, pinReply: true), !self.sessionIDReceived { self.armStartupTimer() }
         }
     }
 
@@ -422,7 +430,7 @@ public final class ControlSession: @unchecked Sendable {
 
     private func beginAttempt() {
         guard phase == .idle || phase == .connecting || phase == .awaitingHead else { return }
-        let connection: NWConnection
+        let connection: CtrlLink
         do {
             connection = try environment.makeCtrlConnection(address, environment.ctrlPort)
         } catch {
@@ -433,15 +441,14 @@ public final class ControlSession: @unchecked Sendable {
         link = connection
         generation += 1
         let attempt = generation
-        connection.stateUpdateHandler = { [weak self] state in self?.linkState(state, attempt: attempt) }
-        connection.start(queue: queue)
+        connection.start(queue: queue) { [weak self] state in self?.linkState(state, attempt: attempt) }
         connectTimer.arm(on: queue, after: environment.connectTimeout) { [weak self] in
             guard let self, attempt == self.generation, self.phase == .connecting else { return }
             self.failStart(.noAnswer(.timeout))
         }
     }
 
-    private func linkState(_ state: NWConnection.State, attempt: Int) {
+    private func linkState(_ state: CtrlLinkState, attempt: Int) {
         guard attempt == generation else { return }
         switch state {
         case .ready:
@@ -453,11 +460,11 @@ public final class ControlSession: @unchecked Sendable {
             }
             sendRaw(request.bytes, attempt: attempt)
             receiveNext(link, attempt: attempt)
-        case .waiting(let error):
-            if phase == .connecting { failStart(.from(NWBlockingTCPConnection.failure(error))) }
-        case .failed(let error):
-            lost(NWBlockingTCPConnection.failure(error), attempt: attempt)
-        default:
+        case .waiting(let kind):
+            if phase == .connecting { failStart(.from(kind)) }
+        case .failed(let kind):
+            lost(kind, attempt: attempt)
+        case .cancelled:
             break
         }
     }
@@ -467,7 +474,8 @@ public final class ControlSession: @unchecked Sendable {
         guard attempt == generation else { return }
         switch phase {
         case .connecting: failStart(.from(kind))
-        case .awaitingHead: retryAfterReset(kind)
+        case .awaitingHead:
+            if environment.internet { failStart(.from(kind)) } else { retryAfterReset(kind) }
         case .active: finish(.connectionLost(kind))
         default: break
         }
@@ -490,7 +498,7 @@ public final class ControlSession: @unchecked Sendable {
 
     private func headerTimedOut(attempt: Int) {
         guard attempt == generation, phase == .awaitingHead else { return }
-        guard !timeoutRetried else {
+        guard !timeoutRetried, !environment.internet else {
             failStart(.noAnswer(.timeout))
             return
         }
@@ -502,27 +510,32 @@ public final class ControlSession: @unchecked Sendable {
     }
 
     private func sendRaw(_ bytes: [UInt8], attempt: Int) {
-        link?.send(content: Data(bytes), completion: .contentProcessed { [weak self] error in
-            guard let self, let error else { return }
-            self.lost(NWBlockingTCPConnection.failure(error), attempt: attempt)
-        })
+        link?.send(bytes) { [weak self] failure in
+            guard let self, let failure else { return }
+            self.queue.async { self.lost(failure, attempt: attempt) }
+        }
     }
 
-    private func receiveNext(_ connection: NWConnection, attempt: Int) {
-        connection.receiveMessage { [weak self] data, _, _, error in
-            guard let self, attempt == self.generation, self.phase != .ended else { return }
-            if let error {
-                self.lost(NWBlockingTCPConnection.failure(error), attempt: attempt)
-                return
-            }
-            guard let data, !data.isEmpty else {
-                // The console closed the stream.
-                if self.phase == .active { self.finish(.consoleClosed) } else { self.lost(.disconnected, attempt: attempt) }
-                return
-            }
-            self.handle(CtrlStreamSplitter.decode(Array(data)))
-            if self.phase != .ended, self.generation == attempt { self.receiveNext(connection, attempt: attempt) }
+    private func receiveNext(_ connection: CtrlLink, attempt: Int) {
+        connection.receiveMessage { [weak self] data, failure in
+            guard let self else { return }
+            self.queue.async { self.received(data, failure: failure, connection: connection, attempt: attempt) }
         }
+    }
+
+    private func received(_ data: [UInt8]?, failure: FailureKind?, connection: CtrlLink, attempt: Int) {
+        guard attempt == generation, phase != .ended else { return }
+        if let failure {
+            lost(failure, attempt: attempt)
+            return
+        }
+        guard let data, !data.isEmpty else {
+            // The console closed the stream.
+            if phase == .active { finish(.consoleClosed) } else { lost(.disconnected, attempt: attempt) }
+            return
+        }
+        handle(CtrlStreamSplitter.decode(data))
+        if phase != .ended, generation == attempt { receiveNext(connection, attempt: attempt) }
     }
 
     // MARK: Receiving (queue only)
@@ -609,6 +622,7 @@ public final class ControlSession: @unchecked Sendable {
                 self?.finish(.heartbeatTimeout)
             }
             emit(.heartbeat(count: heartbeats))
+            startUnsolicitedHeartbeats()
         case .displayNoticeA(let set):
             emit(.displayNotice(.a(set: set)))
         case .displayNoticeB(let bytes, let clears):
@@ -621,6 +635,22 @@ public final class ControlSession: @unchecked Sendable {
             emit(.keyboardTextChanged(sequence: sequence, text: text))
         case .unknown(let type, let bytes):
             emit(.notice(type: type, payload: bytes))
+        }
+    }
+
+    /// Over the internet, once the first heartbeat request has arrived, a reply goes out every 4.95 s without one
+    /// (ctrl.md section 7: a reply can be lost after its RUDP retries run out; it also keeps the NAT mapping busy).
+    private func startUnsolicitedHeartbeats() {
+        guard environment.internet, !unsolicitedStarted else { return }
+        unsolicitedStarted = true
+        scheduleUnsolicitedHeartbeat()
+    }
+
+    private func scheduleUnsolicitedHeartbeat() {
+        unsolicitedTimer.arm(on: queue, after: environment.unsolicitedHeartbeatInterval) { [weak self] in
+            guard let self, self.phase == .active else { return }
+            self.write(.heartbeatReply)
+            self.scheduleUnsolicitedHeartbeat()
         }
     }
 
@@ -648,23 +678,23 @@ public final class ControlSession: @unchecked Sendable {
 
     /// Encrypts with the next counter when the payload is not empty, and writes the frame.
     @discardableResult
-    private func write(_ message: CtrlOutgoing) -> Bool {
+    private func write(_ message: CtrlOutgoing, pinReply: Bool = false) -> Bool {
         guard phase == .active, let link, let context else { return false }
         var payload = message.payload
         if !payload.isEmpty {
-            guard (try? context.encrypt(&payload, counter: localCounter)) != nil else {
+            // Over the internet the login PIN reply uses the counter before the next unused one (ctrl.md section 10).
+            let counter = pinReply && environment.internet ? localCounter - 1 : localCounter
+            guard (try? context.encrypt(&payload, counter: counter)) != nil else {
                 finish(.protocolError)
                 return false
             }
             localCounter += 1
         }
         let attempt = generation
-        link.send(
-            content: Data(CtrlWire.frame(type: message.type, payload: payload)),
-            completion: .contentProcessed { [weak self] error in
-                guard let self, let error else { return }
-                self.lost(NWBlockingTCPConnection.failure(error), attempt: attempt)
-            })
+        link.send(CtrlWire.frame(type: message.type, payload: payload)) { [weak self] failure in
+            guard let self, let failure else { return }
+            self.queue.async { self.lost(failure, attempt: attempt) }
+        }
         return true
     }
 
@@ -687,7 +717,7 @@ public final class ControlSession: @unchecked Sendable {
         retryTimer.cancel()
         startupTimer.cancel()
         heartbeatTimer.cancel()
-        link?.stateUpdateHandler = nil
+        unsolicitedTimer.cancel()
         link?.cancel()
         link = nil
         if let continuation = startContinuation {

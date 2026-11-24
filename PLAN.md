@@ -994,6 +994,17 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     signed port increments for a decreasing NAT, a per-exchange duplicate window for console ctrl data. 106 tests on
     loopback only (a fake console, gateway and lossy sockets). PlayFXProtocol 793 tests, 98% lines. Not yet over a
     real NAT.
+  - ✅ Internet play integrated in PlayFXProtocol (2026-11-24, clean-room): `StreamSession.start(remote: PSNRemote…)`
+    runs holepunch.md §8 end to end — UPnP and the push channel, the PSN session, the ctrl hole, a PIN-less PSN
+    registration over RUDP (every session; its keys are used), session init and ctrl over RUDP (a `CtrlLink` seam,
+    the LAN path unchanged), the data hole, the probe, the switch to the stream, Takion on the punched socket
+    (allocation-free, asserted) — with progress stages, typed errors, and the PSN session left and UPnP mappings
+    removed on every path (`stopAndWait()` waits for it). `Registration.registerThroughPSN` pairs without a PIN.
+    Probes are checked against the console's and our identities (`.strict`, or `.logOnly` for the first hardware
+    round). Reviewed against the spec and fixed (cancel during the switch wait, a stale descriptor after shutdown,
+    slow cancel, home addresses in the system log, the console's sid width). End to end on loopback against a fake
+    PSN and a fake console that punches, speaks RUDP and streams. PlayFXProtocol 843 tests, 98% lines. Not yet over
+    the internet.
   - ❌ Next: discovery, wake and PIN pairing in the app on PlayFXProtocol; PSN
     in PlayFXProtocol from the new spec, with a hardware round over the internet; the parity round in the app;
     then removing chiaki-ng, third_party/ and libchiaki's C libraries, and the licence change.

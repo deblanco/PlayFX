@@ -32,6 +32,15 @@ public struct PairingResult: Sendable, Equatable {
     public var apName: String?
 }
 
+/// A pairing record is secrets: printing, interpolating or dumping one shows the console and nothing else.
+extension PairingResult: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "PairingResult(\(target), nickname: \(nickname), keys: <redacted>)" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror {
+        Mirror(self, children: ["target": target, "nickname": nickname], displayStyle: .struct)
+    }
+}
+
 /// The request bytes of a registration and the context that decrypts the answer.
 struct RegistrationRequest {
     var header: [UInt8]
@@ -44,6 +53,30 @@ struct RegistrationRequest {
     /// Builds the LAN registration request (registration.md section 3, rpcrypt.md section 6).
     static func build(
         target: RPTarget, identity: RegistrationIdentity, pin: UInt32, seed: [UInt8], filler: UInt8 = 0x41
+    ) throws -> RegistrationRequest {
+        try assemble(target: target, identity: identity, seed: seed, filler: filler, host: nil) { seed, key, mask in
+            try RPCryptContext.registration(target: target, pin: pin, seed: seed, keyColumn: key, maskColumn: mask)
+        }
+    }
+
+    /// Builds the registration request through PSN (registration.md section 8, rpcrypt.md section 7): the PIN is
+    /// replaced by `data1`, `data2` and the console's `customData1`, and `HOST` is the client's LAN address (empty
+    /// when it has none). Only PS4-10 and PS5-1 exist in this form.
+    static func buildPSN(
+        target: RPTarget, accountID: [UInt8], seed: [UInt8], data1: [UInt8], data2: [UInt8], customData1: [UInt8],
+        host: String, filler: UInt8 = 0x41
+    ) throws -> RegistrationRequest {
+        guard !target.isLegacy else { throw FailureKind.invalidInput }
+        return try assemble(target: target, identity: .accountID(accountID), seed: seed, filler: filler, host: host) {
+            seed, key, mask in
+            try RPCryptContext.psnRegistration(
+                target: target, seed: seed, d1: data1, d2: data2, cd: customData1, keyColumn: key, maskColumn: mask)
+        }
+    }
+
+    private static func assemble(
+        target: RPTarget, identity: RegistrationIdentity, seed: [UInt8], filler: UInt8, host: String?,
+        crypt makeCrypt: (_ seed: [UInt8], _ keyColumn: Int, _ maskColumn: Int) throws -> RPRegistrationCrypt
     ) throws -> RegistrationRequest {
         let inner: String
         switch identity {
@@ -63,9 +96,7 @@ struct RegistrationRequest {
         guard seed.count == 16 else { throw FailureKind.invalidInput }
 
         var body = [UInt8](repeating: filler, count: fillerLength)
-        let crypt = try RPCryptContext.registration(
-            target: target, pin: pin, seed: seed,
-            keyColumn: Int(body[0x18d] & 0x1f), maskColumn: Int(body[0] >> 3))
+        let crypt = try makeCrypt(seed, Int(body[0x18d] & 0x1f), Int(body[0] >> 3))
         let m = crypt.maskedSeed
         if target.isLegacy {
             body.replaceSubrange(0x11c..<0x12c, with: m)
@@ -84,9 +115,10 @@ struct RegistrationRequest {
         case .ps4v10: "10.0"
         case .ps5v1: "1.0"
         }
-        return RegistrationRequest(
-            header: MiniHTTP.registrationHeader(path: path, contentLength: body.count, rpVersion: version),
-            body: body, context: crypt.context)
+        let header = host.map {
+            MiniHTTP.registrationHeader(path: path, contentLength: body.count, rpVersion: version, host: $0)
+        } ?? MiniHTTP.registrationHeader(path: path, contentLength: body.count, rpVersion: version)
+        return RegistrationRequest(header: header, body: body, context: crypt.context)
     }
 
     /// Decrypts and reads a 200 response body (registration.md section 4.2).
@@ -221,6 +253,19 @@ struct RegistrationClient {
 
 /// Pairing with a console that shows its PIN (registration.md).
 public enum Registration {
+    /// Pairs through PSN, with no PIN: the same pairing record as `register(address:...)`, from the access token and the
+    /// console's device ID (registration.md section 8). It runs the PSN session, the ctrl hole and the registration
+    /// over RUDP, then leaves the PSN session; the console's LAN address isn't learned (`PairingResult` has none).
+    /// Takes about 20 to 30 s on a real console. Cancelling the task stops it and throws `.cancelled`. Everything
+    /// is given back on every path.
+    ///
+    /// - Throws: `InternetStartError`; a refusal by the console is `.registration` with its reason code.
+    public static func registerThroughPSN(
+        remote: PSNRemote, internet: InternetOptions = InternetOptions()
+    ) async throws -> PairingResult {
+        try await registerThroughPSN(remote: remote, internet: internet, environment: InternetEnvironment())
+    }
+
     /// Pairs using PlayFX's default target (PS5-1 for a PS5, PS4-10 for a PS4). Blocks for up to about 20
     /// seconds. `accountId` is the 8-byte little-endian PSN account ID. Throws `RegistrationError`.
     public static func register(address: String, ps5: Bool, accountId: [UInt8], pin: UInt32) throws -> PairingResult {

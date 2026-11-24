@@ -38,7 +38,7 @@ extension ControlEnvironment {
         }
         environment.makeCtrlConnection = { host, port in
             guard isLoopback(host) else { loopbackViolation("test tried to connect to non-loopback address \(host)") }
-            return try CtrlFramer.makeConnection(host: host, port: port)
+            return NWCtrlLink(try CtrlFramer.makeConnection(host: host, port: port))
         }
         return environment
     }

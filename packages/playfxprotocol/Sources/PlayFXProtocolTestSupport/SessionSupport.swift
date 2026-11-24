@@ -220,6 +220,28 @@ final class StreamConsole: @unchecked Sendable {
         streamConsole.onPacket = { [unowned self] in handleStream($0) }
     }
 
+    /// A console for internet play: ctrl is served by `RUDPConsole` on the ctrl hole, and the probe and the stream
+    /// connection share the one punched socket of `endpoint` (probe first; `activateStream` switches to the stream
+    /// connection, as the RUDP switch message does).
+    init(serverType: UInt8 = 2, internet endpoint: PunchedUDPEndpoint) throws {
+        capture = try loadCapture()
+        ctrlClosed = Locked(false)
+        ctrl = FakeSessionConsole()
+        probeLink = UDPConsoleLink(console: probeConsole, endpoint: endpoint)
+        streamLink = UDPConsoleLink(console: streamConsole, endpoint: endpoint)
+        probeConsole.adoptsClientTag = true
+        streamConsole.adoptsClientTag = true
+        probeConsole.onPacket = { [unowned self] in handleProbe($0) }
+        streamConsole.onPacket = { [unowned self] in handleStream($0) }
+        endpoint.onDatagram = { [unowned self] bytes in
+            if streamActive.with({ $0 }) { streamConsole.handle(bytes) } else { probeConsole.handle(bytes) }
+        }
+    }
+
+    /// Internet play: from now on the data socket's datagrams are the stream connection's, not the probe's.
+    let streamActive = Locked(false)
+    func activateStream() { streamActive.with { $0 = true } }
+
     private let streamLinkStopped = Locked(false)
 
     /// Stops the stream port's socket (the console "goes away"); `stop` doesn't stop it again.

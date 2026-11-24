@@ -38,6 +38,13 @@ public protocol UDPPunchSocket: AnyObject, Sendable {
     func setTimeToLive(_ ttl: Int) throws
     /// Closes the socket; calls in flight finish first. Safe to call twice.
     func close()
+    /// Hands the open descriptor to the caller (the Takion transport that adopts the punched data socket) and leaves the
+    /// object closed; nil when it can't (closed already, a call in flight, or a socket with no descriptor of its own).
+    func releaseDescriptor() -> Int32?
+}
+
+extension UDPPunchSocket {
+    public func releaseDescriptor() -> Int32? { nil }
 }
 
 /// A BSD UDP/IPv4 socket (`UDPPunchSocket`).

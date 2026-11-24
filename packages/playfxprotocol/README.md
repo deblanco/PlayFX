@@ -19,6 +19,25 @@ side with `psrp`. Only with the user's go-ahead. `wake` uses the pairing in `~/.
 shows `simDrop`). `--trace-input` prints every controller state actually sent, when it changes. It prints the video
 header's `codec` byte and the pad-info form (17 or 25 bytes) when it first sees them.
 
+## Internet play (through PSN)
+```swift
+let remote = PSNRemote(accessToken: token, consoleDUID: duid)   // duid from PSNClient.consoles()
+var internet = InternetOptions()
+internet.progress = { stage in /* .linkingPSN, .wakingConsole, .ctrlHole, .registering, .sessionInit, .ctrl,
+                                   .dataHole, .probing, .streamConnecting, .connected */ }
+let session = try await StreamSession.start(remote: remote, settings: settings, internet: internet) { event, session in ... }
+// PIN-less pairing: the same PairingResult as a PIN pairing, from the same inputs.
+let pairing = try await Registration.registerThroughPSN(remote: remote)
+```
+Both throw `InternetStartError` (`userMessage(console:)`, `endReason`, `retryClass`). Every internet session registers first and
+uses the keys that registration returns, so no pairing record is needed; the account ID comes from PSN. `StreamSession.stopAndWait()` waits for that
+leaving (use it on quit); `InternetOptions.probeIdentity = .logOnly` relaxes the probe identity check for a first hardware
+round. `InternetOptions.log` lines can contain public addresses (the default writes them `.private`). Whatever way a
+start or a stream ends, the PSN session is left and the UPnP mappings removed; wait about 10 s before the next start (the
+console can answer busy). It takes about 30 s on a real PS5. `InternetOptions.log` has one line per step for diagnosing a
+first run. See DESIGN.md "Internet play". No test or build step contacts PSN, a STUN server, a router or a console: the
+tests use fakes on loopback.
+
 ## Tests
 - `scripts/test.sh` runs the tests (swift-testing); no console or network needed (recorded bytes in
   `Tests/PlayFXProtocolTests/Fixtures`).

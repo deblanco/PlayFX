@@ -5,10 +5,12 @@ enum MiniHTTP {
 
     /// The request header, byte for byte as the spec has it: note the second line, a space then `HTTP/1.1`,
     /// the upper-case `HOST`, and the fixed LAN placeholder host. `rpVersion` is nil for PS4-8.
-    static func registrationHeader(path: String, contentLength: Int, rpVersion: String?) -> [UInt8] {
+    static func registrationHeader(
+        path: String, contentLength: Int, rpVersion: String?, host: String = "10.0.2.15"
+    ) -> [UInt8] {
         var text = "POST \(path) HTTP/1.1\r\n"
         text += " HTTP/1.1\r\n"
-        text += "HOST: 10.0.2.15\r\n"
+        text += "HOST: \(host)\r\n"
         text += "User-Agent: remoteplay Windows\r\n"
         text += "Connection: close\r\n"
         text += "Content-Length: \(contentLength)\r\n"

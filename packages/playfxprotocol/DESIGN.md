@@ -103,7 +103,58 @@ thread of each event are documented on the class.
 - **Mic frames.** The packets are built and sent (`sendMicrophoneFrame`); there is no Opus encoder yet, so the app
   encodes. `setMicrophone(on:)` is ctrl signalling only.
 
+## Internet play
+`StreamSession.start(remote:...)` and `Registration.registerThroughPSN` reach a console through PSN (docs/protocol
+holepunch.md section 8). `InternetConnector` (Sources/PlayFXProtocol/Internet) runs steps 1 to 8 and hands an `InternetLink`
+to `StreamSession`, which runs session init and ctrl (9, 10) and then asks the link for the data hole, the probe and stream
+sockets and the switch (11 to 14).
+
+- **One new seam per layer, the LAN path untouched.** `ControlSession` talks to a `CtrlLink` (`NWCtrlLink`: the TCP
+  connection and framer, as before; `RUDPCtrlLink`: the ctrl hole's RUDP channel). Session init's `BlockingTCPConnection`
+  is implemented over RUDP (`RUDPHTTPConnection`: `send` runs the whole exchange), so version negotiation, retries and
+  errors are the LAN code. `ControlEnvironment.internet` switches the three ctrl.md section 10 differences (a PS5 skips
+  one counter after the request, the PIN reply uses `localCounter - 1`, an unrequested heartbeat reply every 4.95 s) and
+  makes a failure before the response header final instead of retried.
+- **The hole punch stays blocking and thread-based.** `PSNPunchSignaling` implements `PunchSignaling` over
+  `PSNRemotePlaySession` (which was split into `receiveOffer`/`sendOffer` and `sendAccept`/`receiveAccept`, so the punch's
+  order of calls maps one to one) and waits for each async call on the punch's own thread. It keeps the PSN error that ended
+  a call, so the app sees `.psn(...)` and not a vague "signalling failed".
+- **One socket per hole, handed on as a descriptor.** After the data hole, `POSIXPunchSocket.releaseDescriptor()` gives the
+  connected descriptor to `BSDDatagramTransport(adopting:)`. The probe gets a `dup` (its end closes only the copy), the
+  stream connection the original (its end closes the socket), and `PunchedSocket.drain` empties the queue before each (takion.md
+  section 18). The receive loop is the LAN one, so the allocation test covers it. Internet play uses the BSD transport only
+  (Network.framework can't adopt a descriptor).
+- **Giving everything back is the link's job.** `InternetLink.shutdown()` closes the sockets and the RUDP connection, leaves the
+  PSN session (DELETE, the wait, the push channel) and removes the UPnP mappings; it runs once, on every path: a failed
+  or cancelled `prepare`, a failed start, `stop()`, a console end, a dropped session. Cancelling interrupts the punch, STUN,
+  the PSN waits and RUDP through one `CancelToken`.
+- **Cancelling returns at once, quitting can wait.** A cancelled start starts the shutdown and returns without waiting for
+  the PSN leave (up to 13 s on a bad network). `StreamSession.stopAndWait()` stops and waits for the DELETE and the UPnP
+  removal: use it when the process exits next. Waits for the RUDP switch acknowledgement end at once on a cancel, a
+  closed connection or the console's FINISH (`RUDPConnection.waitForSwitch`), so none of them is reported as a missing
+  `0x0034`.
+- **Descriptors.** The link clears the punched descriptor in the same locked section that marks it shut, and the probe
+  and stream transports take it under that lock, so a closed number is never `dup`ed or adopted.
+- **Typed errors.** `InternetStartError` wraps PSN, hole-punch, registration (`consoleAnswered` picks stream.md reasons 13
+  and 14), session and stream failures, with `userMessage`, `endReason` and `retryClass`. It is a separate type from
+  `StreamStartError`, so code that handles the LAN errors doesn't change.
+- **Tests.** `InternetRig` (Tests/.../Session) wires `FakePSN` (HTTP and WebSocket stubs), `InternetConsole`
+  (PlayFXProtocolTestSupport: `PunchedUDPEndpoint` answers probes, `RUDPConsole` speaks registration, init, ctrl and the
+  switch through the same `CtrlPeer` as the LAN console, the probe and stream Takion consoles share the data endpoint)
+  and a fake router. Every socket is loopback; the punch sockets are wrapped in the loopback guard.
+
 ## Deviations from observed clients
+- **Hole-punch probes are checked.** The reference answers any parseable probe from anyone. Here a probe counts only if
+  its sender is the console (hashed id and `sid` from its OFFER) and its receiver is us; others create no derived
+  candidate, get no answer and can't select a pair. holepunch.md section 5.1 calls the console's own perspective in its
+  probes assumed, so the first mismatch of a hole is logged once (which fields differed, never their values).
+  `InternetOptions.probeIdentity = .logOnly` accepts them like the reference and only logs, for the first hardware round.
+- **The data hole starts when ctrl has the session ID,** not in parallel after at most 10 s (holepunch.md section 8, last
+  note). Ctrl's own 10 s start-up limit still applies; the extra 5 s the reference waits is not used.
+- **No third-party STUN list.** The built-in servers are used (shuffled as holepunch.md section 3.2 says); the GitHub host list
+  isn't fetched.
+- **A registration that outlives its 10 s** ends the start with a typed `registration` error (timeout), not "plainly stopped".
+
 - **Session ID.** If the console's session ID (ctrl `0x33`) is malformed, or none arrives within the start-up
   time, `ControlSession` ends the channel (`.invalidSessionID` / `.startupTimeout`). One existing client
   instead invents an ID and carries on (ctrl.md section 6.2). Whether a console accepts an invented ID is

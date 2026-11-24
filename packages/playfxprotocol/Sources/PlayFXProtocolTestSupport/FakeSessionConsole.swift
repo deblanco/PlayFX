@@ -75,6 +75,10 @@ final class CtrlPeer: @unchecked Sendable {
 
     func header(_ name: String) -> String? { Self.header(name, in: requestText) }
 
+    /// Internet play: the client skips one counter after the request (ctrl.md section 10), so its first encrypted
+    /// message is one further on.
+    func skipClientCounter() { receiveCounter += 1 }
+
     /// Decrypts an `RP-*` header value the client sent, at the counter the spec gives it.
     func decryptedHeader(_ name: String, counter: UInt64) -> [UInt8]? {
         header(name).flatMap { Data(base64Encoded: $0) }.map { cipher.apply(Array($0), counter: counter, encrypt: false) }

@@ -263,6 +263,26 @@ final class FakePunchConsole: @unchecked Sendable {
         }
     }
 
+    /// holepunch.md section 5.3: the request goes out from the main socket first, then from the extras.
+    @Test func theMainSocketSendsBeforeTheExtras() throws {
+        let console = try FakePunchConsole()
+        defer { console.stop() }
+        let order = Locked<[String]>([])
+        let socket = OrderedSocket(try loopbackSocket(), name: "main", order: order)
+        let signaling = FakeSignaling(consoleOffer: console.announced)
+        signaling.onClientOffer.with { $0 = { console.start(clientOffer: $0) } }
+        var options = Self.options(extras: 3)
+        options.makeExtraSocket = { OrderedSocket(try loopbackSocket(), name: "extra", order: order) }
+        let hole = try HolePunch.run(
+            socket: socket, identity: Self.identity, client: try Self.candidates(for: socket, random: true), peerSid: 0,
+            signaling: signaling, options: options)
+        hole.socket.close()
+        let sends = order.with { $0 }
+        let firstExtra = try #require(sends.firstIndex(of: "extra"))
+        let firstMain = try #require(sends.firstIndex(of: "main"))
+        #expect(firstMain < firstExtra)
+    }
+
     /// The console ignores the main socket's port, so only an extra socket's request is answered and it wins.
     @Test func anExtraSocketCanWin() throws {
         let made = Locked<[LoopbackGuardedPunchSocket]>([])
@@ -486,6 +506,164 @@ final class FakePunchConsole: @unchecked Sendable {
         if case .failure(let error)? = outcome.with({ $0 }) { #expect(error as? PunchError == .hostUnreachable) } else { Issue.record("should fail") }
     }
 
+    // MARK: Forged probes (an attacker who can reach the punched port)
+
+    /// Probes with one identity field wrong each, as requests and (with our request id) as responses.
+    private static func forgeries() -> [(name: String, request: [UInt8], response: [UInt8])] {
+        let good = (sender: FakePunchConsole.hashedID, receiver: identity.hashedID, senderSid: FakePunchConsole.sid,
+                    receiverSid: identity.sid)
+        let other = hex("ffffffffffffffffffffffffffffffffffffffff")
+        let variants: [(String, [UInt8], [UInt8], UInt16, UInt16)] = [
+            ("wrong sender hashed id", other, good.receiver, good.senderSid, good.receiverSid),
+            ("wrong sender sid", good.sender, good.receiver, 0x9999, good.receiverSid),
+            ("wrong receiver hashed id", good.sender, other, good.senderSid, good.receiverSid),
+            ("wrong receiver sid", good.sender, good.receiver, good.senderSid, 0x7777),
+        ]
+        return variants.map { name, sender, receiver, senderSid, receiverSid in
+            (name,
+             ProbePacket.request(senderHashedID: sender, receiverHashedID: receiver, senderSid: senderSid,
+                                 receiverSid: receiverSid, requestID: hex("0102030405")),
+             ProbePacket.response(senderHashedID: sender, receiverHashedID: receiver, senderSid: senderSid,
+                                  receiverSid: receiverSid, requestID: hex("5152535455"),
+                                  source: ("127.0.0.1", 1))!)
+        }
+    }
+
+    /// Forged probes neither create candidates, nor get answered or answered with a request of ours, nor select a pair,
+    /// and the first drop is logged once without ids.
+    @Test func forgedProbesAreDroppedAndLoggedOnce() throws {
+        let console = try FakePunchConsole()
+        defer { console.stop() }
+        console.answers = false
+        console.probes = false
+        let socket = try loopbackSocket()
+        let signaling = FakeSignaling(consoleOffer: console.announced)
+        let forger = try loopbackSocket()
+        let lines = Locked<[String]>([])
+        var options = Self.options()
+        options.resends = 3
+        options.log = { line in lines.with { $0.append(line) } }
+        let finalOptions = options
+        let client = try Self.candidates(for: socket)
+        let outcome = Locked<Result<PunchedHole, any Error>?>(nil)
+        Thread {
+            outcome.with { $0 = Result { try HolePunch.run(socket: socket, identity: Self.identity, client: client,
+                                                            peerSid: 0, signaling: signaling, options: finalOptions) } }
+        }.start()
+        #expect(eventually { signaling.offers.with { !$0.isEmpty } })
+        for forged in Self.forgeries() {
+            try forger.send(forged.request, to: "127.0.0.1", port: socket.localPort)
+            try forger.send(forged.response, to: "127.0.0.1", port: socket.localPort)
+        }
+        var heard: [ProbePacket.Kind] = []
+        while let packet = try forger.receive(timeout: 0.3) {
+            if let probe = ProbePacket.parse(packet.bytes) { heard.append(probe.kind) }
+        }
+        #expect(heard.isEmpty, "no answer and no request of ours goes to a forger")
+        #expect(eventually(5) { outcome.with { $0 != nil } })
+        if case .failure(let error)? = outcome.with({ $0 }) { #expect(error as? PunchError == .hostUnreachable) } else {
+            Issue.record("a forged response must not select a pair")
+        }
+        let logged = lines.with { $0 }
+        #expect(logged.count == 1)
+        #expect(logged.first?.contains("identity mismatch") == true)
+        #expect(logged.first?.contains("sender hashed id") == true)
+        #expect(logged.first?.contains("ffffffff") == false)
+    }
+
+    /// `logOnly`: the first hardware round's tool. A probe with another identity is accepted as before the check existed
+    /// (answered, a derived candidate), and the first one of the hole is logged, once.
+    @Test func logOnlyAcceptsMismatchedProbesAndSaysSo() throws {
+        let console = try FakePunchConsole()
+        defer { console.stop() }
+        console.answers = false
+        console.probes = false
+        let socket = try loopbackSocket()
+        let signaling = FakeSignaling(consoleOffer: console.announced)
+        let stray = try loopbackSocket()
+        let lines = Locked<[String]>([])
+        var options = Self.options()
+        options.resends = 3
+        options.probeIdentity = .logOnly
+        options.log = { line in lines.with { $0.append(line) } }
+        let finalOptions = options
+        let client = try Self.candidates(for: socket)
+        let outcome = Locked<Result<PunchedHole, any Error>?>(nil)
+        Thread {
+            outcome.with { $0 = Result { try HolePunch.run(socket: socket, identity: Self.identity, client: client,
+                                                            peerSid: 0, signaling: signaling, options: finalOptions) } }
+        }.start()
+        #expect(eventually { signaling.offers.with { !$0.isEmpty } })
+        for forged in Self.forgeries() { try stray.send(forged.request, to: "127.0.0.1", port: socket.localPort) }
+        var responses = 0
+        while let packet = try stray.receive(timeout: 0.3) {
+            if ProbePacket.parse(packet.bytes)?.kind == .response { responses += 1 }
+        }
+        #expect(responses == 4, "every mismatched request was answered")
+        #expect(eventually(5) { outcome.with { $0 != nil } })
+        let logged = lines.with { $0 }
+        #expect(logged.count == 1 && logged[0].contains("identity mismatch") && logged[0].contains("accepted"))
+    }
+
+    /// holepunch.md section 5.5 step 2 needs a request from the console after selection. One with another identity
+    /// from the selected peer is not the console's: the hole fails as `consoleDidNotProbe` (without the check in
+    /// `answerUntilQuiet` it would count).
+    @Test func aMismatchedRequestFromTheSelectedPeerIsNotTheConsolesProbe() throws {
+        let console = try FakePunchConsole()
+        defer { console.stop() }
+        console.probes = false
+        let socket = try loopbackSocket()
+        let signaling = FakeSignaling(consoleOffer: console.announced)
+        let forged = ProbePacket.request(
+            senderHashedID: FakePunchConsole.hashedID, receiverHashedID: hex("ffffffffffffffffffffffffffffffffffffffff"),
+            senderSid: FakePunchConsole.sid, receiverSid: Self.identity.sid, requestID: hex("0102030405"))
+        let stop = Locked(false)
+        signaling.onClientOffer.with { $0 = { offer in
+            console.start(clientOffer: offer)
+            // From the console's own socket (the selected peer), for the whole window after selection.
+            Thread {
+                // Bounded, so that a punch that counted these (the check removed) ends instead of waiting for quiet.
+                let end = monotonicSeconds() + 1
+                while !stop.with({ $0 }) && monotonicSeconds() < end {
+                    try? console.main.send(forged, to: "127.0.0.1", port: socket.localPort)
+                    sleepSeconds(0.01)
+                }
+            }.start()
+        } }
+        let result = Result { try HolePunch.run(
+            socket: socket, identity: Self.identity, client: try Self.candidates(for: socket), peerSid: 0,
+            signaling: signaling, options: Self.options()) }
+        stop.with { $0 = true }
+        #expect(throws: PunchError.consoleDidNotProbe) { try result.get() }
+    }
+
+    /// A forger spraying forged responses (right request id, wrong identity) doesn't stop the console winning.
+    @Test func aLegitimateConsoleStillPunchesThroughForgeries() throws {
+        let forger = try loopbackSocket()
+        let lines = Locked<[String]>([])
+        var options = Self.options()
+        options.log = { line in lines.with { $0.append(line) } }
+        let finalOptions = options
+        try punch(configure: { _, socket in
+            let port = socket.localPort
+            Thread {
+                for _ in 0..<30 {
+                    for forged in Self.forgeries() {
+                        try? forger.send(forged.response, to: "127.0.0.1", port: port)
+                        try? forger.send(forged.request, to: "127.0.0.1", port: port)
+                    }
+                    sleepSeconds(0.005)
+                }
+            }.start()
+        }, options: finalOptions) { console, _, _, result in
+            let hole = try result.get()
+            #expect(hole.selected == PunchCandidate(type: .staticAddress, address: "127.0.0.1", port: console.main.localPort))
+            #expect(lines.with { $0.count } <= 1)
+            hole.socket.close()
+        }
+        forger.close()
+    }
+
     @Test func nothingLeavesTheLoopback() throws {
         try punch { console, _, socket, result in
             let hole = try result.get()
@@ -494,4 +672,25 @@ final class FakePunchConsole: @unchecked Sendable {
             hole.socket.close()
         }
     }
+}
+
+/// Records which socket sends, in order.
+final class OrderedSocket: UDPPunchSocket, @unchecked Sendable {
+    let inner: LoopbackGuardedPunchSocket
+    let name: String
+    let order: Locked<[String]>
+    init(_ inner: LoopbackGuardedPunchSocket, name: String, order: Locked<[String]>) {
+        self.inner = inner
+        self.name = name
+        self.order = order
+    }
+    var localPort: UInt16 { inner.localPort }
+    func send(_ bytes: [UInt8], to host: String, port: UInt16) throws {
+        order.with { $0.append(name) }
+        try inner.send(bytes, to: host, port: port)
+    }
+    func receive(timeout: Double) throws -> UDPPacket? { try inner.receive(timeout: timeout) }
+    func connect(host: String, port: UInt16) throws { try inner.connect(host: host, port: port) }
+    func setTimeToLive(_ ttl: Int) throws { try inner.setTimeToLive(ttl) }
+    func close() { inner.close() }
 }

@@ -41,6 +41,18 @@ public enum RUDPEvent: Sendable, Equatable {
     case failed(RUDPError)
 }
 
+/// How the wait after the switch message ended (rudp.md section 8).
+public enum RUDPSwitchOutcome: Sendable, Equatable {
+    /// The console's ctrl `0x0034` came.
+    case acknowledged
+    /// 5 s (or the given time) passed without it.
+    case timedOut
+    /// The console sent FINISH: it ended ctrl while the client waited.
+    case consoleFinished
+    /// The connection was closed (a cancel) or gave up receiving.
+    case closed
+}
+
 /// Timings and limits (rudp.md sections 7.2 and 10), all client choices; tests shorten them.
 public struct RUDPTimings: Sendable {
     /// Wait per try for INIT_ACK, COOKIE_ACK, the response and FINISH: 1 s.
@@ -104,7 +116,10 @@ public final class RUDPConnection: @unchecked Sendable {
     private var finished = false
     private var ctrlRunning = false
     private var receiveThread: Thread?
+    private var receiveThreadExited = false
     private var awaitingSwitch = false
+    private var switchAcknowledged = false
+    private var switchEnd: RUDPSwitchOutcome?
     private let switchSignal = DispatchSemaphore(value: 0)
     private let exited = DispatchSemaphore(value: 0)
     private var handler: (@Sendable (RUDPEvent) -> Void)?
@@ -125,6 +140,9 @@ public final class RUDPConnection: @unchecked Sendable {
     }
 
     deinit { socket.close() }
+
+    /// Whether the ctrl receive thread is running (false before `startCtrl` and after it has ended).
+    var isReceiveThreadRunning: Bool { lock.withLock { ctrlRunning && !receiveThreadExited } }
 
     /// Diagnostics counters.
     public var statistics: RUDPStatistics { lock.withLock { counters } }
@@ -256,6 +274,7 @@ public final class RUDPConnection: @unchecked Sendable {
         let exited = exited
         let thread = Thread { [weak self] in
             while let connection = self, connection.step(state) {}
+            self?.lock.withLock { self?.receiveThreadExited = true }
             exited.signal()
         }
         thread.name = "PlayFXProtocol.rudp"
@@ -284,7 +303,27 @@ public final class RUDPConnection: @unchecked Sendable {
 
     /// Waits for the console's ctrl frame of type `0x0034` after `sendSwitch` (5 s by default); false on timeout.
     public func waitForSwitchAcknowledgement(timeout: Double? = nil) -> Bool {
-        switchSignal.wait(timeout: .now() + (timeout ?? timings.switchWait)) == .success
+        waitForSwitch(timeout: timeout) == .acknowledged
+    }
+
+    /// Like `waitForSwitchAcknowledgement`, but says why it ended: a closed connection, a failed receive or the
+    /// console's FINISH end the wait at once instead of at the timeout.
+    public func waitForSwitch(timeout: Double? = nil) -> RUDPSwitchOutcome {
+        let deadline = monotonicSeconds() + (timeout ?? timings.switchWait)
+        while true {
+            let (acknowledged, end) = lock.withLock { (switchAcknowledged, switchEnd) }
+            if acknowledged { return .acknowledged }
+            if let end { return end }
+            let remaining = deadline - monotonicSeconds()
+            if remaining <= 0 { return .timedOut }
+            _ = switchSignal.wait(timeout: .now() + remaining)
+        }
+    }
+
+    /// Records why the switch wait must stop and wakes it.
+    private func endSwitchWait(_ outcome: RUDPSwitchOutcome) {
+        lock.withLock { if switchEnd == nil { switchEnd = outcome } }
+        switchSignal.signal()
     }
 
     private func sendKept(_ build: (UInt16) -> [UInt8]) throws {
@@ -332,6 +371,7 @@ public final class RUDPConnection: @unchecked Sendable {
             state.failingSince = state.failingSince ?? now
             if now - (state.failingSince ?? now) >= timings.receiveFailureLimit {
                 lock.withLock { finished = true }
+                endSwitchWait(.closed)
                 emit(.failed(.receiveFailed))
                 return false
             }
@@ -374,6 +414,7 @@ public final class RUDPConnection: @unchecked Sendable {
         let flags = message.flags
         if flags == 0xC0 {
             lock.withLock { finished = true }
+            endSwitchWait(.consoleFinished)
             emit(.finished)
             return false
         }
@@ -414,7 +455,10 @@ public final class RUDPConnection: @unchecked Sendable {
         let isSwitchAnswer = lock.withLock { () -> Bool in
             counters.frames += 1
             let answer = awaitingSwitch && frame[4] == 0x00 && frame[5] == 0x34
-            if answer { awaitingSwitch = false }
+            if answer {
+                awaitingSwitch = false
+                switchAcknowledged = true
+            }
             return answer
         }
         emit(.ctrlFrame(frame))
@@ -464,6 +508,7 @@ public final class RUDPConnection: @unchecked Sendable {
             closed = true
             return (ctrlRunning, receiveThread)
         }
+        endSwitchWait(.closed)
         if wasRunning && thread !== Thread.current { _ = exited.wait(timeout: .now() + 1) }
         socket.close()
     }
