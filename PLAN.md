@@ -511,7 +511,8 @@ Work items:
   the pad and rumble and triggers worked, but nothing came from the haptics themselves: on macOS the pad ignores
   that audio until it's switched into audio-haptics mode; fixed below). Astro's Playroom would show the fine
   textures best.
-- ✅ **USB haptics felt: the pad switched into audio-haptics mode** (2026-11-24). What was wrong: out of the box on
+- ✅ **USB haptics felt: the pad switched into audio-haptics mode** (2026-11-24; **felt in GTA VI with the app**, pad
+  on USB after a replug, the user: "now works perfect"). What was wrong: out of the box on
   macOS a DualSense on USB plays nothing from channels 3 and 4 of its sound device, so the USB path above played
   into nothing. How it was found: a scratch tool played 150 Hz pulses on those channels of the user's pad
   (macOS 27.2) and sent different HID output reports first; nothing was felt until one report 0x02 of 48 bytes
@@ -1587,9 +1588,8 @@ requests and a bug report.
    in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080, now skipping repeated pictures (the shown rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
-   haptics in Astro's Playroom; **USB haptics in a game with the app** (2026-11-24: the pad is now switched into
-   audio-haptics mode, felt with a test tone only; see "USB haptics felt"), also right after a rumble or trigger
-   effect.
+   haptics in Astro's Playroom; ~~USB haptics in a game with the app~~ (done 2026-11-24: GTA VI on the PS5, pad on
+   USB, the app logged "audio haptics enabled", the user: "now works perfect"; see "USB haptics felt").
 7b. **On the console: an HDR game with frame interpolation on** (Silent Hill 2 on the MacBook Pro's XDR display),
    new since 2026-11-20 and only tested offscreen: `pacing.interpolation` reads `on` (not `failed`), about 60
    shown/s for a 30 fps game on 60 Hz and on 120 Hz (halves only in HDR), highlights still above SDR white in the
