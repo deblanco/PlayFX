@@ -4,7 +4,6 @@ import {
   ChevronRight,
   CircleQuestionMark,
   ClipboardCopy,
-  Code,
   FolderOpen,
   ImageIcon,
   Radio,
@@ -102,6 +101,11 @@ interface SettingsSheetProps {
   readonly onChange: ChangeSettings
   /** Present while streaming. */
   readonly reconnect?: ReconnectState
+  /**
+   * Whether a PS4 is involved (paired at home, or the console being streamed): "Lower resolution" only acts on a
+   * PS4 (a PS5 adjusts the resolution itself), so it's hidden otherwise.
+   */
+  readonly ps4?: boolean
 }
 
 const pictureKeys = [
@@ -180,7 +184,7 @@ export const SettingsSheet = (props: SettingsSheetProps) => {
           </TabsContent>
           <TabsContent value="stream" className="flex flex-col gap-5 px-5 pt-5 pb-6">
             <TabAbout tab="stream" />
-            <StreamPanel settings={settings} set={set} />
+            <StreamPanel settings={settings} set={set} ps4={props.ps4 === true} />
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => { onChange(reset(settings, streamKeys)) }}>
               <RotateCcw /> Reset stream
             </Button>
@@ -491,7 +495,7 @@ const Section = ({ stage, step, hint, children }: {
 
 // ---------- Stream ----------
 
-const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly set: Set }) => {
+const StreamPanel = ({ settings, set, ps4 }: { readonly settings: Settings; readonly set: Set; readonly ps4: boolean }) => {
   const bitrateIndex = Math.max(0, bitrates.indexOf(settings.bitrate))
   return (
     <>
@@ -544,12 +548,14 @@ const StreamPanel = ({ settings, set }: { readonly settings: Settings; readonly 
         step={1}
         onChange={(i) => { set("bitrate", bitrates[i] ?? 0) }}
       />
-      <SwitchRow
-        label="Lower resolution when the network is slow"
-        description="Keeps the stream smooth instead of stuttering."
-        checked={settings.autoDowngrade}
-        onCheckedChange={(on) => { set("autoDowngrade", on) }}
-      />
+      {ps4 && (
+        <SwitchRow
+          label="Lower resolution when the network is slow"
+          description="PS4 only: keeps the stream smooth instead of stuttering. A PS5 adjusts the resolution itself."
+          checked={settings.autoDowngrade}
+          onCheckedChange={(on) => { set("autoDowngrade", on) }}
+        />
+      )}
       <SwitchRow label="Sound" checked={settings.audio} onCheckedChange={(on) => { set("audio", on) }} />
       <SoundOutput settings={settings} set={set} />
     </>
@@ -665,13 +671,10 @@ const DiagnosticsPanel = ({ settings, set }: { readonly settings: Settings; read
       </p>
       <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
         <p className="text-xs text-muted-foreground">
-          PlayFX is free software under the GNU AGPL-3.0, built on chiaki-ng. It isn't affiliated with Sony
-          Interactive Entertainment. The licences of the third-party software it includes are in
-          THIRD_PARTY_LICENSES, in the app's Contents/Resources folder.
+          PlayFX © 2026 Daniel B. All rights reserved. It isn't affiliated with Sony Interactive Entertainment.
+          The licences of the third-party software it includes are in THIRD_PARTY_LICENSES, in the app's
+          Contents/Resources folder.
         </p>
-        <Button variant="ghost" size="sm" className="self-start" onClick={() => { run(actions.openSourceCode) }}>
-          <Code /> Source code
-        </Button>
       </div>
     </>
   )

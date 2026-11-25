@@ -3,7 +3,53 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **the GTA VI profile without ML upscaling** (requested): the built-in **GTA VI**
+Last updated 2026-11-24, after **parallel STUN hardened** (no STUN worker acts after the call returns; CI's one
+SIGBUS there not reproduced locally; PlayFXProtocol 896 tests). Before that, **the input lane (PR #6) merged into this branch**: pad readings reach the console off the
+main thread, read by a loop of their own (`streamcore.input`, user-interactive) paced by `InputPacer` (500 Hz while
+readings change, 125 Hz after a second of quiet), motion readings identical to the last one dropped, states handed
+on under the lock they're merged in; with `PlayFXEngine` behind `StreamSession` unchanged. Unit tests only; the
+latency test before and after on the console is left. Before that, **USB haptics felt**: on macOS a DualSense on USB ignores the haptics audio on its
+sound device's channels 3 and 4 until it gets one all-zero HID output report 0x02 (found on the user's pad with a test
+tone); StreamCore now sends it when haptics start on a USB pad, about once a second while they play and shortly after
+the app's own rumble, trigger or light bar output, and logs what it found when no pad plays them (StreamCore 509
+tests, 91.6% lines / 89.9% functions; 90.2% / 88.7% in VM mode). Before that, **libopus built from source**: libopus 1.6.1 is vendored unmodified in StreamCore
+(`Sources/CLibopus`, float build, generic C) and compiled for the package's deployment targets, so the build needs
+no Homebrew and the "built for newer macOS version" linker warnings are gone (StreamCore 501 tests, 91.5% lines / 90.1%
+in VM mode; Rust 74, 91.4% lines; TS 424). Before that, **the final check of the libchiaki removal**: every gate green with no libchiaki
+anywhere (StreamCore 501 tests, 91.5% lines / 90.1% in VM mode; PlayFXProtocol 851 tests, 97.9% lines in the
+parallel, VM and serial runs, and its release allocation test; TS 424, 97.9% lines; Rust 74, 91.4% lines; clippy
+clean); a debug `cargo build` links with libopus inside and no Homebrew dylib; `git grep -i chiaki` finds only
+history (PLAN.md, docs/NETWORK.md's "History: libchiaki", FRAME_INTERPOLATION's note on Veyra) and the clean-room
+provenance (docs/protocol, PlayFXProtocol's README, DESIGN and LICENSE). Before that, **PlayFX became proprietary**: `LICENSE` is "All rights reserved", `NOTICE` and
+the Settings › Diagnostics **Source code** button are gone, every manifest says so (`UNLICENSED`,
+`LicenseRef-Proprietary`), `THIRD_PARTY_LICENSES` is regenerated for what ships now (libsecp256k1 and libopus as
+the C libraries), and CLAUDE.md allows only permissive licences (TS 427 tests, Rust 74). Before that, **chiaki-ng's submodule removed**: `third_party/` and `.gitmodules` are gone;
+docs name chiaki-ng only as history (docs/NETWORK.md's "History: libchiaki") and as the clean-room spec's
+provenance (docs/protocol, now naming commit d8efd673bc93bbc16e9f646c5b24e0dee013abcc, the one the submodule
+recorded). Before that, **the app and CI without libchiaki**: the desktop app's Rust side builds and links
+with only StreamCore, Homebrew's static libopus and system frameworks (no curl, OpenSSL, json-c, miniupnpc,
+libevent, nanopb, Jerasure or GF-Complete); the UI shows the new engine's quit reasons in its own words (adding
+"or play over the internet" for a PS5 that didn't answer) and tries PSN on its "didn't answer"/"couldn't reach"
+texts; CI installs only `opus` and builds no libchiaki (TS 427 tests, Rust 74). Before that, **StreamCore on PlayFXProtocol only**: `ChiakiEngine`, the C shim (`Sources/CChiaki`)
+and `build-chiaki.sh` are gone; every stream, local or through PSN, runs on `PlayFXEngine`, with libopus linked
+statically from Homebrew's opus keg (StreamCore 501 tests, 91.5% lines; 90.1% in VM mode). Before that, **`PlayFXEngine`**: StreamCore can stream on PlayFXProtocol (`Options.engine = "playfx"`,
+`psrp stream --engine playfx`), clean-room against the engine contract; not yet on a console. Before that, **the internet-play spec** (`docs/protocol/psn.md`, `holepunch.md`, `rudp.md`, PIN-less
+pairing through PSN; facts only, vectors checked against the reference's byte layouts). Before that, **the StreamCore engine seam**: `StreamSession` now drives the protocol through a
+small Swift interface (`StreamEngine` / `StreamEngineSink`), with libchiaki as its only engine and behaviour
+unchanged, so `PlayFXEngine` can be written against that contract alone (Swift 428 tests, 90.4% lines; 88.8% as CI's
+VM sees it). Before that, **the first stream on our own protocol code, with no libchiaki**: on the user's
+PS5, `pfxp stream` ran 720p60 H.264, 1080p60 HEVC and HEVC HDR with nothing lost, on both receive transports,
+and the saved video decoded cleanly in ffmpeg. Before that, **our own whole stream session in Swift**
+(`PlayFXProtocol` milestone 3: `StreamSession` and `pfxp stream`, end to end over loopback against the real
+console's recording; 544 tests, 97.9% lines). Before that, **our own session start and control channel in Swift** (`PlayFXProtocol`
+milestone 2): on the user's PS5 a session opened, kept its heartbeats for 20 s and stopped cleanly, and go to
+bed put the console in rest; 172 tests, 96.4% lines. Before that, **our own discovery, wake and pairing in Swift** (`PlayFXProtocol`, branch
+`deblanco/rewrite-ps-remote-core`, see "Our own Remote Play protocol" under P4), written from the spec alone:
+then **its first hardware round**: on the user's PS5 it discovered, woke and paired (the pairing returned
+the same keys libchiaki holds), after a fix for the PS5's padded `Content-Length`; 92 tests, 96.7% lines. Before
+that, the first step: a facts-only protocol spec in
+`docs/protocol` (discovery, wake, registration, RP crypt, session init, ctrl) with known-answer vectors, and the
+empty proprietary Swift package `packages/playfxprotocol` with its design notes and a CI step. Before that (on main), **the GTA VI profile without ML upscaling** (requested): the built-in **GTA VI**
 profile is Recommended at 30 fps with ML upscaling and Touchpad touches off ("1080p30 · MetalFX · sharpness 0.3 ·
 Frame interpolation · touchpad click only"); Recommended is unchanged, and Help's "sharpest picture" setup now says
 to turn ML upscaling on. Unit tests only. Before that, **a CI fix**: the ML upscaler's defence tests failed on GitHub's macOS 26 runner
@@ -78,12 +124,14 @@ apps/desktop            Tauri v2 app: React 19 + Effect + Tailwind + shadcn UI o
   src-tauri             Rust: Tauri commands → StreamCore C ABI (NativeCore trait, ffi/native).
 apps/site               The project's GitHub Pages site (Vite + Tailwind, plain JS).
 packages/streamcore     Swift package (macOS + iOS target):
-  Sources/CChiaki       psrp.h — thin C shim over libchiaki.
-  Sources/StreamCore    Console (discover/register/wake), PSNAuth, StreamSession,
+  Sources/CLibopus      libopus 1.6.1, vendored unmodified (float build, generic C), compiled in.
+  Sources/COpus         the few libopus calls the engine makes.
+  Sources/StreamCore    Console (discover/register/wake), PSNAuth, StreamSession on PlayFXEngine,
                         VideoDecoder (VideoToolbox), AudioPlayer, ControllerInput,
                         StreamRenderer (Metal + MetalFX), MacOSBridge (JSON C ABI).
   Sources/psrp          Headless debug CLI with a localhost control API.
-third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implementation.
+packages/playfxprotocol Swift package: PlayFX's own Remote Play protocol (proprietary, clean-room from
+                        docs/protocol): discovery, pairing, the stream, internet play through PSN.
 ```
 
 **Working / ✅**
@@ -95,7 +143,10 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   labels) in the desktop HUD/settings; `psrp` `/render.png?mode=…&w=…&h=…` renders the latest frame
   offscreen at any size (used for the 720p → 4K comparison screenshots).
 - Audio: Opus decode → low-latency `AVAudioEngine` with a jitter buffer.
-- Input: DualSense/DualShock/Xbox/MFi via the GameController framework.
+- Input: DualSense/DualShock/Xbox/MFi via the GameController framework — its callbacks on the main thread,
+  plus an **input loop** of its own (user-interactive) that reads the pads off it, paced adaptively by
+  `InputPacer` (fast while readings change, a heartbeat when they don't), so a reading doesn't wait behind
+  rendering and UI.
 - **Keyboard-as-controller** (testing without a pad): the web UI captures keys and forwards a
   controller state through `sc_session_set_controller`, which StreamCore merges with the pad's
   (`ControllerInput.setKeys`); mapping is a pure, tested function (`src/app/keyboard.ts`), with an in-HUD
@@ -105,9 +156,11 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
 - React/Effect UI: account, console list, pairing, settings, streaming HUD.
 - Credentials in a native secret store (the Keychain in release builds, a 0600 file in development); PSN
   login via Sony's own page.
-- Tests + gates (2026-11-21): TS 425 tests (98% lines), Swift 413 tests (90% lines; 89% as CI's VM sees
-  it), Rust 74 tests (91% lines), strict `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings`, chiaki-ng's
-  own unit tests 150/150. Each package's gate fails below 80%; CI runs them all on every push. No test
+- Tests + gates (2026-11-24): TS 427 tests (97.9% lines), Swift 501 tests (91.5% lines; 90.1% as CI's VM sees
+  it), PlayFXProtocol 851 tests (97.9% lines, the same in VM mode and serially; no test leaves loopback), Rust 74
+  tests (91.4% lines), strict
+  `tsc`/ESLint, `@effect/vitest`, clippy `-D warnings` (chiaki-ng's own unit tests went with the submodule on
+  2026-11-24). Each package's gate fails below 80%; CI runs them all on every push. No test
   reaches a real controller (`PadHardware` is closed in a test run), for output or for input: a pad in someone's
   hands used to feed its buttons into a controller test and make it fail now and then.
 
@@ -121,7 +174,9 @@ third_party/chiaki-ng   Submodule (AGPL-3.0): the Remote Play protocol implement
   PS5s); the console is paired on the home network with its PIN, or through PSN with no code (step 5: built,
   needs a hardware check). libchiaki does PSN sessions, STUN/UPnP, hole punching and
   a fresh PSN-side registration per connection inside `chiaki_session_start`; the app supplies tokens, the
-  console's PSN device ID, and runs the blocking setup (≤30 s per step) off the main thread.
+  console's PSN device ID, and runs the blocking setup (≤30 s per step) off the main thread. Since 2026-11-24
+  all of it runs on PlayFXProtocol instead (see "Our own Remote Play protocol" under P4); the steps below record
+  the libchiaki build, and the new code needs its own run over the internet.
   - ✅ 1. PSN tokens: sign-in carries a fresh `duid`; access + refresh tokens kept in the Keychain (never
     the web UI), refreshed a minute before expiry, cleared on a rejected refresh or sign-out.
   - ✅ 2. Find the console via PSN: `psrp_psn_list_consoles` (libchiaki's device list, PS5) → name, PSN
@@ -460,8 +515,31 @@ Work items:
   game) and tells the shim not to make rumble from it. Devices are looked at every 2 s off the receive
   thread, so plugging or unplugging mid-stream switches between the two. A pad left at 2-channel sound gets
   a hint in the log (set it to Quadraphonic in Audio MIDI Setup) and stays on rumble, as chiaki-ng does.
-  **Works in a game** (GTA VI, pad on a cable, 2026-11-20: the log shows the haptics stream playing on the pad,
-  and the user reports rumble and triggers working). Astro's Playroom would show the fine textures best.
+  **Not felt until 2026-11-24** (GTA VI, pad on a cable, 2026-11-20: the log showed the haptics stream playing on
+  the pad and rumble and triggers worked, but nothing came from the haptics themselves: on macOS the pad ignores
+  that audio until it's switched into audio-haptics mode; fixed below). Astro's Playroom would show the fine
+  textures best.
+- ✅ **USB haptics felt: the pad switched into audio-haptics mode** (2026-11-24; **felt in GTA VI with the app**, pad
+  on USB after a replug, the user: "now works perfect"). What was wrong: out of the box on
+  macOS a DualSense on USB plays nothing from channels 3 and 4 of its sound device, so the USB path above played
+  into nothing. How it was found: a scratch tool played 150 Hz pulses on those channels of the user's pad
+  (macOS 27.2) and sent different HID output reports first; nothing was felt until one report 0x02 of 48 bytes
+  (the pad's `kIOHIDMaxOutputReportSizeKey`) with every byte after the ID zero (all "valid" flags clear, so
+  rumble, light bar, triggers and volumes don't change); a report with only the "haptics select" flag (0x02) did
+  nothing. The pad forgets it when replugged, and GameController's own reports (rumble, triggers, light bar) may
+  switch it back. The fix (`USBHapticsMode.swift`): when haptics start on a USB pad, `DualSenseHaptics` sends
+  that report to the first DualSense (054C:0CE6) or DualSense Edge (054C:0DF2) HID device on USB (opened
+  non-exclusively, kept open while they play), again about once a second while haptics frames keep coming, and
+  0.1 s after the app's own rumble, trigger or light bar output (a counter `Rumble`, `AdaptiveTriggers` and
+  `PadLight` bump); it lets the device go when they stop. All of it on the haptics queue, never the audio thread,
+  and not per frame (the receive thread only compares times under the lock it already takes). Never on Bluetooth.
+  A failed report (no HID device, or an IOReturn) is logged once and the haptics audio plays on. New log lines:
+  "DualSense haptics: audio haptics enabled on <name> (USB)" once a session, and, when haptics arrive but no
+  DualSense is found on USB or Bluetooth, the Mac's sound outputs with their channel counts (once a session).
+  Unit-tested with a stand-in HID device: the bytes, sent at start and each second, sooner after pad output, not on
+  Bluetooth or with no pad, failures logged once with playback going on (StreamCore 509 tests, +8). Docs: HELP
+  and README. **Left**: feeling it in a game with the app (Astro's Playroom), including right after a rumble or
+  trigger effect.
 - 🔶 **Touchpad + motion.** *(touchpad built, **unverified on hardware**: the shim takes a struct-based
   controller state (`psrp_session_set_controller_state`) with up to 2 touches on the 1920×1079 pad; the
   DualSense/DS4 touchpad is read through GameController with a stable id per finger while it's down (new
@@ -593,6 +671,17 @@ Work items:
   frames back for nothing). Measured on the PS5: 44 ms (3 drawables, Smooth motion wrongly on) → 33 ms
   (2 drawables; not a strict A/B). Not done: audio jitter-buffer tuning (no audio/video sync complaints
   so far).
+- ✅ **Input lane off the main thread** (2026-11-21): an input loop (user-interactive) reads every connected pad
+  between GameController's main-queue callbacks — `InputPacer` paces it, 500 Hz while readings change (learning
+  half the pad's reporting interval from the gaps between distinct readings) and 125 Hz after a second of quiet —
+  so a press or a stick move doesn't queue behind a frame's render or a UI update. Motion readings whose sensors
+  read exactly as the last are dropped (a timestamp alone would re-integrate the same stillness). Unit tests only
+  (pacer policy, the loop's read through `pollPads`, the motion dedupe): not yet on the pad — the off-main reads
+  of GameController's elements want a look with one, then the dev latency test before and after. Review fixes
+  (unit-tested): states reach `onChange` one at a time and in the order merged (the test fails against the old
+  hand-off); each pad's unchanged reading and motion are dropped, so two connected pads don't take turns on every
+  pass, and an idle pad's first reading doesn't take over; reads of a disconnected pad are dropped; the loop
+  starts when `onChange` is set; `StreamSession` sends the pad's and pointer's states under its lock.
 - ✅ **Settings tabs** (2026-11-21, asked for: Picture vs Stream read alike): Picture · Stream · **Misc** ·
   Diagnostics, each with an icon (lucide Image, Radio, SlidersHorizontal, Activity) and a plain line at the
   top saying what it controls ("How this Mac cleans up, sharpens and smooths the picture.", "What the console
@@ -752,19 +841,405 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
 
 ### P4 — build, distribution, compliance
 
-- ✅ **AGPL compliance.** PlayFX is AGPL-3.0-only (chiaki-ng is AGPL-3.0-only with an OpenSSL
-  exception): `LICENSE`, `NOTICE` (third-party code linked in), both copied into the app's Resources,
-  license fields in every manifest, and Settings → Diagnostics → **Source code** opens the repo. Make the
-  repo public (or publish the source) with the first public build.
-  - Before the first public release (2026-11-20): the app ships `THIRD_PARTY_LICENSES` (full texts and
-    copyright lines for the 209 Rust crates plus the Rust standard library, the C libraries linked into
-    libchiaki, the web UI's 58 packages and its two OFL fonts), generated by `scripts/third-party-licenses.py`
-    from what's actually built (re-run it after dependency bumps). `LICENSE` is the plain AGPL-3.0 (the OpenSSL
-    exception copied from chiaki-ng was worded as the FSF's and isn't needed: OpenSSL 3 is Apache-2.0).
-    `NOTICE` names the fork libchiaki is built from. No shadcn/studio code: its blocks are MIT with a Commons
-    Clause, which the AGPL can't carry, so the PIN input and the status badge are plain shadcn/ui. CLAUDE.md now
-    allows only AGPL-compatible code (shadcn/ui, not shadcn/studio), and the studio registry is gone from
-    `components.json`.
+- 🔶 **Our own Remote Play protocol (`PlayFXProtocol`), to replace libchiaki.** libchiaki is AGPL, which keeps
+  PlayFX off the Mac App Store (a native shell replacing Tauri's private API is the other half, later). Decided
+  2026-11-23: a Swift package of our own (`packages/playfxprotocol`, proprietary, no GPL/AGPL dependencies),
+  native frameworks first (`packages/playfxprotocol/DESIGN.md`: Network.framework, Wi-Fi video service class,
+  kernel receive timestamps, `NWPathMonitor`, CryptoKit/CommonCrypto), built clean-room: spec writers read
+  chiaki-ng and write facts only into `docs/protocol`; implementers get only the spec and never open chiaki. A best-effort
+  clean room (AI models have seen chiaki); a lawyer reviews before an App Store submission.
+  - ✅ Spec, milestone 1 (2026-11-23): `docs/protocol` README (process, conventions), discovery + wake,
+    registration, RP crypt (14 constant tables as hex with SHA-256s), session init, ctrl channel, test vectors.
+    Verified: an independent Python script written from the spec text reproduced 82 values that a C harness
+    computed with chiaki-ng's code (40 for session/ctrl, 42 for discovery/registration), and chiaki-ng's
+    registration paired with a fake console built from the spec on loopback, for every target version. Open
+    questions (console refusal codes, heartbeat rate, some `RP-*` fields) are listed in each doc, for the console.
+  - ✅ Swift discovery, wake, RP crypt and registration from the spec (2026-11-23), by an implementer that never
+    saw chiaki: `Discovery.discover/discoverThrowing/discoverAsync/wake`, `Registration.register/registerAsync`
+    (cancellable), `RPCryptContext` (session, LAN and PSN registration, all targets; one reusable AES cryptor, no
+    per-call allocation). Discovery/wake on a BSD socket (broadcast) with `NET_SERVICE_TYPE_RD`; registration's
+    HTTP over `NWConnection`. Pairing errors give PlayFX's messages plus new ones for "in use" (80108b10),
+    "crashed" (80108b15), other reason codes, a bad account ID or address, and a denied Local Network permission.
+    87 tests (all spec vectors, the 14 tables' SHA-256s, extra vectors from an independent script, a loopback
+    fake console for every target and failure), 96.6% lines / 94.3% functions (96.5% with
+    `STREAMCORE_SIMULATE_VM=1`); a guard fails any test that sends to a non-loopback address. Reviewed against the
+    spec by a separate agent: no interop divergence found; its fixes are in. From the automated security
+    review: wake broadcasts only on the Mac's interface on the console's subnet (the credential never goes to
+    other networks), a unicast search only accepts answers from that address, and a known console can't be
+    moved to another address by a later answer. 91 tests, 96.8% lines. `pfxp discover | wake | pair` drives
+    it on a real console (pairings saved apart from psrp's, 0600). Not yet on a console.
+  - ✅ Hardware round (2026-11-23, the user's PS5, system 14230000, LAN), with `pfxp`: discovery (unicast and
+    broadcast) found PS5-454 in standby with the same name, state, host ID and system version as `psrp
+    discover`; `pfxp wake` brought it from rest to ready in under 10 s; `pfxp pair` paired in 0.1 s and got the
+    same registration key, RP key, MAC and nickname that libchiaki stored for that account (so the decryption
+    is right and the old pairing stays valid). The first three pairing attempts failed: a PS5 pads
+    `Content-Length:        195`, and the parser took only one space after the colon. Fixed (values trimmed,
+    the fake console answers with the PS5's exact header), and recorded in the spec ("Observed on a real
+    console"). 92 tests, 96.7% lines.
+  - ✅ Milestone 2, session init + ctrl channel in Swift from the spec (2026-11-23): `ControlSession.start`
+    (session init with the version retry, the session crypt, the ctrl request with its encrypted headers, the
+    `NWProtocolFramer` framing, every ctrl message both ways), events with the session to a handler on a private
+    queue, throwing commands (login PIN only when asked, keyboard, go to bed/home, mic, stop), typed
+    `SessionError`s with user messages (busy, crashed, version mismatch, resets, network), and the
+    `StreamHandoff` for the stream stage (secrets redacted in descriptions and `dump`). 172 tests (spec vectors,
+    an independent fake console, the PS5's observed start and go-to-bed sequences, every error, stop/cancel in
+    each phase), 96.4% lines / 95.6% functions (96.5% with `STREAMCORE_SIMULATE_VM=1`). Reviewed against the
+    spec: no divergence; its fixes are in (an early login-PIN request can be answered, a cancel after connecting
+    no longer kills the session). **On the PS5** (`pfxp session`, 2026-11-23): session init 200 / 1.0 in 20 ms,
+    ctrl up 20 ms later, login accepted unprompted, session ID at 0.5 s, heartbeats every 5.0 s all answered, a
+    clean stop after 20 s; go to bed put it in rest in about 6 s; session init in rest mode is refused (wake
+    first); woken, ready in 9 s. The spec records these ("Observed on a real console").
+  - ✅ Milestone 3 spec (2026-11-23): `takion.md` (the UDP transport: packets, handshake, chunks and acks,
+    GKCrypt with AES-GCM and key positions, the AV header, congestion and feedback packets, sequence numbers,
+    and PlayFX's own reorder wait and 256-slot queue described as our design), `stream.md` (protobuf messages,
+    the network probe, the Hello handshake with secp256k1 ECDH, the launch spec from PlayFX's settings, stream
+    info, IDR and corrupt-frame reports, quit reasons, rumble, triggers, haptics, LED, motion, touch, mic) and
+    `av.md` (frame assembly, the Cauchy Reed-Solomon FEC over GF(2^8) as maths so we can drop jerasure, the
+    Annex-B unit, H.264/HEVC facts, Opus audio, haptics, the mic). Verified: independent scripts from the spec
+    text matched chiaki's code on 16 Takion vector sets (client packets captured off loopback, console
+    packets built from the spec accepted by its parser and GMAC check), 43 stream values (ECDH, launch spec,
+    Hello and its split, console messages) and the FEC (300 random cases against jerasure, and the parity in a
+    real console capture). Open questions for the console are listed in each doc.
+  - ✅ secp256k1 for the stream handshake (2026-11-23): libsecp256k1 v0.8.0 (bitcoin-core, MIT, August 2026)
+    vendored unmodified as the C target `CSecp256k1` (core, precomputed tables and the ECDH module only; see
+    `Sources/CSecp256k1/README.PlayFX`). CryptoKit has no secp256k1. It goes into `THIRD_PARTY_LICENSES` when
+    PlayFXProtocol first ships in the app.
+  - ✅ The stream messages and the audio/video layer in Swift from the spec (2026-11-23), built in parallel by
+    implementers that never saw chiaki, each reviewed against the spec (no wire divergence found) and fixed.
+    **Stream** (`Sources/PlayFXProtocol/Stream`): a hand-written proto2 codec and every stream.md message, the
+    Hello and its split, a stateful handshake that keeps an early StreamInfo and wipes the key pair only at the
+    end, secp256k1 ECDH through `CSecp256k1`, the launch spec byte for byte, quit reasons with user messages,
+    rumble, triggers, pad info, the feedback-state body and history events, the orientation estimator; secrets
+    redacted in descriptions and `dump`. **Audio/video** (`Sources/PlayFXProtocol/AV`): frame assembly with
+    the spec's completion and loss rules, our own Cauchy Reed-Solomon FEC (NEON split-nibble: 6 of 60 units of
+    1400 bytes recovered in 17 µs, asserted under 100 µs in release; jerasure no longer needed), Annex-B into
+    one reused buffer, H.264/HEVC slice parsing and the HEVC reference rewrite, IDR-wait and corrupt-frame
+    rules (no IDR storm on decoder rejection), Opus packets with loss marking, haptics, the mic packetiser;
+    no allocation per unit. The av.md writer answered the implementer's ten questions (a spec vector was
+    wrong) and added a real console capture, which the decoder reproduces. 469 tests with Takion (below),
+    97.7% lines; four cancel-timing tests got wider margins (they failed only when the whole, heavier suite
+    ran in parallel).
+  - ✅ Takion in Swift from the spec (2026-11-23, `Sources/PlayFXProtocol/Takion`): every packet type, the
+    handshake, DATA/DATA_ACK, retransmission, fragmentation and reassembly, GKCrypt (counter blocks over
+    AES-ECB, the keyPos rules, epoch keys pre-derived on a helper thread and cached only after the tag verifies,
+    the GMAC as our own table GHASH, checked against CryptoKit in a randomised test), the AV header for every
+    version, the congestion report (its numbers from the AV layer, which knows duplicates and frame completion),
+    feedback framing, wrap arithmetic and PlayFX's reorder wait and 256-slot queue. Reviewed against the spec (no
+    divergence) and fixed: haptics no longer counted as audio loss, no socket use after close, forged packets
+    can't fill the key cache, hard send errors end the connection. **Two receive transports, measured on
+    loopback** (`pfxp bench-transport`, release, 20,000 packets/s of 1400 bytes, alternating runs after a
+    warm-up): a BSD socket thread (poll + `recvmsg` into a preallocated ring, `NET_SERVICE_TYPE_VI`,
+    `SO_TIMESTAMP_MONOTONIC`) at 8.2 ms CPU per 1000 packets, p50/p99 8/13 µs, 0 allocations per packet;
+    `NWConnection` (interactive video, kernel receive times) at 27 ms, 18/25 µs, 28 allocations. The BSD path
+    is the default (decided 2026-11-24, `.nw` kept as a tested fallback, e.g. for iOS). A release test asserts 0 allocations on
+    the receive path. 481 tests, 97.7% lines (same with `STREAMCORE_SIMULATE_VM=1` and serially).
+  - ✅ The whole stream session from the spec (2026-11-24, `Sources/PlayFXProtocol/Session`): `StreamSession.start`
+    runs ctrl, the network probe (best effort: RTT and MTU by bisection, fallbacks on failure), Takion, the
+    Hello/HelloReply handshake with ECDH, StreamInfo into the AV layer, heartbeats, controller feedback (state and
+    history), congestion reports, IDR and corrupt-frame reports, and ends exactly once (`stop()`, a console
+    Disconnect, a lost connection or a ctrl end; the Disconnect is sent whenever the Hello was). `start` throws
+    until the stream is up, then every ending is one `ended` event. AV events come straight from the receive
+    thread with 0 allocations per packet (asserted in a release test, congestion path included); the rest from a
+    private queue, and nothing reaches the app after `ended`. `pfxp stream` saves the video (Annex-B) and Opus
+    packets to new files only (never overwrites), prints stats every second, takes `--transport bsd|nw` and
+    `--mic-info`, and stops cleanly on Ctrl-C. Tested end to end: a fake console streams the real PS5 capture,
+    encrypted over loopback, and the session reproduces its access units (SHA-256). Reviewed against the spec and
+    fixed: a leak that kept every connection and the ECDH private key alive, a start that could fail after
+    `connected`, no Disconnect when the session was dropped, EMSGSIZE ending the probe instead of shrinking the
+    MTU, a lock held across sends, answers sent after `connected` instead of before, and `pfxp` output files
+    that could overwrite anything. One deliberate deviation: the microphone StreamInfo is only sent with the mic
+    enabled (`--mic-info` compares both on the console). 544 tests, 97.9% lines (same with
+    `STREAMCORE_SIMULATE_VM=1` and serially).
+  - ✅ First console round for the stream (2026-11-24, the user's PS5 on the LAN, woken from rest and put back
+    to rest by our own code): `psrp stream` (libchiaki) as the baseline, then four `pfxp stream` runs, 720p60
+    H.264 on the BSD socket thread and on Network.framework (30 s each), 1080p60 HEVC and 1080p60 HEVC HDR with
+    `--mic-info` (15 s each). Every run connected in 0.5–1.1 s, kept 60 fps with no frame or audio packet lost, no
+    GMAC failure or retransmission in about 20,900 packets, and ended cleanly; the saved video decoded in ffmpeg
+    with no errors (H.264 Main; HEVC Main BT.709; HEVC Main 10 PQ/BT.2020). Answered in the spec ("Observed"
+    sections of stream.md, av.md, takion.md): the console signs its HelloReply with the handshake key as
+    expected, ConnectionQuality's target bitrate is in bit/s, the audio header is 2/16/48000/480, the probe's
+    Takion v9 works on a PS5, and the console streams with or without the microphone StreamInfo. Probe RTT
+    0.9 ms (bsd) vs 1.1 ms (nw). Then in a game (GTA VI unpaused through psrp's control API: PS, then circle
+    three times), 1080p60 HEVC asking 30 Mbit/s: psrp 60 fps at about 4 Mbit/s, nothing lost; `pfxp` on the BSD
+    thread 60 fps at 3.7–4.5 Mbit/s (about 660 packets/s, character standing still), nothing lost, 2,801 haptics
+    frames received. Then, with nobody playing but a busier spot in the game (foliage, traffic), both at the same
+    load: Network.framework 59–60 fps at 11–13 Mbit/s (40,764 packets in 30 s), BSD thread 59–60 fps at
+    11–14 Mbit/s (41,915 packets); each lost nothing, had no GMAC failure or retransmission, ended cleanly and its
+    video decodes in ffmpeg. On this wired-quality LAN the two transports are indistinguishable. Decided with the
+    user: the BSD thread stays the default (cheaper per packet, which matters more on a phone, and fine on iOS),
+    and Network.framework stays built and tested as a fallback (DESIGN.md "Stream transport"). One earlier nw run was ended by
+    the console after 6.9 s ("Server shutting down", reported as `streamRemoteShutdown`) when the user picked up
+    the console's own controller. **Not yet checked on hardware:** FEC recovery and reorder (the LAN lost
+    nothing), CPU per packet on the console's traffic, controller input, the HEVC codec byte, the pad-info form.
+  - ✅ Input and loss on the console (2026-11-24): `pfxp stream --press SCRIPT` (timed buttons and sticks,
+    `ControllerScript` in the library; every boundary is sent even after a late wake-up, a repeated button gets a
+    release), `--trace-input` (each state sent), and `--drop PERCENT [--drop-burst N]` (testing only, off by
+    default: drops received stream datagrams once the stream is up, allocation-free, asserted in the release
+    test). It also prints the video codec byte and the pad-info form. On the PS5 in GTA VI: our input closed the
+    PS overlay, walked the character and turned the camera (the first time our own pad drove the console); with
+    5% of datagrams dropped in pairs at about 11 Mbit/s, FEC rebuilt 490–612 frames per 30 s, 26–32 frames per
+    30 s were beyond repair and each cost about 6 frames (≈100 ms) until the key frame the console always sent,
+    audio lost nothing, BSD and Network.framework alike. Answered: HEVC's codec byte is 0x06, the PS5 sends the
+    17-byte pad info. Unexplained: once, 4.5 s after the script's last input, the PS5 showed its "Adjust Display
+    Area" screen (the state sent after a script is byte-identical to idle; `--trace-input` is for the next round).
+    Reviewed against the spec and fixed (short presses announced but not sent, merged presses, wall clock, a
+    wrapper left after a failed start, a flaky test). An implementer test accidentally made four refused
+    session-init attempts to the console (in rest, nothing exchanged); it now runs pfxp only against 127.0.0.1.
+    574 tests, 98% lines.
+  - ✅ Heavy load (2026-11-24, the camera spun at full right-stick deflection in GTA VI, 1080p60 HEVC asking
+    30 Mbit/s, the user's tip): libchiaki 21.6 Mbit/s, 58.8 fps, nothing lost; `pfxp` 21.9 (BSD) and 21.5 Mbit/s
+    (Network.framework), about 2,170 packets/s, at least 56 fps, nothing lost, video clean in ffmpeg; half
+    deflection 18.5 Mbit/s. With 5% loss in pairs the console's congestion control cut the bitrate to 10–12 Mbit/s
+    (49–53 fps average, 26–31 unrepairable frames, FEC rebuilt 698–735); with 1% single drops 20.6 Mbit/s, 58 fps,
+    4 unrepairable frames. `--trace-input` showed exactly the three intended states. After a lossy session the console
+    answered "busy" for 6–9 s (vs under 6 s): the app must retry a busy console with a backoff.
+  - ✅ StreamCore engine seam (2026-11-24, milestone 4's first step): `StreamSession` no longer calls the C shim.
+    `Sources/StreamCore/StreamEngine.swift` (pure Swift) declares `StreamEngine` (controller state, login PIN,
+    microphone on/off and 10 ms frames, keyboard text/done, key frame, go to bed, stats, `stop()` with its "no sink
+    call after it returns" guarantee), `StreamEngineSink` (video access units → accepted or not, audio format and
+    PCM, haptics PCM → played on a USB pad or left for the engine to turn into `.hapticRumble`, trigger effects,
+    events), `StreamEngineConfig`/`StreamEngineStats` and the `StreamEngineFactory` StreamSession's internal
+    initialiser takes; its doc comments are the whole contract (formats, units, threads, lifetimes, which ending
+    is which `QuitKind`, when `.connected` comes). Every `psrp_session_*` call, the callbacks, the shim's event
+    codes and its controller/stats structs moved to `ChiakiEngine.swift`; StreamSession keeps the decoder, audio,
+    USB haptics, the pointer merge, microphone capture, stats and event buffering, and its public API is
+    unchanged (the app and `psrp` build as before). Tests: the existing ones unchanged in meaning, plus
+    StreamSession on `FakeStreamEngine` (a reusable test stand-in): the config it builds and the codec it asks
+    for, an engine that can't start, events in order (buffered before a handler), video and the engine's stats in
+    `stats`, haptics played on a stand-in USB pad or handed back, the pointer merged into what reaches the
+    engine, every command, stop once with nothing crossing after it, release stopping the engine; libchiaki's
+    engine stopping twice and ignoring commands after stop; the contract's numbers (key sizes, button bits, mic
+    and haptics formats) checked against the shim. 428 tests (+15), 90.4% lines / 88.3% functions (88.8% / 86.9%
+    with `STREAMCORE_SIMULATE_VM=1`). Not run against a console (no behaviour change intended). Fixed on the way:
+    four PSNPairing tests timed out (5 s) in busy parallel runs, before this change too. Their stand-in session
+    reported from `DispatchQueue.global()` while `run` blocked a cooperative thread, and the CPU-bound suites kept
+    GCD's default-QoS workers busy (seen in a `sample`), so the reports waited past the timeout. It now reports
+    from its own thread, as libchiaki does; 4 runs under 12 CPU burners didn't fail them (2 of 3 did before).
+    BridgeTests' `discover()` fails while the user's PS5 rests on the LAN: it answers the broadcast and the
+    unicast discovery to TEST-NET reports it (left as it is, same on main).
+  - ✅ Internet play specified (2026-11-24, facts only, by a spec writer reading chiaki-ng read-only; nothing sent
+    to PSN, STUN servers or the console): `docs/protocol/psn.md` (the PSN web APIs: console list, push WebSocket,
+    remote-play session, OFFER/RESULT/ACCEPT/TERMINATE messages and candidates, errors, timeouts),
+    `holepunch.md` (UPnP IGD, STUN, candidate lists with NAT port prediction, the 88-byte probes, the selected
+    pair, the end-to-end sequence), `rudp.md` (the reliable UDP carrying registration, session init and ctrl over
+    the punched path), PIN-less pairing through PSN (registration.md §8), and "Internet play" sections in
+    session, ctrl, takion, stream and rpcrypt. Vectors computed by an independent script from the text and, for
+    the byte layouts, confirmed by C harnesses over copies of the reference with every network call stubbed.
+    Riskiest without a real internet test: RUDP reliability for ctrl, the probes across real NATs, PSN's error
+    and notification behaviour.
+  - Scope decided by the user (2026-11-24): this PR ends with third_party/ and chiaki-ng gone, PSN play rebuilt
+    clean-room (not dropped), and PlayFX proprietary.
+  - ✅ `PlayFXEngine` (2026-11-24, clean-room against StreamEngine.swift alone): StreamCore's second engine, on
+    PlayFXProtocol. Video units with parameter sets in front of key frames (and after a refusal or a profile
+    switch), game audio decoded with libopus (packet-loss concealment for lost frames, a reset after a long gap),
+    the microphone encoded as av.md §8.2 says (CELT 10 ms, 40-byte packets), haptics to a USB pad or turned into
+    rumble (its own curve: 255·√RMS, 64 levels, repeated every 50 ms), trigger effects, light bar, player index,
+    login PIN, keyboard, go to bed, key-frame requests, stats, and the contract's stop guarantees. Chosen with
+    `StreamSession.Options.engine = "playfx"` (default "chiaki"; internet play always libchiaki until PSN lands);
+    `psrp stream --engine playfx`. `COpus` declares the few libopus calls it needs (linked through the static
+    libopus already in the binary). PlayFXProtocol's fake console moved to a `PlayFXProtocolTestSupport` product
+    so StreamCore's tests stream end to end over loopback. Reviewed against the contract and fixed: the sink kept
+    alive past `stop()`, a deadlock when the app's handler calls back during `stop()` (StreamSession now stops the
+    engine outside its lock), per-gate nesting, a nested stop's quit, microphone ordering. Not honoured: a PS5 may
+    always lower the resolution (the spec has no "don't resize"). StreamCore 483 tests, 91% lines (89.5% in VM
+    mode). Not yet run against a console.
+  - ✅ Discovery, wake and PIN pairing in the app on PlayFXProtocol (2026-11-24): `Console.swift` no longer uses
+    libchiaki; same public API, pairing failures now say which (wrong PIN, wrong account, busy, no answer).
+    `BridgeTests.discover` no longer broadcasts on the LAN (loopback responder). `PLAYFX_ENGINE=playfx` picks the
+    stream engine when the options don't (dev only, temporary). StreamCore 490 tests, 91% lines. Not yet on a
+    console through the app.
+  - ✅ PSN web client from the spec (2026-11-24, clean-room, `Sources/PlayFXProtocol/PSN`): the console list, the
+    push WebSocket (URLSessionWebSocketTask, pings with a pong deadline), the remote-play session (create, inspect,
+    PS5 start, PS4 wake, customData1), the OFFER/RESULT/ACCEPT/TERMINATE exchange per hole (with a background
+    responder for the console's retransmitted OFFERs), and leaving the session even from a cancelled task. Byte-exact
+    against psn.md's vectors; the token is redacted from descriptions and only sent over HTTPS; values from PSN are
+    validated. Reviewed against the spec and fixed (a pong deadline that couldn't fire on a real socket, a leave that
+    skipped the DELETE when cancelled, leaks, unbounded buffers). 113 tests against a fake PSN and a loopback
+    WebSocket server; nothing reached Sony. Not yet against real PSN.
+  - ✅ NAT traversal and reliable UDP from the spec (2026-11-24, clean-room, `Sources/PlayFXProtocol/Internet`): UPnP
+    IGD (SSDP and SOAP, mapping and cleanup), STUN with NAT port prediction, the candidate lists and port guesses,
+    the 88-byte hole-punch probes and selection (with up to 250 low-TTL extra sockets, stopping cleanly at the file
+    limit), and RUDP (handshake, one HTTP exchange, ctrl with retransmission, the switch to the stream, the end).
+    Byte-exact against holepunch.md's and rudp.md's vectors. Reviewed against the spec and fixed, mostly for a
+    hostile LAN: malformed HTTP/XML/ports could trap, a rogue device could redirect the UPnP requests, responses
+    were unbounded; also close() during an exchange, cancellation, an 8 KiB receive buffer. Deliberate deviations:
+    signed port increments for a decreasing NAT, a per-exchange duplicate window for console ctrl data. 106 tests on
+    loopback only (a fake console, gateway and lossy sockets). PlayFXProtocol 793 tests, 98% lines. Not yet over a
+    real NAT.
+  - ✅ Internet play integrated in PlayFXProtocol (2026-11-24, clean-room): `StreamSession.start(remote: PSNRemote…)`
+    runs holepunch.md §8 end to end — UPnP and the push channel, the PSN session, the ctrl hole, a PIN-less PSN
+    registration over RUDP (every session; its keys are used), session init and ctrl over RUDP (a `CtrlLink` seam,
+    the LAN path unchanged), the data hole, the probe, the switch to the stream, Takion on the punched socket
+    (allocation-free, asserted) — with progress stages, typed errors, and the PSN session left and UPnP mappings
+    removed on every path (`stopAndWait()` waits for it). `Registration.registerThroughPSN` pairs without a PIN.
+    Probes are checked against the console's and our identities (`.strict`, or `.logOnly` for the first hardware
+    round). Reviewed against the spec and fixed (cancel during the switch wait, a stale descriptor after shutdown,
+    slow cancel, home addresses in the system log, the console's sid width). End to end on loopback against a fake
+    PSN and a fake console that punches, speaks RUDP and streams. PlayFXProtocol 843 tests, 98% lines. Not yet over
+    the internet.
+  - ✅ No ctrl counter is ever used twice (2026-11-24, from a security review): over the internet a PS5's first PIN
+    reply takes the counter skipped after the request (ctrl.md §10); a second PIN reply, and a PS4's, take a fresh one,
+    and a guard refuses any repeat (a reused keystream could reveal the PIN to an observer).
+  - ✅ StreamCore's internet play, PSN console list and PIN-less pairing on PlayFXProtocol (2026-11-24, clean-room):
+    `PlayFXEngine` starts internet sessions (progress linking → data → connected, start failures as final or busy,
+    stop leaves PSN with an 8 s bound; `PLAYFX_PROBE_IDENTITY=logOnly` for the first round), `PSNAccount` lists the
+    consoles with our PSN client (one token refresh on 401/403), `PSNPairing` pairs through `registerThroughPSN`.
+    PSN sign-in already meets psn.md §2 (scopes, a fresh device ID per sign-in; now tested). The PSN and internet
+    fakes moved to `PlayFXProtocolTestSupport`. StreamCore 519 tests, 91.4% lines (90.0% in VM mode). What still
+    imports the C shim: `ChiakiEngine`, and constants in Log, ControllerInput, Microphone, LatencyTest.
+  - ✅ StreamCore on PlayFXProtocol only (2026-11-24): `ChiakiEngine`, the C shim (`Sources/CChiaki`, its staged
+    headers, `psrp.c`) and its tests, `scripts/build-chiaki.sh` and `vendor/` are gone. `StreamSession` always starts
+    `PlayFXEngine` (the factory stays as the tests' seam); `Options.engine` and `PLAYFX_ENGINE` are gone, and an
+    `engine` key in an older host's JSON is ignored (tested). The shim's constants are Swift's now with the same
+    values (`ControllerButton`, `MicFramer.sampleRate`/`frameSamples`); `Log` no longer captures libchiaki's
+    messages (its `chiaki` area and filters went with them). `COpus` compiles against libopus's own headers and
+    links Homebrew's static `libopus.a` by its path (`OPUS_PREFIX`, else `/opt/homebrew/opt/opus` or
+    `/usr/local/opt/opus`; never `-lopus`): `nm` shows libopus inside `psrp`, `otool -L` no libopus dylib. The
+    desktop `build.rs` links the same archive (from `brew --prefix opus`) and nothing of libchiaki's. `psrp stream`
+    lost `--engine` (`--psn` is our internet play). StreamCore 501 tests (the shim's and ChiakiEngine's went),
+    91.5% lines / 89.8% functions; 90.1% with `STREAMCORE_SIMULATE_VM=1` (both skipping
+    `opensAnOutputUnitOnARealDevice`, an environment failure on this Mac that predates this change). Not yet run against a console.
+  - ✅ The app and CI without libchiaki (2026-11-24): `build.rs` links StreamCore, `libopus.a` from
+    `brew --prefix opus` (by path) and system frameworks only (CoreServices and SystemConfiguration went: only
+    curl used them); `cargo build` links, `otool -L` lists no Homebrew dylib, `nm` shows libopus inside. The UI's
+    quit texts: libchiaki's reason strings are gone from `format.ts`; the engine's own messages (PlayFXProtocol's
+    `userMessage`) are shown as they are (no "Disconnected:" prefix), except a PS5 that didn't answer, which adds
+    "or play over the internet"; PSN is tried after the engine's "didn't answer" or "couldn't reach" texts (PS5
+    and PS4), as it was after libchiaki's "Unknown Session Request Error". Comments in `native.rs`, `keyboard.ts`,
+    `schema.ts` and the Settings text no longer name chiaki. CI: no submodule checkout, no libchiaki build or
+    cache, `brew install opus` only; every gate kept. `release.sh` had no libchiaki step. TS 427 tests (97.9%
+    lines), Rust 74 (91.4% lines), clippy clean. Not yet on a console.
+  - ✅ chiaki-ng's submodule removed (2026-11-24): `git rm third_party/chiaki-ng`, `.gitmodules` deleted,
+    `third_party/` gone (this worktree never checked it out; the main checkout's `.git/modules` copy was left
+    alone). Every `chiaki`/`libchiaki`/`third_party`/`psrp_` hit outside `.m3` handled: code and config have
+    none (only `PSRP_*` variables, psrp's own); README's "libchiaki: our fork" became "The protocol"
+    (PlayFXProtocol's facts) and its layout lists `packages/playfxprotocol`; docs/NETWORK.md keeps the fork's
+    fixes and measurements as "History: libchiaki (until 2026-11-24)" and drops its update steps; the protocol
+    docs' provenance names commit d8efd673bc93bbc16e9f646c5b24e0dee013abcc; CLAUDE.md describes PlayFXProtocol
+    and the libopus build note. Left for the licence change: LICENSE, NOTICE, THIRD_PARTY_LICENSES and its
+    script (which still read chiaki-ng's tree), README's licence section.
+  - ✅ PlayFX proprietary (2026-11-24): see "Licence: proprietary" below.
+  - ✅ libopus built from source (2026-11-24): Homebrew's `libopus.a` was built for macOS 26 (a linker warning per
+    object against our 13.0 target) and made Homebrew a build dependency. Now `Sources/CLibopus` vendors the
+    official 1.6.1 release, unmodified: the tarball from downloads.xiph.org, checked against Xiph's SHA256SUMS.txt
+    (6ffcb593…a411a1; tag v1.6.1, commit 22244de5a79b; both in its `README.PlayFX`), only the float build's sources
+    from upstream's own lists (celt_sources.mk, silk_sources.mk with SILK_SOURCES_FLOAT, opus_sources.mk with
+    OPUS_SOURCES_FLOAT: 137 files) and the 59 headers they include (found with `clang -MM` on both architectures),
+    plus COPYING (BSD-3-Clause and the pointers to Opus's royalty-free patent licences). No config.h: the defines
+    are CMake's defaults (`OPUS_BUILD`, `VAR_ARRAYS`, `HAVE_LRINT`, `HAVE_LRINTF`, `ENABLE_HARDENING`; no
+    `FLOAT_APPROX`) plus `PACKAGE_VERSION` "1.6.1" (as autotools and Meson set it), `-w`. The NEON intrinsics files
+    were left out: they include `<arm_neon.h>` unconditionally, so they can't build for x86_64, and SwiftPM can't
+    set defines per architecture; both architectures run upstream's generic C path (the SSE files likewise). `COpus`
+    depends on `CLibopus`; `OPUS_PREFIX` and the Homebrew lookups are gone from Package.swift, `build.rs`, CI
+    (`brew install opus`), CLAUDE.md, the READMEs and `scripts/third-party-licenses.py` (which now reads the
+    vendored COPYING and README.PlayFX; `THIRD_PARTY_LICENSES` regenerated, only the Opus entry changed). Verified:
+    `swift build` and `swift build --arch x86_64` build and link `psrp` (the objects say minos 13.0, Homebrew's
+    26.0); `otool -L` on `psrp` and the debug `psrp-desktop` shows no libopus or Homebrew dylib, `nm` shows the
+    `opus_*` symbols inside, `strings` "libopus 1.6.1"; no "built for newer macOS" warnings in the Swift or cargo
+    builds. StreamCore 501 tests (the engine's audio and microphone tests on the vendored libopus included),
+    91.5% lines / 89.8% functions, 90.1% / 88.6% with `STREAMCORE_SIMULATE_VM=1` (both skipping
+    `opensAnOutputUnitOnARealDevice`); Rust 74 tests, 91.4% lines, clippy clean; TS 424, 97.9% lines. The C
+    is compiled without optimisation in debug builds (release builds optimise it); not yet heard on a console.
+  - ✅ Provenance and risk record (2026-11-24, `docs/PROVENANCE.md`): how the protocol code was written (roles, what
+    each read, the clean-room rules, verification, the one known slip), the limits of the clean room (AI training
+    data above all), and the remaining risks with Sony's crypto constants as the largest. Not legal advice; the owner
+    chose not to involve a lawyer. The scratch copies of chiaki-ng sources and the test programs built from them
+    (outside the repository) were deleted.
+  - ✅ Licence rule settled (2026-11-24, the owner): MPL-2.0 is allowed only as an unmodified dependency (the five
+    crates Tauri brings in: cssparser, cssparser-macros, dtoa-short, selectors, option-ext); GPL/LGPL/AGPL and
+    source-available licences stay out (CLAUDE.md).
+  - 🔶 First CI run without libchiaki (PR #7, 2026-11-24): failed to compile one test helper (`$0` inside a `defer` in a
+    closure, accepted by the local Swift, rejected by the runner's); fixed. The next run's test process died with
+    SIGBUS in the loopback transport benchmark, which installs a libmalloc `malloc_logger` hook to count
+    allocations; the hook is now opt-in (`pfxp bench-transport` only), so tests and the library never write it.
+  - ✅ First session in the real app without libchiaki (2026-11-24, the user's PS5 on the LAN, the user: "works
+    perfect"): PSN token refresh and console list on our PSN client, wake from rest (ready in 9 s), a 1080p60 HEVC
+    stream at 20 Mbit/s connected in about 2 s (2,527 frames, 0 lost, 0 decode errors, RTT 1.25 ms), DualSense
+    haptics over Bluetooth, the GTA VI profile, a clean quit. Left: haptics on USB, mic, PIN, pairing from the app,
+    go to bed from the app; internet play; PS4.
+  - ✅ "Lower resolution when the network is slow" only where it acts (2026-11-24, requested): it only ever affected a
+    PS4 (a PS5 always may resize, with libchiaki too: the launch spec has no "don't resize"), so Settings → Stream
+    shows it only when a PS4 is paired, or while streaming a PS4, labelled "PS4 only". TS 427 tests.
+  - ✅ The microphone heard on the PS5 (2026-11-24, the user, Settings → Sound → Microphone → Adjust Microphone
+    Level): the spec had the ctrl `0x0036` state byte backwards (`00` = unmuted, `01` = muted; the reference's
+    argument is named "muted"), so turning the mic on connected it and then muted it, and the console wouldn't let
+    the user unmute. Corrected in ctrl.md/stream.md (with what the reference sends at start-up, on, mute and unmute,
+    and new vectors) and in `ControlSession.setMicrophone`; tests now check the byte, not only the message type.
+    It had never been confirmed on a console before, with libchiaki either.
+  - 🔶 First internet round (2026-11-24, Mac on an iPhone hotspot, PS5 at home): PSN sign-in, the console list, the
+    PSN session, STUN, the start command and the console joining all worked on our code, three times; the ctrl hole
+    failed each time after the probing window. The old libchiaki `psrp stream --psn` from the same hotspot failed at
+    the same step (250 extra probe sockets, no answer from any candidate): the carrier's NAT blocks it. Added for the
+    next run: a full hole-punch diagnosis in the log (each STUN answer, the NAT prediction, both sides' candidates
+    with masked addresses, probes sent and received by source, the exact failure), a check that our prediction
+    matches holepunch.md §3.3 (20,000 random cases agree), and `PLAYFX_FORCE_PORT_GUESSING=1` (dev). Second round,
+    same hotspot: with forced port guessing the ctrl hole opened reproducibly (the console answered one of the 250 extra
+    sockets in 1.6 s), the PIN-less PSN registration and session init worked, and ctrl ended after ~11 s. Likely cause
+    (fixed per holepunch.md §8): we waited for the session ID before starting the data hole; the spec starts it after at
+    most 10 s and waits 5 s more for the ID. Added `PLAYFX_RUDP_TRACE=1` (every RUDP datagram and decoded ctrl frame,
+    no secrets) and always-on logs of the ctrl-stage events and the exact failure case. Left: the next hotspot run;
+    detecting a per-destination NAT (different STUN ports, increment 0) so port guessing starts without the switch.
+  - ✅ **First internet stream on our own code** (2026-11-24, Mac on an iPhone hotspot with no VPN, PS5 at home, from a
+    network where libchiaki couldn't connect): with `PLAYFX_FORCE_PORT_GUESSING=1`, ctrl hole in 0.1 s, PIN-less
+    registration, session init, ctrl over RUDP (no retransmissions, nothing malformed), the session ID 6.2 s after ctrl
+    came up (after the data hole had started: the earlier failures were the deadlock now fixed), data hole in 0.6 s,
+    switch acknowledged, stream connected: 1080p30 HEVC, 0 frames lost, RTT 45 ms; the user played ~3.5 min and found the
+    mobile latency too high to enjoy. Then: a per-destination NAT (STUN ports that differ, no step) now starts port
+    guessing by itself for both holes (a client choice beyond holepunch.md §3.3, in DESIGN.md); the doubled heartbeat
+    reply is gone (the unrequested reply is timed from the last reply); retransmissions are labelled in the trace (66
+    in that session, cause not yet known); messages the frame check drops are always logged with their data (the
+    console sent a 4-byte `0x20` and a 20-byte `0x36` the spec can't place: spec requests). Left: a confirmation run
+    without the dev switch from a non-home network.
+  - ✅ App round on our engine finished (2026-11-24, the user): PIN pairing, PIN-less pairing through PSN, go to bed,
+    streaming, wake, USB haptics, mic all work in the app; the console keyboard stays off on a PS5, as it was with
+    libchiaki (the user: fine); no login passcode to test. PIN-less pairing took ~45 s: STUN asked its servers one at
+    a time (dead ones cost 5 s each, ~21 s) before the start command, and the console then took ~15 s to boot from
+    rest. Now (client choices, in DESIGN.md): STUN asks all servers at once, staggered 0.1 s, answers kept in the spec's
+    server order (at most ~6 s); the start command goes out as soon as the PSN session exists, so the console boots
+    while candidates are gathered (the OFFER order on the wire is unchanged). Expected: ~15 s from rest, 1-6 s awake.
+    PlayFXProtocol 895 tests, StreamCore 525.
+  - ✅ Parallel STUN hardened (2026-11-24): CI's pull_request run crashed once (SIGBUS) as
+    `itStopsAsSoonAsEnoughHaveAnswered` started; the push run on the same commit passed. Not reproduced locally
+    (150 debug, 60 TSan, 60 ASan, 100 coverage `--no-parallel` loops, all clean), so no proven cause. The one window
+    the code left is closed: a STUN worker now sends, logs and records only under the tracker lock while the call
+    hasn't finished, so nothing acts after `collectConcurrently` returns; it waits up to 0.25 s for the workers to
+    end. New `anEarlyStopLeavesNoWorkerBehind` (40 early stops, socket closed at once: nothing sent or logged
+    after the return). The flaky `cancelledDuringTheSearch` now cancels from a thread of its own (a starved
+    dispatch queue delivered the 0.1 s cancel after ~2.8 s). PlayFXProtocol 896 tests, 97.5% lines (plain, VM,
+    serial); release allocation test; StreamCore 525. If CI crashes again: run `StunConcurrencyTests` alone with
+    coverage in the VM and keep the crash report.
+  - ✅ CI on that commit: no crash; three timing failures on CI's loaded VM, one run each. Fixed: the
+    Network.framework transport's receive times never go backwards (the kernel time is converted by reading two
+    clocks one after the other; a preemption between them put one datagram before the previous one); the
+    per-destination NAT test waits 1 s, not 0.25 s, for the fake console's probe after the selection; StreamCore's
+    `hapticsRumbleLastsWhileItKeepsComing` checks the level only when its last 50 ms sleep stayed under the 0.15 s
+    timeout.
+  - ❌ Next: the parity round in the app on the console (LAN and internet play on `PlayFXEngine`, then a
+    release), and the provenance and risk page owed at the end of this PR.
+
+- ✅ **Licence: proprietary (2026-11-24).** With libchiaki gone, PlayFX is proprietary: `LICENSE` reads
+  "Copyright (C) 2026 Daniel B. All rights reserved." (worded like `packages/playfxprotocol/LICENSE`, which no
+  longer says the rest of the repo is AGPL), with the unaffiliated-with-Sony and trademark note that `NOTICE`
+  carried; `NOTICE` is deleted (nothing in it was still required: the licences' own notices are in
+  `THIRD_PARTY_LICENSES`) and no longer bundled (`tauri.conf.json` copies `LICENSE` and `THIRD_PARTY_LICENSES`
+  into Resources; its copyright line is "© 2026 Daniel B. All rights reserved."). Manifests: `"UNLICENSED"` in
+  the four package.json files, `license = "LicenseRef-Proprietary"` in Cargo.toml (no cargo warning).
+  Settings → Diagnostics → **Source code** is gone (the button, `open_source_code` and its permission, the
+  `Core`/action, their tests); its paragraph now says "PlayFX © 2026 Daniel B. All rights reserved." and where
+  the third-party licences are. The site drops "Free and open source", its AGPL footer and its "Source" link.
+  `scripts/third-party-licenses.py` no longer reads chiaki-ng's tree or `vendor/`: the C libraries are
+  libsecp256k1 0.8.0 (MIT, vendored in PlayFXProtocol, from its COPYING and README.PlayFX) and Opus 1.6.1
+  (BSD-3-Clause, the Homebrew keg the build links, from its COPYING); `THIRD_PARTY_LICENSES` regenerated
+  (262 Rust crates, the Rust standard library's 12, 58 npm packages with the two OFL fonts, CAS and shadcn/ui;
+  libchiaki, curl, nanopb, Jerasure, GF-Complete, Mesa's vl_rbsp.h, OpenSSL, json-c, miniupnpc and libevent
+  gone). CLAUDE.md allows only permissive licences (no GPL/LGPL/AGPL/MPL, no source-available). README's
+  licence section says the same. Left for the user: five MPL-2.0 Rust crates come with Tauri itself
+  (cssparser, cssparser-macros, dtoa-short and selectors through tauri-utils' dom_query; option-ext through
+  dirs), unmodified, file-level copyleft whose sources the list links; and the old AGPL releases and history
+  stay what they were. Not legal advice; a lawyer's review is still planned before an App Store submission.
+  - History (2026-11-20 to 2026-11-24): PlayFX was AGPL-3.0-only because it linked libchiaki; `LICENSE`,
+    `NOTICE` and the Source code button were its compliance, and the first public release shipped
+    `THIRD_PARTY_LICENSES`. No shadcn/studio code was ever taken (MIT with a Commons Clause).
 - ✅ **Project site on GitHub Pages** (2026-11-23, asked for: one screen, looking like the app, responsive):
   `apps/site` (Vite, Tailwind v4 with the app's fonts and dark tokens, plain JS, no framework) at
   https://deblanco.github.io/PlayFX/. The backdrop is StreamCore's ribbon shader in WebGL (still for reduced
@@ -862,8 +1337,10 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   the stapled app into tauri's DMG in place of the unstapled one (same name, window and icon layout), then
   signs, notarizes, staples and checks the DMG with Gatekeeper. Each submission is waited on by its id, with
   retries (see Notarization in section 3); `scripts/test-release.sh` tests the wait and the DMG app swap.
-- ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): libchiaki built once
-  per submodule commit + script (cached right after building), Swift tests one at a time + coverage,
+- ✅ **CI**: `.github/workflows/ci.yml` on every push and PR, macOS runner (a VM): PlayFXProtocol tests +
+  coverage, no Homebrew dependencies (until 2026-11-24: `brew install opus`, and before that libchiaki built once
+  per submodule commit + script, cached),
+  Swift tests one at a time + coverage,
   tsc/ESLint/vitest + coverage, clippy `-D warnings`, Rust tests + `cargo llvm-cov --lib` (≥ 80% lines and
   functions). Getting it green found real bugs: `protobuf` missing from the documented dependencies; the
   dev seed import broke every clean checkout; in a VM, VideoToolbox reports frame interpolation and ML
@@ -871,8 +1348,9 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
   first measured here (72% lines): the app's entry point moved to `main.rs` (a thin adapter), every
   command is now exercised through IPC with the UI's argument names and with missing arguments, and the
   safe StreamCore calls are smoke-tested for real.
-- ✅ **Reproducibility**: README lists the Homebrew dependencies and `build-chiaki.sh`; CI regenerates
-  `vendor/` from scratch whenever the submodule or the script changes.
+- ✅ **Reproducibility**: no Homebrew dependencies: libopus is vendored in StreamCore (`Sources/CLibopus`, with
+  the release tarball's checksum) and compiled with the package (2026-11-24); libchiaki, `build-chiaki.sh` and
+  `vendor/` are gone (2026-11-24).
 
 ---
 
@@ -1035,8 +1513,6 @@ For users and us to debug: one scrubbed log across native, Rust and the web UI, 
   submit or dropping the `|| true` that keeps a timed-out wait from ending the release makes it fail. The swap was also run on a copy
   of the 0.2.0 DMG and app: layout kept and the app's signature still verifies. Left: the first real run, at
   the next release (`xcrun stapler validate` on the app inside the DMG).
-- 🔶 **Linker warnings**: vendored static libs built for a newer macOS than the 13.0 deployment
-  target. Harmless; silence by building the deps at the target version.
 - 🔶 **FFI safety**: the Rust↔Swift boundary (CString lifetimes, `sc_free` once, main-thread
   rules) was reviewed and tested, but every new `@_cdecl` needs the same care.
 - ℹ️ **Dev E2E harness** (`src/app/devSeed.ts` + autoplay) is env-gated and inert in production;
@@ -1185,7 +1661,8 @@ requests and a bug report.
    in 60, ~100 shown/s); left: the 75 Hz external screen; ML upscaling on its lane on a live 1080p stream in a window larger than 1920×1080, now skipping repeated pictures (the shown rate should stay near 120 Hz); a stream measured with Steady Wi-Fi on (only pings
    were); the pad left quiet on `pkill` and ⌘Q mid-effect; ~~the light bar in a game that sets it~~ (done
    2026-11-20: GTA VI, red/blue flashes then pink, from the release's log); Bluetooth
-   haptics in Astro's Playroom.
+   haptics in Astro's Playroom; ~~USB haptics in a game with the app~~ (done 2026-11-24: GTA VI on the PS5, pad on
+   USB, the app logged "audio haptics enabled", the user: "now works perfect"; see "USB haptics felt").
 7b. **On the console: an HDR game with frame interpolation on** (Silent Hill 2 on the MacBook Pro's XDR display),
    new since 2026-11-20 and only tested offscreen: `pacing.interpolation` reads `on` (not `failed`), about 60
    shown/s for a 30 fps game on 60 Hz and on 120 Hz (halves only in HDR), highlights still above SDR white in the
@@ -1200,6 +1677,14 @@ requests and a bug report.
    "waiting for IDR" with the earlier logs (5 holes in 50 min; no "queue full" skips dropping a frame); then over
    the internet, where the wait should stay higher, and in a loss burst not fall below what late packets showed.
    Detailed logs show each "queue full" and "reorder timeout" skip. *(P1)*
+7d. **On the console: the adaptive input lane** (new 2026-11-21, unit tests only). With a pad in hand, that
+   presses, sticks, touchpad and motion aim feel no worse than before (the loop's off-main reads of
+   GameController's elements are the unverified part), also with a second pad connected and idle, and pulling a
+   pad's battery or Bluetooth mid-press; the stream stays clean in the stats (motion no longer
+   floods while a pad lies still); and the dev latency test (`POST /latency-test`) before and after, with the
+   main thread busy and idle, shows what the lane bought — or doesn't, in which case the input leg wasn't the
+   bottleneck and raw HID input (bypassing GameController entirely, the way the USB haptics output does) isn't
+   worth its cost. *(P1)*
 8. Smaller follow-ups: ~~the Wi-Fi stall warning~~ (done 2026-11-20, from AirDrop's state, and from the stall
    itself in the frames' arrival; left: seeing the second on a live stream with AWDL on); ~~the worst-tile
    quality score (from PushFPS)~~ (done 2026-11-20); ~~the 50 fps cadence~~ (done 2026-11-20 in unit tests; a
@@ -1219,3 +1704,19 @@ requests and a bug report.
    ~~Cancel ending at once, and its own message for a PS5 that never answers~~ (done 2026-11-20, fork and
    unit tests); on the console: a Cancel mid-pairing ends at once, and a PS5 signed in to another PSN account
    gets "didn't answer pairing through PSN" or "didn't accept" (which one isn't known yet). *(P0)*
+11. **Our own Remote Play protocol** (branch `deblanco/rewrite-ps-remote-core`, see P4): ~~the facts-only spec for
+   discovery, wake, registration, session init and ctrl~~ (done 2026-11-23); ~~the Swift discovery, wake and
+   registration from the spec~~ (done 2026-11-23); ~~one hardware round: discover, wake and pair the PS5~~ (done 2026-11-23,
+   all three work); ~~milestone 2: session init and the ctrl channel~~ (done 2026-11-23, on the PS5: a session with
+   heartbeats, a clean stop, go to bed); ~~milestone 3: the stream (Takion, the stream connection, audio and
+   video, FEC, input) specified, then built, with the stream's receive path measured on Network.framework against a
+   BSD socket thread~~ (done 2026-11-24, `StreamSession` and `pfxp stream`, tested over loopback); ~~its first
+   hardware round~~ (done 2026-11-24: H.264, HEVC and HDR streams on the PS5 with nothing lost, both transports);
+   ~~a stream under load (a game, a pad)~~ (done 2026-11-24: in GTA VI with our own input and 5% simulated loss, FEC
+   working); ~~the engine seam in StreamCore: libchiaki behind `StreamEngine`~~ (done 2026-11-24, unit tests, behaviour
+   unchanged); ~~`PlayFXEngine` on that seam~~ (done 2026-11-24); ~~internet play, the PSN console list and PIN-less
+   pairing on PlayFXProtocol~~ (done 2026-11-24); ~~StreamCore on PlayFXProtocol only~~ (done 2026-11-24: no
+   libchiaki in StreamCore or psrp); ~~the app's build and CI without libchiaki~~ (done 2026-11-24); ~~the submodule and
+   third_party/ removed~~ (done 2026-11-24); ~~PlayFX proprietary~~ (done 2026-11-24); ~~libopus built from source,
+   no Homebrew~~ (done 2026-11-24); next, the parity round in
+   the app on the console, and the provenance and risk page. *(P4)*

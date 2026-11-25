@@ -1,8 +1,16 @@
-import CChiaki
 import Foundation
 import GameController
+import os
 
-/// PlayStation controller state in libchiaki's terms.
+/// The DualSense/DualShock buttons as bits of `ControllerState.buttons` (1 = held; see `StreamEngine.setController`).
+enum ControllerButton: UInt32 {
+    case cross = 0x1, circle = 0x2, square = 0x4, triangle = 0x8
+    case dpadLeft = 0x10, dpadRight = 0x20, dpadUp = 0x40, dpadDown = 0x80
+    case l1 = 0x100, r1 = 0x200, l3 = 0x400, r3 = 0x800
+    case options = 0x1000, share = 0x2000, touchpad = 0x4000, ps = 0x8000
+}
+
+/// A PlayStation controller's state: buttons, triggers, sticks, touchpad fingers and motion.
 public struct ControllerState: Equatable, Sendable {
     public var buttons: UInt32 = 0
     public var l2: UInt8 = 0
@@ -40,59 +48,77 @@ public struct ControllerState: Equatable, Sendable {
         }
     }
 
-    /// The C shim's form of this state.
-    var psrp: PsrpControllerState {
-        var c = PsrpControllerState()
-        c.buttons = buttons
-        c.l2 = l2
-        c.r2 = r2
-        c.left_x = leftX
-        c.left_y = leftY
-        c.right_x = rightX
-        c.right_y = rightY
-        func touch(_ i: Int) -> PsrpTouch {
-            guard i < touches.count else { return PsrpTouch(id: -1, x: 0, y: 0) }
-            let t = touches[i]
-            func scale(_ v: Float, _ max: Int32) -> UInt16 { UInt16((min(1, Swift.max(0, v)) * Float(max)).rounded()) }
-            return PsrpTouch(id: Int8(t.id & 0x7F), x: scale(t.x, PSRP_TOUCHPAD_WIDTH), y: scale(t.y, PSRP_TOUCHPAD_HEIGHT))
-        }
-        c.touches = (touch(0), touch(1))
-        if let motion {
-            c.motion = true
-            (c.gyro_x, c.gyro_y, c.gyro_z) = (motion.gyro.x, motion.gyro.y, motion.gyro.z)
-            (c.accel_x, c.accel_y, c.accel_z) = (motion.accel.x, motion.accel.y, motion.accel.z)
-            c.motion_timestamp_us = motion.timestampMicros
-        }
-        return c
-    }
-
     public static let buttonNames: [String: UInt32] = [
-        "cross": UInt32(PSRP_BTN_CROSS.rawValue), "circle": UInt32(PSRP_BTN_CIRCLE.rawValue),
-        "square": UInt32(PSRP_BTN_SQUARE.rawValue), "triangle": UInt32(PSRP_BTN_TRIANGLE.rawValue),
-        "left": UInt32(PSRP_BTN_DPAD_LEFT.rawValue), "right": UInt32(PSRP_BTN_DPAD_RIGHT.rawValue),
-        "up": UInt32(PSRP_BTN_DPAD_UP.rawValue), "down": UInt32(PSRP_BTN_DPAD_DOWN.rawValue),
-        "l1": UInt32(PSRP_BTN_L1.rawValue), "r1": UInt32(PSRP_BTN_R1.rawValue),
-        "l3": UInt32(PSRP_BTN_L3.rawValue), "r3": UInt32(PSRP_BTN_R3.rawValue),
-        "options": UInt32(PSRP_BTN_OPTIONS.rawValue), "share": UInt32(PSRP_BTN_SHARE.rawValue),
-        "touchpad": UInt32(PSRP_BTN_TOUCHPAD.rawValue), "ps": UInt32(PSRP_BTN_PS.rawValue),
+        "cross": ControllerButton.cross.rawValue, "circle": ControllerButton.circle.rawValue,
+        "square": ControllerButton.square.rawValue, "triangle": ControllerButton.triangle.rawValue,
+        "left": ControllerButton.dpadLeft.rawValue, "right": ControllerButton.dpadRight.rawValue,
+        "up": ControllerButton.dpadUp.rawValue, "down": ControllerButton.dpadDown.rawValue,
+        "l1": ControllerButton.l1.rawValue, "r1": ControllerButton.r1.rawValue,
+        "l3": ControllerButton.l3.rawValue, "r3": ControllerButton.r3.rawValue,
+        "options": ControllerButton.options.rawValue, "share": ControllerButton.share.rawValue,
+        "touchpad": ControllerButton.touchpad.rawValue, "ps": ControllerButton.ps.rawValue,
     ]
 }
 
 /// Reads physical gamepads (DualSense, DualShock 4, Xbox, MFi) via
-/// GameController, merging them into one ControllerState.
+/// GameController, merging them into one ControllerState. GameController's own callbacks arrive on
+/// the main queue, behind rendering and UI; between them, a loop on its own user-interactive thread
+/// (`InputPacer` paces it, faster while readings change) reads the pads directly, so a reading reaches
+/// the console without waiting for the main thread to get around to it. Not yet on hardware: the loop's
+/// off-main reads of GameController's elements (their values update as the pad's reports arrive; the
+/// callbacks are only notifications) want a look with a pad in hand.
 public final class ControllerInput {
-    /// Called on the main queue whenever the merged state changes.
-    public var onChange: ((ControllerState) -> Void)?
-    private var padState = ControllerState()
-    /// The last reading's fingers, kept to give them fresh ids when touches are turned back on.
-    private var padFingers: [SIMD2<Float>?] = []
-    private var touchIDs = TouchIDs()
-    private var motionState: ControllerState.Motion?
-    /// The controllers whose readings `padState` and `motionState` hold, to let go of them when it disconnects.
-    private var padSource: ObjectIdentifier?
-    private var motionSource: ObjectIdentifier?
-    private var keyState = ControllerState()
-    private var last = ControllerState()
+    /// Called whenever the merged state changes: on the main thread (the callbacks, the keyboard, the
+    /// settings) or on the loop. What it must do has to be thread-safe — `StreamSession.setController` is —
+    /// and must not call back into this object: it runs with the lock held, so states reach it one at a
+    /// time and in the order they were merged (called after the lock, the loop's older state could land
+    /// after the main thread's newer one, and a released button would stay held on the console). Setting
+    /// it starts the input loop, so the loop never merges a state with no one to hand it to.
+    public var onChange: ((ControllerState) -> Void)? {
+        get { input.withLockUnchecked { $0.onChange } }
+        set {
+            let start = input.withLockUnchecked { input -> Bool in
+                input.onChange = newValue
+                let start = newValue != nil && !input.loopStarted
+                if start { input.loopStarted = true }
+                return start
+            }
+            if start { startLoop() }
+        }
+    }
+
+    /// Everything the callbacks, the keyboard and the settings write and the loop reads — plus the
+    /// loop's pacer, fed by every distinct reading.
+    private let input = OSAllocatedUnfairLock(initialState: Input())
+    /// One pad's last buttons-sticks-touchpad reading.
+    private struct PadReading: Equatable {
+        var state: ControllerState
+        var fingers: [SIMD2<Float>?]
+        var isIdle: Bool { state == ControllerState() && fingers.allSatisfy { $0 == nil } }
+    }
+    private struct Input {
+        var onChange: ((ControllerState) -> Void)?
+        var loopStarted = false
+        /// The controllers attached and not yet disconnected: the loop's reads of any other are dropped (it
+        /// may have listed a pad just before it went away, and its last reading would hold its buttons again).
+        var connected: Set<ObjectIdentifier> = []
+        /// Each pad's last reading, so one that hasn't changed isn't taken again: the loop reads every
+        /// connected pad on each pass, and with two connected their readings would otherwise take turns.
+        var readings: [ObjectIdentifier: PadReading] = [:]
+        var motions: [ObjectIdentifier: ControllerState.Motion] = [:]
+        var padState = ControllerState()
+        /// The last reading's fingers, kept to give them fresh ids when touches are turned back on.
+        var padFingers: [SIMD2<Float>?] = []
+        var touchIDs = TouchIDs()
+        var motionState: ControllerState.Motion?
+        /// The controllers whose readings `padState` and `motionState` hold, to let go of them when it disconnects.
+        var padSource: ObjectIdentifier?
+        var motionSource: ObjectIdentifier?
+        var keyState = ControllerState()
+        var sendsTouches = true
+        var last = ControllerState()
+        var pacer = InputPacer()
+    }
     private var observers: [NSObjectProtocol] = []
 
     public init() {
@@ -109,6 +135,22 @@ public final class ControllerInput {
             self?.disconnected(ObjectIdentifier(controller))
         })
         PadHardware.controllers().forEach(attach)
+    }
+
+    /// The input loop's thread. It holds this object weakly and exits on its own within one period of it
+    /// being let go.
+    private func startLoop() {
+        let loop = Thread { [weak self] in
+            while self != nil {
+                let period = self?.input.withLock { $0.pacer.period(at: ProcessInfo.processInfo.systemUptime) }
+                    ?? InputPacer.heartbeat
+                Thread.sleep(forTimeInterval: period)
+                self?.pollPads()
+            }
+        }
+        loop.qualityOfService = .userInteractive
+        loop.name = "streamcore.input"
+        loop.start()
     }
 
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
@@ -129,6 +171,7 @@ public final class ControllerInput {
         // gestures and never reports them.
         for element in controller.physicalInputProfile.allElements { element.preferredSystemGestureState = .disabled }
         let source = ObjectIdentifier(controller)
+        input.withLock { _ = $0.connected.insert(source) }
         controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
             self?.padChanged(Self.state(from: pad), fingers: Self.fingers(on: pad), from: source)
         }
@@ -144,33 +187,66 @@ public final class ControllerInput {
     }
 
     /// A reading from a pad: its buttons, triggers and sticks, and the fingers on its touchpad (internal for tests).
-    func padChanged(_ state: ControllerState, fingers: [SIMD2<Float>?], from source: ObjectIdentifier? = nil) {
-        padState = state
-        padFingers = fingers
-        padState.touches = touchIDs.touches(fingers)
-        padSource = source
-        emit()
+    /// The same reading from the same pad again is no news; `polled` (the loop's reads) ones from a pad that
+    /// has disconnected are dropped.
+    func padChanged(_ state: ControllerState, fingers: [SIMD2<Float>?], from source: ObjectIdentifier? = nil,
+                    polled: Bool = false) {
+        let fresh = input.withLock { input -> Bool in
+            if let source {
+                let reading = PadReading(state: state, fingers: fingers)
+                let previous = input.readings[source]
+                guard !polled || input.connected.contains(source), previous != reading else { return false }
+                input.readings[source] = reading
+                // A pad's first reading with nothing pressed, tilted or touched doesn't take over from the
+                // pad in use: when the loop starts, an idle second pad would otherwise replace a held trigger.
+                if previous == nil, source != input.padSource, reading.isIdle { return false }
+            }
+            input.padState = state
+            input.padFingers = fingers
+            input.padState.touches = input.touchIDs.touches(fingers)
+            input.padSource = source
+            return true
+        }
+        if fresh { emit() }
     }
 
-    /// A motion-sensor reading from a controller (internal for tests).
-    func motionChanged(_ motion: ControllerState.Motion, from source: ObjectIdentifier) {
-        motionState = motion
-        motionSource = source
-        emit()
+    /// A motion-sensor reading from a controller (internal for tests). One whose sensors read exactly
+    /// as the last from the same pad carries nothing new (its timestamp alone would only make the console
+    /// re-integrate the same stillness), so the last reading stands: the input loop reads motion between
+    /// the pad's own callbacks, and this keeps a pad lying still from becoming a stream of readings that
+    /// differ by timestamp alone. As with `padChanged`, the loop's reads of a pad that has disconnected are dropped.
+    func motionChanged(_ motion: ControllerState.Motion, from source: ObjectIdentifier, polled: Bool = false) {
+        let fresh = input.withLock { input -> Bool in
+            guard !polled || input.connected.contains(source) else { return false }
+            let previous = input.motions[source]
+            if let previous, previous.gyro == motion.gyro, previous.accel == motion.accel { return false }
+            input.motions[source] = motion
+            // As with a pad's first reading: another pad's first motion doesn't take over from the one in use.
+            if previous == nil, let current = input.motionSource, current != source { return false }
+            input.motionState = motion
+            input.motionSource = source
+            return true
+        }
+        if fresh { emit() }
     }
 
     /// A controller went away (internal for tests). GameController sends no last reading, so whatever it held
     /// (buttons, sticks, a finger on the touchpad, motion) is released on the console here, or it stays stuck.
     func disconnected(_ controller: ObjectIdentifier) {
-        if controller == padSource {
-            padState = ControllerState()
-            padFingers = []
-            touchIDs.forget()
-            padSource = nil
-        }
-        if controller == motionSource {
-            motionState = nil
-            motionSource = nil
+        input.withLock { input in
+            input.connected.remove(controller)
+            input.readings[controller] = nil
+            input.motions[controller] = nil
+            if controller == input.padSource {
+                input.padState = ControllerState()
+                input.padFingers = []
+                input.touchIDs.forget()
+                input.padSource = nil
+            }
+            if controller == input.motionSource {
+                input.motionState = nil
+                input.motionSource = nil
+            }
         }
         emit()
     }
@@ -178,11 +254,16 @@ public final class ControllerInput {
     /// Whether the fingers on a pad's touchpad reach the console (the "Touchpad touches" setting). Off, only its
     /// click does: some games act on a resting thumb (GTA VI opens the map). Turning it off mid-touch lifts the
     /// finger on the console at once; turning it back on with a finger resting sends that finger as a new touch.
-    public var sendsTouches = true {
-        didSet {
-            if sendsTouches && !oldValue {
-                touchIDs.forget()
-                padState.touches = touchIDs.touches(padFingers)
+    public var sendsTouches: Bool {
+        get { input.withLock { $0.sendsTouches } }
+        set {
+            input.withLock { input in
+                guard newValue != input.sendsTouches else { return }
+                if newValue {
+                    input.touchIDs.forget()
+                    input.padState.touches = input.touchIDs.touches(input.padFingers)
+                }
+                input.sendsTouches = newValue
             }
             emit()
         }
@@ -192,16 +273,40 @@ public final class ControllerInput {
     /// dialog or the settings instead): merged with the pad. Reading the keyboard here too (GameController
     /// sees every key, even while typing in the console's text field) sent H as PS while typing "hello".
     public func setKeys(_ keys: ControllerState) {
-        keyState = keys
+        input.withLock { $0.keyState = keys }
         emit()
     }
 
+    /// Reads the given pads — the loop's thread passes every connected one — and hands their readings to
+    /// the same path the callbacks take. In a test run `PadHardware` is closed, so only the tests' own
+    /// stand-ins go in, never a real pad.
+    func pollPads(_ controllers: [GCController] = PadHardware.controllers()) {
+        for controller in controllers {
+            let source = ObjectIdentifier(controller)
+            if let pad = controller.extendedGamepad {
+                padChanged(Self.state(from: pad), fingers: Self.fingers(on: pad), from: source, polled: true)
+            }
+            if let motion = controller.motion {
+                motionChanged(Self.motion(rotation: motion.rotationRate, gravity: motion.gravity,
+                                          user: motion.userAcceleration, at: ProcessInfo.processInfo.systemUptime),
+                              from: source, polled: true)
+            }
+        }
+    }
+
+    /// Merges and hands on the state, all under the lock (see `onChange`). With no one to hand it to yet, it
+    /// isn't taken as sent.
     private func emit() {
-        var s = Self.merge(pad: padState, keys: keyState, touches: sendsTouches)
-        s.motion = motionState
-        guard s != last else { return }
-        last = s
-        onChange?(s)
+        input.withLockUnchecked { input in
+            guard let onChange = input.onChange else { return }
+            var s = Self.merge(pad: input.padState, keys: input.keyState, touches: input.sendsTouches)
+            s.motion = input.motionState
+            let changed = s != input.last
+            input.pacer.reading(at: ProcessInfo.processInfo.systemUptime, distinct: changed)
+            guard changed else { return }
+            input.last = s
+            onChange(s)
+        }
     }
 
     /// Gamepad and keyboard combined: buttons OR'd, triggers maxed, a keyboard stick (WASD, IJKL) in use
@@ -219,24 +324,24 @@ public final class ControllerInput {
 
     static func state(from pad: GCExtendedGamepad) -> ControllerState {
         var s = ControllerState()
-        func set(_ pressed: Bool, _ button: PsrpButton) { if pressed { s.buttons |= UInt32(button.rawValue) } }
-        set(pad.buttonA.isPressed, PSRP_BTN_CROSS)
-        set(pad.buttonB.isPressed, PSRP_BTN_CIRCLE)
-        set(pad.buttonX.isPressed, PSRP_BTN_SQUARE)
-        set(pad.buttonY.isPressed, PSRP_BTN_TRIANGLE)
-        set(pad.dpad.left.isPressed, PSRP_BTN_DPAD_LEFT)
-        set(pad.dpad.right.isPressed, PSRP_BTN_DPAD_RIGHT)
-        set(pad.dpad.up.isPressed, PSRP_BTN_DPAD_UP)
-        set(pad.dpad.down.isPressed, PSRP_BTN_DPAD_DOWN)
-        set(pad.leftShoulder.isPressed, PSRP_BTN_L1)
-        set(pad.rightShoulder.isPressed, PSRP_BTN_R1)
-        set(pad.leftThumbstickButton?.isPressed ?? false, PSRP_BTN_L3)
-        set(pad.rightThumbstickButton?.isPressed ?? false, PSRP_BTN_R3)
-        set(pad.buttonMenu.isPressed, PSRP_BTN_OPTIONS)
-        set(pad.buttonOptions?.isPressed ?? false, PSRP_BTN_SHARE)
-        set(pad.buttonHome?.isPressed ?? false, PSRP_BTN_PS)
-        if let ds = pad as? GCDualSenseGamepad { set(ds.touchpadButton.isPressed, PSRP_BTN_TOUCHPAD) }
-        if let ds4 = pad as? GCDualShockGamepad { set(ds4.touchpadButton.isPressed, PSRP_BTN_TOUCHPAD) }
+        func set(_ pressed: Bool, _ button: ControllerButton) { if pressed { s.buttons |= button.rawValue } }
+        set(pad.buttonA.isPressed, .cross)
+        set(pad.buttonB.isPressed, .circle)
+        set(pad.buttonX.isPressed, .square)
+        set(pad.buttonY.isPressed, .triangle)
+        set(pad.dpad.left.isPressed, .dpadLeft)
+        set(pad.dpad.right.isPressed, .dpadRight)
+        set(pad.dpad.up.isPressed, .dpadUp)
+        set(pad.dpad.down.isPressed, .dpadDown)
+        set(pad.leftShoulder.isPressed, .l1)
+        set(pad.rightShoulder.isPressed, .r1)
+        set(pad.leftThumbstickButton?.isPressed ?? false, .l3)
+        set(pad.rightThumbstickButton?.isPressed ?? false, .r3)
+        set(pad.buttonMenu.isPressed, .options)
+        set(pad.buttonOptions?.isPressed ?? false, .share)
+        set(pad.buttonHome?.isPressed ?? false, .ps)
+        if let ds = pad as? GCDualSenseGamepad { set(ds.touchpadButton.isPressed, .touchpad) }
+        if let ds4 = pad as? GCDualShockGamepad { set(ds4.touchpadButton.isPressed, .touchpad) }
         s.l2 = UInt8(pad.leftTrigger.value * 255)
         s.r2 = UInt8(pad.rightTrigger.value * 255)
         // GameController: +y is up. PlayStation: +y is down.

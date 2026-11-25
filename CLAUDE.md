@@ -3,9 +3,11 @@
 PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). Bun monorepo:
 
 - `apps/desktop` — Tauri v2 app (macOS first). React UI in a transparent webview over a native Metal view.
-- `packages/streamcore` — shared Swift package (macOS + iOS): libchiaki session, VideoToolbox decode,
-  Metal + MetalFX upscaling, audio, controller input. `psrp` CLI for headless debugging.
-- `third_party/chiaki-ng` — git submodule (AGPL-3.0); the Remote Play protocol implementation.
+- `packages/streamcore` — shared Swift package (macOS + iOS): the stream session (`PlayFXEngine`, on
+  PlayFXProtocol), VideoToolbox decode, Metal + MetalFX upscaling, audio, controller input. `psrp` CLI for
+  headless debugging.
+- `packages/playfxprotocol` — PlayFX's own Remote Play protocol implementation in Swift (proprietary), written
+  clean-room from the facts-only spec in `docs/protocol`.
 - Scope: macOS only. No iOS/Expo, Windows/Linux or browser builds are planned.
 
 ## Rules
@@ -28,10 +30,14 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 
 ### UI
 - Tailwind CSS v4 for styling; no hand-written CSS beyond Tailwind's theme layer.
-- Components come from shadcn/ui (MIT) before writing custom ones. Only code under an AGPL-compatible
-  licence goes in (MIT, BSD, ISC, Apache-2.0, …): no shadcn/studio blocks (MIT with a Commons Clause, which an
-  AGPL app can't carry), nor any other "source-available" code. Anything new that ships gets an entry in
-  `THIRD_PARTY_LICENSES` (re-run `scripts/third-party-licenses.py`).
+- Components come from shadcn/ui (MIT) before writing custom ones.
+
+### Licences
+- PlayFX is proprietary (LICENSE). Only permissively licensed code goes in (MIT, BSD, ISC, Apache-2.0,
+  zlib…): no copyleft (GPL/LGPL/AGPL) and no source-available licences (e.g. shadcn/studio blocks, MIT
+  with a Commons Clause). MPL-2.0 (file-level copyleft) only as an unmodified dependency, e.g. the crates
+  Tauri brings in; never copy or change MPL files. Anything new that ships gets an entry in `THIRD_PARTY_LICENSES` (re-run
+  `scripts/third-party-licenses.py`).
 
 ### Tests: ≥ 80% coverage, everywhere
 - Every package keeps line, branch and function coverage at or above **80%**; the coverage commands
@@ -47,10 +53,10 @@ PlayFX: a PS5/PS4 Remote Play client for macOS (repo folder: `ps-remote-play`). 
 
 ## Build notes
 - Rust isn't on the default PATH on this machine: `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"`.
-- Build libchiaki once (and after bumping the submodule): `packages/streamcore/scripts/build-chiaki.sh`.
 - Run the desktop app: `bun run desktop`.
 - Drive a running dev build from scripts (settings, play, button presses, renderer stats) with the dev
   control port: `PLAYFX_DEV_CONTROL=7780 bun run desktop`; see `docs/dev-control.md`. Never in release builds.
-- Headless debugging against a real console: `packages/streamcore/.build/debug/psrp --help`-style
+- Headless debugging against a real console (psrp runs on PlayFXProtocol through StreamCore):
+  `packages/streamcore/.build/debug/psrp --help`-style
   commands (`discover`, `register`, `stream` with a control API on `127.0.0.1:7777`). Pairing keys live in
   `~/.config/psrp/config.json`; never commit or print them.

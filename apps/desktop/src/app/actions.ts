@@ -463,7 +463,6 @@ export const copyDiagnostics = (settings: Settings): Effect.Effect<void, CoreErr
 
 export const openLogsFolder: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openLogsFolder)
 
-export const openSourceCode: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openSourceCode)
 
 export const openHelp: Effect.Effect<void, CoreError, Core> = Effect.flatMap(Core, (core) => core.openHelp)
 

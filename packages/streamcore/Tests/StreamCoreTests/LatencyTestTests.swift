@@ -1,4 +1,3 @@
-import CChiaki
 import Foundation
 import Testing
 @testable import StreamCore
@@ -59,13 +58,13 @@ import Testing
                 },
                 press: { [self] buttons in
                     presses.append(buttons)
-                    if buttons & UInt32(PSRP_BTN_PS.rawValue) != 0 { open = true; frame += 1 }
-                    if buttons & UInt32(PSRP_BTN_CIRCLE.rawValue) != 0 {
+                    if buttons & ControllerButton.ps.rawValue != 0 { open = true; frame += 1 }
+                    if buttons & ControllerButton.circle.rawValue != 0 {
                         // Off the first card, Circle only brings the highlight back to it.
                         if highlight % 2 == 0 { open = false } else { highlight = 0 }
                         frame += 1
                     }
-                    let arrows = UInt32(PSRP_BTN_DPAD_RIGHT.rawValue | PSRP_BTN_DPAD_LEFT.rawValue)
+                    let arrows = ControllerButton.dpadRight.rawValue | ControllerButton.dpadLeft.rawValue
                     if open, buttons & arrows != 0 { movedAt = time }
                 },
                 now: { [self] in time },
@@ -81,8 +80,8 @@ import Testing
         #expect(summary.minMs >= 45 && summary.maxMs <= 47, "\(summary)")
         #expect(summary.medianMs >= summary.minMs && summary.medianMs <= summary.maxMs)
         // PS once to open, Right / Left / Right, Circle to close; each released.
-        let ps = UInt32(PSRP_BTN_PS.rawValue), circle = UInt32(PSRP_BTN_CIRCLE.rawValue)
-        let right = UInt32(PSRP_BTN_DPAD_RIGHT.rawValue), left = UInt32(PSRP_BTN_DPAD_LEFT.rawValue)
+        let ps = ControllerButton.ps.rawValue, circle = ControllerButton.circle.rawValue
+        let right = ControllerButton.dpadRight.rawValue, left = ControllerButton.dpadLeft.rawValue
         #expect(console.presses.filter { $0 != 0 }.prefix(5) == [ps, right, left, right, circle])
         #expect(console.presses.last == 0 && !console.open)
     }
@@ -91,7 +90,7 @@ import Testing
         // Three moves end off the first card: the first Circle brings the highlight back, the second closes.
         let console = StandInConsole()
         _ = console.probe.run(trials: 3)
-        let circle = UInt32(PSRP_BTN_CIRCLE.rawValue)
+        let circle = ControllerButton.circle.rawValue
         #expect(!console.open && console.presses.filter { $0 == circle }.count == 2)
     }
 

@@ -102,7 +102,7 @@ display link ─▶ StreamRenderer.nextFrame(now) ─▶ timeline.next(now, dela
 
 ### Frame index
 
-libchiaki reports how many frames were lost before each decoded frame. `StreamSession` turns that into an
+The engine reports how many frames were lost before each decoded frame. `StreamSession` turns that into an
 index (`previous + 1 + framesLost`), and `VideoDecoder` hands each picture over with it
 (`onIndexedFrame`). A lost frame therefore leaves a gap in the times, rather than shifting every later
 frame early.
@@ -686,7 +686,7 @@ Unit tests (`swift test`) cover:
 | HDR engine: MetalFX, PQ R'G'B' round trip | `Sources/StreamCore/HDRFrameInterpolation.swift` |
 | Processor calls, quarantine, failure budget, retirement | `Sources/StreamCore/VideoProcessor.swift`, `Sources/CObjCCatch` |
 | Pacing state, display, nextFrame, presentation counts | `Sources/StreamCore/StreamRenderer.swift` |
-| Frame index from libchiaki | `StreamSession.swift`, `VideoDecoder.swift` |
+| Frame index from the engine | `StreamSession.swift`, `VideoDecoder.swift` |
 | Stats to the app | `MacOSBridge.swift` (`sc_pacing_stats`, `sc_shown_fps`, `sc_interpolation_status`) → `apps/desktop/src-tauri/src/native.rs` → `RendererStatus` in `apps/desktop/src/core/schema.ts` |
 | Bench | `Sources/psrp/Interpolate.swift`, `MetalFXBench.swift`, `Play.swift` |
 | Setting rename (`smoothMotion` → `frameInterpolation`) | `apps/desktop/src/core/preferences.ts` (`renamedSettingKeys`) |

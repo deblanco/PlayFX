@@ -17,39 +17,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Homebrew dependencies for libchiaki
-        run: brew install cmake ninja protobuf openssl@3 opus json-c miniupnpc libevent
-
-      # libchiaki and its static dependencies only change with the submodule or the build script.
-      - name: libchiaki version
-        id: chiaki-rev
-        run: echo "rev=$(git rev-parse HEAD:third_party/chiaki-ng)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore libchiaki
-        id: chiaki
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            packages/streamcore/vendor
-            packages/streamcore/Sources/CChiaki/include/chiaki
-          key: chiaki-${{ runner.os }}-${{ runner.arch }}-${{ steps.chiaki-rev.outputs.rev }}-${{ hashFiles('packages/streamcore/scripts/build-chiaki.sh') }}
-
-      - name: Build libchiaki
-        if: steps.chiaki.outputs.cache-hit != 'true'
-        run: packages/streamcore/scripts/build-chiaki.sh
-
-      # Saved right away, so a later failing step doesn't throw away a 10-minute build.
-      - name: Save libchiaki
-        if: steps.chiaki.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            packages/streamcore/vendor
-            packages/streamcore/Sources/CChiaki/include/chiaki
-          key: ${{ steps.chiaki.outputs.cache-primary-key }}
+      # Our own Remote Play protocol package, which StreamCore builds on, so it runs first.
+      - name: PlayFXProtocol tests and coverage
+        run: packages/playfxprotocol/scripts/coverage.sh --no-parallel
 
       # One test at a time: on a runner the log then names the test that fails or crashes.
       - name: Swift tests and coverage

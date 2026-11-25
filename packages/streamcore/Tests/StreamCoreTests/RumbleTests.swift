@@ -46,11 +46,17 @@ import Testing
 
     @Test func hapticsRumbleLastsWhileItKeepsComing() {
         let rumble = Rumble()
+        var lastRefresh = ProcessInfo.processInfo.systemUptime
         for _ in 0..<8 { // refreshed every 50 ms, as the shim does, for 0.4 s: longer than the timeout
             rumble.applyHaptics(left: 120, right: 0)
+            lastRefresh = ProcessInfo.processInfo.systemUptime
             Thread.sleep(forTimeInterval: 0.05)
         }
-        #expect(rumble.levels == .init(left: 120, right: 0))
+        let levels = rumble.levels
+        // Only meaningful when the last sleep stayed under the timeout: on CI's loaded VM one 50 ms sleep took longer.
+        if ProcessInfo.processInfo.systemUptime - lastRefresh < Rumble.hapticsTimeout {
+            #expect(levels == .init(left: 120, right: 0))
+        }
         rumble.applyHaptics(left: 0, right: 0) // a silent packet stops it at once
         #expect(rumble.levels == .init(left: 0, right: 0))
     }

@@ -1,7 +1,7 @@
 {
   "name": "@psrp/site",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",

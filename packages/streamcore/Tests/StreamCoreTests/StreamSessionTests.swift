@@ -1,4 +1,3 @@
-import CChiaki
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -7,33 +6,6 @@ import Testing
 @testable import StreamCore
 
 @Suite struct StreamEventTests {
-    typealias Event = StreamSession.Event
-
-    func event(_ type: PsrpEventType, _ a: Int32 = 0, _ b: Int32 = 0, _ message: String = "") -> Event? {
-        Event(type: Int32(type.rawValue), a: a, b: b, message: message)
-    }
-
-    @Test func mapsEveryEventType() {
-        guard case .connected = event(PSRP_EVENT_CONNECTED) else { Issue.record("connected"); return }
-        guard case .quit(let reason, let error, .final) = event(PSRP_EVENT_QUIT, 1, 0, "Stopped") else { Issue.record("quit"); return }
-        #expect(reason == "Stopped" && error)
-        guard case .quit(_, false, .final) = event(PSRP_EVENT_QUIT, 0) else { Issue.record("quit ok"); return }
-        guard case .quit(_, true, .busy) = event(PSRP_EVENT_QUIT, 1, 1) else { Issue.record("quit busy"); return }
-        guard case .quit(_, true, .dropped) = event(PSRP_EVENT_QUIT, 1, 2) else { Issue.record("quit dropped"); return }
-        guard case .quit(_, false, .stopped) = event(PSRP_EVENT_QUIT, 0, 3) else { Issue.record("quit stopped"); return }
-        guard case .remoteProgress(.linking) = event(PSRP_EVENT_REMOTE_PROGRESS, 1) else { Issue.record("linking"); return }
-        guard case .remoteProgress(.data) = event(PSRP_EVENT_REMOTE_PROGRESS, 2) else { Issue.record("data"); return }
-        guard case .remoteProgress(.connected) = event(PSRP_EVENT_REMOTE_PROGRESS, 3) else { Issue.record("connected"); return }
-        guard case .loginPinRequested(true) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 1) else { Issue.record("pin"); return }
-        guard case .loginPinRequested(false) = event(PSRP_EVENT_LOGIN_PIN_REQUEST, 0) else { Issue.record("pin"); return }
-        guard case .rumble(255, 0) = event(PSRP_EVENT_RUMBLE, 300, -5) else { Issue.record("rumble"); return }
-        guard case .hapticRumble(40, 7) = event(PSRP_EVENT_HAPTIC_RUMBLE, 40, 7) else { Issue.record("haptic rumble"); return }
-        guard case .nickname("PS5-1") = event(PSRP_EVENT_NICKNAME, 0, 0, "PS5-1") else { Issue.record("nickname"); return }
-        guard case .light(0x12, 0x34, 0xff) = event(PSRP_EVENT_LIGHT, 0x1234ff) else { Issue.record("light"); return }
-        guard case .playerIndex(1) = event(PSRP_EVENT_PLAYER_INDEX, 1) else { Issue.record("player"); return }
-        #expect(Event(type: 99, a: 0, b: 0, message: "") == nil)
-    }
-
     @Test func optionsDefaultsAndJSON() throws {
         let o = StreamSession.Options()
         #expect(o.height == 1080 && o.fps == 60 && o.hevc && o.bitrate == 0 && o.audio && o.autoDowngrade)
@@ -51,9 +23,12 @@ import Testing
 
     @Test func statsTakeEachReorderField() {
         var stats = StreamSession.Stats()
-        stats.setReorder(PsrpReorderStats(wait_us: 7500, holes_filled: 1, late_packets: 2, holes_lost: 3, queue_full_skips: 4))
+        stats.setEngine(StreamEngineStats(
+            rttMicros: 1500, targetBitrate: 15_000_999,
+            reorder: StreamEngineStats.Reorder(waitMicros: 7500, holesFilled: 1, latePackets: 2, holesLost: 3, queueFullSkips: 4)))
         #expect(stats.reorderWaitMs == 7.5 && stats.reorderHolesFilled == 1 && stats.reorderLatePackets == 2
             && stats.reorderHolesLost == 3 && stats.reorderQueueFull == 4)
+        #expect(stats.rttMs == 1.5 && stats.targetBitrateKbps == 15_000)
     }
 }
 

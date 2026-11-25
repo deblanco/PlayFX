@@ -1,15 +1,15 @@
-import CChiaki
 import GameController
 import Testing
+import os
 @testable import StreamCore
 
 @Suite struct ControllerMappingTests {
-    func bit(_ b: PsrpButton) -> UInt32 { UInt32(b.rawValue) }
+    func bit(_ b: ControllerButton) -> UInt32 { b.rawValue }
 
     @Test func buttonNamesCoverEveryButton() {
         #expect(ControllerState.buttonNames.count == 16)
         #expect(ControllerState.buttonNames.values.reduce(0, |) == 0xFFFF)
-        #expect(ControllerState.buttonNames["cross"] == bit(PSRP_BTN_CROSS))
+        #expect(ControllerState.buttonNames["cross"] == bit(.cross))
     }
 
     @Test func axisClampsAndScales() {
@@ -26,10 +26,10 @@ import Testing
         var sent: [ControllerState] = []
         input.onChange = { sent.append($0) }
         var keys = ControllerState()
-        keys.buttons = bit(PSRP_BTN_SQUARE)
+        keys.buttons = bit(.square)
         keys.rightX = Int16.max // L on the keyboard: the right stick
         input.setKeys(keys)
-        #expect(sent.last?.buttons == bit(PSRP_BTN_SQUARE) && sent.last?.rightX == Int16.max)
+        #expect(sent.last?.buttons == bit(.square) && sent.last?.rightX == Int16.max)
         input.setKeys(ControllerState())
         #expect(sent.last == ControllerState())
         input.setKeys(ControllerState()) // nothing changed: nothing sent
@@ -38,17 +38,17 @@ import Testing
 
     @Test func mergeCombinesPadAndKeyboard() {
         var pad = ControllerState()
-        pad.buttons = bit(PSRP_BTN_CROSS)
+        pad.buttons = bit(.cross)
         pad.l2 = 100
         pad.r2 = 200
         pad.leftX = 10
         pad.leftY = 20
         pad.rightX = 30
         var keys = ControllerState()
-        keys.buttons = bit(PSRP_BTN_SQUARE)
+        keys.buttons = bit(.square)
         keys.l2 = 255
         var m = ControllerInput.merge(pad: pad, keys: keys)
-        #expect(m.buttons == bit(PSRP_BTN_CROSS) | bit(PSRP_BTN_SQUARE))
+        #expect(m.buttons == bit(.cross) | bit(.square))
         #expect(m.l2 == 255 && m.r2 == 200)
         #expect(m.leftX == 10 && m.leftY == 20 && m.rightX == 30) // keyboard stick idle: pad wins
 
@@ -80,12 +80,12 @@ import Testing
         pad.rightThumbstick.setValueForXAxis(-1, yAxis: -1)
 
         let s = ControllerInput.state(from: pad)
-        var expected: UInt32 = [PSRP_BTN_CROSS, PSRP_BTN_CIRCLE, PSRP_BTN_SQUARE, PSRP_BTN_TRIANGLE, PSRP_BTN_DPAD_LEFT,
-                                PSRP_BTN_DPAD_UP, PSRP_BTN_L1, PSRP_BTN_R1, PSRP_BTN_OPTIONS].map(bit).reduce(0, |)
-        if pad.leftThumbstickButton != nil { expected |= bit(PSRP_BTN_L3) }
-        if pad.rightThumbstickButton != nil { expected |= bit(PSRP_BTN_R3) }
-        if pad.buttonOptions != nil { expected |= bit(PSRP_BTN_SHARE) }
-        if pad.buttonHome != nil { expected |= bit(PSRP_BTN_PS) }
+        var expected: UInt32 = ([.cross, .circle, .square, .triangle, .dpadLeft, .dpadUp, .l1, .r1, .options]
+                                as [ControllerButton]).map(bit).reduce(0, |)
+        if pad.leftThumbstickButton != nil { expected |= bit(.l3) }
+        if pad.rightThumbstickButton != nil { expected |= bit(.r3) }
+        if pad.buttonOptions != nil { expected |= bit(.share) }
+        if pad.buttonHome != nil { expected |= bit(.ps) }
         #expect(s.buttons == expected)
         #expect(s.l2 == 255)
         #expect(s.r2 == 127)
@@ -95,7 +95,9 @@ import Testing
     }
 }
 
-@Suite struct ControllerInputTests {
+/// Serialized: a connect notification reaches every live `ControllerInput`, and the last to attach a controller
+/// takes its callback, so another test's instance running alongside could take this suite's.
+@Suite(.serialized) struct ControllerInputTests {
     @Test @MainActor func emitsMergedStateWhenAttachedPadChanges() async throws {
         let input = ControllerInput()
         var states: [ControllerState] = []
@@ -108,7 +110,7 @@ import Testing
         if let handler = pad.valueChangedHandler { handler(pad, pad.buttonA) }
         let delivered = await waitUntil(timeout: 2) { !states.isEmpty }
         #expect(delivered)
-        #expect(states.last?.buttons == UInt32(PSRP_BTN_CROSS.rawValue))
+        #expect(states.last?.buttons == ControllerButton.cross.rawValue)
         // Same state again: not re-emitted.
         let count = states.count
         pad.valueChangedHandler?(pad, pad.buttonA)
@@ -125,7 +127,7 @@ import Testing
         #expect(pad.valueChangedHandler != nil)
         pad.buttonB.setValue(1)
         pad.valueChangedHandler?(pad, pad.buttonB)
-        #expect(await waitUntil(timeout: 2) { states.last?.buttons == UInt32(PSRP_BTN_CIRCLE.rawValue) })
+        #expect(await waitUntil(timeout: 2) { states.last?.buttons == ControllerButton.circle.rawValue })
     }
 
     @Test @MainActor func aPadThatDisconnectsLetsGoOfWhatItHeld() async throws {
@@ -139,7 +141,7 @@ import Testing
         let pad = try #require(controller.extendedGamepad)
         pad.buttonA.setValue(1)
         pad.valueChangedHandler?(pad, pad.buttonA)
-        #expect(await waitUntil(timeout: 2) { sent.last?.buttons == UInt32(PSRP_BTN_CROSS.rawValue) })
+        #expect(await waitUntil(timeout: 2) { sent.last?.buttons == ControllerButton.cross.rawValue })
         NotificationCenter.default.post(name: .GCControllerDidDisconnect, object: controller)
         #expect(await waitUntil(timeout: 2) { sent.last == ControllerState() })
         // Not a controller: ignored.
@@ -154,7 +156,7 @@ import Testing
         input.onChange = { sent.append($0) }
         let (padA, padB) = (GCController.withExtendedGamepad(), GCController.withExtendedGamepad())
         var held = ControllerState()
-        held.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue) | UInt32(PSRP_BTN_R1.rawValue)
+        held.buttons = ControllerButton.touchpad.rawValue | ControllerButton.r1.rawValue
         held.leftX = 100
         let motion = ControllerState.Motion(gyro: [1, 0, 0], accel: [0, -1, 0], timestampMicros: 5)
         input.padChanged(held, fingers: [[0.25, 0.5], nil], from: ObjectIdentifier(padA))
@@ -171,7 +173,7 @@ import Testing
         #expect(sent.last?.touches.map(\.id) == [1])
         // The keyboard keeps working after a disconnect.
         var keys = ControllerState()
-        keys.buttons = UInt32(PSRP_BTN_CROSS.rawValue)
+        keys.buttons = ControllerButton.cross.rawValue
         input.setKeys(keys)
         input.disconnected(ObjectIdentifier(padA))
         #expect(sent.last == keys)
@@ -182,6 +184,131 @@ import Testing
         let standIn = GCController.withExtendedGamepad()
         #expect(standIn.isSnapshot && ControllerInput.reads(standIn) && ControllerInput.reads(standIn, allowed: true))
         #expect(PadHardware.controllers().isEmpty) // no real pad is attached at start
+    }
+
+    @Test @MainActor func theLoopReadsPadsWithoutWaitingForTheMainQueue() throws {
+        // The input loop's own read, off the main queue: given a stand-in pad it reads the same state the
+        // callbacks would, and what it reads reaches the console through the same path.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let controller = GCController.withExtendedGamepad()
+        input.attach(controller)
+        let pad = try #require(controller.extendedGamepad)
+        pad.buttonA.setValue(1)
+        input.pollPads([controller])
+        #expect(sent.last?.buttons == ControllerButton.cross.rawValue)
+        // Nothing changed between reads: nothing is sent again.
+        let count = sent.count
+        input.pollPads([controller])
+        #expect(sent.count == count)
+        pad.leftThumbstick.setValueForXAxis(1, yAxis: 0)
+        input.pollPads([controller])
+        #expect(sent.last?.leftX == Int16.max && sent.last?.leftY == 0)
+        // What the loop read is the pad's, so its disconnect still releases it.
+        input.disconnected(ObjectIdentifier(controller))
+        #expect(sent.last == ControllerState())
+        // A read the loop started before the disconnect lands after it: dropped, or the pad's last reading
+        // would hold its stick again with nothing left to release it.
+        let released = sent.count
+        input.pollPads([controller])
+        #expect(sent.count == released && sent.last == ControllerState())
+        // Connected again, it's read again.
+        input.attach(controller)
+        input.pollPads([controller])
+        #expect(sent.last?.leftX == Int16.max)
+    }
+
+    @Test @MainActor func twoPadsDontTakeTurnsOnEveryRead() throws {
+        // The loop reads every connected pad on each pass. A pad whose reading hasn't changed is no news, so the
+        // one in use keeps its trigger held, and an idle second pad's first reading doesn't take over from it.
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let (inUse, idle) = (GCController.withExtendedGamepad(), GCController.withExtendedGamepad())
+        input.attach(inUse)
+        input.attach(idle)
+        try #require(inUse.extendedGamepad).rightTrigger.setValue(1)
+        input.pollPads([inUse, idle])
+        // The pad in use: its buttons and its motion; the idle one's readings don't replace either.
+        #expect(sent.count == 2 && sent.last?.r2 == 255)
+        let motion = sent.last?.motion
+        input.pollPads([inUse, idle])
+        input.pollPads([idle, inUse])
+        #expect(sent.count == 2 && sent.last?.motion == motion)
+        // The other pad pressed: it's the one in use now, as with GameController's own callbacks.
+        try #require(idle.extendedGamepad).buttonB.setValue(1)
+        input.pollPads([inUse, idle])
+        #expect(sent.last?.buttons == ControllerButton.circle.rawValue && sent.last?.r2 == 0)
+        input.pollPads([inUse, idle])
+        #expect(sent.count == 3)
+    }
+
+    @Test func eachPadsStillMotionIsDroppedOnItsOwn() {
+        let input = ControllerInput()
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        let pads = (GCController.withExtendedGamepad(), GCController.withExtendedGamepad()) // kept alive: distinct ids
+        let (a, b) = (ObjectIdentifier(pads.0), ObjectIdentifier(pads.1))
+        let still = ControllerState.Motion(gyro: [0, 0, 0], accel: [0, -1, 0], timestampMicros: 1)
+        input.motionChanged(still, from: a)
+        // The same sensors later: only the timestamp differs, nothing is sent.
+        input.motionChanged(.init(gyro: still.gyro, accel: still.accel, timestampMicros: 2), from: a)
+        #expect(sent.count == 1)
+        // Another pad's first reading doesn't take over; its next one, a change, does.
+        input.motionChanged(.init(gyro: [1, 0, 0], accel: [0, -1, 0], timestampMicros: 3), from: b)
+        #expect(sent.count == 1)
+        let tilted = ControllerState.Motion(gyro: [2, 0, 0], accel: [0, -1, 0], timestampMicros: 4)
+        input.motionChanged(tilted, from: b)
+        // A's stillness again is still no news, even after B's reading.
+        input.motionChanged(.init(gyro: still.gyro, accel: still.accel, timestampMicros: 5), from: a)
+        #expect(sent.count == 2 && sent.last?.motion == tilted)
+    }
+
+    @Test func aStateMergedBeforeAnyoneListensIsStillSent() {
+        // The bridge sets `sendsTouches` before `onChange`; a reading merged then wasn't taken as sent, so it
+        // goes out with the next change instead of being lost.
+        let input = ControllerInput()
+        var held = ControllerState()
+        held.buttons = ControllerButton.r1.rawValue
+        input.padChanged(held, fingers: [])
+        input.sendsTouches = false
+        var sent: [ControllerState] = []
+        input.onChange = { sent.append($0) }
+        input.setKeys(ControllerState())
+        #expect(sent == [held])
+    }
+
+    @Test func statesFromTwoThreadsArriveOneAtATimeInTheOrderTheyWereMerged() async {
+        // The loop and the main thread both merge states. Handed on after the lock, a state merged on one thread
+        // could reach the console after a newer one from the other, leaving a released button held. So while one
+        // is being handed on, a state merged on another thread waits for it.
+        let input = ControllerInput()
+        struct Seen { var inside = false, overlapped = false, sent: [ControllerState] = [] }
+        let seen = OSAllocatedUnfairLock(initialState: Seen())
+        var keys = ControllerState()
+        keys.buttons = ControllerButton.cross.rawValue
+        input.onChange = { s in
+            let first = seen.withLock { seen -> Bool in
+                if seen.inside { seen.overlapped = true }
+                seen.inside = true
+                seen.sent.append(s)
+                return seen.sent.count == 1
+            }
+            if first {
+                // Another thread merges a newer state while this one is still on its way.
+                Thread.detachNewThread { input.setKeys(keys) }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            seen.withLock { $0.inside = false }
+        }
+        var pad = ControllerState()
+        pad.leftX = 100
+        input.padChanged(pad, fingers: [])
+        let both = await waitUntil(timeout: 2) { seen.withLock { $0.sent.count } == 2 }
+        var newest = pad
+        newest.buttons = keys.buttons
+        #expect(both && !seen.withLock { $0.overlapped } && seen.withLock { $0.sent.last } == newest)
     }
 }
 
@@ -210,19 +337,6 @@ import Testing
         #expect(ids.touches([[0.5, 0.5]]).first?.id == 0)
     }
 
-    @Test func convertsToTheShimsState() {
-        var s = ControllerState()
-        s.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue)
-        s.l2 = 10
-        s.rightY = -5
-        s.touches = [ControllerState.Touch(id: 3, x: 0.5, y: 1), ControllerState.Touch(id: 200, x: 2, y: -1)]
-        let c = s.psrp
-        #expect(c.buttons == UInt32(PSRP_BTN_TOUCHPAD.rawValue) && c.l2 == 10 && c.right_y == -5)
-        #expect(c.touches.0.id == 3 && c.touches.0.x == 960 && c.touches.0.y == UInt16(PSRP_TOUCHPAD_HEIGHT))
-        #expect(c.touches.1.id == Int8(200 & 0x7F) && c.touches.1.x == UInt16(PSRP_TOUCHPAD_WIDTH) && c.touches.1.y == 0) // clamped
-        #expect(ControllerState().psrp.touches.0.id == -1 && ControllerState().psrp.touches.1.id == -1) // no fingers
-    }
-
     @Test func mergingKeepsThePadsTouches() {
         var pad = ControllerState()
         pad.touches = [ControllerState.Touch(id: 1, x: 0.2, y: 0.2)]
@@ -232,14 +346,14 @@ import Testing
 
     @Test func withoutTouchesOnlyTheClickIsMerged() {
         var pad = ControllerState()
-        pad.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue)
+        pad.buttons = ControllerButton.touchpad.rawValue
         pad.leftX = 10
         pad.touches = [ControllerState.Touch(id: 1, x: 0.2, y: 0.2), ControllerState.Touch(id: 2, x: 0.8, y: 0.8)]
         var keys = ControllerState()
-        keys.buttons = UInt32(PSRP_BTN_CROSS.rawValue)
+        keys.buttons = ControllerButton.cross.rawValue
         let m = ControllerInput.merge(pad: pad, keys: keys, touches: false)
         #expect(m.touches.isEmpty)
-        #expect(m.buttons == UInt32(PSRP_BTN_TOUCHPAD.rawValue) | UInt32(PSRP_BTN_CROSS.rawValue)) // the click stays
+        #expect(m.buttons == ControllerButton.touchpad.rawValue | ControllerButton.cross.rawValue) // the click stays
         #expect(m.leftX == 10)
     }
 
@@ -248,7 +362,7 @@ import Testing
         var sent: [ControllerState] = []
         input.onChange = { sent.append($0) }
         var clicked = ControllerState()
-        clicked.buttons = UInt32(PSRP_BTN_TOUCHPAD.rawValue)
+        clicked.buttons = ControllerButton.touchpad.rawValue
         // On (the default): the finger reaches the console.
         input.padChanged(clicked, fingers: [[0.25, 0.5], nil])
         #expect(sent.last?.touches == [ControllerState.Touch(id: 0, x: 0.25, y: 0.5)])
@@ -299,7 +413,7 @@ import Testing
         let pointer = StreamSession.PointerTouch(touch: ControllerState.Touch(id: 100, x: 0.5, y: 0.5), pressed: true)
         let out = StreamSession.merged(sent.last ?? ControllerState(), pointer)
         #expect(out.touches == [ControllerState.Touch(id: 100, x: 0.5, y: 0.5)])
-        #expect(out.buttons == UInt32(PSRP_BTN_TOUCHPAD.rawValue))
+        #expect(out.buttons == ControllerButton.touchpad.rawValue)
     }
 }
 
@@ -315,13 +429,5 @@ import Testing
         let late = ControllerInput.motion(rotation: GCRotationRate(), gravity: GCAcceleration(),
                                           user: GCAcceleration(), at: 5000)
         #expect(late.timestampMicros == UInt32(truncatingIfNeeded: Int64(5_000_000_000)))
-    }
-
-    @Test func motionReachesTheShimOnlyWhenPresent() {
-        var s = ControllerState()
-        #expect(!s.psrp.motion)
-        s.motion = ControllerState.Motion(gyro: [1, 2, 3], accel: [0, -1, 0], timestampMicros: 42)
-        let c = s.psrp
-        #expect(c.motion && c.gyro_x == 1 && c.gyro_z == 3 && c.accel_y == -1 && c.motion_timestamp_us == 42)
     }
 }

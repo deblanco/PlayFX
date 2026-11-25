@@ -1,4 +1,3 @@
-import CChiaki
 import Testing
 @testable import StreamCore
 
@@ -34,21 +33,5 @@ import Testing
         var fed = false
         #expect(mic.begin { _ in fed = true } == .off)
         #expect(!fed)
-    }
-}
-
-@Suite struct HapticsRumbleTests {
-    func rumble(_ samples: [Int16]) -> (UInt8, UInt8) {
-        var l: UInt8 = 0, r: UInt8 = 0
-        samples.withUnsafeBufferPointer { psrp_haptics_to_rumble($0.baseAddress, samples.count / 2, &l, &r) }
-        return (l, r)
-    }
-
-    @Test func turnsTheHapticsStreamIntoRumble() {
-        #expect(rumble([Int16](repeating: 0, count: 60)) == (0, 0)) // silence
-        #expect(rumble([Int16](repeating: 40, count: 60)) == (0, 0)) // below the noise floor
-        // Strong left channel, weak right: mean |x|·2 = 16000 → 62; 1000 → 3.
-        #expect(rumble((0..<30).flatMap { _ in [Int16(8000), Int16(-500)] }) == (62, 3))
-        #expect(rumble((0..<30).flatMap { _ in [Int16.max, Int16.min] }) == (255, 255)) // clamped
     }
 }

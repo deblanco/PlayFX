@@ -1,4 +1,3 @@
-import CChiaki
 import Foundation
 import Testing
 @testable import StreamCore
@@ -109,60 +108,6 @@ extension Serial {
                 return try await [a, b]
             }
             #expect(tokens == ["new", "new"] && calls == 1 && store.tokens?.refreshToken == "r2")
-        }
-
-        @Test func listsConsolesWithAValidToken() async throws {
-            let (account, _) = account(PSNTokens(accessToken: "a", refreshToken: "r", expiresAt: start.addingTimeInterval(600)))
-            var usedToken: String?
-            account.listConsoles = { token in
-                usedToken = token
-                return [PSNConsole(name: "PS5-454", duid: String(repeating: "ab", count: 32), remotePlay: true)]
-            }
-            let consoles = try await account.consoles()
-            #expect(usedToken == "a" && consoles.map(\.name) == ["PS5-454"])
-            account.listConsoles = { _ in throw ConsoleError.message("Couldn't list your PSN consoles: Unknown") }
-            await #expect(throws: ConsoleError.message("Couldn't list your PSN consoles: Unknown")) {
-                try await withStub({ _ in // the retry's refresh never reaches Sony
-                    (200, Data(#"{"access_token":"b","refresh_token":"r2","expires_in":3600}"#.utf8))
-                }) { try await account.consoles() }
-            }
-            let (signedOut, _) = self.account()
-            await #expect(throws: PSNError.notSignedIn) { try await signedOut.consoles() }
-        }
-
-        @Test func aRevokedTokenIsRefreshedOnceAndRetried() async throws {
-            let (account, store) = account(PSNTokens(accessToken: "revoked", refreshToken: "r", expiresAt: start.addingTimeInterval(600)))
-            #expect(account.tokenExpiry == start.addingTimeInterval(600))
-            var tried: [String] = []
-            account.listConsoles = { token in
-                tried.append(token)
-                if token == "revoked" { throw ConsoleError.message("Couldn't list your PSN consoles: Unknown") }
-                return [PSNConsole(name: "PS5-454", duid: "ab", remotePlay: true)]
-            }
-            let consoles = try await withStub({ _ in
-                (200, Data(#"{"access_token":"fresh","refresh_token":"r2","expires_in":3600}"#.utf8))
-            }) { try await account.consoles() }
-            #expect(consoles.count == 1 && tried == ["revoked", "fresh"] && store.tokens?.accessToken == "fresh")
-            // Still failing after the refresh: the original error.
-            account.listConsoles = { _ in throw ConsoleError.message("Couldn't list your PSN consoles: Unknown") }
-            await #expect(throws: ConsoleError.message("Couldn't list your PSN consoles: Unknown")) {
-                try await withStub({ _ in
-                    (200, Data(#"{"access_token":"again","refresh_token":"r3","expires_in":3600}"#.utf8))
-                }) { try await account.consoles() }
-            }
-        }
-
-        @Test func readsTheShimsConsoleRecord() {
-            var c = PsrpPsnConsole()
-            func write(_ text: String, into field: inout some Any) {
-                withUnsafeMutableBytes(of: &field) { dst in
-                    text.utf8CString.withUnsafeBytes { src in dst.copyMemory(from: src) }
-                }
-            }
-            write("PS5-454", into: &c.name)
-            write("ab12", into: &c.duid)
-            c.remote_play = true
-            #expect(PSNConsole(c) == PSNConsole(name: "PS5-454", duid: "ab12", remotePlay: true))
         }
 
         @Test func fileStoreRoundTripOnlyForTheUser() throws {

@@ -5,9 +5,9 @@ import os
 import QuartzCore
 import VideoToolbox
 
-/// Hardware H.264 / HEVC decoder for the Annex-B access units libchiaki delivers.
-/// Call `decode` from one thread (libchiaki's video thread). Asynchronous by default: VideoToolbox decodes on
-/// its own threads, so the caller (libchiaki's receive thread) goes back to reading packets instead of
+/// Hardware H.264 / HEVC decoder for the Annex-B access units the engine delivers.
+/// Call `decode` from one thread (the engine's video thread). Asynchronous by default: VideoToolbox decodes on
+/// its own threads, so the caller (the engine's receive thread) goes back to reading packets instead of
 /// waiting the few milliseconds a frame takes. Frames come out in order, on VideoToolbox's thread.
 public final class VideoDecoder {
     public enum Codec { case h264, hevc }

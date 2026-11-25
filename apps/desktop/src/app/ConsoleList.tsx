@@ -24,6 +24,8 @@ interface ConsoleListProps {
   readonly onPlay: (console: PairedConsole, psnDuid?: string, psnFallback?: string) => void
   /** Whether any console is paired, once the pairings have loaded. */
   readonly onPairedChange?: (paired: boolean) => void
+  /** Whether any paired console is a PS4, once the pairings have loaded. */
+  readonly onPS4PairedChange?: (ps4: boolean) => void
   /** The saved console IP ("" for none), asked directly on every scan. */
   readonly consoleAddress: string
   readonly onConsoleAddressChange: (address: string) => void
@@ -34,6 +36,7 @@ export const ConsoleList = ({
   connection = "auto",
   onPlay,
   onPairedChange,
+  onPS4PairedChange,
   consoleAddress,
   onConsoleAddressChange,
 }: ConsoleListProps) => {
@@ -149,6 +152,10 @@ export const ConsoleList = ({
   useEffect(() => {
     if (loaded) onPairedChange?.(anyPaired)
   }, [loaded, anyPaired, onPairedChange])
+  const anyPS4 = Object.values(paired).some((entry) => !entry.credentials.ps5)
+  useEffect(() => {
+    if (loaded) onPS4PairedChange?.(anyPS4)
+  }, [loaded, anyPS4, onPS4PairedChange])
 
   useFork(
     useMemo(

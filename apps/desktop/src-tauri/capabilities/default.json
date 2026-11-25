@@ -40,7 +40,6 @@
     "allow-cancel-psn-pair",
     "allow-set-detailed-logs",
     "allow-open-logs-folder",
-    "allow-open-source-code",
     "allow-open-help",
     "allow-open-local-network-settings",
     "allow-diagnostics",

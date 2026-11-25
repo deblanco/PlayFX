@@ -1,0 +1,12 @@
+libopus v1.6.1 (https://github.com/xiph/opus, tag v1.6.1, commit 22244de5a79b), BSD-3-Clause (COPYING, which also
+names Opus's royalty-free patent licences). Source: the release tarball
+https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz, SHA-256
+6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1 (as listed in Xiph's
+https://downloads.xiph.org/releases/opus/SHA256SUMS.txt).
+
+Vendored unmodified, float build only: the sources upstream's own lists name (celt_sources.mk CELT_SOURCES,
+silk_sources.mk SILK_SOURCES and SILK_SOURCES_FLOAT, opus_sources.mk OPUS_SOURCES and OPUS_SOURCES_FLOAT) and the
+headers they include, at their upstream paths. No fixed-point, x86 SSE/AVX or ARM NEON/assembly sources, no DNN
+(deep PLC, DRED, OSCE), tests, programs or build files: the generic C path, the same on arm64 and x86_64. No
+config.h; the configuration is the defines in Package.swift (CMake's defaults with intrinsics off).
+Used for the PlayFX engine's game audio decode and microphone encode (Sources/COpus).

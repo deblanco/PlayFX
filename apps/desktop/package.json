@@ -1,7 +1,7 @@
 {
   "name": "@psrp/desktop",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "UNLICENSED",
   "version": "0.2.4",
   "type": "module",
   "scripts": {

@@ -1,7 +1,7 @@
 {
   "name": "@psrp/streamcore",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "UNLICENSED",
   "version": "0.1.0",
   "description": "Shared Swift core (Metal rendering + MetalFX upscaling) for macOS and iOS",
   "scripts": {

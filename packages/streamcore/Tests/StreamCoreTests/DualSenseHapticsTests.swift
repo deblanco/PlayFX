@@ -60,6 +60,25 @@ import Testing
         #expect(samples(two[0]) == [0, 0] && buffer.bufferedFrames == 1)
     }
 
+    @Test func theAudioHapticsReportIs48ZeroBytesAfterID2() {
+        #expect(DualSenseModeReport.bytes.count == 48)
+        #expect(DualSenseModeReport.bytes[0] == 0x02)
+        #expect(DualSenseModeReport.bytes.dropFirst().allSatisfy { $0 == 0 }) // every "valid" flag clear: nothing else changes
+    }
+
+    @Test func describesTheOutputsForTheLog() {
+        #expect(DualSenseHaptics.describe([speakers, interface]) == "MacBook Pro Speakers (2 ch), Studio Interface (8 ch)")
+        #expect(DualSenseHaptics.describe([]) == "none")
+        #expect(USBHapticsMode.describe(kIOReturnNotPermitted) == "IOReturn 0xe00002e2")
+    }
+
+    @Test func looksForAUSBPadWithoutWritingToIt() {
+        // The hardware adapter's lookup, on whatever this Mac has (CI: nothing). Nothing is sent: a found pad is
+        // only let go again.
+        USBPadHID.find()?.close()
+        #expect(USBPadHID.products == [0x0ce6, 0x0df2])
+    }
+
     @Test func listsTheMacsOutputs() {
         // Whatever this Mac (or CI's VM) has: every entry is a named output.
         #expect(HapticsDevices.all().allSatisfy { !$0.name.isEmpty && $0.outputChannels > 0 })
@@ -110,12 +129,38 @@ extension Serial {
         let bluetooth = OSAllocatedUnfairLock<BluetoothPad?>(initialState: nil)
         let openedBluetooth = OSAllocatedUnfairLock<[StandInOutput]>(initialState: [])
 
+        /// The USB pad's HID interface: records the reports written to it.
+        final class StandInSink: PadReportSink {
+            let result: IOReturn
+            let reports = OSAllocatedUnfairLock<[[UInt8]]>(initialState: [])
+            let closed = OSAllocatedUnfairLock(initialState: false)
+            init(result: IOReturn) { self.result = result }
+            func send(_ report: [UInt8]) -> IOReturn {
+                reports.withLock { $0.append(report) }
+                return result
+            }
+            func close() { closed.withLock { $0 = true } }
+        }
+
+        /// Whether a USB HID pad is found, and what writing to it returns.
+        let hid = OSAllocatedUnfairLock<IOReturn?>(initialState: kIOReturnSuccess)
+        let sinks = OSAllocatedUnfairLock<[StandInSink]>(initialState: [])
+        var reports: [[UInt8]] { sinks.withLock { $0.flatMap { $0.reports.withLock { $0 } } } }
+
         func withStandIns(failOpen: Bool = false, _ body: () throws -> Void) rethrows {
             let (realDevices, realOpen) = (DualSenseHaptics.devices, DualSenseHaptics.open)
             let (realPad, realOpenBluetooth) = (DualSenseHaptics.bluetoothPad, DualSenseHaptics.openBluetooth)
+            let realFindPad = USBHapticsMode.findPad
             defer {
                 (DualSenseHaptics.devices, DualSenseHaptics.open) = (realDevices, realOpen)
                 (DualSenseHaptics.bluetoothPad, DualSenseHaptics.openBluetooth) = (realPad, realOpenBluetooth)
+                USBHapticsMode.findPad = realFindPad
+            }
+            USBHapticsMode.findPad = { [hid, sinks] in
+                guard let result = hid.withLock({ $0 }) else { return nil }
+                let sink = StandInSink(result: result)
+                sinks.withLock { $0.append(sink) }
+                return sink
             }
             DualSenseHaptics.bluetoothPad = { [bluetooth] in bluetooth.withLock { $0 } }
             DualSenseHaptics.openBluetooth = { [openedBluetooth] _, _ in
@@ -236,6 +281,113 @@ extension Serial {
                 devices.withLock { $0 = [quad] }
                 _ = push(haptics, at: 0)
                 #expect(!haptics.isPlaying && !push(haptics, at: 0.5))
+            }
+        }
+
+        /// The log entries mentioning `text` while `body` runs.
+        func logged(_ text: String, _ body: () -> Void) -> [Log.Entry] {
+            let entries = OSAllocatedUnfairLock<[Log.Entry]>(initialState: [])
+            Log.configure(detailed: false) { entry in if entry.message.contains(text) { entries.withLock { $0.append(entry) } } }
+            defer { Log.configure(detailed: false, sink: nil) }
+            body()
+            return entries.withLock { $0 }
+        }
+
+        @Test func switchesAUSBPadIntoAudioHapticsWhileTheyPlay() {
+            withStandIns {
+                let pad = DualSenseHaptics.Device(id: 9, name: "DualSense Pad For The Mode Test", outputChannels: 4)
+                let log = logged("Pad For The Mode Test") {
+                    let haptics = DualSenseHaptics()
+                    devices.withLock { $0 = [pad] }
+                    _ = push(haptics, at: 0) // haptics start on USB: the report goes at once
+                    #expect(haptics.isPlaying && reports == [DualSenseModeReport.bytes])
+                    #expect(push(haptics, at: 0.5) && reports.count == 1)
+                    _ = push(haptics, at: 1) // about once a second while frames keep coming
+                    #expect(reports.count == 2)
+                    _ = push(haptics, at: 1.5)
+                    _ = push(haptics, at: 2) // a device check too: the same pad, kept
+                    #expect(reports.count == 3 && sinks.withLock { $0.count } == 1) // the HID device found once
+                    #expect(reports.allSatisfy { $0 == DualSenseModeReport.bytes })
+
+                    devices.withLock { $0 = [] } // unplugged: haptics stop, the HID device is let go
+                    _ = push(haptics, at: 4)
+                    #expect(!haptics.isPlaying && sinks.withLock { $0[0].closed.withLock { $0 } })
+                    _ = push(haptics, at: 5.5)
+                    #expect(reports.count == 3) // nothing more once they've stopped
+                }
+                #expect(log.map(\.message) == ["DualSense haptics: playing on DualSense Pad For The Mode Test (USB)",
+                                               "DualSense haptics: audio haptics enabled on DualSense Pad For The Mode Test (USB)"])
+                #expect(log.allSatisfy { $0.level == .info })
+            }
+        }
+
+        @Test func sendsItAgainSoonAfterTheAppsOwnPadOutput() {
+            withStandIns {
+                let haptics = DualSenseHaptics()
+                devices.withLock { $0 = [quad] }
+                _ = push(haptics, at: 0)
+                #expect(reports.count == 1)
+                USBHapticsMode.padOutputSent() // e.g. a rumble or trigger effect through GameController
+                _ = push(haptics, at: 0.05)
+                #expect(reports.count == 1) // not on top of GameController's own report
+                _ = push(haptics, at: 0.15)
+                #expect(reports.count == 2) // shortly after it
+                haptics.stop()
+                haptics.waitUntilIdle()
+                #expect(sinks.withLock { $0[0].closed.withLock { $0 } }) // the session ended: the HID device let go
+            }
+        }
+
+        @Test func neverOnBluetoothNorWithoutAPad() {
+            withStandIns {
+                let haptics = DualSenseHaptics()
+                for second in 0..<3 { _ = push(haptics, at: Double(second)) } // no pad at all
+                bluetooth.withLock { $0 = BluetoothPad(name: "DualSense Wireless Controller", id: 42, device: nil) }
+                for second in 3..<8 { _ = push(haptics, at: Double(second)) }
+                #expect(haptics.isPlaying && openedBluetooth.withLock { $0.count } == 1) // played over Bluetooth
+                #expect(sinks.withLock { $0.isEmpty } && reports.isEmpty) // and no USB HID device looked for
+            }
+        }
+
+        @Test func aFailedReportIsLoggedOnceAndTheHapticsPlayOn() {
+            withStandIns {
+                hid.withLock { $0 = nil } // no HID device for the sound device
+                let pad = DualSenseHaptics.Device(id: 10, name: "DualSense Pad Without HID", outputChannels: 4)
+                let missing = logged("Pad Without HID") {
+                    let haptics = DualSenseHaptics()
+                    devices.withLock { $0 = [pad] }
+                    for t in stride(from: 0.0, through: 3, by: 0.5) { #expect(push(haptics, at: t) || t == 0) }
+                    #expect(haptics.isPlaying && haptics.buffer.bufferedFrames > 0)
+                }
+                #expect(missing.filter { $0.level == .warning }.map(\.message)
+                    == ["DualSense haptics: couldn't enable audio haptics on DualSense Pad Without HID: no DualSense HID device on USB"])
+
+                hid.withLock { $0 = kIOReturnNotPermitted } // found, but the write fails
+                let refused = DualSenseHaptics.Device(id: 11, name: "DualSense Pad Refusing Reports", outputChannels: 4)
+                let failed = logged("Pad Refusing Reports") {
+                    let haptics = DualSenseHaptics()
+                    devices.withLock { $0 = [refused] }
+                    for t in stride(from: 0.0, through: 3, by: 0.5) { _ = push(haptics, at: t) }
+                    #expect(haptics.isPlaying && push(haptics, at: 3.2))
+                }
+                #expect(failed.filter { $0.level == .warning }.map(\.message)
+                    == ["DualSense haptics: couldn't enable audio haptics on DualSense Pad Refusing Reports: the HID report failed "
+                        + "(IOReturn 0xe00002e2)"])
+                // Each failure lets go of the device and looks again next time (it may have been replugged).
+                #expect(sinks.withLock { $0.count } == 4 && sinks.withLock { $0.allSatisfy { $0.closed.withLock { $0 } } })
+            }
+        }
+
+        @Test func saysOnceASessionWhenNoPadIsFoundWithTheMacsOutputs() {
+            withStandIns {
+                devices.withLock { $0 = [DualSenseHaptics.Device(id: 1, name: "Speakers Of The No-Pad Test", outputChannels: 2)] }
+                let log = logged("Speakers Of The No-Pad Test") {
+                    let haptics = DualSenseHaptics()
+                    for second in 0..<5 { _ = push(haptics, at: Double(second)) }
+                }
+                #expect(log.map(\.message) == ["DualSense haptics: no DualSense sound device on USB and no DualSense on "
+                    + "Bluetooth; playing them as rumble. The Mac's sound outputs: Speakers Of The No-Pad Test (2 ch)"])
+                #expect(log.first?.level == .info)
             }
         }
 

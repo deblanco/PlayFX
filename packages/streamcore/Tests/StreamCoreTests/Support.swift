@@ -5,7 +5,7 @@ import Testing
 import VideoToolbox
 @testable import StreamCore
 
-/// Tests that touch process-wide state (the C bridge's globals, libchiaki's sockets, the PSN
+/// Tests that touch process-wide state (the C bridge's globals, the engine's sockets, the PSN
 /// session) run one at a time under this suite.
 @Suite(.serialized) enum Serial {}
 
@@ -54,7 +54,7 @@ func makeNV12(width: Int, height: Int, fullRange: Bool = false,
     return buffer
 }
 
-// MARK: Encoding (VideoToolbox) → Annex-B, the format libchiaki delivers
+// MARK: Encoding (VideoToolbox) → Annex-B, the format the engine delivers
 
 struct EncodedFrame {
     let annexB: Data

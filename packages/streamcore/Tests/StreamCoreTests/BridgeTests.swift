@@ -107,15 +107,29 @@ extension Serial {
         @Test func wakeup() {
             #expect(!"{}".withCString(sc_wakeup))
             #expect(!json(fakeCredentials(registKey: "zz")).withCString(sc_wakeup))
-            _ = json(fakeCredentials()).withCString(sc_wakeup)
+            // Well-formed: a wake packet to a loopback responder.
+            let responder = DiscoveryResponder(answer: nil)
+            defer { responder.stop() }
+            withConsoleBackend(.loopback(discoveryPort: responder.port)) {
+                #expect(json(fakeCredentials()).withCString(sc_wakeup))
+            }
         }
 
         @Test func discover() throws {
-            let text = take(sc_discover(50))
-            #expect(try JSONDecoder().decode([DiscoveredConsole].self, from: Data(text.utf8)).count >= 0)
-            #expect(text.hasPrefix("["))
-            // Asked directly at an address nothing answers on (TEST-NET-1): no consoles.
-            #expect(take("192.0.2.1".withCString { sc_discover_host($0, 50) }) == "[]")
+            // Everything stays on loopback: the test backend turns the LAN search into one of 127.0.0.1.
+            let responder = DiscoveryResponder(answer: DiscoveryResponder.answer())
+            let silent = DiscoveryResponder(answer: nil)
+            defer { responder.stop(); silent.stop() }
+            try withConsoleBackend(.loopback(discoveryPort: responder.port)) {
+                let consoles = try JSONDecoder().decode([DiscoveredConsole].self, from: Data(take(sc_discover(500)).utf8))
+                #expect(consoles.map(\.name) == ["PS5-TEST"])
+                let direct = take("127.0.0.1".withCString { sc_discover_host($0, 500) })
+                #expect(try JSONDecoder().decode([DiscoveredConsole].self, from: Data(direct.utf8)).count == 1)
+            }
+            withConsoleBackend(.loopback(discoveryPort: silent.port)) {
+                #expect(take(sc_discover(50)) == "[]")
+                #expect(take("127.0.0.1".withCString { sc_discover_host($0, 50) }) == "[]")
+            }
         }
 
         @Test func eventPayloads() {
