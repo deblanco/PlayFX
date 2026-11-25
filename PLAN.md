@@ -3,7 +3,8 @@
 Roadmap and gap list for **PlayFX** — a macOS PS5 (and PS4) Remote Play client.
 Status legend: ✅ done · 🔶 partial · ❌ not started.
 
-Last updated 2026-11-24, after **parallel STUN hardened** (no STUN worker acts after the call returns; CI's one
+Last updated 2026-11-25, after **PR #7 merged into main** and `docs/PROVENANCE.md` removed (the owner's request).
+Before that, **parallel STUN hardened** (no STUN worker acts after the call returns; CI's one
 SIGBUS there not reproduced locally; PlayFXProtocol 896 tests). Before that, **the input lane (PR #6) merged into this branch**: pad readings reach the console off the
 main thread, read by a loop of their own (`streamcore.input`, user-interactive) paced by `InputPacer` (500 Hz while
 readings change, 125 Hz after a second of quiet), motion readings identical to the last one dropped, states handed
@@ -1140,7 +1141,8 @@ in a normal tab). StreamCore keeps its iOS target in `Package.swift`, but nothin
     91.5% lines / 89.8% functions, 90.1% / 88.6% with `STREAMCORE_SIMULATE_VM=1` (both skipping
     `opensAnOutputUnitOnARealDevice`); Rust 74 tests, 91.4% lines, clippy clean; TS 424, 97.9% lines. The C
     is compiled without optimisation in debug builds (release builds optimise it); not yet heard on a console.
-  - ✅ Provenance and risk record (2026-11-24, `docs/PROVENANCE.md`): how the protocol code was written (roles, what
+  - ✅ Provenance and risk record (2026-11-24, `docs/PROVENANCE.md`; removed from the repository on 2026-11-25 at the
+    owner's request, still in git history): how the protocol code was written (roles, what
     each read, the clean-room rules, verification, the one known slip), the limits of the clean room (AI training
     data above all), and the remaining risks with Sony's crypto constants as the largest. Not legal advice; the owner
     chose not to involve a lawyer. The scratch copies of chiaki-ng sources and the test programs built from them
